@@ -1,7 +1,7 @@
 export interface CreativeContextMigration {
   version: number;
   name: string;
-  sql: string | { postgres?: string; sqlite?: string };
+  sql: string | { postgres?: string };
 }
 
 export const creativeContextMigrations: CreativeContextMigration[] = [

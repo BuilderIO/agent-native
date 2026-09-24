@@ -8,10 +8,16 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -43,6 +49,7 @@ function InteractiveLayout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
 
   // Analytics stages the active primary resource as composer context —
   // dashboards (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
@@ -65,6 +72,60 @@ function InteractiveLayout({ children }: LayoutProps) {
     }
     return null;
   }, [location.pathname]);
+  const analyticsChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!analyticsScope) return undefined;
+    if (analyticsScope.type === "dashboard") {
+      const dashboardId = analyticsScope.id;
+      return {
+        list: {
+          action: "list-dashboard-revisions",
+          args: { dashboardId },
+          getVersions: (result: unknown) => {
+            const revisions =
+              result && typeof result === "object"
+                ? (result as { revisions?: unknown }).revisions
+                : undefined;
+            return Array.isArray(revisions)
+              ? revisions.filter(isAssistantChatHistoryVersion)
+              : [];
+          },
+        },
+        restore: {
+          action: "restore-dashboard-revision",
+          args: (version: AssistantChatHistoryVersion) => ({
+            dashboardId,
+            revisionId: version.id,
+          }),
+        },
+      };
+    }
+
+    const analysisId = analyticsScope.id;
+    return {
+      list: {
+        action: "list-analysis-revisions",
+        args: { analysisId },
+        getVersions: (result: unknown) => {
+          const revisions =
+            result && typeof result === "object"
+              ? (result as { revisions?: unknown }).revisions
+              : undefined;
+          return Array.isArray(revisions)
+            ? revisions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-analysis-revision",
+        args: (version: AssistantChatHistoryVersion) => ({
+          analysisId,
+          revisionId: version.id,
+        }),
+      },
+    };
+  }, [analyticsScope]);
 
   const {
     questions: guidedQuestions,
@@ -84,7 +145,7 @@ function InteractiveLayout({ children }: LayoutProps) {
         "Answers:",
         formattedAnswers,
         "",
-        "Use these answers to choose the dashboard scope, data source, metrics, breakdowns, and layout. For dashboards, consult the data dictionary before writing SQL and only ask another question if a required source/table/metric is still genuinely ambiguous.",
+        "Use these answers to choose the dashboard scope, data source, metrics, breakdowns, and layout. For dashboards, consult the data dictionary before writing SQL.",
       ].join("\n"),
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
@@ -213,7 +274,12 @@ function InteractiveLayout({ children }: LayoutProps) {
                 t("chat.suggestionMrr"),
               ]}
               scope={analyticsScope}
-              composerSlot={<CreativeContextComposerChip />}
+              chatHistory={analyticsChatHistory}
+              composerSlot={
+                creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : undefined
+              }
             >
               {contentFrame}
             </AgentSidebar>

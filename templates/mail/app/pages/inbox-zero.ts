@@ -6,8 +6,13 @@ export interface InboxZeroState {
   isError: boolean;
   hasThread: boolean;
   searchQuery: string | undefined;
+  isSavedFilter?: boolean;
   threadCount: number;
   hasNextPage: boolean;
+  /** True when the fetch behind `threadCount` silently dropped part of the
+   * inbox (some connected account failed). An empty result under a partial
+   * failure is not Inbox Zero — it's missing mail. */
+  hasAccountErrors?: boolean;
 }
 
 export function shouldShowInboxZero({
@@ -18,18 +23,20 @@ export function shouldShowInboxZero({
   isError,
   hasThread,
   searchQuery,
+  isSavedFilter = false,
   threadCount,
   hasNextPage,
+  hasAccountErrors = false,
 }: InboxZeroState): boolean {
   return (
-    view === "inbox" &&
-    (!activeLabel || activeLabel === "important") &&
+    (view === "inbox" || Boolean(activeLabel)) &&
     hasEmailData &&
     !isLoading &&
     !isError &&
     !hasThread &&
-    !searchQuery &&
+    (!searchQuery || isSavedFilter) &&
     threadCount === 0 &&
-    !hasNextPage
+    !hasNextPage &&
+    !hasAccountErrors
   );
 }

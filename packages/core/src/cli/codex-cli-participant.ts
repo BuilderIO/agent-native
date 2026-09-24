@@ -42,7 +42,7 @@ export interface CodexCliSubscriptionStatus {
 }
 
 export interface CodexCliParticipantSession {
-  /** Codex owns and interprets this value; Agent Native only persists it. */
+  /** Codex owns and interprets this value; Agent-Native only persists it. */
   resumeSessionId?: string;
 }
 

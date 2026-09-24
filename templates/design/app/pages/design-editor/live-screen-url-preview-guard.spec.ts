@@ -93,9 +93,11 @@ describe("live screen URL preview guard", () => {
     expect(section).toContain(guard);
     // Must refuse BEFORE the projection is built, or the doomed 3-node parse
     // still happens and the misleading "no editable match" wins the race.
-    expect(section.indexOf(guard)).toBeLessThan(
-      section.indexOf("buildCodeLayerProjection(baseContent)"),
+    const projectionOffset = section.search(
+      /buildCodeLayerProjection\(\s*baseContent\b/,
     );
+    expect(projectionOffset).toBeGreaterThan(-1);
+    expect(section.indexOf(guard)).toBeLessThan(projectionOffset);
     // Named as a load-timing failure, not as a missing element.
     expect(section).toMatch(
       /if \(isStandaloneHttpUrl\(baseContent\)\) \{[\s\S]*?snapshotNotLoaded[\s\S]*?return;\s*\}/,

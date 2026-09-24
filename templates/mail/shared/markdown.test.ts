@@ -5,7 +5,9 @@ import {
   extractMarkdownUrls,
   markdownPreviewSnippet,
   normalizeMarkdownHardBreaks,
+  findPlainTextLinkRanges,
   renderInlineMarkdown,
+  renderPlainTextLinks,
 } from "./markdown.js";
 
 describe("normalizeMarkdownHardBreaks", () => {
@@ -76,6 +78,49 @@ describe("renderInlineMarkdown", () => {
       '<a href="https://example.com/path" target="_blank" rel="noopener noreferrer">https://example.com/path</a>).',
     );
     expect(html).not.toContain("&gt;");
+  });
+
+  it("renders mailto links imported from Gmail signatures", () => {
+    expect(
+      renderInlineMarkdown(
+        "Email [Steve](mailto:steve@example.com) or <mailto:help@example.com>.",
+      ),
+    ).toBe(
+      'Email <a href="mailto:steve@example.com" target="_blank" rel="noopener noreferrer">Steve</a> or <a href="mailto:help@example.com" target="_blank" rel="noopener noreferrer">mailto:help@example.com</a>.',
+    );
+  });
+});
+
+describe("renderPlainTextLinks", () => {
+  it("finds bare and angle-bracket urls", () => {
+    expect(
+      findPlainTextLinkRanges(
+        "Go https://example.com and <https://builder.io>.",
+      ),
+    ).toEqual([
+      {
+        start: 3,
+        end: 22,
+        url: "https://example.com",
+        trailing: "",
+      },
+      {
+        start: 27,
+        end: 47,
+        url: "https://builder.io",
+        trailing: "",
+      },
+    ]);
+  });
+
+  it("links plain-text urls without interpreting markup", () => {
+    expect(
+      renderPlainTextLinks(
+        "Visit https://example.com/path?a=1&b=2). <https://example.com/next> and <b>.",
+      ),
+    ).toBe(
+      'Visit <a href="https://example.com/path?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">https://example.com/path?a=1&amp;b=2</a>). <a href="https://example.com/next" target="_blank" rel="noopener noreferrer">https://example.com/next</a> and &lt;b&gt;.',
+    );
   });
 });
 

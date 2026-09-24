@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeadingCommands,
+  cleanupFailedSlashCreation,
   CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
@@ -29,10 +30,27 @@ import {
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  runGeneratePromptIfAllowed,
+  slashCommandAllowedInMode,
+  slashCommandsForMode,
   SlashCommandMenu,
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+
+describe("failed slash creation cleanup", () => {
+  it("trashes the new resource even if removing its editor reference fails", async () => {
+    const removeError = new Error("editor is unavailable");
+    const trash = vi.fn().mockResolvedValue(undefined);
+
+    const errors = await cleanupFailedSlashCreation(() => {
+      throw removeError;
+    }, trash);
+
+    expect(errors).toEqual([removeError]);
+    expect(trash).toHaveBeenCalledOnce();
+  });
+});
 
 function TestIcon() {
   return createElement("svg");
@@ -68,10 +86,76 @@ describe("inline slash generate command parsing", () => {
 });
 
 describe("generate command affordances", () => {
+  it("denies a stale Generate popover submission after Suggesting starts", () => {
+    const send = vi.fn();
+
+    expect(runGeneratePromptIfAllowed(true, send)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(runGeneratePromptIfAllowed(false, send)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps inline Generate text intact while Suggesting", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/generate rewrite this</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, {
+                  editor,
+                  suggesting: true,
+                }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).toBe("/generate rewrite this");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
   it("uses slash commands and the shared composer instead of a space shortcut", () => {
     const source = readSlashCommandMenuSource();
 
-    expect(source).toContain("import { PromptComposer }");
+    expect(source).toContain('import("@agent-native/core/client/composer")');
     expect(source).toMatch(
       /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
     );
@@ -82,6 +166,32 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("fails closed to the supported suggestion operation grammar", () => {
+    const safeAction = vi.fn();
+    const unsafeAction = vi.fn();
+    const commands = [
+      {
+        title: "Paragraph",
+        suggestionSafe: true,
+        action: safeAction,
+      },
+      { title: "Database", action: unsafeAction },
+    ];
+
+    expect(slashCommandsForMode(commands, true)).toEqual([commands[0]]);
+    expect(slashCommandsForMode(commands, false)).toEqual(commands);
+    expect(slashCommandAllowedInMode(commands[0]!, true)).toBe(true);
+    expect(slashCommandAllowedInMode(commands[1]!, true)).toBe(false);
+    expect(slashCommandAllowedInMode(commands[1]!, false)).toBe(true);
+    expect(safeAction).not.toHaveBeenCalled();
+    expect(unsafeAction).not.toHaveBeenCalled();
+    expect(
+      buildHeadingCommands("toggle").every(
+        (item) => item.suggestionSafe === true,
+      ),
+    ).toBe(true);
+  });
+
   it("repositions after an ancestor scroll moves the caret", () => {
     const source = readSlashCommandMenuSource();
 
@@ -258,6 +368,120 @@ describe("slash command menu trigger", () => {
 
       expect(editor.getText()).not.toContain("/table");
       expect(editor.view.dom.querySelectorAll("table")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("rechecks suggestion policy before a queued unsupported command can run", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/database</p>",
+    });
+    editor.commands.focus("end");
+    const renderMenu = (suggesting: boolean) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            "div",
+            { className: "visual-editor-wrapper" },
+            createElement(EditorContent, { editor }),
+            createElement(SlashCommandMenu, { editor, suggesting }),
+          ),
+        ),
+      );
+
+    try {
+      await act(async () => {
+        root.render(renderMenu(false));
+        await Promise.resolve();
+        root.render(renderMenu(true));
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).toBe("/database");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("keeps supported text-block commands executable while suggesting", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/code</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, {
+                  editor,
+                  suggesting: true,
+                }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).not.toContain("/code");
+      expect(editor.getJSON().content?.[0]?.type).toBe("codeBlock");
     } finally {
       await act(async () => root.unmount());
       editor.destroy();
@@ -494,10 +718,10 @@ describe("heading slash commands", () => {
     };
     const editor = { chain: () => chain } as any;
 
-    buildHeadingCommands("toggle")[4]?.action(editor, {
+    void buildHeadingCommands("toggle")[4]?.action(editor, {
       slashRange: null,
     });
-    buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
+    void buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
 
     expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
     expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });
@@ -676,19 +900,33 @@ describe("inline database slash command", () => {
     expect(chain.insertContent).not.toHaveBeenCalled();
   });
 
-  it("keeps /database wired to inline creation instead of page navigation", () => {
+  it("offers inline and full-page collection commands for /database", () => {
     const source = readSlashCommandMenuSource();
 
     expect(source).toContain("useCreateInlineContentDatabase");
     expect(source).toContain("hostDocumentId: documentId");
     expect(source).toContain("preserveSlashRange: true");
-    expect(source).toContain("deleteRange(slashRange)");
-    expect(source).toContain("insertInlineDatabaseBlock(");
+    expect(source).toMatch(
+      /insertInlineDatabaseBlock\(\s*editor,\s*result\.block,\s*slashRange,/,
+    );
     expect(source).toContain("requiredText: result.block.ownerBlockId");
     expect(source).toContain("await onDraftPersisted(content)");
-    expect(source).not.toContain("useCreateContentDatabase");
-    expect(source).not.toContain(
-      "navigate(`/page/${result.database.documentId}`",
+    expect(source).toContain("useCreateContentDatabase");
+    expect(source).toContain("contentDatabaseCreationRequest({");
+    expect(source).toContain("const newDocumentId = crypto.randomUUID()");
+    expect(source).toContain("createdPageId = newDocumentId");
+    expect(source).toContain(
+      ".catch(() => createFullPageDatabase.mutateAsync(request))",
     );
+    expect(source).toContain("useRollbackCreatedSlashDocument");
+    expect(source).not.toContain("useDeleteContentDatabase");
+    expect(source).toContain('searchText: "database collection inline"');
+    expect(source).toContain('searchText: "database collection full page"');
+    expect(source).toContain("parentId: documentId");
+    expect(source).toContain(
+      'const insertContent = [pageReference, { type: "paragraph" }]',
+    );
+    expect(source).toContain("insertContentAt(range, insertContent)");
+    expect(source).toContain("navigate(`/page/${pageId}`");
   });
 });

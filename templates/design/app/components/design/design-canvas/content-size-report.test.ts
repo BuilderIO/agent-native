@@ -42,6 +42,24 @@ describe("appendContentSizeReporter", () => {
     expect(out).toContain("scrollHeight");
   });
 
+  it("only measures natural body content for an explicit Hug screen", () => {
+    const out = appendContentSizeReporter(
+      "<html><body><main>x</main></body></html>",
+    );
+    expect(out).toContain("var measurement = measure(usesNaturalHeight());");
+    expect(out).toContain("function measure(includeNaturalHeight)");
+    expect(out).toContain(
+      "naturalHeight: includeNaturalHeight ? naturalMeasure() : null,",
+    );
+    expect(out).toContain("naturalHeight: naturalHeight");
+    expect(out).toContain('meta[data-agent-native-screen-height-mode="hug"]');
+    expect(out).toContain("Math.max(body.scrollHeight, body.offsetHeight)");
+    expect(out).toContain('body.querySelectorAll("*")');
+    expect(out).toContain(
+      "window.__agentNativeMeasureNaturalHeight = function ()",
+    );
+  });
+
   it("stops viewport-relative content from chasing a growing iframe", () => {
     const first = resolveStableContentSizeSample(undefined, {
       height: 920,
@@ -94,5 +112,33 @@ describe("appendContentSizeReporter", () => {
     expect(out).toContain(priorScript);
     // Only one real </body> should remain — none minted mid-script.
     expect(out.match(/<\/body>/g)?.length).toBe(1);
+  });
+
+  // measure() already excludes [data-agent-native-edit-overlay] from the
+  // reading, but the observer scheduled a measurement for any subtree
+  // mutation — including the hover ring being repositioned on every
+  // pointermove, and the display toggles measure() performs on those same
+  // nodes after report() has already released the re-arm gate. Scheduling a
+  // content measurement because chrome moved contradicts what measure()
+  // treats as content, so the two have to agree on the selector.
+  it("does not schedule a measurement for mutations confined to editor chrome", () => {
+    const out = appendContentSizeReporter("<body></body>");
+    expect(out).toContain("function touchesAuthoredContent(records)");
+    expect(out).toContain("if (isChromeNode(record.target)) continue;");
+    expect(out).toContain("if (!touchesAuthoredContent(records)) return;");
+    // The observer's notion of chrome must stay the one measure() hides.
+    const chromeSelector = '"[data-agent-native-edit-overlay]"';
+    expect(out).toContain(`el.closest(${chromeSelector})`);
+    expect(out).toContain(`document.querySelectorAll(${chromeSelector})`);
+  });
+
+  // A chrome node appended to or removed from the body reports against a
+  // non-chrome target (the body), so the target check alone would let the
+  // overlays' own mount and unmount schedule a measurement.
+  it("treats a childList record as chrome only when every changed node is chrome", () => {
+    const out = appendContentSizeReporter("<body></body>");
+    expect(out).toContain('record.type === "childList" &&');
+    expect(out).toContain("allChromeNodes(record.addedNodes) &&");
+    expect(out).toContain("allChromeNodes(record.removedNodes)");
   });
 });

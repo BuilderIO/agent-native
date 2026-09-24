@@ -47,8 +47,8 @@ async function syncAndNotify(): Promise<void> {
         title: result.completed === 1 ? "Capture ready" : "Captures ready",
         body:
           result.completed === 1
-            ? "Your Agent Native capture is ready in Clips."
-            : `${result.completed} Agent Native captures are ready in Clips.`,
+            ? "Your Agent-Native capture is ready in Clips."
+            : `${result.completed} Agent-Native captures are ready in Clips.`,
         data: { url: "agentnative://clips" },
       },
       trigger: null,
@@ -61,8 +61,8 @@ async function syncAndNotify(): Promise<void> {
           result.exhausted === 1 ? "Capture needs help" : "Captures need help",
         body:
           result.exhausted === 1
-            ? "Automatic retries stopped. Open Agent Native to retry safely."
-            : `Automatic retries stopped for ${result.exhausted} captures. Open Agent Native to retry.`,
+            ? "Automatic retries stopped. Open Agent-Native to retry safely."
+            : `Automatic retries stopped for ${result.exhausted} captures. Open Agent-Native to retry.`,
         data: { url: "agentnative://" },
       },
       trigger: null,

@@ -61,7 +61,7 @@ const messages = {
   settings: {
     title: "CRM 설정",
     description:
-      "네이티브 SQL은 CRM 소유 레코드를 로컬에 두고 이식 가능하게 유지합니다. HubSpot과 Salesforce는 작업 공간 연결을 사용하며, 그 미러에는 허용된 필드, 범위가 제한된 메타데이터, 한정된 증거 참조만 저장됩니다.",
+      "네이티브 SQL은 CRM 소유 레코드를 Postgres에 보관합니다. HubSpot과 Salesforce는 작업 공간 연결을 사용하며, 그 미러에는 허용된 필드, 범위가 제한된 메타데이터, 한정된 증거 참조만 저장됩니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -607,6 +607,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM을 통해 평가됩니다.",
   },
   recordActions: {
+    reviewDuplicates: "중복 검토",
+    duplicateReviewTitle: "중복 가능성이 있는 레코드",
+    duplicateReviewDescription:
+      "이 레코드를 접근 가능한 후보와 비교합니다. Jev 실행 시 레코드 이름, 유형 및 최대 5개 후보의 일치 신호가 TypeSafe로 전송됩니다. 확률은 참고용이며 병합에는 별도 검토가 필요합니다.",
+    duplicateReviewRun: "중복 확인",
+    duplicateReviewLoading: "확인 중…",
+    duplicateReviewFailed: "중복 검토를 완료할 수 없습니다.",
+    duplicateReviewUnavailable:
+      "Jev가 이 레코드를 검토하지 못했습니다. 규칙 기반 후보는 계속 표시됩니다.",
+    duplicateReviewEmpty: "중복 가능성이 있는 레코드가 없습니다.",
+    duplicateRuleConfidence: "규칙 기반 일치도: {{percent}}%",
+    duplicateJevProbability: "Jev 동일 엔터티 확률: {{percent}}%",
+    duplicateMatchedOn: "일치 근거: {{values}}",
     evidenceAttached: "통화 증거가 첨부되었습니다.",
     evidenceAttachFailed: "증거를 첨부하지 못했습니다.",
     addEvidence: "증거 추가",

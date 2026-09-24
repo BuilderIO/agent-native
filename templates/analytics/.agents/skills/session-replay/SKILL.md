@@ -197,8 +197,8 @@ agent answers about browser recordings in the Analytics template.
   directly with
   `configureTracking({ key, endpoint, sessionReplay: { enabled: true } })`.
 - Apps can opt out with `configureTracking({ sessionReplay: false })`.
-- Agent Native templates already call `configureTracking()` in their roots;
-  hosted template deployments only need the normal Agent Native Analytics
+- Agent-Native templates already call `configureTracking()` in their roots;
+  hosted template deployments only need the normal Agent-Native Analytics
   Vite/Netlify env vars on the recorded site.
 - Inputs are masked by default. Page text is visible unless marked with
   `.an-mask` or `data-an-mask`.

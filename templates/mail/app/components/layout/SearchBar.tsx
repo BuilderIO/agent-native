@@ -1,6 +1,7 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
-import { IconLoader2, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
@@ -12,6 +13,15 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +32,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -31,6 +42,7 @@ const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
+  onSaveSearch?: (query: string, name: string) => void | Promise<void>;
   initialQuery?: string;
   autoFocus?: boolean;
   hasActiveSearch?: boolean;
@@ -38,6 +50,7 @@ interface SearchBarProps {
 
 export function SearchBar({
   onClose,
+  onSaveSearch,
   initialQuery = "",
   autoFocus = true,
   hasActiveSearch = false,
@@ -50,10 +63,26 @@ export function SearchBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSyncedQueryRef = useRef(initialQuery);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [savePending, setSavePending] = useState(false);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
+
+  useEffect(
+    () => () => {
+      if (blurCloseTimeoutRef.current !== null) {
+        clearTimeout(blurCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // Sync from URL when it changes externally (e.g. browser back/forward).
   // Track the last prop we absorbed so user typing isn't clobbered when the
@@ -122,8 +151,18 @@ export function SearchBar({
     (q: string) => {
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
+        trackEvent("mail_search_submitted", {
+          app_name: "mail",
+          template_name: "mail",
+          query_length_bucket:
+            trimmed.length <= 2
+              ? "1_2"
+              : trimmed.length <= 10
+                ? "3_10"
+                : "11_plus",
+        });
         lastSyncedQueryRef.current = trimmed;
-        navigate(`/all?q=${encodeURIComponent(trimmed)}`);
+        void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -132,9 +171,14 @@ export function SearchBar({
   const selectContact = useCallback(
     (contact: Contact) => {
       const q = contact.email;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "contact",
+      });
       setQuery(q);
       lastSyncedQueryRef.current = q;
-      navigate(`/all?q=${encodeURIComponent(q)}`);
+      void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -144,8 +188,13 @@ export function SearchBar({
     (thread: ThreadSummary) => {
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "thread",
+      });
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      navigate(`/all/${targetThreadId}`);
+      void navigate(`/all/${targetThreadId}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -208,7 +257,7 @@ export function SearchBar({
   // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-contact-item]");
+    const items = listRef.current.querySelectorAll("[data-search-item]");
     items[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
@@ -234,6 +283,35 @@ export function SearchBar({
     onClose();
   }, [onClose]);
 
+  const handleSaveSearch = useCallback(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || !onSaveSearch) return;
+    setSaveError("");
+    setSaveName(trimmedQuery);
+    setSaveDialogOpen(true);
+  }, [onSaveSearch, query]);
+
+  const submitSavedSearch = useCallback(async () => {
+    const trimmedQuery = query.trim();
+    const trimmedName = saveName.trim();
+    if (!trimmedQuery || !trimmedName || !onSaveSearch || savePending) return;
+    setSaveError("");
+    setSavePending(true);
+    try {
+      await onSaveSearch(trimmedQuery, trimmedName);
+      setSaveDialogOpen(false);
+      setSaveName("");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error && error.message
+          ? error.message
+          : t("mail.search.saveAsTabFailed"),
+      );
+    } finally {
+      setSavePending(false);
+    }
+  }, [onSaveSearch, query, saveName, savePending, t]);
+
   return (
     <div className="relative flex items-center gap-1.5">
       <div
@@ -245,11 +323,29 @@ export function SearchBar({
         <input
           ref={inputRef}
           id="mail-search"
+          data-mail-search
+          role="combobox"
+          aria-label={t("mail.search.label")}
+          aria-autocomplete="list"
+          aria-controls={showDropdown ? "mail-search-suggestions" : undefined}
+          aria-expanded={showDropdown}
+          aria-activedescendant={getActiveDescendantId(
+            "mail-search-suggestion-",
+            showDropdown,
+            selectedIndex,
+            combinedMatchCount,
+          )}
           autoFocus={autoFocus}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => {
+            if (blurCloseTimeoutRef.current !== null) {
+              clearTimeout(blurCloseTimeoutRef.current);
+              blurCloseTimeoutRef.current = null;
+            }
+            setIsFocused(true);
+          }}
           onBlur={(e) => {
             // Don't close if clicking on a dropdown item
             if (
@@ -262,7 +358,10 @@ export function SearchBar({
             // Keep the bar mounted while a search is active — the user needs
             // to see what they searched. Only collapse when empty.
             if (hasActiveSearch || query.trim()) return;
-            setTimeout(onClose, 100);
+            blurCloseTimeoutRef.current = setTimeout(() => {
+              blurCloseTimeoutRef.current = null;
+              onClose();
+            }, 100);
           }}
           placeholder={t("mail.search.placeholder")}
           className={cn(
@@ -270,14 +369,36 @@ export function SearchBar({
             hasActiveSearch && "font-medium",
           )}
         />
+        {hasActiveSearch && onSaveSearch && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("mail.search.saveAsTab")}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleSaveSearch}
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+              >
+                <IconPin className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
+          </Tooltip>
+        )}
         {(hasActiveSearch || query) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={t("mail.search.clear")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   handleClear();
+                }}
+                onClick={(e) => {
+                  // Pointer activation is handled on mousedown so the input
+                  // keeps focus; detail=0 covers keyboard activation.
+                  if (e.detail === 0) handleClear();
                 }}
                 className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
@@ -293,6 +414,8 @@ export function SearchBar({
       {showDropdown && (
         <div
           data-search-dropdown
+          id="mail-search-suggestions"
+          role="listbox"
           ref={listRef}
           className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
@@ -300,6 +423,10 @@ export function SearchBar({
             <button
               key={contact.email}
               data-contact-item
+              data-search-item
+              id={`mail-search-suggestion-${i}`}
+              role="option"
+              aria-selected={i === selectedIndex}
               type="button"
               tabIndex={-1}
               onMouseDown={(e) => {
@@ -339,7 +466,10 @@ export function SearchBar({
                 return (
                   <button
                     key={email.threadId || email.id}
-                    data-contact-item
+                    data-search-item
+                    id={`mail-search-suggestion-${combinedIndex}`}
+                    role="option"
+                    aria-selected={combinedIndex === selectedIndex}
                     type="button"
                     tabIndex={-1}
                     onMouseDown={(e) => {
@@ -375,6 +505,57 @@ export function SearchBar({
           )}
         </div>
       )}
+
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setSaveName("");
+            setSaveError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("mail.search.saveAsTab")}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSavedSearch();
+            }}
+            className="space-y-3"
+          >
+            <label className="text-[12px] text-muted-foreground">
+              {t("mail.search.saveAsTabPrompt")}
+              <Input
+                autoFocus
+                value={saveName}
+                onChange={(event) => setSaveName(event.target.value)}
+                className="mt-1.5"
+              />
+            </label>
+            {saveError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {saveError}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSaveDialogOpen(false)}
+              >
+                {t("mail.compose.cancel")}
+              </Button>
+              <Button type="submit" disabled={!saveName.trim() || savePending}>
+                {t("mail.integrations.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

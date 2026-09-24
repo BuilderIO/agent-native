@@ -26,6 +26,9 @@ describe("cross-app script entries", () => {
     expect(entries["framework-search"]?.tool.description).toContain(
       "Core, Toolkit",
     );
+    expect(entries["docs-search"]?.tool.description).toContain(
+      "reuse its result for the rest of the turn",
+    );
   });
 
   it("keeps discovery read-only without treating delegation as read-only", async () => {

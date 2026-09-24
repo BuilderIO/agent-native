@@ -466,8 +466,10 @@ export async function resolveUsersWithCoverage(
   }
 
   const unresolvedUserIds = [...unresolvedUsers];
-  for (const id of unresolvedUserIds) {
-    results[id] = fallbackSlackUser(id);
+  if (!directoryError) {
+    for (const id of unresolvedUserIds) {
+      results[id] = fallbackSlackUser(id);
+    }
   }
 
   // Resolve bot users from messages that have bot_id but no user

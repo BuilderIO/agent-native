@@ -64,13 +64,15 @@ SELECT
     SELECT max(c) FROM (
       SELECT count(*)::int AS c FROM pg_stat_activity
       WHERE pid <> pg_backend_pid()
+        AND datname = current_database()
         AND state = 'active'
         AND query <> ''
-      GROUP BY left(query, 60)
+      GROUP BY query
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity
-WHERE pid <> pg_backend_pid()`;
+WHERE pid <> pg_backend_pid()
+  AND datname = current_database()`;
 
 /** Reasons this database looks pressured, or [] when it looks fine. */
 export function dbPressureWarnings(p: DbPressureCounters): string[] {
@@ -105,21 +107,13 @@ function readCount(row: Record<string, unknown>, key: string): number | null {
 }
 
 /**
- * Read the pressure counters. Postgres-only: `pg_stat_activity` does not exist
- * on SQLite/libSQL/D1, and a dialect that cannot answer reports `measured:
- * false` rather than a clean-looking zero.
+ * Read the pressure counters from Postgres. A database that cannot answer
+ * reports `measured: false` rather than a clean-looking zero.
  */
 export async function probeDbPressure(
   exec: { execute: (sql: string) => Promise<unknown> },
-  dialect: string,
   options: { trivialQueryMs?: number } = {},
 ): Promise<DbPressure> {
-  if (dialect !== "postgres") {
-    return {
-      measured: false,
-      reason: `dialect ${dialect} has no pg_stat_activity`,
-    };
-  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const trivialQueryMs =

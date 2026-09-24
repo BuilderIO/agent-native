@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useCallback } from "react";
 
 import {
@@ -9,10 +8,11 @@ import { enqueueCaptureJob } from "@/lib/capture-queue";
 import { syncCaptureJob } from "@/lib/clips-api";
 import { getClipsSession } from "@/lib/clips-session";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
+import { useMobileNavigation } from "@/lib/navigation";
 import { persistCaptureFile } from "@/lib/persist-capture";
 
 export default function VideoCaptureScreen() {
-  const router = useRouter();
+  const navigation = useMobileNavigation();
 
   const handleCaptured = useCallback(
     async (media: CapturedVideoMedia) => {
@@ -36,16 +36,13 @@ export default function VideoCaptureScreen() {
         phase: "processing",
         captureId: job.id,
       });
-      router.replace("/" as never);
+      navigation.replace("/");
       void syncCaptureJob(job.id).catch(() => null);
     },
-    [router],
+    [navigation],
   );
 
   return (
-    <VideoCaptureView
-      onCancel={() => router.back()}
-      onCaptured={handleCaptured}
-    />
+    <VideoCaptureView onCancel={navigation.back} onCaptured={handleCaptured} />
   );
 }

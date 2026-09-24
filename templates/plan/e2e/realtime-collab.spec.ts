@@ -235,7 +235,7 @@ async function settle(page: Page) {
 async function registerSecondUser(
   page: Page,
 ): Promise<{ email: string; password: string }> {
-  const email = `plan-collab-${Date.now()}-${Math.floor(
+  const email = `plan-collab+autoz-${Date.now()}-${Math.floor(
     Math.random() * 1e6,
   )}@plan.test`;
   const password = makeE2ePassword("collab");

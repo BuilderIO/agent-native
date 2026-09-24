@@ -5,7 +5,7 @@ description: "Implante um app nativo do agente na Netlify com o preset Netlify d
 
 # Netlify
 
-O preset `netlify` do Nitro funciona bem e, na prática, tem nos dado cold starts muito mais rápidos do que o Cloudflare Pages (~200ms de TTFB vs ~9s) para templates que se comunicam com Postgres externo (Neon). Defina o preset em `vite.config.ts`:
+O preset `netlify` do Nitro funciona bem e, na prática, tem nos dado cold starts muito mais rápidos do que o Cloudflare Pages (~200ms de TTFB vs ~9s) para templates que se comunicam com Postgres externo (Neon). Para uma configuração mínima fora do scaffold gerado, defina o preset em `vite.config.ts`:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,23 @@ export default defineConfig({
 });
 ```
 
+No scaffold de Chat gerado, o import continua sendo `agentNative`. A configuração atribui a função
+ao alias local `agentNativePlugins` com uma asserção de tipo e espalha o array de plugins retornado
+para alinhar os tipos dos pacotes Vite. O alias aceita as mesmas opções do exemplo `agentNative`
+acima. Para implantar esse scaffold na Netlify, adicione `nitro: { preset: "netlify" }` às opções
+da chamada existente `agentNativePlugins({ ... })`. Mantenha os outros plugins, opções e aliases
+específicos do Chat.
+
 …ou defina `NITRO_PRESET=netlify` no momento do build.
+
+Para um app independente, gere a saída do Netlify e publique os assets e as funções:
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+Antes do primeiro deploy de produção, defina `DATABASE_URL` e um `BETTER_AUTH_SECRET` estável nas variáveis de ambiente do site Netlify. Não dependa do banco PGlite local; `DATABASE_URL` deve apontar para um PostgreSQL persistente acessível pela função publicada.
 
 Para um espaço de trabalho, implante todos os apps a partir de um único site Netlify executando:
 

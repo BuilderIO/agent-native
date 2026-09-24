@@ -22,6 +22,20 @@ const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
  */
 export const GUARD_EXIT_COULD_NOT_RUN = 2;
 
+/**
+ * Run a guard-owned command without turning an unreadable or truncated result
+ * into a normal scan. Guards use exit 2 for "could not run", distinct from
+ * exit 0 (checked, clean) and exit 1 (checked, violations).
+ */
+export function execGuardCommand(command, args, options = {}) {
+  try {
+    return execFileSync(command, args, options);
+  } catch {
+    console.error(`guard command could not run: ${command} ${args.join(" ")}`);
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+}
+
 /** Resolve the ref to diff against: explicit env, then origin/main, then main. */
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {

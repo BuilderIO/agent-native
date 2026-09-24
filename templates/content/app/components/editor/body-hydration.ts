@@ -69,13 +69,21 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
-export function newDocumentPageChoiceIsDisabled(args: {
+export function createCollectionStarterIsVisible(args: {
   canEdit: boolean;
   bodyHydrationPending: boolean;
-  databaseCreationPending: boolean;
+  isLocalFileDocument: boolean;
+  isDatabasePage: boolean;
+  isCollectionItem: boolean;
+  content: string | null | undefined;
 }) {
   return (
-    !args.canEdit || args.bodyHydrationPending || args.databaseCreationPending
+    args.canEdit &&
+    !args.bodyHydrationPending &&
+    !args.isLocalFileDocument &&
+    !args.isDatabasePage &&
+    !args.isCollectionItem &&
+    isEffectivelyEmptyDocumentContent(args.content)
   );
 }
 
@@ -136,15 +144,26 @@ export function previewBodyHydrationIsTerminalError(args: {
     | null
     | undefined;
 }) {
-  return (
-    builderBodyHydrationIsTerminalError(
-      args.document?.bodyHydration?.hydration,
-    ) ||
-    builderBodyHydrationIsTerminalError(
-      args.item.bodyHydration ??
-        args.item.document.databaseMembership?.bodyHydration,
-    )
-  );
+  return Boolean(previewBodyHydrationTerminalError(args));
+}
+
+export function previewBodyHydrationTerminalError(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document:
+    | Pick<Document, "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
+}) {
+  const documentHydration = args.document?.bodyHydration?.hydration;
+  if (builderBodyHydrationIsTerminalError(documentHydration)) {
+    return documentHydration;
+  }
+  const itemHydration =
+    args.item.bodyHydration ??
+    args.item.document.databaseMembership?.bodyHydration;
+  return builderBodyHydrationIsTerminalError(itemHydration)
+    ? itemHydration
+    : null;
 }
 
 export function isEffectivelyEmptyDocumentContent(

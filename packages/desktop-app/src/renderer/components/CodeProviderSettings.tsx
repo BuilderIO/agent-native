@@ -133,7 +133,7 @@ function builderConnectErrorMessage(err: unknown): string {
     message.includes("No handler registered") ||
     message.includes("code-agents:provider-builder:connect")
   ) {
-    return "Restart Agent Native Desktop to finish enabling Builder connect.";
+    return "Restart Agent-Native Desktop to finish enabling Builder connect.";
   }
   return message;
 }
@@ -221,12 +221,12 @@ export function CodeProviderSettings({
       if (!api?.connectBuilderProvider) {
         if (allowShellReload) {
           markPendingBuilderConnectReload();
-          setProviderMessage("Refreshing Agent Native Desktop...");
+          setProviderMessage("Refreshing Agent-Native Desktop...");
           window.setTimeout(() => window.location.reload(), 50);
           return;
         }
         setProviderMessage(
-          "Restart Agent Native Desktop to finish enabling Builder connect.",
+          "Restart Agent-Native Desktop to finish enabling Builder connect.",
         );
         return;
       }

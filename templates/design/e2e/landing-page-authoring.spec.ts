@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
+
 /**
  * Each test asserts the Figma-correct outcome, so a failure is the bug report.
  * Test names cite clips.agent-native.com/share/jJM4kC0KAkUB.
@@ -130,12 +133,9 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  await page
-    .getByRole("button", { name: "Expand layer" })
-    .first()
-    .click()
-    .catch(() => {});
+  // No blind settle: expandAllLayers waits for the first layer row, which
+  // the editor cannot render before it has parsed the document.
+  await expandAllLayers(page);
   await page.waitForTimeout(800);
 }
 
@@ -210,12 +210,16 @@ async function addText(
   await page.waitForTimeout(1600);
 }
 
+/**
+ * Callers assert this list is EMPTY, so a swallowed read failure returning
+ * `[]` made "no toast" indistinguishable from "could not read". A zero-match
+ * locator already returns `[]`, so the catch only hid real errors.
+ */
 async function readToasts(page: Page): Promise<string[]> {
-  return page
+  const all = await page
     .locator("[data-sonner-toast], [role='alert']")
-    .allTextContents()
-    .then((all) => all.map((t) => t.trim()).filter(Boolean))
-    .catch(() => []);
+    .allTextContents();
+  return all.map((t) => t.trim()).filter(Boolean);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -224,7 +228,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
   surfacedErrors = [];
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
@@ -312,6 +316,14 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   const html = await indexHtml(page, designId);
   const frameAt = html.indexOf('data-an-primitive="frame"');
   const textAt = html.indexOf('data-an-primitive="text"');
+  // indexOf's -1 is a sentinel, not a position: without these, a missing frame
+  // reads as "index -1" and the ordering comparison below becomes meaningless.
+  expect(frameAt, "no frame was committed to compare against").toBeGreaterThan(
+    -1,
+  );
+  expect(textAt, "no text was committed to compare against").toBeGreaterThan(
+    -1,
+  );
   const frameCloses = html.indexOf("</div>", frameAt);
   expect(
     textAt > frameAt && textAt < frameCloses,
@@ -387,10 +399,12 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   await page.waitForTimeout(2500);
 
   const after = await indexHtml(page, designId);
-  test.skip(
-    after === before,
-    "Shift+A did not apply auto layout, so there is nothing to drop — see the 2:35 test",
-  );
+  // peer PR (hotkeys) owns Shift+A applying auto layout (see the 2:35 test);
+  // observed: html unchanged when this fails.
+  expect(
+    after,
+    "Shift+A must apply auto layout before there is anything to drop",
+  ).not.toBe(before);
   expect(
     primitiveStyles(after, "text").length,
     `Auto layout dropped text children: ${textsBefore} before, ` +
@@ -436,48 +450,100 @@ test("3:17 — dragging a layer on the canvas moves it", async ({ page }) => {
 test("2:59 — moving a layer raises no 'Could not move that layer' toast", async ({
   page,
 }) => {
-  const designId = await newDesign(page);
+  const designId = await newDesign(
+    page,
+    `<!doctype html><html><head><meta charset="utf-8"><title>Generated</title></head>
+<body style="margin:0;min-height:900px;background:#0f1115">
+<div data-an-primitive="rectangle" data-agent-native-layer-name="Promo card"
+     style="position:absolute;left:40px;top:200px;width:200px;height:160px;background:#374151"></div>
+</body></html>`,
+  );
   await openEditor(page, designId);
-  await drawRect(page, { left: 40, top: 200, width: 200, height: 160 });
+  const beforeHtml = await indexHtml(page, designId);
+  expect(beforeHtml).toMatch(
+    /<div\b(?=[^>]*data-an-primitive="rectangle")(?=[^>]*data-agent-native-node-id="[^"]+")[^>]*>/i,
+  );
+  const before = rectFromStyle(
+    primitiveStyles(beforeHtml, "rectangle")[0] ?? "",
+  );
 
   const target = inFrame(page, '[data-an-primitive="rectangle"]').first();
   const box = await target.boundingBox();
-  if (box) {
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 120, {
+  expect(box, "the rectangle has no hit box on the canvas").not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    box!.x + box!.width / 2,
+    box!.y + box!.height / 2 + 120,
+    {
       steps: 16,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(2000);
-  }
+    },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(
+      async () => {
+        const html = await indexHtml(page, designId);
+        const rect = rectFromStyle(primitiveStyles(html, "rectangle")[0] ?? "");
+        return [rect.left, rect.top];
+      },
+      { timeout: 15_000 },
+    )
+    .not.toEqual([before.left, before.top]);
   expect(
     (await readToasts(page)).filter((t) =>
       /could not move that layer/i.test(t),
     ),
     `Clip 2:59 shows this toast on an ordinary move.`,
   ).toHaveLength(0);
+  const afterHtml = await indexHtml(page, designId);
+  const after = rectFromStyle(primitiveStyles(afterHtml, "rectangle")[0] ?? "");
+  expect([after.left, after.top]).not.toEqual([before.left, before.top]);
+  expect(afterHtml).toMatch(
+    /<div\b(?=[^>]*data-an-primitive="rectangle")(?=[^>]*data-agent-native-node-id="[^"]+")[^>]*>/i,
+  );
 });
 
 test("5:41 — no internal node-resolution error reaches the user", async ({
   page,
 }) => {
-  const designId = await newDesign(page);
+  const designId = await newDesign(
+    page,
+    `<!doctype html><html><head><meta charset="utf-8"><title>Generated</title></head>
+<body style="margin:0;min-height:900px;background:#0f1115;color:#fff">
+<div data-an-primitive="text" data-agent-native-layer-name="Hero title"
+     style="position:absolute;left:60px;top:260px;width:360px;height:160px;font-size:32px;line-height:1.2">
+  Your prompt. Production UI.
+</div></body></html>`,
+  );
   await openEditor(page, designId);
-  await drawRect(page, { left: 40, top: 200, width: 200, height: 160 });
-  await addText(page, { x: 60, y: 260 }, "Drag me");
+  const beforeHtml = await indexHtml(page, designId);
+  expect(beforeHtml).toMatch(
+    /<div\b(?=[^>]*data-an-primitive="text")(?=[^>]*data-agent-native-node-id="[^"]+")[^>]*>/i,
+  );
+  const before = rectFromStyle(primitiveStyles(beforeHtml, "text")[0] ?? "");
 
   const target = inFrame(page, '[data-an-primitive="text"]').first();
   const box = await target.boundingBox();
-  if (box) {
-    await page.mouse.move(box.x + 10, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + 320, box.y + box.height / 2 + 80, {
-      steps: 18,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(2500);
-  }
+  expect(box, "the text layer has no hit box on the canvas").not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    box!.x + box!.width / 2 + 320,
+    box!.y + box!.height / 2 + 80,
+    { steps: 18 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(
+      async () => {
+        const html = await indexHtml(page, designId);
+        const rect = rectFromStyle(primitiveStyles(html, "text")[0] ?? "");
+        return [rect.left, rect.top];
+      },
+      { timeout: 15_000 },
+    )
+    .not.toEqual([before.left, before.top]);
 
   const leaked = [...(await readToasts(page)), ...surfacedErrors].filter((t) =>
     /not found in sourceHtml|data-agent-native-node-id="draft-/i.test(t),
@@ -487,6 +553,16 @@ test("5:41 — no internal node-resolution error reaches the user", async ({
     `Clip 5:41 surfaces the raw internal message ` +
       `'Node with data-agent-native-node-id="draft-rect-…" not found in sourceHtml'.`,
   ).toHaveLength(0);
+  const after = rectFromStyle(
+    primitiveStyles(await indexHtml(page, designId), "text")[0] ?? "",
+  );
+  expect([after.left, after.top], "the text layer did not move").not.toEqual([
+    before.left,
+    before.top,
+  ]);
+  expect(await indexHtml(page, designId)).toMatch(
+    /<div\b(?=[^>]*data-an-primitive="text")(?=[^>]*data-agent-native-node-id="[^"]+")[^>]*>/i,
+  );
 });
 
 const STACK_SCREEN = `<!doctype html><html><head><meta charset="utf-8"><title>Stack</title></head>
@@ -498,6 +574,30 @@ const STACK_SCREEN = `<!doctype html><html><head><meta charset="utf-8"><title>St
   <p data-agent-native-node-id="p2" data-agent-native-layer-name="Second"
      style="margin:0;padding:12px;background:#374151">Second paragraph</p>
 </div></body></html>`;
+
+const MIXED_TEXT_SCREEN = `<!doctype html><html><head><meta charset="utf-8"><title>Headline</title></head>
+<body style="margin:0;min-height:900px;background:#0f1115;color:#fff">
+<div data-agent-native-node-id="headline" data-agent-native-layer-name="Headline"
+     style="position:absolute;left:40px;top:200px;width:360px;font-size:32px;line-height:1.2">
+  Your prompt.<br><span style="color:#93c5fd">Production UI.</span>
+</div></body></html>`;
+
+test("Typography is available for a headline with direct text and inline children", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, MIXED_TEXT_SCREEN);
+  await openEditor(page, designId);
+
+  await layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: "Headline" })
+    .first()
+    .click();
+
+  await expect(
+    page.getByRole("heading", { name: "Typography", exact: true }),
+  ).toBeVisible();
+});
 
 test("5:07 — a text layer can be reordered by dragging it on the canvas", async ({
   page,
@@ -517,12 +617,28 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   ).boundingBox())!;
 
   // The in-iframe "shield" overlay swallows locator clicks — drive the
-  // pointer directly.
+  // pointer directly. As in Figma, the first click selects the stack (the
+  // screen's direct child) and a second click selects the paragraph inside
+  // the selected stack; only then does a drag move the paragraph.
   await page.mouse.click(
     second.x + second.width / 2,
     second.y + second.height / 2,
   );
   await page.waitForTimeout(1200);
+  await page.mouse.click(
+    second.x + second.width / 2,
+    second.y + second.height / 2,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as { __designTrace?: { dump(): string } }
+          ).__designTrace?.dump() ?? "",
+      ),
+    )
+    .toContain('node-id=\\"p2\\"');
   await page.mouse.move(
     second.x + second.width / 2,
     second.y + second.height / 2,
@@ -539,11 +655,17 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   await page.waitForTimeout(2500);
 
   const html = await indexHtml(page, designId);
+  const trace = await page.evaluate(
+    () =>
+      (
+        window as { __designTrace?: { dump(): string } }
+      ).__designTrace?.dump() ?? "",
+  );
   expect(
     html.indexOf("Second paragraph"),
     `Dragging "Second paragraph" above "First paragraph" on the canvas did not ` +
       `reorder the document. Clip 5:07 "why can't I simply drag and drop a text ` +
-      `just above a text I want? I need to use this left panel".`,
+      `just above a text I want? I need to use this left panel". Trace: ${trace}`,
   ).toBeLessThan(html.indexOf("First paragraph"));
 });
 
@@ -595,7 +717,7 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toHaveCount(2);
 
-  await page.locator('button[aria-label="Start"]').first().click();
+  await page.locator('button[aria-label="Align top"]').first().click();
   await page.waitForTimeout(2500);
 
   const styles = primitiveStyles(await indexHtml(page, designId), "rectangle");

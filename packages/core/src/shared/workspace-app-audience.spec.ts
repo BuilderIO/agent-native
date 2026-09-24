@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppRouteAccessFromPackageJson,
 } from "./workspace-app-audience.js";
@@ -74,5 +76,24 @@ describe("normalizeWorkspaceAppPathList", () => {
 
   it("strips trailing slash but keeps the root slash", () => {
     expect(normalizeWorkspaceAppPathList(["/foo/"])).toEqual(["/foo"]);
+  });
+});
+
+describe("normalizeWorkspaceAppHomePath", () => {
+  it("defaults missing or unsafe paths to the authenticated home", () => {
+    expect(normalizeWorkspaceAppHomePath(undefined)).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+    expect(normalizeWorkspaceAppHomePath("https://evil.example")).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+    expect(normalizeWorkspaceAppHomePath("/inbox?view=all")).toBe(
+      DEFAULT_WORKSPACE_APP_HOME_PATH,
+    );
+  });
+
+  it("preserves valid app-local routes and the root route", () => {
+    expect(normalizeWorkspaceAppHomePath(" /inbox/ ")).toBe("/inbox");
+    expect(normalizeWorkspaceAppHomePath("/")).toBe("/");
   });
 });

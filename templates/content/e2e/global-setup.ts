@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+
 /*
  * Establish a reusable authed session for the "authed" project.
  *
@@ -16,7 +18,10 @@ import { chromium, type FullConfig } from "@playwright/test";
  */
 const EMAIL =
   process.env.CONTENT_E2E_EMAIL ||
-  `e2e-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
+  `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
+if (!isAutozQaEmail(EMAIL)) {
+  throw new Error("CONTENT_E2E_EMAIL must contain +autoz.");
+}
 const PASS =
   process.env.CONTENT_E2E_PASS || ["example", "content", "e2e", "pw"].join("-");
 
@@ -85,7 +90,13 @@ async function globalSetup(_config: FullConfig) {
   // eslint-disable-next-line no-console
   console.log("[content global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: ".auth/state.json" });
-  writeFileSync(".auth/email.txt", String(result.sessionEmail || EMAIL).trim());
+  writeFileSync(
+    ".auth/email.txt",
+    (typeof result.sessionEmail === "string"
+      ? result.sessionEmail
+      : EMAIL
+    ).trim(),
+  );
   await browser.close();
   if (!result.sessionEmail) {
     // eslint-disable-next-line no-console

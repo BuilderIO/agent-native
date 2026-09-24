@@ -26,7 +26,7 @@ import { agentNativePath } from "./api-path.js";
  *
  * This is intentionally distinct from the framework's internal browser
  * analytics (`trackEvent` / pageview tracking in `analytics.ts`), which feeds
- * Agent Native's own product telemetry. Use `track()` for your app's own
+ * Agent-Native's own product telemetry. Use `track()` for your app's own
  * analytics events.
  */
 export function track(

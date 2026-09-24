@@ -3,7 +3,30 @@
 // by the public form SSR renderer and into CSS/JS selectors by the inline
 // runtime — an unrestricted id like `x" onfocus="alert(1)` would otherwise
 // stored-XSS every anonymous submitter of a published form.
+import { compileUserRegex } from "@agent-native/core/shared";
+
+import {
+  DEFAULT_FORM_FILE_MAX_BYTES,
+  isValidFileAccept,
+  MAX_FORM_FILE_COUNT,
+} from "./file-upload-policy.js";
+
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+export const FIELD_TYPES = [
+  "text",
+  "email",
+  "number",
+  "textarea",
+  "select",
+  "multiselect",
+  "checkbox",
+  "radio",
+  "date",
+  "rating",
+  "scale",
+  "file",
+] as const;
+const FIELD_TYPE_SET = new Set(FIELD_TYPES);
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
 /**
@@ -49,7 +72,45 @@ export function normalizeFieldIds(fields: unknown): unknown {
   });
 }
 
-export function assertValidFields(fields: unknown): void {
+/**
+ * Keeps granular edits compatible with fields written before the current
+ * schema. The UI already renders unknown types as text and treats a missing
+ * required flag as false, so patch reads must make the same repair before the
+ * strict persistence check runs.
+ */
+export function normalizePersistedFields(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object" || Array.isArray(field)) {
+      return field;
+    }
+    const f = field as Record<string, unknown>;
+    return {
+      ...f,
+      type:
+        typeof f.type === "string" &&
+        FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+          ? f.type
+          : "text",
+      required: f.required === undefined ? false : f.required,
+    };
+  });
+}
+
+/**
+ * `patternSafety` is the authoring gate: reject a `validation.pattern` that can
+ * backtrack catastrophically. Read paths pass `false`. A form saved before the
+ * gate landed still holds such a pattern, and failing its whole configuration
+ * would answer a submission with a generic 500 instead of the field-level
+ * reason `validateSubmissionField` produces - which is the message that tells
+ * the respondent, and through them the owner, what is actually wrong. Nothing
+ * executes the pattern on the strength of this check; every execution site
+ * re-tests it through `testUserRegex`.
+ */
+export function assertValidFields(
+  fields: unknown,
+  { patternSafety = true }: { patternSafety?: boolean } = {},
+): void {
   if (!Array.isArray(fields)) {
     throw new Error("fields must be an array");
   }
@@ -70,6 +131,66 @@ export function assertValidFields(fields: unknown): void {
       throw new Error(`duplicate field id "${id}" at position #${idx + 1}`);
     }
     seenIds.add(id);
+
+    if (
+      typeof f.type !== "string" ||
+      !FIELD_TYPE_SET.has(f.type as (typeof FIELD_TYPES)[number])
+    ) {
+      throw new Error(
+        `field #${idx + 1} has an invalid type ${JSON.stringify(f.type)} — must be one of ${FIELD_TYPES.join(", ")}`,
+      );
+    }
+    if (typeof f.label !== "string") {
+      throw new Error(`field #${idx + 1} label must be a string`);
+    }
+    if (typeof f.required !== "boolean") {
+      throw new Error(`field #${idx + 1} required must be a boolean`);
+    }
+
+    const hasFileMetadata = [
+      "multiple",
+      "accept",
+      "maxSizeBytes",
+      "maxFiles",
+    ].some((key) => key in f);
+    if (f.type !== "file" && hasFileMetadata) {
+      throw new Error(
+        `field #${idx + 1} file metadata is only valid for file fields`,
+      );
+    }
+    if (f.type === "file") {
+      if (f.multiple !== undefined && typeof f.multiple !== "boolean") {
+        throw new Error(`field #${idx + 1} multiple must be a boolean`);
+      }
+      if (!isValidFileAccept(f.accept)) {
+        throw new Error(`field #${idx + 1} accept must be a valid file filter`);
+      }
+      const maxSizeBytes = f.maxSizeBytes;
+      if (
+        maxSizeBytes !== undefined &&
+        (typeof maxSizeBytes !== "number" ||
+          !Number.isSafeInteger(maxSizeBytes) ||
+          maxSizeBytes <= 0 ||
+          maxSizeBytes > DEFAULT_FORM_FILE_MAX_BYTES)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxSizeBytes must be an integer between 1 and ${DEFAULT_FORM_FILE_MAX_BYTES}`,
+        );
+      }
+      const maxFiles = f.maxFiles;
+      if (
+        maxFiles !== undefined &&
+        (typeof maxFiles !== "number" ||
+          !Number.isSafeInteger(maxFiles) ||
+          maxFiles <= 0 ||
+          maxFiles > MAX_FORM_FILE_COUNT ||
+          f.multiple !== true)
+      ) {
+        throw new Error(
+          `field #${idx + 1} maxFiles requires multiple and must be between 1 and ${MAX_FORM_FILE_COUNT}`,
+        );
+      }
+    }
 
     const cond = f.conditional;
     if (cond !== undefined) {
@@ -116,11 +237,33 @@ export function assertValidFields(fields: unknown): void {
             `field #${idx + 1} validation.pattern must be a string`,
           );
         }
-        try {
-          new RegExp(v.pattern);
-        } catch {
+        // A syntactically valid pattern is not a safe one. `^([A-Za-z]+\s?)+$`
+        // - what an LLM reaches for to mean "at least two words" - backtracks
+        // exponentially and freezes both the respondent's tab and the submit
+        // handler's event loop. Reject it here so it never reaches the column.
+        const compiled = compileUserRegex(v.pattern);
+        if (compiled.status === "invalid-syntax") {
           throw new Error(
             `field #${idx + 1} validation.pattern must be a valid regular expression`,
+          );
+        }
+        if (compiled.status === "too-long" && !patternSafety) {
+          try {
+            new RegExp(v.pattern);
+          } catch {
+            throw new Error(
+              `field #${idx + 1} validation.pattern must be a valid regular expression`,
+            );
+          }
+        }
+        if (patternSafety && compiled.status === "too-long") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern is too long: ${compiled.message}`,
+          );
+        }
+        if (patternSafety && compiled.status === "unsafe") {
+          throw new Error(
+            `field #${idx + 1} validation.pattern can hang the browser and the server: ${compiled.message}. Rewrite it without overlapping repetition - for example use \`^\\S+(\\s+\\S+)+$\` for "at least two words".`,
           );
         }
       }

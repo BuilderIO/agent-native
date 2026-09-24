@@ -11,6 +11,7 @@ import {
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   applyDocSurgically,
   defaultParseValue,
+  reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
@@ -60,6 +61,41 @@ export interface UseCollabReconcileOptions {
   value: string;
   /** Timestamp of the authoritative value; gates newer-than reconcile. */
   contentUpdatedAt?: string | null;
+  /** Opaque authoritative body revision. Enables base-aware reconciliation. */
+  contentRevision?: string | null;
+  /**
+   * Orders two revision identities when their timestamps tie. Return a positive
+   * number when the first revision is newer, zero when equivalent, a negative
+   * number when older, or null when this revision format cannot be ordered.
+   */
+  compareContentRevisions?: (first: string, second: string) => number | null;
+  /**
+   * A server-confirmed snapshot written by this editor. This is deliberately
+   * separate from `registerEmitted`: an emitted value may still fail to save,
+   * while an acknowledged revision is safe to adopt as the next merge base.
+   */
+  acknowledgedLocalSnapshot?: {
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null;
+  /** This exact body revision is already represented in durable Yjs state. */
+  collabContentRevision?: string | null;
+  /** Resolves as synced only after a fresh provider response is applied. */
+  requestCollabSync?: () => Promise<{
+    status: "synced" | "failed" | "unavailable";
+  }>;
+  /** Reports an automatic merge to persist, or a conflict whose local draft was preserved. */
+  onBaseAwareReconcile?: (result: {
+    status: "merged" | "conflict" | "failed";
+    content: string;
+    serverContent: string;
+    baseRevision: string;
+    serverRevision: string;
+  }) => void;
+  /** Controls how overlapping live and server hunks are reconciled. */
+  overlapPolicy?: "conflict" | "prefer-live";
   /** Whether the editor accepts edits. Reconcile/seed only run for the live editor. */
   editable: boolean;
   /**
@@ -234,6 +270,13 @@ export function useCollabReconcile({
   awareness = null,
   value,
   contentUpdatedAt,
+  contentRevision,
+  compareContentRevisions,
+  acknowledgedLocalSnapshot,
+  collabContentRevision,
+  requestCollabSync,
+  onBaseAwareReconcile,
+  overlapPolicy = "conflict",
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
@@ -244,8 +287,12 @@ export function useCollabReconcile({
   initialAppliedUpdatedAt,
 }: UseCollabReconcileOptions): UseCollabReconcileResult {
   const collab = !!ydoc;
+  const collabBackedSnapshot = Boolean(
+    collab && contentRevision && collabContentRevision === contentRevision,
+  );
   const isSettingContentRef = useRef(false);
   const lastEmittedRef = useRef("");
+  const lastRegisteredLocalEmissionRef = useRef<string | null>(null);
   // Ring of recent local emissions (see pushEmittedRing). Lets the reconcile
   // recognize a stale-but-recent echo of our OWN (possibly partial, debounced)
   // save so a lagging poll never clobbers freshly-typed text.
@@ -272,6 +319,92 @@ export function useCollabReconcile({
       ? initialAppliedUpdatedAt
       : (contentUpdatedAt ?? null),
   );
+  const authoritativeBaseRef = useRef<{
+    value: string;
+    revision: string;
+  } | null>(contentRevision ? { value, revision: contentRevision } : null);
+  const reportedConflictRevisionRef = useRef<string | null>(null);
+  const acknowledgedLocalSnapshotRef = useRef<{
+    value: string;
+    revision: string;
+    updatedAt: string;
+    sequence: number;
+  } | null>(null);
+  const latestObservedUpdatedAtRef = useRef<string | null>(
+    contentUpdatedAt ?? null,
+  );
+  const latestObservedRevisionRef = useRef<string | null>(
+    contentRevision ?? null,
+  );
+  const acknowledgementBaseRollbackRef = useRef<{
+    acknowledgementRevision: string;
+    updatedAt: string;
+    base: { value: string; revision: string } | null;
+  } | null>(null);
+  const acknowledgedCollabRef = useRef<{ ydoc: YDoc; revision: string } | null>(
+    null,
+  );
+  const [pendingCollabSnapshot, setPendingCollabSnapshot] = useState<{
+    ydoc: YDoc;
+    revision: string;
+    value: string;
+    updatedAt: string | null | undefined;
+  } | null>(null);
+  useEffect(() => {
+    if (!collabBackedSnapshot || !ydoc || !contentRevision) return;
+    if (
+      acknowledgedCollabRef.current?.ydoc === ydoc &&
+      acknowledgedCollabRef.current.revision === contentRevision
+    )
+      return;
+    setPendingCollabSnapshot((pending) =>
+      pending?.ydoc === ydoc && pending.revision === contentRevision
+        ? pending
+        : {
+            ydoc,
+            revision: contentRevision,
+            value,
+            updatedAt: contentUpdatedAt,
+          },
+    );
+  }, [collabBackedSnapshot, ydoc, contentRevision, value, contentUpdatedAt]);
+  useEffect(() => {
+    if (
+      !pendingCollabSnapshot ||
+      !requestCollabSync ||
+      pendingCollabSnapshot.ydoc !== ydoc
+    )
+      return;
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const sync = async () => {
+      const result = await requestCollabSync().catch(() => ({
+        status: "failed" as const,
+      }));
+      if (cancelled) return;
+      if (result.status !== "synced") {
+        retry = setTimeout(() => void sync(), 2000);
+        return;
+      }
+      // The fetched CRDT includes this canonical revision even when unsynced
+      // local edits make the editor differ from its SQL body. Advance only the
+      // merge base, never rewrite those local edits to manufacture equality.
+      authoritativeBaseRef.current = {
+        value: pendingCollabSnapshot.value,
+        revision: pendingCollabSnapshot.revision,
+      };
+      reportedConflictRevisionRef.current = null;
+      if (pendingCollabSnapshot.updatedAt)
+        lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
+      acknowledgedCollabRef.current = pendingCollabSnapshot;
+      setPendingCollabSnapshot(null);
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
+  }, [pendingCollabSnapshot, requestCollabSync, ydoc]);
 
   // Whether THIS client is the one that seeds the empty shared doc / applies an
   // authoritative external snapshot into it. Exactly one client does, so the
@@ -298,7 +431,15 @@ export function useCollabReconcile({
       awareness.getStates().forEach((state, clientId) => {
         if (clientId === ydoc.clientID) return; // self
         if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
-        const s = state as { user?: unknown; visible?: boolean };
+        const s = state as {
+          user?: unknown;
+          visible?: boolean;
+          canFlushDocument?: boolean;
+        };
+        // A read-only viewer binds no Y.Doc, so counting it as a peer lets
+        // stale CRDT content stand in for live collaboration and be written
+        // back over canonical SQL — resurrecting deleted content.
+        if (s?.canFlushDocument === false) return;
         if (s && s.user && s.visible !== false) peers += 1;
       });
       peerCountRef.current = peers;
@@ -321,6 +462,14 @@ export function useCollabReconcile({
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
+    if (collabBackedSnapshot) {
+      seededRef.current = true;
+      return;
+    }
+    if (contentRevision) {
+      authoritativeBaseRef.current = { value, revision: contentRevision };
+      reportedConflictRevisionRef.current = null;
+    }
     // An empty SQL value has nothing to seed. Release the first real keystroke
     // immediately, but when a fragment already exists defer the ambiguous
     // reconcile decision for one task: active-peer or just-emitted local content
@@ -362,7 +511,16 @@ export function useCollabReconcile({
         emptySnapshotDecisionPendingRef.current = false;
       };
     }
-    if (!isLeadClient) return;
+    // A non-lead client must never seed (two clients inserting the same content
+    // duplicates it), but `seededRef` also gates persistence and reconcile — so
+    // release it here anyway, or this client's own typing is dropped before it
+    // ever reaches SQL while its peers still see it through Yjs.
+    if (!isLeadClient) {
+      const releaseTimer = setTimeout(() => {
+        seededRef.current = true;
+      }, 0);
+      return () => clearTimeout(releaseTimer);
+    }
     let cancelled = false;
     // Defer via a timer task (NOT a microtask — microtasks can still run
     // inside React's commit and trigger flushSync-from-lifecycle warnings).
@@ -414,10 +572,24 @@ export function useCollabReconcile({
     value,
     isLeadClient,
     contentUpdatedAt,
+    contentRevision,
     getMarkdown,
     setContent,
     shouldSeed,
+    collabBackedSnapshot,
   ]);
+
+  const peerReconcileWaitRef = useRef<{
+    editor: Editor;
+    ydoc: YDoc | null;
+    value: string;
+    contentUpdatedAt: string | null | undefined;
+    contentRevision: string | null | undefined;
+    collabSynced: boolean;
+    isLeadClient: boolean;
+    editable: boolean;
+    deadline: number | null;
+  } | null>(null);
 
   // Reconcile authoritative external markdown (agent edit, source patch, or a
   // peer edit mirrored to SQL) into the live editor. In collab mode only the
@@ -425,8 +597,36 @@ export function useCollabReconcile({
   // every other client. In non-collab mode this is the original controlled-value
   // reconcile, unchanged.
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
+    if (!editor || editor.isDestroyed) {
+      peerReconcileWaitRef.current = null;
+      return;
+    }
 
+    const previousWait = peerReconcileWaitRef.current;
+    if (
+      !previousWait ||
+      previousWait.editor !== editor ||
+      previousWait.ydoc !== ydoc ||
+      previousWait.value !== value ||
+      previousWait.contentUpdatedAt !== contentUpdatedAt ||
+      previousWait.contentRevision !== contentRevision ||
+      previousWait.collabSynced !== collabSynced ||
+      previousWait.isLeadClient !== isLeadClient ||
+      previousWait.editable !== editable
+    ) {
+      peerReconcileWaitRef.current = {
+        editor,
+        ydoc,
+        value,
+        contentUpdatedAt,
+        contentRevision,
+        collabSynced,
+        isLeadClient,
+        editable,
+        deadline: null,
+      };
+    }
+    const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
     // With peers present, a peer's edit also arrives via Yjs. Defer one poll
@@ -434,6 +634,164 @@ export function useCollabReconcile({
     // change isn't inserted twice (Yjs + setContent → duplicated region).
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
+      if (contentUpdatedAt) {
+        const rollback = acknowledgementBaseRollbackRef.current;
+        const conflictsWithAcceptedAcknowledgement =
+          contentRevision &&
+          rollback?.updatedAt === contentUpdatedAt &&
+          rollback.acknowledgementRevision !== contentRevision;
+        if (conflictsWithAcceptedAcknowledgement) {
+          const order = compareContentRevisions?.(
+            contentRevision,
+            rollback.acknowledgementRevision,
+          );
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
+          }
+          // The acknowledgement advanced our base before its SQL snapshot was
+          // observed, but another revision won at the same timestamp. Restore
+          // the common base and treat this first canonical winner as the
+          // authoritative revision for that otherwise unordered timestamp.
+          if (
+            authoritativeBaseRef.current?.revision ===
+            rollback.acknowledgementRevision
+          ) {
+            authoritativeBaseRef.current = rollback.base;
+          }
+          acknowledgementBaseRollbackRef.current = null;
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision;
+        } else if (
+          !latestObservedUpdatedAtRef.current ||
+          contentUpdatedAt > latestObservedUpdatedAtRef.current
+        ) {
+          latestObservedUpdatedAtRef.current = contentUpdatedAt;
+          latestObservedRevisionRef.current = contentRevision ?? null;
+          acknowledgementBaseRollbackRef.current = null;
+        } else if (
+          contentUpdatedAt === latestObservedUpdatedAtRef.current &&
+          contentRevision &&
+          latestObservedRevisionRef.current !== contentRevision
+        ) {
+          const order = latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                contentRevision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
+          if (order !== undefined && order !== null && order <= 0) {
+            return;
+          }
+          // Legacy opaque revisions cannot be ordered. Preserve their existing
+          // reconcile behavior; ordered body revisions retain the newest
+          // identity so a delayed snapshot cannot roll it back.
+          latestObservedRevisionRef.current =
+            order !== undefined && order !== null ? contentRevision : null;
+        }
+      }
+      let rejectedMatchingAcknowledgement = false;
+      if (acknowledgedLocalSnapshot) {
+        const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
+        const acknowledgementIsNewestAccepted =
+          !acceptedAcknowledgement ||
+          acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
+        const acknowledgementRevisionOrder =
+          acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+          latestObservedRevisionRef.current
+            ? compareContentRevisions?.(
+                acknowledgedLocalSnapshot.revision,
+                latestObservedRevisionRef.current,
+              )
+            : null;
+        const acknowledgementIsNotSuperseded =
+          !latestObservedUpdatedAtRef.current ||
+          acknowledgedLocalSnapshot.updatedAt >
+            latestObservedUpdatedAtRef.current ||
+          (acknowledgedLocalSnapshot.updatedAt ===
+            latestObservedUpdatedAtRef.current &&
+            (latestObservedRevisionRef.current ===
+              acknowledgedLocalSnapshot.revision ||
+              acknowledgementRevisionOrder === undefined ||
+              acknowledgementRevisionOrder === null ||
+              acknowledgementRevisionOrder >= 0));
+        if (acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded) {
+          acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
+          const existingRollback = acknowledgementBaseRollbackRef.current;
+          if (
+            existingRollback?.acknowledgementRevision !==
+              acknowledgedLocalSnapshot.revision ||
+            existingRollback.updatedAt !== acknowledgedLocalSnapshot.updatedAt
+          ) {
+            acknowledgementBaseRollbackRef.current = {
+              acknowledgementRevision: acknowledgedLocalSnapshot.revision,
+              updatedAt: acknowledgedLocalSnapshot.updatedAt,
+              base: authoritativeBaseRef.current,
+            };
+          }
+          authoritativeBaseRef.current = {
+            value: acknowledgedLocalSnapshot.value,
+            revision: acknowledgedLocalSnapshot.revision,
+          };
+          if (
+            acknowledgedLocalSnapshot.updatedAt ===
+              latestObservedUpdatedAtRef.current &&
+            acknowledgementRevisionOrder !== undefined &&
+            acknowledgementRevisionOrder !== null &&
+            acknowledgementRevisionOrder > 0
+          ) {
+            latestObservedRevisionRef.current =
+              acknowledgedLocalSnapshot.revision;
+          }
+          if (
+            !lastAppliedUpdatedAtRef.current ||
+            acknowledgedLocalSnapshot.updatedAt >
+              lastAppliedUpdatedAtRef.current
+          ) {
+            lastAppliedUpdatedAtRef.current =
+              acknowledgedLocalSnapshot.updatedAt;
+          }
+        } else if (
+          contentRevision === acknowledgedLocalSnapshot.revision &&
+          value === acknowledgedLocalSnapshot.value
+        ) {
+          rejectedMatchingAcknowledgement = true;
+        }
+      }
+      if (rejectedMatchingAcknowledgement) return;
+      const acknowledged = acknowledgedLocalSnapshotRef.current;
+      if (
+        acknowledged &&
+        contentRevision === acknowledged.revision &&
+        value === acknowledged.value
+      ) {
+        const acknowledgementWasSuperseded =
+          latestObservedUpdatedAtRef.current !== null &&
+          (acknowledged.updatedAt < latestObservedUpdatedAtRef.current ||
+            (acknowledged.updatedAt === latestObservedUpdatedAtRef.current &&
+              latestObservedRevisionRef.current !== acknowledged.revision));
+        if (!acknowledgementWasSuperseded) {
+          authoritativeBaseRef.current = {
+            value: acknowledged.value,
+            revision: acknowledged.revision,
+          };
+          if (
+            !lastAppliedUpdatedAtRef.current ||
+            acknowledged.updatedAt > lastAppliedUpdatedAtRef.current
+          ) {
+            lastAppliedUpdatedAtRef.current = acknowledged.updatedAt;
+          }
+          reportedConflictRevisionRef.current = null;
+        }
+        return;
+      }
+      if (
+        acknowledged &&
+        contentUpdatedAt &&
+        contentUpdatedAt < acknowledged.updatedAt
+      ) {
+        return;
+      }
       // In collab mode, defer all reconcile until the shared doc is seeded so we
       // never setContent over an unseeded fragment.
       if (collab && !collabSynced) {
@@ -450,6 +808,16 @@ export function useCollabReconcile({
       }
       if (collab && emptySnapshotDecisionPendingRef.current) {
         retry = setTimeout(() => apply(deferred), 50);
+        return;
+      }
+      // SQL and Yjs describe the same committed operation here. Reapplying SQL
+      // would create different CRDT insert identities and duplicate the text.
+      // Provider retries, not a timed SQL fallback, own delayed delivery.
+      if (
+        collabBackedSnapshot ||
+        (collab && pendingCollabSnapshot?.ydoc === ydoc)
+      ) {
+        peerWait.deadline = null;
         return;
       }
       const currentMarkdown = getMarkdown(editor);
@@ -490,6 +858,7 @@ export function useCollabReconcile({
       if (
         currentMarkdown === normalizedValue ||
         (typingRecently &&
+          !contentRevision &&
           // A stale echo of our own (possibly partial) save while the user is
           // actively typing would clobber the fresh tail. Outside active
           // typing, the same bytes can be a deliberate newer external revert
@@ -502,13 +871,33 @@ export function useCollabReconcile({
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
       ) {
+        peerWait.deadline = null;
+        // Equality on the first controlled render is also a successful apply:
+        // useEditor may already have initialized from `value`. Record that
+        // baseline so a same-revision parent render cannot restore stale props
+        // over a local edit made while a toolbar or popover owns focus.
+        if (currentMarkdown === normalizedValue) {
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = currentMarkdown;
+        }
+        if (contentRevision) {
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+        }
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
         return;
       }
 
+      const revisionChangedAtSameTimestamp =
+        !!contentRevision &&
+        !!authoritativeBaseRef.current &&
+        contentRevision !== authoritativeBaseRef.current.revision &&
+        !!contentUpdatedAt &&
+        contentUpdatedAt === lastAppliedUpdatedAtRef.current;
       const externalNewer =
+        revisionChangedAtSameTimestamp ||
         !lastAppliedUpdatedAtRef.current ||
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;
@@ -516,6 +905,7 @@ export function useCollabReconcile({
       // Only the lead client applies an authoritative snapshot into the shared
       // Y.Doc; peers receive it through Yjs sync.
       if (collab && !isLeadClient) {
+        peerWait.deadline = null;
         if (contentUpdatedAt && !externalNewer) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
@@ -531,31 +921,46 @@ export function useCollabReconcile({
       if (typingRecently) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
+        } else {
+          peerWait.deadline = null;
         }
         return;
       }
-      // Older-or-equal content is a stale poll / lagging echo. Drop it while
-      // focused (a peer/agent edit would be NEWER and retries above). In
-      // NON-COLLAB mode there is no peer, so older-or-equal external content is
-      // ALWAYS stale — dropping it regardless of focus stops a lagging
-      // `get-visual-plan` poll from reverting a just-applied local structural
-      // change (drag-to-columns) while the editor is blurred (the drag grips the
-      // handle, not the prose, so `isFocused` is false at drop time). Gated on
-      // `lastAppliedSerializedRef` so the very first seed (nothing applied yet,
-      // also not-newer) still lands.
-      const seeded = lastAppliedSerializedRef.current !== null;
-      if (!externalNewer && (editorFocused || (!collab && seeded))) return;
+      // Once an authoritative snapshot has been applied, an unchanged or older
+      // SQL echo cannot overwrite subsequent local OR remote Yjs edits. The
+      // idle lead can receive a peer's edit before that peer's SQL save arrives.
+      // A fresh mount still reconciles stale CRDT state before it has a baseline.
+      const hasAppliedSnapshot = lastAppliedSerializedRef.current !== null;
+      const currentIsRegisteredLocalEmission =
+        lastRegisteredLocalEmissionRef.current !== null &&
+        currentMarkdown === lastRegisteredLocalEmissionRef.current;
+      if (
+        !externalNewer &&
+        (editorFocused ||
+          hasAppliedSnapshot ||
+          currentIsRegisteredLocalEmission)
+      ) {
+        peerWait.deadline = null;
+        return;
+      }
 
       // Race guard: with peers present, let Yjs deliver a peer's edit first.
       // Defer once and re-check — a peer edit makes the equality check above
       // no-op next pass; an agent/source edit still differs and applies.
       if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
-        retry = setTimeout(() => apply(true), PEER_SETTLE_MS);
-        return;
+        // Inline serializers can change on every presence/poll render. Keep
+        // this snapshot's deadline while the effect refreshes its callbacks.
+        peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
+        const remaining = peerWait.deadline - Date.now();
+        if (remaining > 0) {
+          retry = setTimeout(() => apply(true), remaining);
+          return;
+        }
       }
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        peerWait.deadline = null;
         // Re-check doc-equivalence at apply time. Between the decision above and
         // this task a peer/Yjs edit (or our own prior apply) may have made
         // the editor already represent this value — re-applying would be a
@@ -573,12 +978,86 @@ export function useCollabReconcile({
             normalized === lastAppliedSerializedRef.current)
         ) {
           lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = beforeMarkdown;
+          if (contentRevision) {
+            authoritativeBaseRef.current = { value, revision: contentRevision };
+            reportedConflictRevisionRef.current = null;
+          }
           if (contentUpdatedAt) {
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
           }
           return;
         }
         isSettingContentRef.current = true;
+        const authoritativeBase = authoritativeBaseRef.current;
+        if (
+          contentRevision &&
+          onBaseAwareReconcile &&
+          authoritativeBase &&
+          authoritativeBase.revision !== contentRevision
+        ) {
+          const parse =
+            parseValue === false ? null : (parseValue ?? defaultParseValue);
+          const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
+          const serverDoc = parse?.(editor, value) ?? null;
+          if (!baseDoc || !serverDoc) {
+            isSettingContentRef.current = false;
+            if (reportedConflictRevisionRef.current !== contentRevision) {
+              reportedConflictRevisionRef.current = contentRevision;
+              onBaseAwareReconcile({
+                status: "failed",
+                content: beforeMarkdown,
+                serverContent: value,
+                baseRevision: authoritativeBase.revision,
+                serverRevision: contentRevision,
+              });
+            }
+            return;
+          }
+          const reconciled = reconcileDocAgainstBase(
+            editor,
+            baseDoc,
+            serverDoc,
+            { overlapPolicy },
+          );
+          if (
+            reconciled.status === "conflict" ||
+            reconciled.status === "failed"
+          ) {
+            isSettingContentRef.current = false;
+            if (reportedConflictRevisionRef.current !== contentRevision) {
+              reportedConflictRevisionRef.current = contentRevision;
+              onBaseAwareReconcile({
+                status: reconciled.status,
+                content: beforeMarkdown,
+                serverContent: value,
+                baseRevision: authoritativeBase.revision,
+                serverRevision: contentRevision,
+              });
+            }
+            return;
+          }
+          const merged = getMarkdown(editor);
+          isSettingContentRef.current = false;
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+          lastEmittedRef.current = merged;
+          pushEmittedRing(recentEmittedRef.current, merged);
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = merged;
+          if (contentUpdatedAt)
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          if (merged !== normalized) {
+            onBaseAwareReconcile({
+              status: "merged",
+              content: merged,
+              serverContent: value,
+              baseRevision: authoritativeBase.revision,
+              serverRevision: contentRevision,
+            });
+          }
+          return;
+        }
         // Surgical path first: replace only the changed top-level run so
         // unchanged block NodeViews are never torn down and (under
         // Collaboration) Yjs sees a minimal edit instead of a full-fragment
@@ -606,6 +1085,10 @@ export function useCollabReconcile({
         pushEmittedRing(recentEmittedRef.current, serialized);
         lastAppliedValueRef.current = value;
         lastAppliedSerializedRef.current = serialized;
+        if (contentRevision) {
+          authoritativeBaseRef.current = { value, revision: contentRevision };
+          reportedConflictRevisionRef.current = null;
+        }
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
@@ -620,7 +1103,12 @@ export function useCollabReconcile({
     };
   }, [
     contentUpdatedAt,
+    contentRevision,
+    compareContentRevisions,
+    acknowledgedLocalSnapshot,
     editor,
+    ydoc,
+    editable,
     value,
     collab,
     collabSynced,
@@ -630,6 +1118,10 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    onBaseAwareReconcile,
+    overlapPolicy,
+    collabBackedSnapshot,
+    pendingCollabSnapshot,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
@@ -672,6 +1164,7 @@ export function useCollabReconcile({
     if (collab && !markdown.trim()) return false;
     lastEmittedRef.current = markdown;
     pushEmittedRing(recentEmittedRef.current, markdown);
+    lastRegisteredLocalEmissionRef.current = markdown;
     return true;
   };
 

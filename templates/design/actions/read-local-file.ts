@@ -17,7 +17,7 @@
  *     *.key, id_rsa*, anything under .git/) regardless of this grant.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -28,6 +28,10 @@ import {
   resolveLocalhostBridgeConnection,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
+import {
+  createLocalhostBridgeRelay,
+  isLocalhostBridgeRelayRequest,
+} from "./visual-edit-browser-request.js";
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
@@ -81,11 +85,12 @@ export default defineAction({
       .describe("Path to the file relative to the connection rootPath."),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
-  run: async ({ designId, connectionId, path: relPath }) => {
+  run: async ({ designId, connectionId, path: relPath }, ctx) => {
     await assertAccess("design", designId, "editor");
 
-    const scope = await resolveLocalhostConnectionScope();
+    const scope = await resolveLocalhostConnectionScope({ designId });
     const connection = await resolveLocalhostBridgeConnection({
       connectionId,
       ...scope,
@@ -95,8 +100,18 @@ export default defineAction({
       connection.bridgeToken,
     );
 
+    const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
+    if (isLocalhostBridgeRelayRequest(ctx)) {
+      return createLocalhostBridgeRelay({
+        operation: "read-file",
+        designId,
+        connectionId,
+        path: relPath,
+      });
+    }
+
     const res = await fetchLocalhostBridge({
-      bridgeUrl: normalizeBridgeUrl(connection.bridgeUrl),
+      bridgeUrl,
       operation: "read-file",
       bridgeToken,
       body: { relPath },

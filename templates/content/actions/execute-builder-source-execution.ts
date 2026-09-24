@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -57,7 +57,7 @@ type DatabaseRecord = NonNullable<
 
 export interface BuilderSourceExecutionRecord {
   id: string;
-  state: ContentDatabaseSourceExecutionState | string;
+  state: ContentDatabaseSourceExecutionState | (string & {});
   idempotencyKey: string;
   payloadJson: string;
   attemptToken?: string | null;
@@ -1316,8 +1316,8 @@ export default defineAction({
   description:
     "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, per-source capability, validation, publication, and idempotency gates all pass.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

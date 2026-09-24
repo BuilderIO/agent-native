@@ -80,7 +80,7 @@ Files in `actions/` are discovered automatically — there is no registry to edi
 
 ### 3. Put the Notion key in the vault, not in `.env`
 
-Create an internal integration at **[notion.so/my-integrations](https://www.notion.so/my-integrations)** and copy its secret. Then, in your app, open **Settings → API Keys & Connections**, add a key named exactly `NOTION_API_KEY`, paste the value, and pick a scope:
+Create an internal integration at **[notion.so/my-integrations](https://www.notion.so/my-integrations)** and copy its secret. Then, in your app, open **Settings → API keys**, add a key named exactly `NOTION_API_KEY`, paste the value, and pick a scope:
 
 - **Personal** — only runs that execute as you can use it.
 - **Workspace** — shared with the organization. Choose this if anyone other than you will @mention the agent, because a Slack run executes as the integration owner, not as whoever typed the message.

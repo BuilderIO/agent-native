@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   deviceViewportFloorForWidth,
+  findTopFrameEntryAtPoint,
   getBreakpointFrameGeometry,
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
+  getScreenPreviewViewport,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
+  resolveHitTestForegroundId,
   visibleBreakpointWidths,
 } from "./frame-geometry";
 
@@ -89,6 +92,22 @@ describe("content-fit frame height", () => {
     // Group must be tall enough to contain the 3000px-tall mobile frame
     // (scaled by primary scale) so culling doesn't evict it while visible.
     expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
+  });
+
+  it("uses renderer scale for aspect-changing primary geometry and culling", () => {
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const primary = { x: 0, y: 0, width: 768, height: 1024 };
+    expect(getScreenPreviewViewport(screen.metadata, primary).scale).toBe(1);
+
+    const group = getResponsiveScreenGroupSize(screen, primary, () => 2200);
+    expect(group).toEqual({ width: 768 + 24 + 390, height: 2200 });
+    expect(
+      getResponsiveScreenCullGeometry(screen, primary, () => 2200),
+    ).toMatchObject(group);
   });
 
   it("dedupes breakpoints against the device width, not the resized box width", () => {
@@ -177,6 +196,24 @@ describe("responsive overview group layout", () => {
     expect(group.rotation).toBeUndefined();
     expect(group.width).toBeGreaterThanOrEqual(200);
     expect(group.height).toBeGreaterThan(320);
+  });
+
+  it("keeps the rotated right-extended preview inside cull bounds", () => {
+    const group = getResponsiveScreenCullGeometry(
+      {
+        id: "s1",
+        metadata: { width: 1440, height: 900 },
+        breakpointWidths: [390],
+      },
+      { x: 0, y: 0, width: 768, height: 1024, rotation: 90 },
+      () => 2200,
+    );
+
+    expect(group.x).toBeCloseTo(-1304);
+    expect(group.y).toBeCloseTo(128);
+    expect(group.width).toBeCloseTo(2200);
+    expect(group.height).toBeCloseTo(1182);
+    expect(group.rotation).toBeUndefined();
   });
 
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {
@@ -367,5 +404,78 @@ describe("canonical overview screen stack", () => {
         placement: "before",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hit-test foreground tie-break", () => {
+  const hasGeometry = (ids: string[]) => (id: string) => ids.includes(id);
+
+  it("prefers an explicit selection over everything else", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: ["b"],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "a",
+      }),
+    ).toBe("b");
+  });
+
+  it("falls back to the sticky activeId when nothing is selected", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "b",
+      }),
+    ).toBe("a");
+  });
+
+  it("keeps the sticky activeId for a fresh draw gesture too — it's the same id paint boosts", () => {
+    // A draw gesture must not special-case itself away from activeId: the
+    // canvas paints activeId's screen with a z-index boost (topScreenId)
+    // whether or not a NEW gesture is starting, so hit-testing has to agree.
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["original", "new"]),
+        activeId: "original",
+        firstScreenId: "original",
+      }),
+    ).toBe("original");
+  });
+
+  it("end-to-end: a draw gesture's point resolves to whichever screen paint puts on top, not array order", () => {
+    const original = {
+      id: "original",
+      geometry: { x: 0, y: 0, width: 1440, height: 900 },
+    };
+    // A larger new screen placed so it overlaps the original's right edge —
+    // the ambiguous zone from the repro (auto-placement only checks the
+    // drag's start point, not the full drawn rect, against neighbours).
+    const created = {
+      id: "new",
+      geometry: { x: 1300, y: 0, width: 1440, height: 900 },
+    };
+    const pointInsideNewScreen = { x: 1400, y: 50 };
+
+    // "original" is still activeId (nothing is selected), so the canvas
+    // paints it above "new" (topScreenId's z boost) even though "new" was
+    // added later — the hit test must own the shape for the same screen
+    // paint actually shows on top, not for whichever is last in the array.
+    const resolved = findTopFrameEntryAtPoint(
+      [original, created],
+      pointInsideNewScreen,
+      {
+        foregroundId: resolveHitTestForegroundId({
+          selectedIds: [],
+          hasGeometry: hasGeometry(["original", "new"]),
+          activeId: "original",
+          firstScreenId: "original",
+        }),
+      },
+    );
+    expect(resolved?.id).toBe("original");
   });
 });

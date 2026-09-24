@@ -1,9 +1,29 @@
 export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
 
 export {
+  cancelBackgroundAgentSession,
+  getBackgroundAgentSessionStatus,
+  startBackgroundAgentSession,
+  type BackgroundAgentSessionHandle,
+  type BackgroundAgentSessionReceipt,
+  type BackgroundAgentSessionSnapshot,
+  type BackgroundAgentSessionStartOptions,
+  type BackgroundAgentSessionStatus,
+} from "../background-agent-session.js";
+
+export {
   AgentAskPopover,
   type AgentAskPopoverProps,
 } from "../AgentAskPopover.js";
+export {
+  detectExternalAgentHost,
+  ExternalAgentNudge,
+  getExternalAgentHost,
+  useExternalAgentHost,
+  type ExternalAgentHost,
+  type ExternalAgentHostId,
+  type ExternalAgentHostSignals,
+} from "../external-agent-host.js";
 export {
   addContextToAgentChat,
   appendAgentChatContextToMessage,
@@ -83,6 +103,7 @@ export {
 } from "../../code-agents/transcript-normalizer.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
+  chatModelSelectionStorageKey,
   useChatModels,
   type UseChatModelsResult,
   type EngineModelGroup,
@@ -124,6 +145,7 @@ export { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 export {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   getMcpAppHostContext,
+  initializeMcpAppHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
@@ -134,6 +156,7 @@ export {
   type McpAppHostChatMessage,
   type McpAppHostCapabilities,
   type McpAppHostContext,
+  type McpAppHostInfo,
   type McpAppHostContextSnapshot,
   type McpAppModelContextContentPart,
   type McpAppModelContextUpdate,
@@ -159,12 +182,19 @@ export {
   type AssistantChatHandle,
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
-export {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatProps,
-  type MultiTabAssistantChatHeaderProps,
+export { isAssistantChatHistoryVersion } from "../chat/assistant-chat-history-version.js";
+export type {
+  AssistantChatHistoryConfig,
+  AssistantChatHistoryContext,
+  AssistantChatHistoryMessage,
+  AssistantChatHistoryScope,
+  AssistantChatHistoryVersion,
+} from "../chat/message-components.js";
+export type {
+  MultiTabAssistantChatProps,
+  MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
-export { RunStuckBanner, type RunStuckBannerProps } from "../RunStuckBanner.js";
+export type { RunStuckBannerProps } from "../RunStuckBanner.js";
 export {
   KeepTabOpenNotice,
   type KeepTabOpenNoticeProps,
@@ -222,15 +252,17 @@ export { AgentChatHome, type AgentChatHomeProps } from "../AgentChatHome.js";
 export {
   AgentChatSurface,
   AgentPanel,
+  type AgentChatSurfaceMode,
+  type AgentChatSurfaceProps,
+  type AgentPanelProps,
+} from "../AgentPanel.js";
+export {
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
   preloadAgentChatSurface,
-  type AgentChatSurfaceMode,
-  type AgentChatSurfaceProps,
-  type AgentPanelProps,
   type AgentSidebarProps,
-} from "../AgentPanel.js";
+} from "../AgentSidebar.js";
 export {
   AgentTabsPage,
   ConnectionsTab,
@@ -293,6 +325,20 @@ export {
 } from "../chat/tool-render-registry.js";
 export * from "../chat/connectors.js";
 export * from "../chat/runtime.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "../chat/agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
 export {
   CHAT_FIRST_APP_LAYOUT_STORAGE_KEY,
   CHAT_FIRST_DEFAULT_APP_IDS,
@@ -358,3 +404,17 @@ export {
   type ChatFirstSurfaceTabsState,
   type ChatFirstSurfaceTabsStore,
 } from "../chat-first.js";
+export {
+  ThinkingDisplayProvider,
+  getBrowserThinkingDisplay,
+  setBrowserThinkingDisplay,
+  subscribeToBrowserThinkingDisplay,
+  useThinkingDisplay,
+  useThinkingDisplayControl,
+} from "../thinking-display.js";
+export {
+  DEFAULT_THINKING_DISPLAY,
+  THINKING_DISPLAY_MODES,
+  isThinkingDisplay,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";

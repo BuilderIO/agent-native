@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   normalizePropertyValue,
@@ -12,6 +13,8 @@ import {
 import { chunks } from "./_batch-utils.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
+export const MAX_MIGRATION_ROWS = 250;
+export const MAX_MIGRATION_PLAN_BYTES = 5 * 1024 * 1024;
 const option = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -27,42 +30,56 @@ const option = z.object({
     "red",
   ]),
 });
-export const migrationPlanSchema = z.object({
-  databaseId: z.string().min(1),
-  databaseDocumentId: z.string().min(1),
-  idempotencyKey: z.string().min(1).max(200),
-  expectedRowCount: z.number().int().min(1).max(100),
-  propertyDefinitions: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        type: propertyType,
-        visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES),
-        options: z.array(option).max(100).optional(),
-      }),
-    )
-    .max(100),
-  rows: z
-    .array(
-      z.object({
-        itemId: z.string().min(1),
-        documentId: z.string().min(1),
-        expectedUpdatedAt: z.string().min(1),
-        content: z.string(),
-        propertyValues: z.array(
-          z.object({ propertyId: z.string().min(1), value: z.unknown() }),
-        ),
-        protectedPropertyValues: z
-          .array(
-            z.object({ propertyId: z.string().min(1), valueJson: z.string() }),
-          )
-          .max(100),
-      }),
-    )
-    .max(100),
-  legacyPropertyIds: z.array(z.string().min(1)).max(100).default([]),
-});
+export const migrationPlanSchema = z
+  .object({
+    databaseId: z.string().min(1),
+    databaseDocumentId: z.string().min(1),
+    idempotencyKey: z.string().min(1).max(200),
+    expectedRowCount: z.number().int().min(1).max(MAX_MIGRATION_ROWS),
+    propertyDefinitions: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          name: z.string().min(1),
+          type: propertyType,
+          visibility: z.enum(DOCUMENT_PROPERTY_VISIBILITIES),
+          options: z.array(option).max(100).optional(),
+        }),
+      )
+      .max(100),
+    rows: z
+      .array(
+        z.object({
+          itemId: z.string().min(1),
+          documentId: z.string().min(1),
+          expectedUpdatedAt: z.string().min(1),
+          content: z.string(),
+          propertyValues: z.array(
+            z.object({ propertyId: z.string().min(1), value: z.unknown() }),
+          ),
+          protectedPropertyValues: z
+            .array(
+              z.object({
+                propertyId: z.string().min(1),
+                valueJson: z.string(),
+              }),
+            )
+            .max(100),
+        }),
+      )
+      .max(MAX_MIGRATION_ROWS),
+    legacyPropertyIds: z.array(z.string().min(1)).max(100).default([]),
+  })
+  .superRefine((plan, context) => {
+    if (
+      Buffer.byteLength(JSON.stringify(plan), "utf8") > MAX_MIGRATION_PLAN_BYTES
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `Migration plan is limited to ${MAX_MIGRATION_PLAN_BYTES} bytes.`,
+      });
+    }
+  });
 export type MigrationPlan = z.infer<typeof migrationPlanSchema>;
 
 export function canonical(value: unknown): string {
@@ -461,6 +478,21 @@ export function snapshotDigest(
   });
 }
 
+export function snapshotBodyRevisionDigest(
+  snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
+) {
+  return digest([
+    {
+      documentId: snapshot.databaseDocument.id,
+      bodyRevision: snapshot.databaseDocument.bodyRevision,
+    },
+    ...snapshot.rows.map((row: any) => ({
+      documentId: row.document.id,
+      bodyRevision: row.document.bodyRevision,
+    })),
+  ]);
+}
+
 export async function applyMigration(
   tx: any,
   plan: MigrationPlan,
@@ -494,7 +526,14 @@ export async function applyMigration(
       documentId: row.documentId,
       title: persisted.document.title,
       content: persisted.document.content,
+      groupId: versionId,
+      groupKind: "operation",
+      actorKind: "system",
+      origin: "content-database-migration",
+      operation: "migrate-content-database-row",
+      checkpointKind: "before",
       createdAt: now,
+      updatedAt: now,
     });
   }
   for (const batch of chunks(versionRows, 100))
@@ -502,7 +541,11 @@ export async function applyMigration(
   for (const row of plan.rows) {
     const updated = await tx
       .update(schema.documents)
-      .set({ content: row.content, updatedAt: now })
+      .set({
+        content: row.content,
+        bodyRevision: bodyRevisionForContent(row.content),
+        updatedAt: now,
+      })
       .where(
         and(
           eq(schema.documents.id, row.documentId),

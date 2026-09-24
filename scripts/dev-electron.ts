@@ -7,7 +7,7 @@
  * By default starts the core template set (mail, calendar, slides, etc.).
  * Pass --apps to override, e.g.: --apps calendar,slides
  */
-import { spawn, execSync } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
@@ -87,14 +87,68 @@ const portsToUse = requestedApps
   .filter(Boolean) as number[];
 portsToUse.push(FRAME_PORT);
 
-function tryKillPort(port: number) {
-  try {
-    const pids = execSync(`lsof -ti :${port}`, { encoding: "utf8" }).trim();
-    if (pids) {
-      execSync(`kill -9 ${pids.split("\n").join(" ")}`, { stdio: "ignore" });
+function listeningPidsForPort(port: number): number[] {
+  if (process.platform === "win32") {
+    const output = execFileSync("netstat", ["-ano", "-p", "tcp"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const pids = new Set<number>();
+    for (const line of output.split(/\r?\n/)) {
+      const fields = line.trim().split(/\s+/);
+      if (
+        fields[0]?.toUpperCase() !== "TCP" ||
+        fields[3]?.toUpperCase() !== "LISTENING"
+      ) {
+        continue;
+      }
+      const localAddress = fields[1] ?? "";
+      const localPort = localAddress.slice(localAddress.lastIndexOf(":") + 1);
+      const pid = Number(fields[4]);
+      if (localPort === String(port) && Number.isInteger(pid) && pid > 0) {
+        pids.add(pid);
+      }
     }
+    return [...pids];
+  }
+
+  const output = execFileSync("lsof", ["-ti", `:${port}`], {
+    encoding: "utf8",
+  });
+  const pids: number[] = [];
+  for (const value of output.split(/\s+/)) {
+    if (!value) continue;
+    const pid = Number(value);
+    if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
+}
+
+function tryKillPort(port: number) {
+  let pids: number[];
+  try {
+    pids = listeningPidsForPort(port);
   } catch {
     // Port not in use — fine
+    return;
+  }
+
+  for (const pid of pids) {
+    try {
+      if (process.platform === "win32") {
+        // Vite is launched through pnpm/concurrently, so kill the full tree;
+        // terminating only the listener leaves its wrapper alive for relaunch.
+        execFileSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        execFileSync("kill", ["-9", String(pid)], { stdio: "ignore" });
+      }
+    } catch {
+      // coercion-ok: a raced process exit means cleanup already happened.
+      // The process may have exited between discovery and termination.
+    }
   }
 }
 
@@ -137,6 +191,11 @@ const colors: string[] = [];
 
 const appColors = ["blue", "green", "cyan", "magenta", "white"];
 
+// Keep cold-start SSR imports from racing one another. Nitro's Vite worker
+// reports a transient 503 while its entry is still being compiled; starting
+// every template at once turns that expected warm-up into a visible app error.
+const STAGGER_DELAY_S = 0.25;
+
 requestedApps.forEach((appName, i) => {
   const port = PORT_MAP[appName];
   if (!port) {
@@ -150,8 +209,9 @@ requestedApps.forEach((appName, i) => {
   // both the frontend and all /api/* routes on the one port.
   // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
   // first when resolving the dev server port).
+  const delayMs = Math.round(i * STAGGER_DELAY_S * 1000);
   commands.push(
-    `APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
+    `node scripts/dev-electron-template.ts ${JSON.stringify(appName)} ${port} ${delayMs}`,
   );
   colors.push(appColors[i % appColors.length]);
 });
@@ -183,6 +243,19 @@ if (dryRun) {
 }
 
 ensureElectronBinary();
+
+// The desktop shell resolves @agent-native/core, /shared-app-config, /toolkit,
+// and /code-agents-ui through their built `dist/`, not their source. A dist left
+// behind by an older checkout still loads, so the shell boots against last
+// week's code and fails in ways that look like app bugs — a missing export
+// reads as `undefined` at the call site (a dropped `workspaceSso` turns into a
+// re-login prompt; a missing host map throws on every app URL it resolves).
+// dev-lazy already prebuilds for this reason; this entry point must too.
+console.log(`\x1b[36m[dev-electron]\x1b[0m Prebuilding workspace packages...`);
+execSync("node scripts/prebuild-workspace-packages.ts dev", {
+  stdio: "inherit",
+});
+
 portsToUse.forEach(tryKillPort);
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);

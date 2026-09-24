@@ -11,5 +11,5 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: ({ id }, ctx?: ActionRunContext) =>
-    crmDashboardStore.listRevisions(id, requireDashboardAccess(ctx)),
+    crmDashboardStore.listRevisionMetadata(id, requireDashboardAccess(ctx)),
 });

@@ -55,7 +55,7 @@ function pathForView(view?: string): string {
     case "chat":
     case "home":
     case "ask":
-      return "/";
+      return "/home";
     case "database":
       return "/database";
     case "extensions":
@@ -69,16 +69,16 @@ function pathForView(view?: string): string {
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return "/home";
   }
 }
 
 function pathForCommand(command: any): string {
   const path = pathForView(command?.view);
-  if (path !== "/") return path;
+  if (path !== "/home") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : path;
 }
 
 function routerPath(path: string): string {
@@ -92,5 +92,5 @@ function routerPath(path: string): string {
 }
 
 function isChatPath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
+  return pathname === "/home" || pathname.startsWith("/chat/");
 }

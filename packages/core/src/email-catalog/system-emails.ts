@@ -9,7 +9,10 @@
  */
 
 import {
+  renderChangeEmailConfirmationEmail,
+  renderChangeEmailVerificationEmail,
   renderInviteEmail,
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "../server/email-templates.js";
@@ -22,12 +25,51 @@ const SAMPLE_EMAIL = "sam.rivera@example.com";
 export const CORE_INVITE_EMAIL_ID = "core.organization-invite";
 export const CORE_VERIFY_SIGNUP_EMAIL_ID = "core.verify-signup";
 export const CORE_RESET_PASSWORD_EMAIL_ID = "core.reset-password";
+export const CORE_MAGIC_LINK_EMAIL_ID = "core.magic-link";
+export const CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID =
+  "core.change-email-confirmation";
+export const CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID =
+  "core.change-email-verification";
 
 let registered = false;
 
 export function registerCoreSystemEmails(): void {
   if (registered) return;
   registered = true;
+
+  defineTransactionalEmail({
+    id: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+    app: "core",
+    name: "Confirm email change",
+    trigger: "A signed-in user requests an email-address change.",
+    recipientLabel: "Current account address",
+    recipient: "The current verified address, before the requested change.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderChangeEmailConfirmationEmail({
+        email: SAMPLE_EMAIL,
+        newEmail: "new.address@example.com",
+        confirmationUrl: SAMPLE_URL,
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
+    app: "core",
+    name: "Verify new email",
+    trigger:
+      "A user confirms an email-address change at their current address.",
+    recipientLabel: "New account address",
+    recipient: "The new address supplied in the email-change request.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderChangeEmailVerificationEmail({
+        email: "new.address@example.com",
+        verifyUrl: SAMPLE_URL,
+      }),
+  });
 
   defineTransactionalEmail({
     id: CORE_INVITE_EMAIL_ID,
@@ -84,6 +126,24 @@ export function registerCoreSystemEmails(): void {
       renderResetPasswordEmail({
         email: SAMPLE_EMAIL,
         resetUrl: SAMPLE_URL,
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_MAGIC_LINK_EMAIL_ID,
+    app: "core",
+    name: "Magic link sign-in",
+    trigger:
+      "A user submits their email on the sign-in screen while magic-link is the active login mode.",
+    recipientLabel: "Sign-in address",
+    recipient: "The address typed into the sign-in form.",
+    senderLabel: "Default, app-branded",
+    sender:
+      "The configured EMAIL_FROM, branded with the app name the sign-in happened in.",
+    preview: () =>
+      renderMagicLinkEmail({
+        email: SAMPLE_EMAIL,
+        magicLinkUrl: SAMPLE_URL,
       }),
   });
 }

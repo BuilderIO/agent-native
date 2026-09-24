@@ -5,7 +5,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconArrowLeft,
   IconCheck,
@@ -25,9 +26,10 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
+import { Navigate, NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageHeader } from "@/components/library/page-header";
 import {
   AttendeeStack,
@@ -42,6 +44,7 @@ import {
   TranscriptBubbles,
   type TranscriptSegment,
 } from "@/components/meetings/transcript-bubbles";
+import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +55,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -102,7 +104,12 @@ interface Meeting {
   joinUrl?: string | null;
   recordingId?: string | null;
   recordingDurationMs?: number | null;
-  transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  transcriptStatus?:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "in_progress"
+    | (string & {});
   visibility?: "private" | "org" | "public" | null;
   shareTranscript?: boolean | null;
   summaryMd?: string | null;
@@ -258,12 +265,13 @@ function ActionItemsByPerson({
       {grouped.map(([who, list]) => (
         <div key={who} className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <Avatar className="h-5 w-5">
-              <AvatarImage alt={who} />
-              <AvatarFallback className="text-[9px]">
-                {attendeeInitials(who || t("meetingDetail.unassigned"))}
-              </AvatarFallback>
-            </Avatar>
+            <ClipsAvatar
+              email={who || null}
+              alt={who || t("meetingDetail.unassigned")}
+              fallback={attendeeInitials(who || t("meetingDetail.unassigned"))}
+              className="h-5 w-5"
+              fallbackClassName="text-[9px]"
+            />
             <span className="text-xs font-medium">
               {who || t("meetingDetail.unassigned")}
             </span>
@@ -452,6 +460,7 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
+  const lab = useLabState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -466,6 +475,7 @@ export default function MeetingDetailRoute() {
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+    reason?: "unavailable";
   };
 
   const {
@@ -932,8 +942,8 @@ export default function MeetingDetailRoute() {
       {
         onSuccess: () => {
           toast.success(t("meetingDetail.meetingRemoved"));
-          qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
-          navigate("/meetings", { replace: true });
+          void qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
+          void navigate("/meetings", { replace: true });
         },
         onError: (err: unknown) => {
           toast.error(
@@ -1018,7 +1028,32 @@ export default function MeetingDetailRoute() {
     finalize,
   ]);
 
-  if (isLoading || !meeting) {
+  // Failed, still pending, and loaded-but-absent are three outcomes: the query
+  // never retries, so collapsing any of them into the skeleton pins it forever.
+  // A failed live-poll on top of an already-loaded meeting is none of them —
+  // keep showing the meeting.
+  if (lab.isSuccess && !lab.enabled) {
+    return <Navigate replace to="/library" />;
+  }
+
+  if (isError && !meeting) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto w-full">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {t("meetingDetail.couldNotLoadMeeting")}
+        </div>
+        <Button
+          variant="outline"
+          className="mt-3"
+          onClick={() => refetchMeeting()}
+        >
+          {t("meetingDetail.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="p-6 max-w-6xl mx-auto w-full">
         <Skeleton className="h-6 w-32 mb-4" />
@@ -1032,12 +1067,19 @@ export default function MeetingDetailRoute() {
     );
   }
 
-  if (isError) {
+  if (!meeting) {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {t("meetingDetail.couldNotLoadMeeting")}
+        <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
+          {/* Neutral on purpose: `get-meeting` returns one reason for missing
+              and inaccessible so callers cannot probe which ids exist, and
+              saying "not found" here would leak back the distinction the
+              action withholds. */}
+          {t("meetingDetail.meetingUnavailable")}
         </div>
+        <Button asChild variant="outline" className="mt-3">
+          <NavLink to="/meetings">{t("meetingDetail.allMeetings")}</NavLink>
+        </Button>
       </div>
     );
   }
@@ -1128,7 +1170,7 @@ export default function MeetingDetailRoute() {
                 Boolean(data?.transcript?.fullText?.trim()))
             }
           >
-            <ShareTrigger
+            <ClipsShareTrigger
               label={t("meetingDetail.share")}
               className="shrink-0"
             />
@@ -1283,7 +1325,7 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 lg:overflow-hidden">
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 overflow-y-auto">
         {/* Summary canvas with generated bullets and action items. */}
         <div
           className={cn(

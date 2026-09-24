@@ -7,6 +7,10 @@ description: "Aloje muchas aplicaciones nativas del agente en un monorepo con au
 
 > **¿Qué documento de espacio de trabajo?** Esta página cubre la **forma de implementación**: un monorepo, muchas aplicaciones, autenticación compartida y una implementación unificada. Para conocer la capa de personalización del agente (Recursos del Agente: `AGENTS.md`, memoria, skills, agentes personalizados), consulte [Recursos del Agente](/docs/agent-resources); para la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
 
+## ¿Aplicación independiente o espacio de trabajo? {#standalone-or-workspace}
+
+Elige un espacio de trabajo cuando una empresa administra varias aplicaciones internas que deben compartir configuración de despliegue y contexto de organización. Una aplicación independiente sirve para una herramienta aislada o un prototipo. Es una forma de despliegue compatible, pero no incluye paquetes compartidos ni configuración raíz del espacio de trabajo. Consulta [Despliegues administrados](/docs/administered-deployments).
+
 Cuando codificar una herramienta interna requiere una tarde, no te detienes en una. Un equipo termina con un CRM, una bandeja de entrada de soporte, un tablero, una consola de operaciones: diez pequeñas aplicaciones, cada una estructurada de forma independiente. Eso es genial hasta que necesites cambiar algo en todos ellos.
 
 En ese momento, cada aplicación tiene su propio `AGENTS.md`, su propio complemento de autenticación, su propio componente de diseño copiado y pegado, su propio token Slack codificado y su propia idea de lo que es una "organización". Un cambio de regla de cumplimiento significa diez RP. Girar una clave API significa diez redespliegues. Una actualización de marca significa que diez encabezados diferentes no están sincronizados. Lo que facilitó su creación ahora dificulta su gestión.
@@ -38,7 +42,7 @@ Ese mismo límite se aplica cuando su aplicación quiere utilizar otra aplicaci�
 El espacio de trabajo es la forma predeterminada de un proyecto nativo del agente. Andamio uno con:
 
 ```bash
-npx @agent-native/core@latest create my-company-platform
+npx --yes @agent-native/core@latest create my-company-platform
 ```
 
 El CLI muestra un selector múltiple de cada plantilla propia. Elija tantos como desee (Correo + Calendario + Formularios, por ejemplo) y todos se integrarán en los mismos valores predeterminados de base de datos y autenticación de uso compartido del espacio de trabajo.
@@ -397,11 +401,13 @@ Estas configuraciones solo afectan la navegación de páginas de solo lectura. L
 
 ### Implementación independiente por aplicación
 
-¿Prefieres cada aplicación en su propio dominio (`mail.company.com`, `calendar.company.com`)? Cada aplicación en el espacio de trabajo sigue siendo implementable de forma independiente: `cd apps/mail && npx @agent-native/core@latest build` se comporta exactamente como un andamio independiente. Luego, el A2A entre aplicaciones pasa por la ruta estándar firmada por JWT con un `A2A_SECRET` compartido. El SSO de dominio cruzado entre aplicaciones implementadas por separado se maneja mediante la federación de identidades con Dispatch como centro; consulte [Cross-App SSO](/docs/cross-app-sso); la implementación unificada de origen único evita su necesidad.
+¿Prefieres cada aplicación en su propio dominio (`mail.company.com`, `calendar.company.com`)? Cada aplicación en el espacio de trabajo sigue siendo implementable de forma independiente: `cd apps/mail && pnpm build` se comporta exactamente como un andamio independiente. Luego, el A2A entre aplicaciones pasa por la ruta estándar firmada por JWT con un `A2A_SECRET` compartido. El SSO de dominio cruzado entre aplicaciones implementadas por separado se maneja mediante la federación de identidades con Dispatch como centro; consulte [Cross-App SSO](/docs/cross-app-sso); la implementación unificada de origen único evita su necesidad.
 
 ### Base de datos compartida, credenciales compartidas
 
 Independientemente de lo que elija, apunte cada aplicación al mismo `DATABASE_URL` para el estado entre aplicaciones listo para usar: un conjunto de cuentas de usuario, un conjunto de organizaciones, un conjunto de configuraciones compartidas. Si cada aplicación tiene su propia base de datos, el patrón del espacio de trabajo aún funciona; simplemente se pierde esa historia de estado compartido.
+
+La demanda de conexiones se suma entre los procesos que comparten una base de datos. Si cinco procesos de aplicaciones Node.js de larga duración usan cada uno un pool compartido para el mismo `DATABASE_URL`, pueden mantener hasta 100 conexiones con el límite predeterminado de 20 por pool (`5 × 1 pool × 20`). En espacios de trabajo sin servidor, calcule las instancias de función activas por aplicación usando los límites predeterminados específicos del entorno. Consulte [Base de datos del servidor](/docs/server-database) para ver `AGENT_NATIVE_DB_POOL_MAX` y las pautas completas de cálculo.
 
 El paquete compartido en sí nunca se implementa de forma independiente. Es un departamento de `workspace:*` que pnpm enlaza simbólicamente con el `node_modules/` de cada aplicación, por lo que cada aplicación agrupa de forma transparente lo que necesita en el momento de la compilación.
 

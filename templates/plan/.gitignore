@@ -3,12 +3,6 @@ build
 
 .generated/
 
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
-
 .vercel/
 
 # Local Playwright run artifacts

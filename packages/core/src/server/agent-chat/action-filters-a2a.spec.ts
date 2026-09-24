@@ -7,6 +7,7 @@ import {
   buildPublicAgentA2ASkills,
   filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
+  filterMcpOnlyActions,
   resolveInitialToolNames,
 } from "./action-filters-a2a.js";
 
@@ -113,6 +114,62 @@ describe("filterDirectA2AActions", () => {
         }),
       ).sort(),
     ).toEqual(["search-text", "semantic"]);
+  });
+
+  it("reads `mcpTool` as catalog membership and as a veto", () => {
+    const actions = {
+      "list-plans": action({ mcpTool: true }),
+      "get-plan": action(),
+      "open-inspector": action({ mcpTool: false }),
+    };
+
+    // No configured catalog: the action's own `mcpTool: true` selects it.
+    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+      "list-plans",
+    ]);
+
+    // A configured catalog cannot re-open an action that vetoed itself.
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: ["get-plan", "open-inspector"],
+        }),
+      ).sort(),
+    ).toEqual(["get-plan", "list-plans"]);
+  });
+
+  it("inherits agentTool when mcpTool is undefined, and lets mcpTool override it", () => {
+    const actions = {
+      "hidden-read": action({ agentTool: false }),
+      "mcp-only-read": action({ agentTool: false, mcpTool: true }),
+    };
+
+    // A configured catalog does not resurrect an agent-hidden action...
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: ["hidden-read", "mcp-only-read"],
+        }),
+      ),
+    ).toEqual(["mcp-only-read"]);
+
+    // ...and the MCP-only one needs no catalog entry at all.
+    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+      "mcp-only-read",
+    ]);
+  });
+
+  it("collects only the MCP-only actions for the external mounts", () => {
+    expect(
+      Object.keys(
+        filterMcpOnlyActions({
+          "mcp-only": action({ agentTool: false, mcpTool: true }),
+          "agent-hidden": action({ agentTool: false }),
+          "catalog-member": action({ mcpTool: true }),
+          normal: action(),
+        }),
+      ),
+    ).toEqual(["mcp-only"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {
@@ -293,5 +350,58 @@ describe("resolveInitialToolNames", () => {
         "share-resource",
       ]),
     ).toEqual(["share-resource"]);
+  });
+
+  it("narrows the derived list to the actions that opted out of deferral", () => {
+    expect(
+      resolveInitialToolNames({
+        "list-forms": action({ deferLoading: false }),
+        "create-form": action({ deferLoading: false }),
+        "export-form-archive": action(),
+      }),
+    ).toEqual(["list-forms", "create-form"]);
+  });
+
+  it("drops `deferLoading: true` from the derived list", () => {
+    expect(
+      resolveInitialToolNames({
+        "list-forms": action(),
+        "export-form-archive": action({ deferLoading: true }),
+      }),
+    ).toEqual(["list-forms"]);
+  });
+
+  it("adds eager actions to a configured list without duplicating it", () => {
+    expect(
+      resolveInitialToolNames(
+        {
+          "list-forms": action({ deferLoading: false }),
+          "create-form": action({ deferLoading: false }),
+          "export-form-archive": action(),
+        },
+        ["list-forms", "export-form-archive"],
+      ),
+    ).toEqual(["list-forms", "export-form-archive", "create-form"]);
+  });
+
+  it("keeps a configured name that the action marked deferred", () => {
+    // The array is the app's explicit, current statement; an annotation must
+    // not silently delete a name the app still lists.
+    expect(
+      resolveInitialToolNames(
+        { "export-form-archive": action({ deferLoading: true }) },
+        ["export-form-archive"],
+      ),
+    ).toEqual(["export-form-archive"]);
+  });
+
+  it("honors `deferLoading: false` on a framework kit action", () => {
+    const [kitName] = Object.keys(CORE_ACTION_GROUPS);
+    expect(
+      resolveInitialToolNames({
+        [kitName]: action({ deferLoading: false }),
+        "create-form": action(),
+      }),
+    ).toEqual([kitName]);
   });
 });

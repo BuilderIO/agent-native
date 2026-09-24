@@ -56,9 +56,11 @@ const mockDb = createMemoryDb();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {

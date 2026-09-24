@@ -1,28 +1,132 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { cn } from "@/lib/utils";
 
-type TriageStatusPillProps = {
-  status?: string | null;
+export type InboxPillData = {
+  key: string;
+  labelKey: string;
+  tone: PillTone;
+  hintKey?: string;
 };
 
-export function TriageStatusPill({ status }: TriageStatusPillProps) {
-  const normalizedStatus = status?.toLowerCase();
-  const tone =
-    normalizedStatus === "high" || normalizedStatus === "critical"
-      ? "bg-destructive/10 text-destructive"
-      : normalizedStatus === "reviewed" || normalizedStatus === "resolved"
-        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-        : normalizedStatus === "medium" || normalizedStatus === "pending"
-          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-          : "bg-muted text-muted-foreground";
+export type PillTone =
+  | "muted"
+  | "success"
+  | "warning"
+  | "danger"
+  | "info"
+  | "high"
+  | "progress";
 
+const TONE_CLASS: Record<PillTone, string> = {
+  muted: "bg-secondary text-secondary-foreground",
+  success: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  warning: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  danger: "bg-destructive/10 text-destructive",
+  info: "bg-primary/10 text-primary",
+  high: "bg-orange-500/15 text-orange-700 dark:text-orange-400",
+  progress: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
+};
+
+function riskTone(risk?: string | null): PillTone {
+  switch (risk?.toLowerCase()) {
+    case "negligible":
+      return "muted";
+    case "low":
+      return "success";
+    case "medium":
+      return "warning";
+    case "high":
+      return "high";
+    case "critical":
+      return "danger";
+    default:
+      return "muted";
+  }
+}
+
+function confidenceTone(confidence?: string | null): PillTone {
+  switch (confidence?.toLowerCase()) {
+    case "high":
+      return "success";
+    case "medium":
+      return "warning";
+    case "low":
+      return "danger";
+    default:
+      return "muted";
+  }
+}
+
+function statusTone(status?: string | null): PillTone {
+  switch (status?.toLowerCase()) {
+    case "needs_manual":
+      return "warning";
+    case "automation_started":
+      return "progress";
+    case "context_fetching":
+      return "info";
+    case "failed":
+    case "reconciliation_required":
+      return "danger";
+    case "auto_approved":
+    case "merged":
+    case "resolved":
+    case "reviewed":
+      return "success";
+    default:
+      return "muted";
+  }
+}
+
+export function Pill({
+  value,
+  tone,
+}: {
+  value?: string | null;
+  tone: PillTone;
+}) {
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        tone,
+        TONE_CLASS[tone],
       )}
     >
-      {status || "-"}
+      {value || "-"}
+    </span>
+  );
+}
+
+export function TriageRiskPill({ risk }: { risk?: string | null }) {
+  return <Pill value={risk} tone={riskTone(risk)} />;
+}
+
+export function TriageConfidencePill({
+  confidence,
+}: {
+  confidence?: string | null;
+}) {
+  return <Pill value={confidence} tone={confidenceTone(confidence)} />;
+}
+
+export function TriageStatusPill({ status }: { status?: string | null }) {
+  return <Pill value={status} tone={statusTone(status)} />;
+}
+
+export function InboxPill({ pill }: { pill: InboxPillData }) {
+  const t = useT();
+  const label = t(pill.labelKey);
+  const hint = pill.hintKey ? t(pill.hintKey) : null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        TONE_CLASS[pill.tone],
+      )}
+      title={hint ?? undefined}
+    >
+      {label}
     </span>
   );
 }

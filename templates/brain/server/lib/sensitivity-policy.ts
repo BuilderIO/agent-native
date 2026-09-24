@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  BRAIN_SENSITIVITY_CATEGORIES,
   BRAIN_SENSITIVITY_POLICY_VERSION,
   type BrainSafeSegment,
   type BrainSensitivityCategory,
@@ -11,23 +12,7 @@ export const MAX_CLASSIFIER_OUTPUT_CHARS = 80_000;
 export const classifierDecisionSchema = z
   .object({
     disposition: z.enum(["allowed", "suppressed", "quarantined"]),
-    categories: z
-      .array(
-        z.enum([
-          "performance",
-          "discipline",
-          "termination",
-          "layoff-reorg",
-          "compensation",
-          "recruiting",
-          "health-accommodation",
-          "investigation",
-          "privileged-legal",
-          "secret-credential",
-          "personal",
-        ]),
-      )
-      .max(12),
+    categories: z.array(z.enum(BRAIN_SENSITIVITY_CATEGORIES)).max(12),
     safeContent: z.string().max(MAX_CLASSIFIER_OUTPUT_CHARS),
     safeSegments: z
       .array(
@@ -39,6 +24,90 @@ export const classifierDecisionSchema = z
       .max(50),
   })
   .strict();
+
+/**
+ * Redacts contact details, credentials, and links that survive the line-level
+ * screen. Anything leaving the process -- persisted content or a payload sent
+ * to an external classifier -- must pass through here.
+ */
+export function sanitizeSensitiveText(value: string): string {
+  return (
+    value
+      // Credentials run first. The phone-number rule below matches the digit
+      // runs inside tokens like `xoxb-000000000000-...`, and once it rewrites
+      // the middle the credential patterns no longer match, leaving the tail
+      // of a live secret in the output.
+      .replace(UNLABELLED_CREDENTIAL_PATTERN, "[redacted]")
+      .replace(LABELLED_CREDENTIAL_PATTERN, "$1: [redacted]")
+      .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
+      .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
+      .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
+      .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
+      )
+      .replace(/https?:\/\/\S+/gi, "[link]")
+  );
+}
+
+/**
+ * Unlabelled provider credential formats, listed once because they are needed
+ * in two places that must not drift: the `secret-credential` hard-category
+ * screen (which suppresses the whole capture) and `sanitizeSensitiveText`
+ * (which redacts anything leaving the process). A format present in only the
+ * redactor would let a credential-bearing capture be stored as "allowed".
+ *
+ * This list is defence in depth with a long tail, not the primary control.
+ * Labelled secrets are caught by the `CREDENTIAL_LABEL_PATTERN` below, and the
+ * classifier's `secret-credential` question covers formats nobody enumerated.
+ */
+const UNLABELLED_CREDENTIAL_SOURCES = [
+  // GitHub, OpenAI, Stripe, and similar `<prefix>_<body>` / `<prefix>-<body>`.
+  String.raw`\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b`,
+  // Slack bot/user/app/refresh tokens.
+  String.raw`\bxox[abposr]-[A-Za-z0-9-]{10,}`,
+  // AWS access key ids.
+  String.raw`\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`,
+  // Google API keys and OAuth client secrets.
+  String.raw`\bAIza[A-Za-z0-9_-]{35}\b`,
+  String.raw`\bGOCSPX-[A-Za-z0-9_-]{20,}\b`,
+  // SendGrid.
+  String.raw`\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
+  // JWTs.
+  String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`,
+  // PEM blocks. The label pattern wants `private key:`, which a PEM header
+  // never has.
+  String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----`,
+  // Authorization headers pasted from logs or curl commands.
+  String.raw`\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}`,
+] as const;
+
+/**
+ * Labels that introduce a secret value. Shared so the detector and the
+ * redactor cannot recognise different sets: a label in only the detector
+ * suppresses without redacting, and one in only the redactor leaves a
+ * credential-bearing capture stored as "allowed".
+ */
+const CREDENTIAL_LABELS = String.raw`password|passcode|secret|token|api[-_ ]?key|access[-_ ]?token|private[-_ ]?key`;
+
+const CREDENTIAL_LABEL_PATTERN = String.raw`\b(?:${CREDENTIAL_LABELS})\s*[:=]`;
+
+// Case-insensitive in both directions: the detector and the redactor must
+// agree, or `authorization: bearer <token>` is suppressed but not redacted.
+const UNLABELLED_CREDENTIAL_PATTERN = new RegExp(
+  UNLABELLED_CREDENTIAL_SOURCES.join("|"),
+  "gi",
+);
+
+const LABELLED_CREDENTIAL_PATTERN = new RegExp(
+  String.raw`\b(${CREDENTIAL_LABELS})\s*[:=]\s*\S+`,
+  "gi",
+);
+
+const CREDENTIAL_PATTERN = new RegExp(
+  [CREDENTIAL_LABEL_PATTERN, ...UNLABELLED_CREDENTIAL_SOURCES].join("|"),
+  "i",
+);
 
 const HARD_CATEGORY_PATTERNS: ReadonlyArray<
   readonly [BrainSensitivityCategory, RegExp]
@@ -79,10 +148,7 @@ const HARD_CATEGORY_PATTERNS: ReadonlyArray<
     "privileged-legal",
     /\b(attorney[- ]client|legal privilege|privileged and confidential|outside counsel|litigation hold)\b/i,
   ],
-  [
-    "secret-credential",
-    /\b(?:password|passcode|secret|api[- ]?key|access[- ]?token|private[- ]?key)\s*[:=]|\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b/i,
-  ],
+  ["secret-credential", CREDENTIAL_PATTERN],
 ];
 
 const PERSONAL_PATTERN =

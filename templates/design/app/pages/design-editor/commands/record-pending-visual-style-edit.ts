@@ -1,6 +1,10 @@
 import type { InteractionState } from "@shared/interaction-states";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
+} from "@/components/design/edit-panel/interaction-state-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import { prettyScreenName } from "@/lib/screen-names";
 import type {
@@ -12,7 +16,6 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { runtimeMultiplicityForElementProvenance } from "@/pages/design-editor/editor-helpers";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
-import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
@@ -20,11 +23,14 @@ import type {
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
-  mergePendingVisualStyleEdits,
+  appendPendingVisualStyleUndoEntry,
+  mergePendingVisualStyleEdit,
+  nextPendingLiveEditTimestamp,
   originalStylesForPendingVisualEdit,
   pendingVisualStyleUndoRevertStyles,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
+import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingVisualStyleEditArgs {
@@ -32,6 +38,7 @@ export interface RecordPendingVisualStyleEditArgs {
   activeBreakpointWidthState: number | undefined;
   activeFile: DesignFile;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -50,7 +57,12 @@ export interface RecordPendingVisualStyleEditArgs {
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   selectedElement: ElementInfo | null;
+  onNoRenderedBox?: () => void;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
   setPendingVisualStyleEdits: Dispatch<
     SetStateAction<PendingVisualStyleEdit[]>
@@ -65,6 +77,7 @@ export function runRecordPendingVisualStyleEdit(
     activeBreakpointWidthState,
     activeFile,
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     clipboardPasteRedoStackRef,
     files,
@@ -78,8 +91,10 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleRedoStackRef,
     pendingVisualStyleUndoStackRef,
     responsiveEditScopeRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     selectedElement,
+    onNoRenderedBox,
     setPatchProof,
     setPendingVisualStyleEdits,
     setSelectedElement,
@@ -92,9 +107,12 @@ export function runRecordPendingVisualStyleEdit(
   metadata?: {
     originalStyles?: Record<string, string>;
     interactionState?: InteractionState;
+    pendingUndoGestureId?: string;
+    preserveSelection?: boolean;
+    routePath?: string;
   },
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );
@@ -115,12 +133,38 @@ export function runRecordPendingVisualStyleEdit(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const measuredTarget =
+    elementInfo ?? (screenId === activeFile?.id ? selectedElement : null);
+  if (
+    measuredTarget &&
+    (measuredTarget.boundingRect.width <= 0 ||
+      measuredTarget.boundingRect.height <= 0)
+  ) {
+    onNoRenderedBox?.();
+    setPatchProof({
+      id: proofId,
+      fileId: screenId,
+      filename: fallbackName,
+      selector,
+      sourceId: sourceId ?? undefined,
+      property: entries.map(([property]) => property).join(", "),
+      nextValue: entries
+        .map(([property, value]) => `${property}: ${value}`)
+        .join("; "),
+      capability: "deterministic-style-edit",
+      confidence: 0,
+      status: "failed",
+      error: "designEditor.patchProof.noRenderedBox",
+      createdAt: Date.now(),
+    });
+    return;
+  }
   const [firstProperty, firstValue] = entries[0];
   const baseStyles = metadata?.interactionState
     ? originalStylesForPendingVisualEdit(
         stylePatch,
-        screenId === activeFile?.id ? selectedElement : null,
         elementInfo,
+        screenId === activeFile?.id ? selectedElement : null,
       )
     : undefined;
   const originalStyles = metadata?.interactionState
@@ -128,8 +172,8 @@ export function runRecordPendingVisualStyleEdit(
     : (metadata?.originalStyles ??
       originalStylesForPendingVisualEdit(
         stylePatch,
-        screenId === activeFile?.id ? selectedElement : null,
         elementInfo,
+        screenId === activeFile?.id ? selectedElement : null,
       ));
   cancelPendingStructureVerification("conflict");
   pendingVisualStyleRedoStackRef.current = [];
@@ -168,10 +212,11 @@ export function runRecordPendingVisualStyleEdit(
     classes: elementInfo?.classes ?? [],
     styles: stylePatch,
     originalStyles,
+    ...(metadata?.routePath ? { routePath: metadata.routePath } : {}),
     ...(metadata?.interactionState
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
     // §6.4 — stamp the active breakpoint scope so the agent applies
     // these as width-scoped overrides, not base writes.
     ...(activeBreakpointWidthState != null
@@ -188,14 +233,23 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
     nextEdit,
   );
-  pendingVisualStyleUndoStackRef.current = [
-    ...pendingVisualStyleUndoStackRef.current.slice(
-      -(MAX_DESIGN_UNDO_STACK - 1),
-    ),
-    { edit: nextEdit, revertStyles },
-  ];
-  const nextPending = mergePendingVisualStyleEdits(
-    pendingVisualStyleUndoStackRef.current.map((entry) => entry.edit),
+  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
+  // stay painted until Apply, so sharing that cap silently drops them from
+  // the Apply payload. Consecutive ticks on the same target coalesce.
+  const previousUndoLength = pendingVisualStyleUndoStackRef.current.length;
+  appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
+    edit: nextEdit,
+    revertStyles,
+    ...(metadata?.pendingUndoGestureId
+      ? { gestureId: metadata.pendingUndoGestureId }
+      : {}),
+  });
+  if (pendingVisualStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-style");
+  }
+  const nextPending = mergePendingVisualStyleEdit(
+    pendingVisualStyleEditsRef.current,
+    nextEdit,
   );
   pendingVisualStyleEditsRef.current = nextPending;
   setPendingVisualStyleEdits(nextPending);
@@ -229,6 +283,18 @@ export function runRecordPendingVisualStyleEdit(
 
   if (screenId !== activeFile?.id) return;
   setSelectedElement((prev) => {
+    if (
+      metadata?.preserveSelection &&
+      prev &&
+      !pendingEditTargetsSelectedElement({
+        editSourceId: sourceId,
+        editSelector: selector,
+        selectedSourceId: prev.sourceId,
+        selectedSelector: prev.selector,
+      })
+    ) {
+      return prev;
+    }
     const base = elementInfo ?? prev;
     if (!base) return prev;
     return {
@@ -239,9 +305,14 @@ export function runRecordPendingVisualStyleEdit(
         ...base.computedStyles,
         ...stylePatch,
       },
+      inlineStyles: patchAuthoredInlineStyles(base.inlineStyles, stylePatch),
+      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+        base.authoredSizeStyles,
+        stylePatch,
+      ),
     };
   });
-  if (sourceId) {
+  if (sourceId && !metadata?.preserveSelection) {
     setSelectedLayerIdsState([sourceId]);
   }
 }

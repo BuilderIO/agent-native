@@ -58,7 +58,14 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
         ALTER TABLE agent_harness_sessions
           ALTER COLUMN stopped_at TYPE BIGINT
       `,
-      sqlite: "",
+    },
+  },
+  {
+    version: 4,
+    name: "agent-harness-sessions-generation",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0",
     },
   },
 ];

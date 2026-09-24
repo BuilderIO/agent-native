@@ -12,11 +12,11 @@ availability: "universal"
 dependencies: ["content.view.query", "content.property.constraints"]
 related_features: ["content.feature.data-that-keeps-itself-right"]
 roadmap_boundary: "feature"
-acceptance_summary: "Creation through an effective View seeds only deterministic positive equality, membership, contextual, and renderer-placement values; Database validation remains the sole hard gate, and valid edits may move records into or out of results with truthful feedback."
+acceptance_summary: "Creation through an effective View seeds only deterministic positive equality, membership, contextual, and renderer-placement values; Collection validation remains the sole hard gate, and valid edits may move records into or out of results with truthful feedback."
 proof_requirements:
   [
     "Typed effective-View analysis for positive seeds and refusal of ambiguous inference",
-    "Shared UI and Action creation with Database permissions, validation, defaults, Events, revisions, and Undo",
+    "Shared UI and Action creation with Collection permissions, validation, defaults, Events, revisions, and Undo",
     "Real-interface workflows for conflicting seeds, post-create exclusion, and valid edits that leave or re-enter results",
   ]
 evidence: []
@@ -38,7 +38,7 @@ would make a View unexpectedly own data validity and block legitimate work.
 An editor opens an `Active` Board filtered to `Active = true` and chooses a
 lane for `Status = Planned`. New work begins with both values. The editor then
 turns `Active` off because that is the correct valid state. Content commits the
-change through the Database, removes the record from the active View, and shows
+change through the Collection, removes the record from the active View, and shows
 **Moved out of this View · Undo**; it does not reject the change or delete the
 record.
 
@@ -57,12 +57,12 @@ Urgent`, `Assignee = current actor`, a Board lane, or a Calendar date.
   formulas, and other non-deterministic expressions never manufacture a stored
   value merely because a record might satisfy them.
 - Seeds are starting values, not locked fields. Explicit user intent may change
-  them before or after creation whenever the owning Database permits the
+  them before or after creation whenever the owning Collection permits the
   resulting mutation.
 
 ### Inclusion is not validation
 
-- Query and View filters control result inclusion. The owning Database owns
+- Query and View filters control result inclusion. The owning Collection owns
   membership, Properties, defaults, constraints, permissions, Rules, and the
   canonical create/write path; only those rules decide whether a value is
   valid.
@@ -74,13 +74,13 @@ Urgent`, `Assignee = current actor`, a Board lane, or a Calendar date.
   feedback such as **Created, but not shown in this View** or **Moved out of
   this View**, with an appropriate Open or Undo route.
 - Conflicting automatic seeds never cause a guess. Quick capture expands to the
-  normal creation editor, explains the conflict, and lets Database validation
+  normal creation editor, explains the conflict, and lets Collection validation
   and explicit intent resolve it.
 
 ## Boundaries and non-goals
 
-- Database and Query Views own presentation, downstream filters, and the
-  effective View; Database constraints and Rules own validity.
+- Collection and Query Views own presentation, downstream filters, and the
+  effective View; Collection constraints and Rules own validity.
 - Reusable Queries own intrinsic filters and creation routes. This Capability
   applies those routes in a View; it does not define cross-source write routing.
 - This is not a bulk-update, schema-default, task-template, permission, or
@@ -93,7 +93,7 @@ Urgent`, `Assignee = current actor`, a Board lane, or a Calendar date.
 Given an authorized Board View filtered to `Active = true` with a `Planned`
 lane, when a person creates a record in that lane, then the record starts with
 `Active = true` and `Status = Planned`. When they validly set `Active = false`,
-then the Database commits it and the record leaves the View with Undo feedback.
+then the Collection commits it and the record leaves the View with Undo feedback.
 
 ### Refuse to infer an ambiguous filter
 
@@ -115,7 +115,7 @@ reported as not shown.
 Existing filters, saved Views, Board/Calendar rendering, and creation paths are
 useful donor substrate. They do not yet prove typed seed analysis, identical
 human/agent behavior, conflict expansion, result-transition feedback, or the
-complete Database-validation boundary. This Capability remains `approved_shape`.
+complete Collection-validation boundary. This Capability remains `approved_shape`.
 
 ## Proof plan
 
@@ -124,7 +124,7 @@ complete Database-validation boundary. This Capability remains `approved_shape`.
    revisions, reload, and Undo.
 2. Assert that OR, negation, ranges, search, aggregates, formulas, unavailable
    fields, ambiguous routes, and inaccessible values produce no invented seed.
-3. Exercise post-create exclusion, editing records out of and back into Database
+3. Exercise post-create exclusion, editing records out of and back into Collection
    and Query Views, conflicting seeds, and composed Query zero/one/many routes.
 4. Verify accessible feedback and keyboard capture without turning View
    inclusion into a hidden mutation failure.
@@ -132,6 +132,6 @@ complete Database-validation boundary. This Capability remains `approved_shape`.
 ## Open questions
 
 - The exact precedence and presentation for multiple compatible defaults,
-  Database defaults, and renderer placement need implementation design.
+  Collection defaults, and renderer placement need implementation design.
 - The compact creation editor for conflicting seeds and the exact Undo scope
   need interaction design, while preserving the settled ownership boundary.

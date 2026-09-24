@@ -68,7 +68,6 @@ const APP_VISUALS_BY_ID: Record<
   dispatch: { icon: IconRoute, colorRgb: "20 184 166" },
   factory: { icon: IconUsers, colorRgb: "124 58 237" },
   forms: { icon: IconClipboardList, colorRgb: "6 182 212" },
-  macros: { icon: IconCode, colorRgb: "113 113 122" },
   mail: { icon: IconMail, colorRgb: "59 130 246" },
   plan: { icon: IconLayoutBoard, colorRgb: "47 111 237" },
   slides: { icon: IconPresentation, colorRgb: "236 72 153" },

@@ -15,17 +15,37 @@ import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import "../authorization/check-action.js";
+import { Agent } from "undici";
+
 import type { ActionEntry } from "../agent/production-agent.js";
-import { closeDbExec } from "../db/client.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  closeDbExec,
+  getRuntimeDatabaseUrl,
+  isProcessAlive,
+} from "../db/client.js";
 import {
   actionCallIsReadOnly,
   notifyActionChange,
 } from "../server/action-change.js";
 import {
+  DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ROUTE,
+  DEV_ACTION_TOKEN_HEADER,
+  DEV_ACTION_USER_HEADER,
+  devActionHandoffUrl,
+  hashDatabaseKey,
+  isLoopbackDevActionOrigin,
+  isValidDevActionHandoffUrl,
+  readDevActionDiscoveryFile,
+} from "../server/dev-action-bridge.js";
+import {
   runWithRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
@@ -42,20 +62,6 @@ function withoutCliHandoffText(value: unknown): string {
     CLI_HANDOFF_URL_PATTERN,
     "[redacted embed handoff]",
   );
-}
-
-function cliHandoffUrl(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  for (const key of CLI_HANDOFF_KEYS) {
-    const value = (result as Record<string, unknown>)[key];
-    if (
-      typeof value === "string" &&
-      value.includes("/_agent-native/embed/start?")
-    ) {
-      return value;
-    }
-  }
-  return undefined;
 }
 
 function withoutCliHandoffSecrets(
@@ -97,12 +103,23 @@ type CliHandoffLaunchOutcome =
     };
 
 interface CliHandoffLaunchDeps {
+  /** Override the app origin when a verified dev-server discovery supplies it. */
+  baseUrl?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   spawn?: (
     command: string,
     args: string[],
   ) => { status: number | null; error?: Error };
+}
+
+function resolveCliHandoffBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
+  return (
+    env.APP_URL ||
+    env.WORKSPACE_GATEWAY_URL ||
+    env.VITE_WORKSPACE_GATEWAY_URL ||
+    env.BETTER_AUTH_URL
+  );
 }
 
 export function openCliHandoff(
@@ -118,13 +135,17 @@ export function openCliHandoff(
         "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
     };
   }
+  const baseUrl = deps.baseUrl ?? resolveCliHandoffBaseUrl(env);
+  if (!isValidDevActionHandoffUrl(urlOrPath, baseUrl)) {
+    return {
+      ok: false,
+      reason: "invalid-url",
+      message:
+        "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
+    };
+  }
   let url = urlOrPath;
   if (urlOrPath.startsWith("/")) {
-    const baseUrl =
-      env.APP_URL ||
-      env.WORKSPACE_GATEWAY_URL ||
-      env.VITE_WORKSPACE_GATEWAY_URL ||
-      env.BETTER_AUTH_URL;
     if (!baseUrl) {
       return {
         ok: false,
@@ -189,7 +210,7 @@ export function openCliHandoff(
 }
 
 function printActionResult(result: unknown): CliHandoffLaunchOutcome | null {
-  const handoffUrl = cliHandoffUrl(result);
+  const handoffUrl = devActionHandoffUrl(result);
   const handoff = handoffUrl ? openCliHandoff(handoffUrl) : null;
   console.log(withoutCliHandoffSecrets(result));
   return handoff;
@@ -230,12 +251,12 @@ async function runAppDbPluginIfPresent(): Promise<void> {
  */
 export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
+  const args = process.argv.slice(3);
 
-  if (!actionName || actionName === "--help") {
+  if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
       `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
     );
-    console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -280,7 +301,12 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
     process.exit(1);
   }
 
-  const args = process.argv.slice(3);
+  // Forward to an already-running local dev server before touching the
+  // database ourselves — PGlite's process lock (db/client.ts) means opening
+  // it here while `pnpm dev` holds it open fails outright. Exits the process
+  // on every forwarded outcome (success, action error, or an unauthorized
+  // dev server); falls through to run in-process when nothing matched.
+  await tryForwardToDevServer(actionName, args);
 
   // Establish a request context for the duration of this CLI run. Without
   // it, db-exec / db-query / db-patch and any action that calls
@@ -296,12 +322,150 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // `process.env.AGENT_USER_EMAIL` because env mutation leaks across
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
+
+  // A CLI run mounts no Nitro plugins, so nothing has claimed the file upload
+  // slot that `createCoreRoutesPlugin` and the onboarding plugin claim on a
+  // server. Without this an action calling `uploadFile()` from `pnpm action`
+  // finds no provider and fails with storage fully configured — the same action
+  // works from the dev server and in production.
+  await loadCliBootstrap();
+
   const userEmail = await resolveDevUserEmail();
   const orgId = process.env.AGENT_ORG_ID || undefined;
 
   return runWithRequestContext({ userEmail, orgId }, () =>
     dispatchAction(actionName, args, options),
   );
+}
+
+/**
+ * Try forwarding this call to a matching local dev server instead of running
+ * it in-process. Returns (never — every forwarded path calls `process.exit`)
+ * only when the call was actually sent; otherwise returns normally so the
+ * caller runs in-process exactly as it would without this feature.
+ *
+ * "Matching" requires all three: a readable discovery file, a live pid, and
+ * a `databaseKey` equal to this CLI's own resolved `DATABASE_URL` — a stale
+ * file from a different app/database must never be trusted. A connection
+ * failure (server not actually listening) falls back silently; a 401/403
+ * from a server that IS there does not, since that would otherwise reach
+ * the PGlite lock and print a second, more confusing error.
+ */
+export async function tryForwardToDevServer(
+  actionName: string,
+  args: string[],
+): Promise<void> {
+  const discovery = readDevActionDiscoveryFile(process.cwd());
+  if (!discovery || !isProcessAlive(discovery.pid)) return;
+  // The file is the only source of the origin, and the request carries the
+  // dev token plus the caller's identity headers: only ever send those to the
+  // loopback origin the dev server publishes for itself.
+  if (!isLoopbackDevActionOrigin(discovery.origin)) return;
+  // Same resolver the running server's request-time clients use, so an app
+  // configured with a runtime/unpooled URL still produces a matching key.
+  const ourDatabaseKey = hashDatabaseKey(
+    getRuntimeDatabaseUrl("pglite:./data/pglite"),
+  );
+  if (discovery.databaseKey !== ourDatabaseKey) return;
+
+  let input: Record<string, unknown>;
+  try {
+    input = parseActionArgs(args, { coerceBooleans: true });
+  } catch (error) {
+    console.error(
+      `Action "${actionName}" failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    process.exit(1);
+  }
+
+  let response: Response;
+  // Vite's local HTTPS mode commonly uses a self-signed certificate. This
+  // dispatcher is created only after the strict loopback-origin check above,
+  // so certificate bypass cannot send the dev token to a remote host.
+  const tlsDispatcher = discovery.origin.startsWith("https:")
+    ? new Agent({ connect: { rejectUnauthorized: false } })
+    : undefined;
+  try {
+    const request: RequestInit & { dispatcher?: Agent } = {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [DEV_ACTION_TOKEN_HEADER]: discovery.token,
+        ...(process.env.AGENT_USER_EMAIL
+          ? { [DEV_ACTION_USER_HEADER]: process.env.AGENT_USER_EMAIL }
+          : {}),
+        ...(process.env.AGENT_ORG_ID
+          ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
+          : {}),
+      },
+      body: JSON.stringify({ name: actionName, input }),
+      ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
+    };
+    response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, request);
+  } catch {
+    await tlsDispatcher?.destroy();
+    // The dev server isn't actually listening (stale discovery file,
+    // ECONNREFUSED) or is otherwise unreachable — run in-process.
+    return;
+  }
+
+  // The dev server doesn't serve this action at all (e.g. a core script
+  // like db-query, which is never mounted as an HTTP route) — run in-process
+  // rather than treating an unrelated 404 as a hard failure.
+  if (response.status === 404) {
+    await tlsDispatcher?.close();
+    return;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    const body = await response
+      .json()
+      .catch(() => ({ error: `HTTP ${response.status}` }));
+    console.error(
+      `Action "${actionName}" failed:`,
+      (body as { error?: string })?.error ?? `HTTP ${response.status}`,
+    );
+    await tlsDispatcher?.close();
+    process.exit(1);
+  }
+
+  const body = (await response.json().catch(() => ({
+    ok: false,
+    error: "Invalid response from dev server.",
+  }))) as {
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+    devHandoffUrl?: unknown;
+  };
+  await tlsDispatcher?.close();
+  if (!body.ok) {
+    console.error(
+      `Action "${actionName}" failed:`,
+      withoutCliHandoffText(body.error ?? "Unknown error"),
+    );
+    process.exit(1);
+  }
+  const handoffUrl =
+    typeof body.devHandoffUrl === "string"
+      ? body.devHandoffUrl
+      : devActionHandoffUrl(body.result);
+  if (body.result !== undefined) {
+    console.log(withoutCliHandoffSecrets(body.result));
+  }
+  const validHandoffUrl = isValidDevActionHandoffUrl(
+    handoffUrl,
+    discovery.origin,
+  )
+    ? handoffUrl
+    : undefined;
+  assertCliHandoffLaunched(
+    validHandoffUrl
+      ? openCliHandoff(validHandoffUrl, { baseUrl: discovery.origin })
+      : null,
+  );
+  process.exit(0);
 }
 
 function coerceCliValue(
@@ -404,9 +568,12 @@ function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
 function cliActionCtx(
   actionName: string,
 ): import("../action.js").ActionRunContext {
+  const app = getAppConfig().app;
+  const appId = app.id ?? app.slug ?? app.template;
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId() ?? null,
+    ...(appId ? { appId } : {}),
     caller: "cli",
     actionName,
   };

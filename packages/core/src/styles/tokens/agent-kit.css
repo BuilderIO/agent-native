@@ -1,0 +1,124 @@
+/**
+ * AgentKit semantic tokens.
+ *
+ * These are role tokens rather than a second generic spacing or color scale.
+ * Applications can override any value at their theme boundary while AgentKit
+ * components keep one density, geometry, motion, and status vocabulary.
+ */
+:root {
+  --agent-kit-conversation-max-width: 46.875rem;
+  --agent-kit-composer-adjacent-inline-inset: 1.5rem;
+
+  --agent-kit-recessed-surface: hsl(var(--background));
+  --agent-kit-nav-surface: hsl(var(--sidebar-background, var(--background)));
+  --agent-kit-raised-surface: hsl(var(--card));
+  --agent-kit-subtle-surface: hsl(var(--muted));
+  --agent-kit-popover-surface: hsl(var(--popover, var(--card)));
+  --agent-kit-text: hsl(var(--foreground));
+  --agent-kit-muted-text: hsl(var(--muted-foreground));
+  --agent-kit-popover-text: hsl(var(--popover-foreground, var(--foreground)));
+  --agent-kit-border: hsl(var(--border));
+  --agent-kit-accent: hsl(var(--primary));
+  --agent-kit-accent-text: hsl(var(--primary-foreground));
+  --agent-kit-danger: hsl(var(--destructive));
+  --agent-kit-success: hsl(var(--success, var(--primary)));
+  --agent-kit-focus: hsl(var(--ring));
+
+  --agent-kit-density-font-size: 0.8125rem;
+  --agent-kit-density-line-height: 1.25rem;
+  --agent-kit-supporting-font-size: 0.75rem;
+  --agent-kit-supporting-line-height: 1rem;
+  --agent-kit-caption-font-size: 0.6875rem;
+  --agent-kit-caption-line-height: 1rem;
+  --agent-kit-micro-font-size: 0.625rem;
+  --agent-kit-activity-row-min-height: 1.75rem;
+  --agent-kit-activity-icon-size: 0.875rem;
+  --agent-kit-activity-object-max-width: 60%;
+  --agent-kit-message-bubble-max-width: 92%;
+  --agent-kit-tool-content-max-width: 95%;
+
+  --agent-kit-layer-page-fade: 50;
+  --agent-kit-layer-page-header: 60;
+  --agent-kit-layer-workspace-panel: 70;
+  --agent-kit-page-header-height: 3rem;
+  --agent-kit-workspace-panel-width: 21.25rem;
+  --agent-kit-workspace-panel-max-width: 22.5rem;
+  --agent-kit-workspace-panel-viewport-gutter: 3rem;
+  --agent-kit-workspace-panel-transition-duration: 260ms;
+
+  --agent-kit-composer-block-padding-start: 0.5rem;
+  --agent-kit-composer-block-padding-end: 1rem;
+  --agent-kit-composer-min-height: 4.75rem;
+  --agent-kit-composer-radius: 1.25rem;
+  --agent-kit-composer-border-opacity: 0.82;
+  --agent-kit-composer-focus-border-opacity: 1;
+  --agent-kit-composer-border-color: hsl(
+    var(--border) / var(--agent-kit-composer-border-opacity)
+  );
+  --agent-kit-composer-focus-border-color: hsl(
+    var(--border) / var(--agent-kit-composer-focus-border-opacity)
+  );
+  --agent-kit-composer-editor-padding-inline: 1rem;
+  --agent-kit-composer-editor-padding-block-start: 0.875rem;
+  --agent-kit-composer-editor-padding-block-end: 0.125rem;
+  --agent-kit-composer-editor-min-height: 2.75rem;
+  --agent-kit-composer-editor-max-height: 12rem;
+  --agent-kit-composer-font-size: 0.875rem;
+  --agent-kit-composer-line-height: 1.25rem;
+  --agent-kit-composer-mobile-font-size: 1rem;
+  --agent-kit-composer-mobile-line-height: 1.5rem;
+  --agent-kit-composer-toolbar-padding-inline: 1rem;
+  --agent-kit-composer-toolbar-padding-block-start: 0.25rem;
+  --agent-kit-composer-toolbar-padding-block-end: 0.5rem;
+  --agent-kit-composer-toolbar-control-size: 1.75rem;
+  --agent-kit-composer-toolbar-control-gap: 0.25rem;
+  --agent-kit-composer-toolbar-control-padding-inline: 0.375rem;
+  --agent-kit-composer-toolbar-control-font-size: var(
+    --agent-kit-supporting-font-size
+  );
+  --agent-kit-composer-toolbar-control-line-height: var(
+    --agent-kit-supporting-line-height
+  );
+  --agent-kit-composer-toolbar-control-font-weight: 500;
+  --agent-kit-composer-control-size: 2rem;
+  --agent-kit-shadow-color: var(--foreground);
+  --agent-kit-control-elevation: 0 0.0625rem 0.125rem
+    hsl(var(--agent-kit-shadow-color) / 0.06);
+  --agent-kit-composer-elevation: 0 0.5rem 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.06);
+  --agent-kit-overlay-elevation: 0 0.625rem 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.14);
+  --agent-kit-drawer-elevation: -0.75rem 0 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.14);
+  --agent-kit-drawer-elevation-block: 0 1.125rem 2.5rem
+    hsl(var(--agent-kit-shadow-color) / 0.14);
+
+  --agent-kit-positive: 142 72% 38%;
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  :root {
+    /* Keep the depth order explicit: nav < canvas < raised content. */
+    --agent-kit-recessed-surface: hsl(var(--background));
+    --agent-kit-nav-surface: hsl(var(--sidebar-background, var(--background)));
+  }
+}
+
+.dark {
+  --agent-kit-composer-border-opacity: 0;
+  --agent-kit-composer-focus-border-opacity: 0;
+  --agent-kit-composer-border-color: transparent;
+  --agent-kit-composer-focus-border-color: transparent;
+  --agent-kit-shadow-color: var(--background);
+  --agent-kit-control-elevation: 0 0.0625rem 0.125rem
+    hsl(var(--agent-kit-shadow-color) / 0.18);
+  --agent-kit-composer-elevation: 0 0.5rem 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.22);
+  --agent-kit-overlay-elevation: 0 0.625rem 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.24);
+  --agent-kit-drawer-elevation: -0.75rem 0 1.875rem
+    hsl(var(--agent-kit-shadow-color) / 0.26);
+  --agent-kit-drawer-elevation-block: 0 1.125rem 2.5rem
+    hsl(var(--agent-kit-shadow-color) / 0.26);
+  --agent-kit-positive: 142 62% 56%;
+}

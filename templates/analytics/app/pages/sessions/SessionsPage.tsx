@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -28,11 +29,13 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -168,7 +171,18 @@ type SessionRecordingIdentity = Pick<
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS = 59_500;
 const SESSION_QUERY_DEBOUNCE_MS = 250;
+
+export function shouldShowZeroMinuteRecoveryAction(
+  includeZeroMinuteSessions: boolean,
+  filteredCount: number,
+  unfilteredCount: number,
+): boolean {
+  return (
+    !includeZeroMinuteSessions && filteredCount === 0 && unfilteredCount > 0
+  );
+}
 
 /**
  * Local input state for a URL-backed filter, debounced into the URL.
@@ -210,6 +224,8 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
+  const includeZeroMinuteSessions =
+    searchParams.get("includeZeroMinuteSessions") === "true";
   const from = useMemo(() => rangeToFrom(range), [range]);
 
   const updateFilter = useCallback(
@@ -241,20 +257,55 @@ export default function SessionsPage() {
   );
   const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
 
+  const sessionListFilters = {
+    from: from ?? undefined,
+    app: app || undefined,
+    query: query || undefined,
+  };
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
   >(
     "list-session-recordings",
     {
-      from: from ?? undefined,
-      app: app || undefined,
-      query: query || undefined,
+      ...sessionListFilters,
+      minDurationMs: includeZeroMinuteSessions
+        ? undefined
+        : MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS,
       limit: 100,
     },
     { staleTime: 30_000 },
   );
 
   const recordings = data ?? [];
+  const shouldCheckForHiddenSessions =
+    !includeZeroMinuteSessions &&
+    !isLoading &&
+    !error &&
+    recordings.length === 0;
+  const {
+    data: unfilteredRecordings,
+    isLoading: isCheckingForHiddenSessions,
+    isFetching: isFetchingHiddenSessions,
+    error: hiddenSessionsError,
+    refetch: refetchHiddenSessions,
+  } = useActionQuery<SessionRecordingSummary[]>(
+    "list-session-recordings",
+    { ...sessionListFilters, limit: 1 },
+    { enabled: shouldCheckForHiddenSessions, staleTime: 30_000 },
+  );
+  const showZeroMinuteRecoveryAction = shouldShowZeroMinuteRecoveryAction(
+    includeZeroMinuteSessions,
+    recordings.length,
+    unfilteredRecordings?.length ?? 0,
+  );
+  const loadError =
+    error ?? (shouldCheckForHiddenSessions ? hiddenSessionsError : null);
+  const isCheckingEmptyState =
+    shouldCheckForHiddenSessions && isCheckingForHiddenSessions;
+  const isRefreshing =
+    isFetching || (shouldCheckForHiddenSessions && isFetchingHiddenSessions);
+  const popoverFiltered =
+    range !== "30d" || app !== "" || includeZeroMinuteSessions;
 
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
@@ -282,10 +333,16 @@ export default function SessionsPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 shrink-0"
+                      className={cn(
+                        "h-9 w-9 shrink-0",
+                        popoverFiltered &&
+                          "border border-primary/40 text-primary",
+                      )}
                       aria-label={t("sessions.filters")}
                     >
-                      <IconSettings className="h-4 w-4" />
+                      <FilterTriggerIndicator active={popoverFiltered}>
+                        <IconSettings className="h-4 w-4" />
+                      </FilterTriggerIndicator>
                     </Button>
                   </PopoverTrigger>
                 </TooltipTrigger>
@@ -319,6 +376,18 @@ export default function SessionsPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <label className="flex cursor-pointer items-center gap-2 border-t pt-3 text-sm">
+                    <Checkbox
+                      checked={includeZeroMinuteSessions}
+                      onCheckedChange={(checked) =>
+                        updateFilter(
+                          "includeZeroMinuteSessions",
+                          checked === true ? "true" : "",
+                        )
+                      }
+                    />
+                    {t("sessions.includeZeroMinuteSessions")}
+                  </label>
                   <div className="grid gap-1.5 border-t pt-3">
                     <div className="text-xs font-medium text-muted-foreground">
                       {t("sessions.userFilters")}
@@ -346,12 +415,17 @@ export default function SessionsPage() {
               variant="ghost"
               size="icon"
               className="h-9 w-9"
-              onClick={() => void refetch()}
-              disabled={isFetching}
+              onClick={() => {
+                void refetch();
+                if (shouldCheckForHiddenSessions) {
+                  void refetchHiddenSessions();
+                }
+              }}
+              disabled={isRefreshing}
               aria-label={t("sessions.refresh")}
             >
               <IconRefresh
-                className={cn("h-4 w-4", isFetching && "animate-spin")}
+                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
               />
             </Button>
           </div>
@@ -360,14 +434,22 @@ export default function SessionsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {error ? (
+          {loadError ? (
             <div className="p-6 text-sm text-destructive">
-              {t("sessions.loadFailed", { message: error.message })}
+              {t("sessions.loadFailed", { message: loadError.message })}
             </div>
-          ) : isLoading ? (
+          ) : isLoading || isCheckingEmptyState ? (
             <SessionSkeleton />
           ) : recordings.length === 0 ? (
-            <EmptySessionsState />
+            showZeroMinuteRecoveryAction ? (
+              <FilteredEmptySessionsState
+                onIncludeZeroMinuteSessions={() =>
+                  updateFilter("includeZeroMinuteSessions", "true")
+                }
+              />
+            ) : (
+              <EmptySessionsState />
+            )
           ) : (
             <div>
               <div className="flex items-center justify-between border-b px-4 py-3">
@@ -516,6 +598,22 @@ function EmptySessionsState() {
   );
 }
 
+function FilteredEmptySessionsState({
+  onIncludeZeroMinuteSessions,
+}: {
+  onIncludeZeroMinuteSessions: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex min-h-[380px] flex-col items-center justify-center gap-4 p-6">
+      <h2 className="text-lg font-semibold">{t("sessions.noSessions")}</h2>
+      <Button variant="outline" onClick={onIncludeZeroMinuteSessions}>
+        {t("sessions.includeZeroMinuteSessions")}
+      </Button>
+    </div>
+  );
+}
+
 export function ReplayStorageHint({
   embedded = false,
 }: {
@@ -526,6 +624,7 @@ export function ReplayStorageHint({
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
     popupUrl: builderStatus.status?.connectUrl,
+    provisionAccount: true,
     trackingSource: "analytics_sessions_storage_hint",
     trackingFlow: "replay_storage",
     onConnected: async () => {
@@ -601,31 +700,27 @@ export function ReplayStorageHint({
             </div>
           ) : null}
           <div className="flex max-w-full flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              onClick={() =>
-                builderConnect.start({
-                  trackingSource: "analytics_sessions_storage_hint",
-                  trackingFlow: "replay_storage",
-                })
-              }
-              disabled={
-                builderConnect.connecting ||
-                builderStatusLoading ||
-                builderConnected
-              }
-            >
-              {builderConnect.connecting ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : builderConnected ? (
-                <IconCheck className="h-4 w-4" />
-              ) : null}
-              {builderConnected
-                ? t("sessions.storageConnected")
-                : t("sessions.connectBuilder")}
-            </Button>
+            <BuilderConnectPopover flow={builderConnect}>
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0"
+                disabled={
+                  builderConnect.connecting ||
+                  builderStatusLoading ||
+                  builderConnected
+                }
+              >
+                {builderConnect.connecting ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                ) : builderConnected ? (
+                  <IconCheck className="h-4 w-4" />
+                ) : null}
+                {builderConnected
+                  ? t("sessions.storageConnected")
+                  : t("sessions.connectBuilder")}
+              </Button>
+            </BuilderConnectPopover>
             <CollapsibleTrigger asChild>
               <Button type="button" variant="ghost" size="sm">
                 <IconServer className="h-3.5 w-3.5" />
@@ -856,6 +951,7 @@ function formatDateTime(value: string): string {
 
 export function formatSessionDuration(ms: number | null): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
+  if (ms < MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS) return "0m";
   const seconds = Math.round(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -878,7 +974,7 @@ function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
   return t("sessions.pageCountCompact", { count: formatNumber(count) });
 }
 
-const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
+const SESSION_REPLAY_SNIPPET = `// Agent-Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client/observability";
 
 configureTracking({

@@ -106,7 +106,7 @@ export default function SetupRoute() {
       toast.success(
         `Recent ${providerLabel(selected.provider)} records are ready.`,
       );
-      navigate("/", { replace: true });
+      void navigate("/home", { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "CRM sync failed.");
     }
@@ -116,7 +116,7 @@ export default function SetupRoute() {
     try {
       await configureNative.mutateAsync({});
       toast.success("Your native CRM is ready.");
-      navigate("/", { replace: true });
+      void navigate("/home", { replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not start native CRM.",
@@ -138,7 +138,7 @@ export default function SetupRoute() {
             <p className="text-sm leading-6 text-muted-foreground">
               Run accounts, people, opportunities, saved views, tasks, and
               cadence without connecting another CRM. Your CRM is
-              local-authoritative and portable across SQLite, Postgres, and D1.
+              local-authoritative and uses PostgreSQL.
             </p>
           </div>
           <Button

@@ -1,5 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerTreeNode,
+} from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
@@ -13,6 +17,12 @@ import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-po
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { shouldIncludeScreenRenameContentOverride } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
 
 export interface LayerRenameArgs {
   activeFile: DesignFile;
@@ -28,7 +38,7 @@ export interface LayerRenameArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeId: Map<
     string,
@@ -240,8 +250,23 @@ export function runLayerRename(
     name,
   );
   if (!nextContent || nextContent === sourceContent) return;
-  applyFileContentUpdate(owner.fileId, nextContent, {
+  const submittedProjection = buildCodeLayerProjection(nextContent, {
+    source: { kind: "design-file", fileId: owner.fileId },
+  });
+  const submittedNode = submittedProjection.nodes.find(
+    (candidate) =>
+      candidate.dataAttributes["data-agent-native-node-id"] ===
+        node.dataAttributes["data-agent-native-node-id"] ||
+      candidate.id === node.id,
+  );
+  const publication = applyFileContentUpdate(owner.fileId, nextContent, {
     refreshPreview: false,
   });
-  setSelectedLayerIdsState([layerId]);
+  if (publication.status !== "accepted") return;
+  const acceptedNode = mapAcceptedSelectionNode(
+    publication,
+    projectAcceptedSource(publication, submittedProjection.source),
+    submittedNode,
+  );
+  if (acceptedNode) setSelectedLayerIdsState([acceptedNode.id]);
 }

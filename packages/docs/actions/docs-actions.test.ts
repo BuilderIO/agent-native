@@ -23,11 +23,18 @@ describe("docs actions", () => {
       true,
       true,
     ]);
+    expect(actions.map((action) => action.requiresAuth)).toEqual([
+      false,
+      false,
+      undefined,
+      false,
+      undefined,
+    ]);
     expect(actions.map((action) => action.publicAgent)).toEqual([
+      { expose: true, readOnly: true, requiresAuth: false },
+      { expose: true, readOnly: true, requiresAuth: false },
       { expose: true, readOnly: true },
-      { expose: true, readOnly: true },
-      { expose: true, readOnly: true },
-      { expose: true, readOnly: true },
+      { expose: true, readOnly: true, requiresAuth: false },
       { expose: true, readOnly: true },
     ]);
   });
@@ -60,8 +67,6 @@ describe("docs actions", () => {
 
     expect(output).toContain("Clips");
     expect(output).toContain("browser logs and network activity");
-    expect(output).toContain(
-      "**Path:** /docs/template-clips-capture-everywhere",
-    );
+    expect(output).toContain("**Path:** /docs/template-clips-features");
   });
 });

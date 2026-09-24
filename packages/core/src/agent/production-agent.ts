@@ -10,37 +10,64 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
-import type { Task } from "../a2a/types.js";
+import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
+  AgentConnectionRequiredError,
   describeToolParameterSignature,
+  isActionContractError,
+  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
-  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
-  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { readAppState } from "../application-state/script-helpers.js";
+import {
+  detectArtifactReceipts,
+  type ArtifactReceipt,
+} from "../artifacts/detect.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
+import {
+  describeAttachmentBytesVerdict,
+  reconcileImageBytes,
+  reconcilePdfBytes,
+} from "../file-upload/attachment-bytes.js";
+import {
+  formatBase64CharBudget,
+  MAX_INLINE_FILE_BASE64_CHARS,
+  MAX_INLINE_IMAGE_BASE64_CHARS,
+} from "../file-upload/inline-attachment-limits.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
   updateRunProgress,
 } from "../progress/registry.js";
+import {
+  readOptionalKeyCache,
+  writeOptionalKeyCache,
+} from "../secrets/optional-key-cache.js";
+import {
+  COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+  preloadJevContextForPrompt,
+} from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
@@ -50,6 +77,8 @@ import {
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
+  resolveBuilderGatewayAuth,
+  type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
@@ -64,12 +93,17 @@ import {
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import {
   drainAgentWarnings,
@@ -103,6 +137,8 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
+  PROVIDER_RATE_LIMITED_ERROR_CODE,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
 import {
   resolveEngine,
@@ -138,6 +174,7 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
+import { preloadJevTools } from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -148,6 +185,10 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  getContextWindowForModel,
+  resolveFallbackModel,
+} from "./model-config.js";
 import {
   maybeCompactThread,
   buildObservationalContext,
@@ -163,17 +204,20 @@ import {
 import {
   startRun,
   subscribeToRun,
+  replayCompletedTurn,
   getActiveRunForThread,
   getActiveRunForThreadAsync,
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
-  endsAfterCompletedToolWithoutAssistantFinal,
+  endsAfterToolResultWithoutAssistantFinal,
+  endsDuringActionPreparation,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -200,6 +244,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
@@ -221,12 +266,15 @@ import {
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
-import type {
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
   ActionTool,
   AgentNativeJsonSchema,
   AgentChatAttachment,
   AgentChatRequest,
   AgentChatEvent,
+  AgentFileMutationProof,
   AgentChatReference,
   AgentChatStructuredMessage,
   RunEvent,
@@ -257,6 +305,10 @@ export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
  */
 export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
+/** Keep an alive-but-unclaimed worker out of the unclaimed-run reaper. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
+/** Stop extending an unclaimed row so a stuck setup remains recoverable. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -268,19 +320,29 @@ export type BackgroundDispatchOutcome =
 
 /**
  * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
- * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
- * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
- * (defensive — legacy rows or tests may store a bare stage).
+ * `recordRunDiagnostic`. Extract the stage and timestamp so the stage can be
+ * compared to `RUN_DIAG_STAGE` constants and its deadline enforced. Falls back
+ * to the raw value when it is not JSON (defensive — legacy rows or tests may
+ * store a bare stage).
  */
-function parseRunDiagStage(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function parseRunDiagnostic(raw: string | null | undefined): {
+  stage: string | null;
+  at: number | null;
+} {
+  if (!raw) return { stage: null, at: null };
   try {
-    const parsed = JSON.parse(raw) as { stage?: unknown };
-    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+    const parsed = JSON.parse(raw) as { stage?: unknown; at?: unknown };
+    return {
+      stage: typeof parsed.stage === "string" ? parsed.stage : null,
+      at:
+        typeof parsed.at === "number" && Number.isFinite(parsed.at)
+          ? parsed.at
+          : null,
+    };
   } catch {
     // Not JSON — treat the raw value as the stage name.
   }
-  return typeof raw === "string" ? raw : null;
+  return { stage: raw, at: null };
 }
 
 /**
@@ -290,8 +352,10 @@ function parseRunDiagStage(raw: string | null | undefined): string | null {
  * generated wrapper fails to import/hand off to the route, the worker never
  * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
  *
- * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run
+ * and keep polling while it proves that setup is still progressing:
  *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - alive in setup               → keep polling (the foreground still owns recovery)
  *   - dispatch failed OR no claim  → recover inline by atomically claiming the
  *       run ourselves: if we win → "inline"; if a (delayed) worker already won
  *       it → "subscribe" (never double-run).
@@ -309,12 +373,15 @@ export async function resolveBackgroundDispatchOutcome(opts: {
    * provided, the foreground may keep waiting PAST `graceMs` while the worker is
    * provably alive and still in setup — but it recovers inline before the run has
    * been unclaimed this long (minus the safety margin), so it always claims
-   * before the reaper can fire. Omit to disable the extension (behaves exactly
-   * like the base grace).
+   * before the reaper can fire. The worker's pre-claim diagnostic deadline is a
+   * second hard cap. Omit to disable the extension (behaves exactly like the
+   * base grace).
    */
   reaperGraceMs?: number;
   /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
   reaperSafetyMarginMs?: number;
+  /** Return the durable stream as soon as the worker proves it entered setup. */
+  streamWhenWorkerAlive?: boolean;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
@@ -357,6 +424,7 @@ export async function resolveBackgroundDispatchOutcome(opts: {
     const reaperGraceMs = opts.reaperGraceMs;
     const reaperMargin =
       opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
+    let preclaimDeadlineAt: number | null = null;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -368,10 +436,25 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       }
       // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
       // bare stage name, not the raw payload.
-      const stage = parseRunDiagStage(claim?.diagStage);
+      const diagnostic = parseRunDiagnostic(claim?.diagStage);
+      const stage = diagnostic.stage;
+      if (
+        preclaimDeadlineAt == null &&
+        diagnostic.at != null &&
+        ALIVE_IN_SETUP.has(stage ?? "")
+      ) {
+        const diagnosticDeadline =
+          diagnostic.at + BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS;
+        preclaimDeadlineAt = diagnosticDeadline;
+      }
       // Worker recorded a pre-claim death — no point waiting out the grace.
       if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
+      // Heartbeats stop at the worker-entry deadline. Do not let the stale
+      // diagnostic marker extend the foreground wait beyond that same window.
+      if (preclaimDeadlineAt != null && elapsedNow >= preclaimDeadlineAt) {
+        break;
+      }
       // The unclaimed-reaper errors any still-`background` row once it has been
       // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
       // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
@@ -393,6 +476,9 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         claim?.status === "running" &&
         !!stage &&
         ALIVE_IN_SETUP.has(stage);
+      if (aliveInSetup && opts.streamWhenWorkerAlive) {
+        return { action: "stream" };
+      }
       if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
@@ -429,6 +515,18 @@ function normalizeBrowserTabId(value: unknown): string | undefined {
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
 }
 
+/**
+ * The usage label is caller-supplied (a template surface, an MCP host, an
+ * extension), and it lands in a usage row AND in a trace span name. Bound it
+ * and strip control characters here so a client cannot turn either into a
+ * payload channel.
+ */
+function normalizeUsageLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
 function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
@@ -455,12 +553,9 @@ async function readAppStateForBrowserTab<T>(
   key: string,
   browserTabId?: string,
 ): Promise<T | null> {
+  if (!browserTabId) return (await readAppState(key)) as T | null;
   const tabKey = appStateKeyForBrowserTab(key, browserTabId);
-  if (tabKey !== key) {
-    const scoped = (await readAppState(tabKey).catch(() => null)) as T | null;
-    if (scoped) return scoped;
-  }
-  return (await readAppState(key)) as T | null;
+  return (await readAppState(tabKey)) as T | null;
 }
 
 /**
@@ -476,10 +571,18 @@ async function readAppStateForBrowserTab<T>(
 export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
+  options?: { onLookupFailure?: () => void },
 ): Promise<string | undefined> {
   if (!ownerEmail) return undefined;
+  let lookupFailed = false;
+  const reportLookupFailure = (): void => {
+    if (!lookupFailed) return;
+    options?.onLookupFailure?.();
+    lookupFailed = false;
+  };
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const refs: Array<{
@@ -487,12 +590,12 @@ export async function getOwnerApiKey(
       scopeId: string;
     }> = [{ scope: "user", scopeId: ownerEmail }];
     const orgId = getRequestOrgId();
-    if (orgId) {
+    if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else {
+    } else if (!syntheticTraffic) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
@@ -512,7 +615,17 @@ export async function getOwnerApiKey(
       }
     }
   } catch {
-    // app_secrets table not ready — fall through to legacy lookup.
+    lookupFailed = true;
+    // app_secrets table not ready — only non-synthetic traffic may fall through
+    // to legacy lookup. A synthetic run must never bill an alternate key.
+    if (syntheticTraffic) {
+      reportLookupFailure();
+      return undefined;
+    }
+  }
+  if (syntheticTraffic) {
+    reportLookupFailure();
+    return undefined;
   }
   try {
     const { getSetting } = await import("../settings/store.js");
@@ -538,12 +651,127 @@ export async function getOwnerApiKey(
       ) {
         return legacyKey;
       }
+      reportLookupFailure();
       return undefined;
     }
+    reportLookupFailure();
     return undefined;
   } catch {
+    lookupFailed = true;
+    reportLookupFailure();
     return undefined;
   }
+}
+
+/**
+ * Jev is optional, so cache its present/absent result across turns. Secret
+ * writes clear this process-local cache; the short TTL bounds cross-instance
+ * staleness without adding a secret-store read to every request.
+ */
+export async function getOwnerJevApiKey(
+  ownerEmail: string | null | undefined,
+): Promise<string | undefined> {
+  return (await getOwnerJevApiKeyCredential(ownerEmail)).credential?.apiKey;
+}
+
+async function getOwnerJevApiKeyCredential(
+  ownerEmail: string | null | undefined,
+): Promise<{
+  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  lookupFailed: boolean;
+}> {
+  if (!ownerEmail) return { credential: null, lookupFailed: false };
+  const cacheKey = [
+    "jev-source-v1",
+    ownerEmail,
+    getRequestOrgId() ?? `solo:${ownerEmail}`,
+    getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
+  ].join("\u0000");
+  const cached = readOptionalKeyCache(cacheKey);
+  if (cached.hit) {
+    if (!cached.value) return { credential: null, lookupFailed: false };
+    const separator = cached.value.indexOf(":");
+    const source = cached.value.slice(0, separator);
+    const apiKey = cached.value.slice(separator + 1);
+    return {
+      credential:
+        (source === "user" || source === "deployment") && apiKey
+          ? { apiKey, source }
+          : null,
+      lookupFailed: false,
+    };
+  }
+  let lookupFailed = false;
+  const value = await getOwnerApiKey("jev", ownerEmail, {
+    onLookupFailure: () => {
+      lookupFailed = true;
+    },
+  });
+  if (value) {
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+    return {
+      credential: { apiKey: value, source: "user" },
+      lookupFailed,
+    };
+  }
+  if (lookupFailed) return { credential: null, lookupFailed: true };
+
+  const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
+    ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
+    : undefined;
+  if (
+    deployKey &&
+    !(await getProviderCredentialAuthFailure({
+      key: "JEV_API_KEY",
+      value: deployKey,
+    }))
+  ) {
+    if (!lookupFailed) {
+      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
+    }
+    return {
+      credential: { apiKey: deployKey, source: "deployment" },
+      lookupFailed: false,
+    };
+  }
+
+  if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
+  return { credential: null, lookupFailed: false };
+}
+
+export interface JevContextCredentials {
+  apiKey: string | undefined;
+  personalApiKey: string | undefined;
+  builderAuth: BuilderGatewayAuth | null;
+  apiKeyLookupFailed?: boolean;
+  builderAuthLookupFailed?: boolean;
+}
+
+export async function getJevContextCredentials(
+  ownerEmail: string | null | undefined,
+): Promise<JevContextCredentials> {
+  const requestContext = getRequestContext();
+  const [lookup, builderAuthLookup] = await Promise.all([
+    getOwnerJevApiKeyCredential(ownerEmail),
+    resolveBuilderGatewayAuth({
+      userEmail: ownerEmail,
+      orgId: requestContext?.orgScope === "personal" ? null : getRequestOrgId(),
+    }).then(
+      (builderAuth) => ({ builderAuth, lookupFailed: false }),
+      () => ({ builderAuth: null, lookupFailed: true }),
+    ),
+  ]);
+  const credential = lookup.credential;
+  return {
+    apiKey: credential?.apiKey,
+    personalApiKey:
+      credential?.source === "user" ? credential.apiKey : undefined,
+    builderAuth: builderAuthLookup.builderAuth,
+    ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
+    ...(builderAuthLookup.lookupFailed
+      ? { builderAuthLookupFailed: true }
+      : {}),
+  };
 }
 
 /**
@@ -681,10 +909,10 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
-  run: (
-    args: any,
-    context?: import("../action.js").ActionRunContext,
-  ) => Promise<any> | any;
+  run: (args: any, context?: import("../action.js").ActionRunContext) => any;
+  /** Declarative action access contract, preserved from defineAction. */
+  access?: import("../authorization/check-action.js").ActionAccessConfig;
+  fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -696,11 +924,29 @@ export interface ActionEntry {
   /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
    *  parsing. For public, no-auth POST actions. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
    *  Set by `defineAction`'s `agentTool` option. */
   agentTool?: boolean;
+  /** Whether the action is exposed to EXTERNAL agents over MCP and the direct
+   *  A2A action surface. Defaults to `agentTool`. `false` is a hard veto on
+   *  every MCP tier (including the `--full-catalog` opt-in) while the in-app
+   *  agent keeps calling it; `true` declares curated connector-catalog
+   *  membership, and with `agentTool: false` makes the action MCP-only. Read
+   *  it through `isActionExposedToExternalAgents`, never as a raw field.
+   *  Set by `defineAction`'s `mcpTool` option. */
+  mcpTool?: boolean;
+  /** Whether the action's schema is held back from the agent's first-request
+   *  tool list — the action-owned form of the plugin's `initialToolNames`.
+   *  `false` always includes it (and narrows the derived default to the
+   *  actions that opted in); `true` keeps it out of the DERIVED set, reachable
+   *  through `tool-search`. Context cost, not access. Set by `defineAction`'s
+   *  `deferLoading` option. */
+  deferLoading?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -732,6 +978,12 @@ export interface ActionEntry {
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
+  /** Set on the bash-wrapper fallback entries the agent-chat plugin builds for
+   *  CLI-style scripts: their `run` shells out to `pnpm action <name>`, so
+   *  surfaces that already run inside the server must not invoke them. */
+  cliWrapper?: boolean;
   /** Optional deep-link builder. When set, MCP/A2A surfaces append an
    *  "Open in <app> →" link built from the call's args + result. Pure, sync,
    *  best-effort. See `defineAction` and the `external-agents` skill. */
@@ -767,6 +1019,11 @@ export interface ActionEntry {
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
   /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
+  /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
    * tool calls in the same assistant message do not execute. Only for actions
@@ -789,6 +1046,7 @@ export type AgentExecutionMode = "act" | "plan";
 
 export interface AgentActionSurface {
   allowedActionNames: readonly string[];
+  actionScope?: AgentActionScope;
 }
 
 export interface DefaultAgentActionSurface {
@@ -801,7 +1059,11 @@ export type AgentActionSurfaceResolution =
 
 type NormalizedAgentActionSurface =
   | DefaultAgentActionSurface
-  | { mode: "allowlist"; allowedActionNames: string[] };
+  | {
+      mode: "allowlist";
+      allowedActionNames: string[];
+      actionScope?: AgentActionScope;
+    };
 
 export interface AgentActionSurfaceDetails {
   event: any;
@@ -810,6 +1072,9 @@ export interface AgentActionSurfaceDetails {
   threadId?: string;
   mode: AgentExecutionMode;
   internalContinuation: boolean;
+  requestedTurnId?: string;
+  queuedMessageId?: string;
+  actionScope?: Readonly<AgentActionScope>;
   availableActionNames: readonly string[];
 }
 
@@ -862,6 +1127,9 @@ export function normalizeAgentActionSurfaceResolution(
   return {
     mode: "allowlist",
     allowedActionNames: [...new Set(allowedActionNames)],
+    ...(hasOwn(value, "actionScope")
+      ? { actionScope: normalizeAgentActionScope(value.actionScope) }
+      : {}),
   };
 }
 
@@ -869,6 +1137,7 @@ export type PersistedActionSurface =
   | {
       orgId: string | null;
       allowedActionNames: string[];
+      actionScope?: AgentActionScope;
     }
   | {
       orgId: string | null;
@@ -900,7 +1169,18 @@ export function readPersistedActionSurface(
     return { orgId: null, allowedActionNames: [] };
   }
   const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
-  return { orgId, allowedActionNames };
+  if (!hasOwn(surface, "actionScope")) return { orgId, allowedActionNames };
+  try {
+    return {
+      orgId,
+      allowedActionNames,
+      actionScope: normalizeAgentActionScope(
+        (surface as Record<string, unknown>).actionScope,
+      ),
+    };
+  } catch {
+    return { orgId: null, allowedActionNames: [] };
+  }
 }
 
 export function filterActionsByAllowedNames(
@@ -1330,6 +1610,8 @@ export interface ProductionAgentOptions {
    * Default: false (inventory is injected).
    */
   skipFilesContext?: boolean;
+  /** Internal prompt mode used to keep optional Jev context inside the compact budget. */
+  jevContextCompact?: boolean;
   /**
    * Optional starter tool catalog. When set, the first model request includes
    * only these tool schemas plus `tool-search`; the full action registry remains
@@ -1424,7 +1706,6 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -1478,6 +1759,10 @@ const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // ceiling and steps effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
+// A `max_tokens` stop with tool-call parts present is a tool call cut off
+// mid-arguments. Same escalation shape as the empty-final retry: each attempt
+// raises the ceiling, so re-issuing is not re-issuing the same doomed request.
+const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -1487,19 +1772,29 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
 /**
  * Text attachments have been capped since forever; binary ones never were, so
  * a large PDF or screenshot went to the provider as unbounded inline base64.
- * OpenAI rejects the whole request over 1,048,576 chars in one `file_url`
- * ("string too long", measured at 4,149,128), which kills the turn — the cap is
- * on the encoded string, so that is what this counts rather than decoded bytes.
- * Held under the limit to leave room for the `data:<mediaType>;base64,` prefix.
+ * The caps live in `inline-attachment-limits` because images and files ride
+ * different provider fields with different ceilings — both measure the encoded
+ * string, so that is what these count rather than decoded bytes.
  */
-const MAX_INLINE_ATTACHMENT_BASE64_CHARS = 1_000_000;
+const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
-const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Read-only source/search tool calls one turn may make before the convergence
+ * guard tells the agent to stop sweeping and answer from what it gathered.
+ *
+ * Resolved per call rather than captured at module load: the value is declared
+ * config, so a deployment can raise it for research-shaped apps that legitimately
+ * inspect many records, and a module-level read would freeze whichever value was
+ * resolved before the app's config plugin loaded.
+ */
+export function resolveSourceSweepToolCallThreshold(): number {
+  return getAppConfig().agent.sourceSweepToolCallThreshold;
+}
 /**
  * Serialized-byte threshold at which a run reports how much tool schema
  * `expandActiveTools` has loaded on top of its starting set. Expansion is
@@ -1701,9 +1996,19 @@ export function trimOldToolResults(
   return trimmed ? result : null;
 }
 
-/** Upper bound (jitter included) on what `retryDelay(attempt)` will sleep. */
-function maxRetryDelayMs(attempt: number): number {
-  return RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * 1.1;
+/**
+ * Upper bound (jitter included) on what `retryDelay(attempt, signal,
+ * retryAfterMs)` will sleep. Takes the same `retryAfterMs` so the budget
+ * estimate that approves a retry never disagrees with the sleep it approved —
+ * a provider-requested wait longer than the computed backoff must count
+ * against the budget too, or `hasBudgetForEngineRetry` would wave through a
+ * retry that then blows the run's remaining time asleep.
+ */
+function maxRetryDelayMs(attempt: number, retryAfterMs?: number): number {
+  return Math.max(
+    RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * 1.1,
+    retryAfterMs ?? 0,
+  );
 }
 
 /**
@@ -1729,20 +2034,34 @@ export function remainingRunBudgetMs(startedAt: number): number {
  * (observed: every failing run spent all 3 retries, ~14s of it asleep, and
  * left nothing for recovery).
  */
-function hasBudgetForEngineRetry(startedAt: number, attempt: number): boolean {
+function hasBudgetForEngineRetry(
+  startedAt: number,
+  attempt: number,
+  retryAfterMs?: number,
+): boolean {
   const remainingMs = remainingRunBudgetMs(startedAt);
   if (remainingMs === Number.POSITIVE_INFINITY) return true;
   return (
-    remainingMs - maxRetryDelayMs(attempt) >=
+    remainingMs - maxRetryDelayMs(attempt, retryAfterMs) >=
     SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
   );
 }
 
-/** Wait with exponential backoff, respecting abort signal */
-function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
+/**
+ * Wait with exponential backoff, respecting abort signal. When the provider
+ * classified a `Retry-After` wait longer than the computed backoff, sleep
+ * that long instead — `hasBudgetForEngineRetry` already approved this exact
+ * number via `maxRetryDelayMs`, so the two must stay in lockstep.
+ */
+function retryDelay(
+  attempt: number,
+  signal: AbortSignal,
+  retryAfterMs?: number,
+): Promise<void> {
   const baseMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
   const jitter = baseMs * 0.1;
-  const ms = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
+  const computedMs = Math.max(0, baseMs + (Math.random() * 2 - 1) * jitter);
+  const ms = Math.max(computedMs, retryAfterMs ?? 0);
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(new Error("aborted"));
     const onAbort = () => {
@@ -1853,6 +2172,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -1877,24 +2197,51 @@ export function buildUserContentWithAttachments(opts: {
       if (
         match &&
         isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_ATTACHMENT_BASE64_CHARS
+        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         // The upload already happened and `uploadedUrl` is the whole point of
         // it. Inlining the bytes anyway is what made the request unsendable.
+        // Quote the real budget: with no number in the context the model
+        // invents one, then contradicts itself when asked what the limit is.
         const label = att.name ? `"${att.name}"` : "An image";
+        const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline for vision analysis, so use the URL for embedding/reference.]`
-            : `[${label} was too large to send inline for vision analysis and no upload URL is available. Ask the user to attach a smaller image.]`,
+            ? `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so it was not sent as an image. It was uploaded to ${uploadedUrl}; use that URL for embedding/reference.]`
+            : `[${label} exceeds the ${limit} per-image limit for inline vision analysis, so you cannot see it. This is a size limit, not a storage-configuration problem: connecting file storage would not make this image readable. Tell the user the image is over the ${limit} limit and ask for a smaller or more compressed version.]`,
         );
         continue;
       }
       if (match && isSupportedImageMediaType(match[1])) {
-        userContent.push({
-          type: "image",
-          data: match[2],
-          mediaType: match[1],
+        // The label comes from the browser, which derives it from the file
+        // extension, so it is a guess. The provider validates the bytes and
+        // rejects the WHOLE request when the two disagree, taking every other
+        // attachment and the user's text down with it. Trust the bytes.
+        const verdict = reconcileImageBytes({
+          base64: match[2],
+          declared: match[1],
         });
+        if (verdict.kind === "ok") {
+          userContent.push({
+            type: "image",
+            data: match[2],
+            mediaType: verdict.mediaType,
+          });
+        } else {
+          const label = att.name ? `"${att.name}"` : "An image";
+          const uploadedHint = uploadedUrl
+            ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
+            : "";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+          );
+          textAttachments.push(
+            `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
+              uploadedHint +
+              ` Tell the user which file it was and what is wrong with it; do not describe its contents, and do not blame file storage or a size limit.]`,
+          );
+        }
       } else {
         // The client sent an image in an unsupported format (HEIC, TIFF, AVIF,
         // etc.). Inject a short text placeholder so the model knows the image
@@ -1927,12 +2274,38 @@ export function buildUserContentWithAttachments(opts: {
     if (filePart) {
       if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
         const label = att.name ? `"${att.name}"` : "A file";
+        const limit = formatBase64CharBudget(
+          MAX_INLINE_ATTACHMENT_BASE64_CHARS,
+        );
         textAttachments.push(
           uploadedUrl
-            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline, so read it from the URL if its contents are needed.]`
-            : `[${label} was too large to send inline and no upload URL is available. Ask the user for a smaller file.]`,
+            ? `[${label} exceeds the ${limit} per-file limit for inline reading. It was uploaded to ${uploadedUrl}; read it from that URL if its contents are needed.]`
+            : `[${label} exceeds the ${limit} per-file limit for inline reading, so you cannot read its contents. This is a size limit, not a storage-configuration problem. Tell the user the file is over the ${limit} limit and ask for a smaller one.]`,
         );
         continue;
+      }
+      if (filePart.mediaType === "application/pdf") {
+        // Only PDF survives as a real document block downstream, and the
+        // provider rejects the request outright when those bytes are not a
+        // PDF, which is routine for a DOCX saved under a `.pdf` name.
+        const verdict = reconcilePdfBytes({
+          base64: filePart.data,
+          declared: filePart.mediaType,
+        });
+        if (verdict.kind !== "ok") {
+          const label = att.name ? `"${att.name}"` : "A file";
+          const logName = att.name ?? "(unnamed)";
+          console.warn(
+            `[attachments] dropped document block name=${logName} verdict=${verdict.kind} base64Chars=${filePart.data.length}`,
+          );
+          const why = describeAttachmentBytesVerdict(verdict);
+          textAttachments.push(
+            uploadedUrl
+              ? `[${label} could not be read as a PDF because ${why}. It was uploaded to ${uploadedUrl}; use that URL for reference. Tell the user the file is not a readable PDF.]`
+              : `[${label} could not be read as a PDF because ${why}. Tell the user which file it was and what is wrong with it; do not describe its contents.]`,
+          );
+          continue;
+        }
       }
       userContent.push(filePart);
       continue;
@@ -2246,7 +2619,7 @@ export function createConnectedAgentReferenceEventRelay(input: {
     observeActivity,
     observePollUpdate,
     emitResponseText,
-    finish(status: "done" | "error") {
+    finish(status: "done" | "pending" | "error") {
       input.send({
         type: "agent_call",
         agent: input.agent,
@@ -2291,6 +2664,13 @@ export async function callConnectedAgentReference(input: {
       userEmail: callerAuth.userEmail,
       orgDomain: callerAuth.orgDomain,
       orgSecret: callerAuth.orgSecret,
+      ...(getRequestContext()?.isSyntheticTraffic === true
+        ? {
+            transportHeaders: {
+              [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E,
+            },
+          }
+        : {}),
       onUpdate: relay.observePollUpdate,
     });
     const responseText =
@@ -2302,9 +2682,59 @@ export async function callConnectedAgentReference(input: {
     relay.finish("done");
     return responseText;
   } catch (error) {
+    const connectionRequest = parseA2AConnectionRequest(error);
+    if (connectionRequest) {
+      relay.finish("pending");
+      throw new AgentConnectionRequiredError(
+        connectionRequest.detail ??
+          `Connect ${connectionRequest.provider} to continue.`,
+        {
+          provider: connectionRequest.provider,
+          reason: connectionRequest.reason,
+          ...(connectionRequest.appId
+            ? { appId: connectionRequest.appId }
+            : {}),
+          source: { id: input.agent, kind: "agent", label: input.agent },
+        },
+      );
+    }
     relay.finish("error");
     throw error;
   }
+}
+
+function parseA2AConnectionRequest(
+  error: unknown,
+): A2AConnectionRequestMetadata | null {
+  if (!error || typeof error !== "object" || !("task" in error)) return null;
+  const task = (error as { task?: Task }).task;
+  const value = task?.status.message?.metadata?.agentNativeConnectionRequest;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  const provider =
+    typeof request.provider === "string" ? request.provider.trim() : "";
+  const reason = request.reason;
+  if (
+    request.version !== 1 ||
+    !provider ||
+    provider.length > 120 ||
+    (reason !== "connect" &&
+      reason !== "grant" &&
+      reason !== "reauthorize" &&
+      reason !== "admin_required")
+  ) {
+    return null;
+  }
+  const appId = typeof request.appId === "string" ? request.appId.trim() : "";
+  const detail =
+    typeof request.detail === "string" ? request.detail.trim() : "";
+  return {
+    version: 1,
+    provider,
+    reason,
+    ...(appId && appId.length <= 120 ? { appId } : {}),
+    ...(detail && detail.length <= 1_000 ? { detail } : {}),
+  };
 }
 
 const MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS = 200;
@@ -2398,6 +2828,8 @@ export interface AgentLoopUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  builderCreditsUsed?: number;
+  engineName?: string;
   model: string;
   /** Number of provider model-stream attempts, including retries. */
   llmCalls?: number;
@@ -2439,6 +2871,7 @@ export interface AgentLoopToolResultSummary {
   name: string;
   content: string;
   isError: boolean;
+  artifacts?: ArtifactReceipt[];
 }
 
 export interface AgentLoopFinalResponseGuardContext {
@@ -2462,6 +2895,13 @@ export type AgentLoopFinalResponseGuardResult =
   | {
       retryMessage: string;
       fallbackMessage?: string;
+      /**
+       * When retries are exhausted and the draft is non-empty, deliver
+       * `${exhaustedDraftPrefix}\n\n${draft}` instead of `fallbackMessage`;
+       * when the draft is empty, `fallbackMessage` is still used. Lets an
+       * app label an unverified draft instead of discarding it.
+       */
+      exhaustedDraftPrefix?: string;
       /**
        * Number of rejected text-only answers the model may correct before the
        * fallback is emitted. Defaults to one and is capped to keep a broken
@@ -2514,11 +2954,12 @@ export type AgentLoopContinuationReason =
   | "stream_ended"
   | "gateway_timeout"
   | "network_interrupted"
-  | "no_progress";
+  | "no_progress"
+  | "rate_limited";
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason | "rate_limited",
+  reason: AgentLoopContinuationReason,
   options: { actionPreparationTool?: string } = {},
 ) {
   const note =
@@ -2561,7 +3002,8 @@ function isAgentLoopContinuationReason(
     reason === "stream_ended" ||
     reason === "gateway_timeout" ||
     reason === "network_interrupted" ||
-    reason === "no_progress"
+    reason === "no_progress" ||
+    reason === "rate_limited"
   );
 }
 
@@ -2649,6 +3091,15 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
     return true;
   }
   if (code === "http_429" || code === "http_529") return true;
+  // A bare upstream 403 the gateway now tags distinctly from a real credential
+  // rejection (see the constant's own doc comment) — load-shedding, not a
+  // revoked key, so it belongs on the same retry-with-backoff lane as 429/529.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  // The Builder engine's in-stream throttle stop (see builder-engine.ts's
+  // `reason === "rate_limited"` handling) carries this code with no
+  // statusCode at all — providerRetryable is the only other signal it sets,
+  // so treat any rate-limit-class code paired with it the same way.
+  if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
 
@@ -2659,7 +3110,7 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
  */
 export function continuationReasonForResumableError(
   err: unknown,
-): "gateway_timeout" | "network_interrupted" {
+): "gateway_timeout" | "network_interrupted" | "rate_limited" {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return "gateway_timeout";
@@ -2671,6 +3122,25 @@ export function continuationReasonForResumableError(
     (err.statusCode === 408 || err.statusCode === 504)
   ) {
     return "gateway_timeout";
+  }
+  // Provider throttling, named so the chain-cap below (`shouldChainBackgroundContinuation`)
+  // can see it — this used to fall through to `network_interrupted`, which
+  // carries no budget of its own and let a sustained 429 chain for as long as
+  // the turn's run ledger allowed. A bare 403 counts only when the gateway
+  // marked it retryable (`PROVIDER_TRANSIENT_REJECTION_ERROR_CODE` or a raw
+  // `providerRetryable` 403) — a real credential rejection must stay terminal.
+  if (
+    code === "http_429" ||
+    code === "http_529" ||
+    // The gateway's own in-stream throttle stop (`rate_limited`, retryable).
+    code === "rate_limited" ||
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    (err instanceof EngineError &&
+      (err.statusCode === 429 ||
+        err.statusCode === 529 ||
+        (err.statusCode === 403 && err.providerRetryable === true)))
+  ) {
+    return "rate_limited";
   }
   const text = err instanceof Error ? err.message.toLowerCase() : "";
   if (
@@ -2854,6 +3324,11 @@ async function applyObservationalMemoryToContext(
   }
 }
 
+type CachedReadOnlyToolResult = {
+  content: string;
+  images?: EngineToolResultPart["images"];
+};
+
 /**
  * Cross-chunk read-only result cache seed.
  *
@@ -2878,8 +3353,8 @@ async function applyObservationalMemoryToContext(
 function seedReadOnlyToolResultsFromJournal(
   journal: ToolCallJournal | null,
   actions: Record<string, ActionEntry>,
-): Map<string, string> {
-  const cache = new Map<string, string>();
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>();
   if (!journal) return cache;
   for (const entry of journal.completed) {
     const action = actions[entry.tool];
@@ -2900,7 +3375,7 @@ function seedReadOnlyToolResultsFromJournal(
     ) {
       continue;
     }
-    cache.set(toolCallCacheKey(entry.tool, entry.input), result);
+    cache.set(toolCallCacheKey(entry.tool, entry.input), { content: result });
   }
   return cache;
 }
@@ -2908,9 +3383,9 @@ function seedReadOnlyToolResultsFromJournal(
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
-  seed?: Map<string, string>,
-): Map<string, string> {
-  const cache = new Map<string, string>(seed);
+  seed?: Map<string, CachedReadOnlyToolResult>,
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>(seed);
   if (!isInternalContinuationTurn(messages)) return cache;
 
   // Scoped to the current turn only (same slice as
@@ -2954,7 +3429,10 @@ function seedReadOnlyToolResultsFromHistory(
       // cached — every call must execute fresh, seeded or not.
       if (!call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), part.content);
+      cache.set(toolCallCacheKey(call.name, call.input), {
+        content: part.content,
+        ...(part.images?.length ? { images: part.images } : {}),
+      });
     }
   }
 
@@ -3053,6 +3531,16 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   if (part.isError) return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
+  // The ledger persists only the note, not image bytes. Re-execute an image
+  // read when its payload is unavailable so a continuation can restore vision.
+  if (
+    !part.images?.length &&
+    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+|:)[^\n\]]*\]/i.test(
+      part.content,
+    )
+  ) {
+    return false;
+  }
   return !(
     lower.startsWith("skipped duplicate read-only call to ") ||
     lower.startsWith("invalid action parameters for ") ||
@@ -3222,7 +3710,7 @@ export function actionsToEngineTools(
 ): EngineTool[] {
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    if (entry.agentTool === false) continue;
+    if (entry.agentTool === false || entry.uiOnly === true) continue;
     const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
     if (!inputSchema) {
       console.warn(
@@ -3263,6 +3751,8 @@ export interface ExecuteAgentToolCallOptions {
   signal?: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Hosting app/template id for action attribution. */
+  appId?: string;
   /** Audit/action attribution for this externally selected call. */
   caller?: ActionCaller;
   networkProtocol?: "a2a" | "mcp" | "provider-api";
@@ -3278,6 +3768,7 @@ export interface ExecuteAgentToolCallOptions {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -3299,7 +3790,10 @@ export async function executeAgentToolCall(
   options: ExecuteAgentToolCallOptions,
 ): Promise<AgentToolCallExecutionResult> {
   const entry = options.actions[options.name];
-  if (!entry || entry.agentTool === false) {
+  // The caller's registry is the surface: A2A hands this the external one, so
+  // reject only what no surface may run — an MCP-only action is `agentTool:
+  // false` and still legitimately callable here.
+  if (!entry || isActionHiddenFromEveryAgentSurface(entry)) {
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
@@ -3309,7 +3803,7 @@ export async function executeAgentToolCall(
   let streamCalls = 0;
   const engine: AgentEngine = {
     name: "agent-native:single-tool",
-    label: "Agent Native tool runtime",
+    label: "Agent-Native tool runtime",
     defaultModel: "agent-native:single-tool",
     supportedModels: ["agent-native:single-tool"],
     capabilities: {
@@ -3357,7 +3851,7 @@ export async function executeAgentToolCall(
     await runAgentLoop({
       engine,
       model: engine.defaultModel,
-      systemPrompt: "Execute the selected Agent Native tool call.",
+      systemPrompt: "Execute the selected Agent-Native tool call.",
       tools,
       availableTools: tools,
       messages: [
@@ -3376,6 +3870,7 @@ export async function executeAgentToolCall(
       signal,
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
+      appId: options.appId,
       actionCaller: options.caller,
       networkProtocol: options.networkProtocol,
       networkId: options.networkId,
@@ -3387,6 +3882,7 @@ export async function executeAgentToolCall(
       approvedToolCalls: options.approvedToolCalls,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
+      isToolAlwaysAllowed: options.isToolAlwaysAllowed,
     });
   } catch (error) {
     return {
@@ -3584,7 +4080,7 @@ function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
-  if (schema.type !== "object") return null;
+  if (!isObjectOnly(schema)) return null;
   type ToolParams = NonNullable<ActionTool["parameters"]>;
   let cloned: ToolParams;
   try {
@@ -3631,7 +4127,7 @@ function stableStringify(value: unknown): string {
 }
 
 export function toolCallCacheKey(toolName: string, input: unknown): string {
-  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
 export function findApprovedStructuredToolCall(
@@ -3696,7 +4192,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   timeoutMs: number;
   signal: AbortSignal;
   send: (event: AgentChatEvent) => void;
-}): Promise<string | null> {
+}): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
   const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
   // Wait up to the tool's OWN declared timeout — the abandoned zombie can keep
   // running that long (e.g. a 12-minute image generation, whose provider keeps
@@ -3764,10 +4260,18 @@ async function waitForInterruptedToolLedgerEntry(opts: {
  * across-arguments breaker at item six. A guard message that varies its own
  * running tally is fixed where that message is written, not by blinding every
  * breaker to numbers.
+ *
+ * A `<<<diagnostic-snippet…>>>end-diagnostic-snippet` fence (edit-tool
+ * candidate/ambiguous-match text quoted from the user's own content, see
+ * `diagnostic-snippet.ts`) is the same problem in a different shape: two
+ * attempts that fail for the identical reason can quote different candidate
+ * text, so it has to come out before either breaker key is built, or a
+ * varying snippet defeats the counter exactly like a varying argument echo
+ * would.
  */
-function normalizeToolErrorForBreaker(error: string): string {
+export function normalizeToolErrorForBreaker(error: string): string {
   return (
-    error
+    stripDiagnosticSnippets(error)
       // The argument echo, up to the next sentence boundary.
       .replace(
         /Received:\s*[\s\S]*?\.\s(?=Expected:|The tool was not executed)/g,
@@ -3807,9 +4311,23 @@ function rateLimitRecoveryHint(message: string): string {
  * which is worse than one more retry.
  */
 export function permanentPreconditionRemedy(message: string): string | null {
-  const trimmed = message.replace(/\s+/g, " ").trim();
+  // Strip fenced diagnostic snippets FIRST, before either pass: candidate or
+  // ambiguous-match text an edit tool quotes back from the user's own content
+  // (see `diagnostic-snippet.ts`) can coincidentally contain any of these
+  // phrases — or, once multi-line, push a later quoted line to column 0 — and
+  // must never be read as this framework's own signal.
+  const unfenced = stripDiagnosticSnippets(message);
+  const trimmed = unfenced.replace(/\s+/g, " ").trim();
   for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
     if (pattern.test(trimmed)) return trimmed;
+  }
+  // Line-anchored markers, tested against the unfenced but otherwise RAW
+  // message: `trimmed` has already collapsed every newline (and the
+  // indentation that disqualifies an echoed candidate line) into a single
+  // space, which would let an indented line match a `^…$` anchor meant for
+  // column 0.
+  for (const pattern of PERMANENT_PRECONDITION_LINE_PATTERNS) {
+    if (pattern.test(unfenced)) return trimmed;
   }
   return null;
 }
@@ -3846,6 +4364,66 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   // succeeding. The count-based breaker still ends a genuine runtime gate
   // after six.
 ];
+
+/**
+ * Framing-anchored variants of the marker above: matched against the framework's
+ * exact layout, not the words anywhere in the text.
+ *
+ * `formatA2ATerminalError` (agent-chat/action-filters-a2a.ts) writes a nested
+ * A2A/ask_app delegation's own `errorCode` as its OWN line, always starting at
+ * column 0. `fail(message, { errorCode: "permanent_precondition" })` renders
+ * as `(errorCode: permanent_precondition)` appended to a line this module
+ * builds, which likewise starts at column 0. An echoed diagnostic or
+ * candidate line — a closest-match list from an edit tool, e.g. "  line 12:
+ * code: permanent_precondition" — is always indented, so anchoring the line
+ * start to column 0 excludes it without excluding the framework's own text.
+ */
+const PERMANENT_PRECONDITION_LINE_PATTERNS: readonly RegExp[] = [
+  /^code:\s*permanent_precondition\s*$/m,
+  /^(?!\s)[^\n]*\(errorCode:\s*permanent_precondition\)\s*$/m,
+];
+
+const PERMANENT_PRECONDITION_REASON_MAX_CHARS = 240;
+
+/**
+ * The concrete "what's actually missing" for a permanent-precondition stop,
+ * pulled out of the tool error so the headline can lead with it instead of
+ * the generic "needs a setup step" sentence. `runToolCall` always wraps a
+ * thrown error as `Error running <tool>: <message>`; a nested
+ * `AgentActionStopError` (see the catch above) skips that wrapper and starts
+ * with the message itself. Both prefixes are stripped so the reason starts
+ * at the actual sentence ("Requires editor role on …"), not the tool name.
+ */
+export function permanentPreconditionReason(
+  toolName: string,
+  message: string,
+): string | null {
+  const escapedName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reason = message
+    .replace(new RegExp(`^Error running ${escapedName}:\\s*`), "")
+    .replace(new RegExp(`^${escapedName}:\\s*`), "")
+    // `runToolCall` suffixes a contract error's own code; it is the marker
+    // that classified this stop, not part of the reason.
+    .replace(/\s*\(errorCode: permanent_precondition\)\s*$/i, "")
+    .trim()
+    // The headline appends its own sentence punctuation.
+    .replace(/[.。]+$/, "");
+  if (!reason) return null;
+  // A nested A2A/ask_app delegation's error text can itself be a terminal
+  // stop narrative (its own "I stopped because …" headline plus the
+  // `permanent_precondition` marker). Embedding that whole payload as "the
+  // concrete reason" doubles the narrative instead of naming what's missing,
+  // so fall back to the generic headline instead.
+  if (
+    /\bI stopped because\b/i.test(reason) ||
+    /permanent_precondition/i.test(reason)
+  ) {
+    return null;
+  }
+  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
+    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
+    : reason;
+}
 
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
@@ -3914,7 +4492,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   return (
     opts.priorToolCalls.filter((call) =>
       isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
@@ -3993,14 +4571,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
  * tool error, and the breakers key on that text: a message that reports its own
  * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
  * decline that exists to stop a spiral becomes the one thing nothing can count.
- * The fixed threshold below says the same thing without varying.
+ * The threshold is fixed for the turn, so it says the same thing without
+ * varying.
  */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const target =
     opts.scope === "aggregate"
       ? "read-only source/search tools"
@@ -4034,7 +4613,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
@@ -4083,7 +4662,7 @@ function seedSourceSweepToolCallsFromHistory(
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
-        input: normalizeToolCallInputForHistory(part.input),
+        input: normalizeToolCallInputForHistory(part.input, part.name),
       });
     }
   }
@@ -4092,9 +4671,18 @@ function seedSourceSweepToolCallsFromHistory(
 
 function normalizeToolCallInputForHistory(
   input: unknown,
+  toolName?: string,
 ): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+    const record = input as Record<string, unknown>;
+    if (toolName !== "docs-search" || typeof record.query !== "string") {
+      return record;
+    }
+    // docs-search lowercases and splits queries on whitespace before matching.
+    return {
+      ...record,
+      query: record.query.trim().replace(/\s+/g, " ").toLowerCase(),
+    };
   }
   return { rawInput: input };
 }
@@ -4143,6 +4731,12 @@ function toolInputSchemaErrorResult(
   input: unknown,
   error: string,
   parameters?: ActionTool["parameters"],
+  /**
+   * The model response carrying this call stopped at the output-token cap, so
+   * the arguments are truncated rather than wrong. Telling the model to match
+   * the schema here is what makes it re-send the same oversized payload.
+   */
+  outputCapTruncated = false,
 ): string {
   const signature = describeToolParameterSignature(
     parameters,
@@ -4154,7 +4748,9 @@ function toolInputSchemaErrorResult(
     (signature
       ? `Expected: ${signature} (where * = required, ? = optional). `
       : "") +
-    "The tool was not executed; retry with arguments that match the tool schema."
+    (outputCapTruncated
+      ? "The tool was not executed: the response hit the model output-token cap before these arguments finished, so they are truncated, not wrong. Retry with a smaller payload — split the work across several calls, or shorten the longest field."
+      : "The tool was not executed; retry with arguments that match the tool schema.")
   );
 }
 
@@ -4383,8 +4979,8 @@ function normalizeOptionalToolPlaceholders(
  * time. Evidence-gated exactly like `normalizeOptionalToolPlaceholders`:
  * only coerce a field whose CURRENT value fails schema validation (so a
  * legitimate string value is never touched — a field schema-valid as a
- * string is never also schema-valid as object/array) and whose parsed form
- * passes. Never touches values that are already the right shape.
+ * string is never also schema-valid as object/array). Match the parsed
+ * CONTAINER only; validating its contents here hides the real defect.
  */
 function coerceStringifiedJsonToolValues(
   schema: RawJsonSchema | undefined,
@@ -4415,7 +5011,11 @@ function coerceStringifiedJsonToolValues(
       continue;
     }
     if (typeof parsed !== "object" || parsed === null) continue;
-    if (!schemaAcceptsToolValue(propertySchema, parsed)) continue;
+    const parsedContainer = Array.isArray(parsed) ? "array" : "object";
+    const containerMatches = Array.isArray(expectedType)
+      ? expectedType.includes(parsedContainer)
+      : expectedType === parsedContainer;
+    if (!containerMatches) continue;
     normalized ??= { ...(input as Record<string, unknown>) };
     normalized[key] = parsed;
   }
@@ -4531,6 +5131,10 @@ export async function runAgentLoop(opts: {
   ownerEmail?: string | null;
   orgId?: string | null;
   appId?: string;
+  /** One-turn authorization snapshot prepared by the request transport. */
+  appAuthorization?:
+    | import("../org/app-roles.js").AppAuthorizationContext
+    | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -4589,6 +5193,14 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
+  /**
+   * The chunk's REAL soft-timeout budget, when the caller has one.
+   *
+   * Only `runToolTimeoutCeilingMs` reads it, and only so a per-tool timeout
+   * stays under the budget it actually runs inside. Absent, the generic hosted
+   * ceiling is used — right for callers that have no chunk of their own.
+   */
+  runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
     maxResultChars?: number;
@@ -4611,6 +5223,8 @@ export async function runAgentLoop(opts: {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** User-scoped action-type policy, checked only after needsApproval. */
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -4623,7 +5237,6 @@ export async function runAgentLoop(opts: {
 }): Promise<AgentLoopUsage> {
   const {
     engine,
-    model,
     systemPrompt,
     tools,
     availableTools,
@@ -4632,6 +5245,10 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  // Reassigned at most once, in the per-attempt retry catch below: when a
+  // rate-limited retry exhausts its budget and `resolveFallbackModel` names a
+  // sibling, later engine calls in this same run use it instead.
+  let model = opts.model;
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -4651,6 +5268,29 @@ export async function runAgentLoop(opts: {
   );
   const activeToolNames = new Set(tools.map((tool) => tool.name));
   let activeTools = tools;
+  let appAuthorizationPromise:
+    | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
+    | undefined;
+  const resolveTurnAppAuthorization = (
+    userEmail: string | undefined,
+    orgId: string | null,
+  ) => {
+    if (!appAuthorizationPromise) {
+      appAuthorizationPromise =
+        opts.appAuthorization !== undefined
+          ? Promise.resolve(opts.appAuthorization)
+          : opts.appId && userEmail && orgId
+            ? import("../org/app-roles.js").then(
+                ({ resolveAppAuthorizationContext }) =>
+                  resolveAppAuthorizationContext(opts.appId!, {
+                    userEmail,
+                    orgId,
+                  }),
+              )
+            : Promise.resolve(null);
+    }
+    return appAuthorizationPromise;
+  };
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
@@ -4665,9 +5305,16 @@ export async function runAgentLoop(opts: {
       added.push(name);
     }
     if (added.length > 0) {
-      activeTools = (availableTools ?? tools).filter((tool) =>
+      const expandedTools = (availableTools ?? tools).filter((tool) =>
         activeToolNames.has(tool.name),
       );
+      const prioritizedNames = new Set(names);
+      // Provider adapters cap the schema list; keep search results in the
+      // prefix so the next request can actually call what it discovered.
+      activeTools = [
+        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
+        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
+      ];
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4695,6 +5342,7 @@ export async function runAgentLoop(opts: {
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model,
   };
 
@@ -4713,13 +5361,23 @@ export async function runAgentLoop(opts: {
       : 0;
   // A per-tool timeout above the chunk's own soft timeout can never fire — the
   // chunk boundary always wins — so the 12-minute default is dead code on a
-  // ~40s hosted foreground chunk. Background-function runs resolve to a ~13min
-  // ceiling and keep the default unchanged.
+  // ~40s hosted foreground chunk.
+  //
+  // TAKEN FROM THE CALLER'S ACTUAL BUDGET, not re-derived. Re-deriving it asked
+  // `resolveRunSoftTimeoutMs` for the generic background ceiling (13 min) even
+  // when the caller was a background AUTOMATION, whose real budget is its own
+  // hard abort minus headroom (10 min − 20s = 9m40s via
+  // `resolveBackgroundAutomationSoftTimeoutMs`). The ceiling came out ABOVE the
+  // run budget, so every per-tool timeout on that path was dead code and the
+  // chunk boundary won instead — which is the exact failure
+  // `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to prevent, reintroduced by guessing
+  // at a number the caller already knew.
   const runToolTimeoutCeilingMs = resolveRunToolTimeoutCeilingMs(
-    resolveRunSoftTimeoutMs(undefined, {
-      useHostedDefault: true,
-      backgroundFunction: isInBackgroundFunctionRuntime(),
-    }),
+    opts.runSoftTimeoutMs ??
+      resolveRunSoftTimeoutMs(undefined, {
+        useHostedDefault: true,
+        backgroundFunction: isInBackgroundFunctionRuntime(),
+      }),
   );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
@@ -4792,9 +5450,47 @@ export async function runAgentLoop(opts: {
   /** Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS. */
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
   const repeatedToolCalls = new Map<string, number>();
+  // Keyed by (tool, input) identity, NOT FIFO-per-tool-name: two concurrent
+  // same-tool calls with different arguments can complete and get journaled
+  // out of order, so pairing the Nth call to the Nth result for that name
+  // could match the wrong call to a resurfaced result.
+  // `PriorTurnToolResultSummary.input` carries the identity to key on
+  // directly — the tool_done event's own input, or the FIFO-matched
+  // tool_start input `loadPriorTurnToolCallJournal` already resolved for
+  // legacy events with none.
+  const journaledCallCountByKey = new Map<string, number>();
   for (const prior of journaledPriorToolCalls) {
     const key = toolCallCacheKey(prior.name, prior.input);
-    repeatedToolCalls.set(key, (repeatedToolCalls.get(key) ?? 0) + 1);
+    journaledCallCountByKey.set(
+      key,
+      (journaledCallCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  const resurfacedResultCountByKey = new Map<string, number>();
+  for (const result of journaledPriorToolResults) {
+    if (
+      !result.content.startsWith(
+        resurfacedDuplicateReadOnlyToolResultPrefix(result.name),
+      )
+    )
+      continue;
+    const key = toolCallCacheKey(result.name, result.input);
+    resurfacedResultCountByKey.set(
+      key,
+      (resurfacedResultCountByKey.get(key) ?? 0) + 1,
+    );
+  }
+  for (const [key, callCount] of journaledCallCountByKey) {
+    // A resurfaced re-fetch from an earlier chunk is the same call answered
+    // again because its result fell out of view, not a genuine repeat —
+    // counting it would trip `repeated_tool_call` on a turn that never made a
+    // truly duplicate call (see the matching in-run skip in `runToolCall`'s
+    // resurfaced branch).
+    const genuine = Math.max(
+      callCount - (resurfacedResultCountByKey.get(key) ?? 0),
+      0,
+    );
+    if (genuine > 0) repeatedToolCalls.set(key, genuine);
   }
   for (const prior of journaledPriorToolResults) {
     if (!prior.isError) continue;
@@ -4813,6 +5509,7 @@ export async function runAgentLoop(opts: {
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let truncatedToolCallRetries = 0;
   let iterations = 0;
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
@@ -4851,10 +5548,14 @@ export async function runAgentLoop(opts: {
   // tool-loop turns revert to the caller's original request after a success.
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
   let effectiveReasoningEffort = opts.reasoningEffort;
+  // At most one fallback swap per run — see the per-attempt retry catch below.
+  // A model that ALSO turns out to be rate limited just falls through to the
+  // normal terminal error rather than bouncing between the two forever.
+  let fallbackModelAttempted = false;
 
   // Set when an in-loop processor aborts via `abort()` / throws a `TripWire`.
-  // The loop emits the `tripwire` event, surfaces the reason as a final
-  // assistant message, and stops cleanly.
+  // The loop emits the `tripwire` event, preserves the reason for the result
+  // hook, and installs a terminal error so run-manager cannot synthesize done.
   let tripwire: TripWire | null = null;
   const emitTripwire = (err: TripWire) => {
     tripwire = err;
@@ -4863,7 +5564,17 @@ export async function runAgentLoop(opts: {
       reason: err.message,
       ...(err.processor ? { processor: err.processor } : {}),
     });
-    send({ type: "text", text: err.message });
+    const errorCode =
+      err.processor === "run-input-token-budget"
+        ? "budget_exhausted"
+        : err.processor
+          ? `guardrail:${err.processor}`
+          : "guardrail";
+    terminalActionStop = {
+      message: err.message,
+      errorCode,
+    };
+    sendTerminalActionStop(terminalActionStop);
     messages.push({
       role: "assistant",
       content: [{ type: "text", text: err.message }],
@@ -4984,14 +5695,7 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
-        type ZeroByteToolInputRestart = {
-          toolName: string;
-          firstStartedAt: number;
-          lastStartedAt: number;
-          count: number;
-        };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
-        let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         // Bracket the engine call for the run manager's no-progress backstop
         // (`inFlightWorkDelta` in run-manager.ts). That backstop measures the
@@ -5010,7 +5714,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
@@ -5049,63 +5757,59 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const actionPreparationDeadlineAt = () => {
-          let deadlineAt = Number.POSITIVE_INFINITY;
-          if (zeroByteToolInputRestart) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              zeroByteToolInputRestart.firstStartedAt +
-                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          let earliestStartedAt = Number.POSITIVE_INFINITY;
-          let latestPositiveProgressAt = 0;
-          for (const active of activeToolInputs.values()) {
-            if (active.startedAt < earliestStartedAt) {
-              earliestStartedAt = active.startedAt;
-            }
-            if (
-              active.bytes > 0 &&
-              active.lastProgressAt > latestPositiveProgressAt
-            ) {
-              latestPositiveProgressAt = active.lastProgressAt;
-            }
-          }
-          const progressAt =
-            latestPositiveProgressAt > 0
-              ? latestPositiveProgressAt
-              : earliestStartedAt;
-          if (Number.isFinite(progressAt)) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
-        };
-        const modelStreamNoProgressDeadlineAt = () => {
-          const baseDeadlineAt =
-            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
-          // FIX 2: cap the FIRST event's deadline tighter on the clamped
-          // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
-          // for the ordering invariant this protects.
+        /**
+         * The ONLY in-loop stall bound left, and it covers exactly one thing:
+         * a model call whose stream opened and produced NOTHING AT ALL.
+         *
+         * WHAT WAS HERE, AND WHY IT IS GONE. Two 90s watchdogs used to run for
+         * the whole stream — one on silence between engine frames, one on a
+         * tool input whose byte count stopped growing — plus a zero-byte
+         * restart tripwire. Each inferred death from the ABSENCE of a
+         * particular event, and that inference is unsound on this transport:
+         * the Anthropic SDK drops the provider's `ping` keepalives before they
+         * reach any consumer (`core/streaming.js`: `if (sse.event === 'ping')
+         * continue;`, with no opt-out), so a healthy stream mid-generation is
+         * byte-for-byte indistinguishable from a wedged one.
+         *
+         * That is not an edge case, it is normal operation. A tool whose input
+         * is not eagerly streamed emits no `input_json_delta` at all while the
+         * provider composes its arguments, so writing a large file or filing a
+         * long structured result is a content-silent window whose length is set
+         * by the size of the argument. Production bore it out: of 27 one-shot
+         * analyst runs, 2 completed. Guards added for reliability were the
+         * thing taking it away.
+         *
+         * WHAT STILL CATCHES A REAL WEDGE — none of which can fire on
+         * slow-but-healthy work:
+         *   • the engine's own first-event abort
+         *     (`FIRST_STREAM_EVENT_TIMEOUT_MS`, 120s): a connection that opens
+         *     and never speaks
+         *   • the engine's total-stream deadline (`STREAM_TOTAL_TIMEOUT_MS`,
+         *     14min): one model call end to end, which is what bounds a socket
+         *     that wedges MID-stream on the runtimes with no outer budget
+         *     (local dev and self-hosted resolve the soft timeout to 0)
+         *   • the run-manager backstop, for the segments OUTSIDE the stream
+         *     (`inFlightWorkDelta` suspends it while the stream is open)
+         *   • the per-tool timeout, which bounds tool EXECUTION at the tool
+         *   • the chunk / run budget, which bounds COST rather than health
+         *   • the stale reaper, which bounds worker liveness
+         *
+         * The cap below survives only because it guards the "nothing has
+         * happened yet" window on the clamped hosted FOREGROUND runtime, where
+         * the ~57s platform wall arrives before the engine's 120s bound could.
+         * The first real frame releases it, so long thinking, long tool inputs
+         * and long outputs are all past it by construction.
+         */
+        const noProgressDeadlineAt = () => {
           if (
             hasReceivedFirstEngineEvent ||
             !isClampedForegroundRuntimeForThisCall
           ) {
-            return baseDeadlineAt;
+            return Number.POSITIVE_INFINITY;
           }
-          return Math.min(
-            baseDeadlineAt,
-            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS,
+          return (
+            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           );
-        };
-        const noProgressDeadlineAt = () => {
-          const actionDeadlineAt = actionPreparationDeadlineAt();
-          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
-          return actionDeadlineAt === undefined
-            ? modelDeadlineAt
-            : Math.min(actionDeadlineAt, modelDeadlineAt);
         };
         const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
         const checkpointNoProgress = () => {
@@ -5143,10 +5847,17 @@ export async function runAgentLoop(opts: {
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
           const deadlineAt = noProgressDeadlineAt();
+          // No deadline at all is the COMMON case now — every runtime except a
+          // clamped hosted foreground call that has not yet seen its first
+          // frame. Await the iterator directly rather than racing it: a
+          // `setTimeout` of Infinity is coerced to 1ms by Node and would
+          // checkpoint instantly, turning "no bound" into "the tightest bound
+          // there is".
+          if (!Number.isFinite(deadlineAt)) return iterator.next();
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
-            requestEventIteratorReturn(iterator, false);
+            void requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -5159,7 +5870,7 @@ export async function runAgentLoop(opts: {
             const result = await Promise.race([next, timeout]);
             if (result === "timeout") {
               checkpointNoProgress();
-              requestEventIteratorReturn(iterator, false);
+              void requestEventIteratorReturn(iterator, false);
               return { done: true, value: undefined };
             }
             return result;
@@ -5182,36 +5893,6 @@ export async function runAgentLoop(opts: {
             lastProgressAt: now,
             bytes,
           });
-        };
-        const resetZeroByteToolInputRestart = (toolName?: string) => {
-          if (!zeroByteToolInputRestart) return;
-          if (!toolName || zeroByteToolInputRestart.toolName === toolName) {
-            zeroByteToolInputRestart = undefined;
-          }
-        };
-        const noteZeroByteToolInputStart = (toolName?: string) => {
-          if (!toolName) return false;
-          const now = Date.now();
-          if (zeroByteToolInputRestart?.toolName === toolName) {
-            zeroByteToolInputRestart = {
-              ...zeroByteToolInputRestart,
-              lastStartedAt: now,
-              count: zeroByteToolInputRestart.count + 1,
-            };
-          } else {
-            zeroByteToolInputRestart = {
-              toolName,
-              firstStartedAt: now,
-              lastStartedAt: now,
-              count: 1,
-            };
-          }
-          return (
-            zeroByteToolInputRestart.count >=
-              ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
-            now - zeroByteToolInputRestart.firstStartedAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
         let eventIteratorDone = false;
@@ -5254,7 +5935,6 @@ export async function runAgentLoop(opts: {
               }
             }
             if (event.type === "text-delta") {
-              resetZeroByteToolInputRestart();
               streamedAssistantText += event.text;
               send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
@@ -5276,17 +5956,12 @@ export async function runAgentLoop(opts: {
                 ...(event.id ? { id: event.id } : {}),
               });
               sendToolInputActivity(event.name, key, undefined, true);
-              if (noteZeroByteToolInputStart(event.name)) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "tool-input-delta") {
               const key = event.id ?? event.name;
               const toolName =
                 event.name ??
                 (event.id ? toolInputNames.get(event.id) : undefined);
               let progressBytes: number | undefined;
-              let startedZeroByteInput = false;
               if (key) {
                 const hadByteRecord = toolInputBytes.has(key);
                 const previous = hadByteRecord
@@ -5298,11 +5973,6 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, progressBytes);
                 if (!hadByteRecord || progressBytes > previous) {
                   trackActiveToolInput(key, toolName, progressBytes);
-                  if (progressBytes > 0) {
-                    resetZeroByteToolInputRestart();
-                  } else if (!hadByteRecord) {
-                    startedZeroByteInput = true;
-                  }
                 }
               }
               if (event.text) {
@@ -5314,14 +5984,6 @@ export async function runAgentLoop(opts: {
                 });
               }
               sendToolInputActivity(toolName, key, progressBytes);
-              if (
-                startedZeroByteInput &&
-                toolName &&
-                noteZeroByteToolInputStart(toolName)
-              ) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "gateway-heartbeat") {
               send({ type: "stream_keepalive" });
             } else if (event.type === "tool-call") {
@@ -5349,12 +6011,21 @@ export async function runAgentLoop(opts: {
                 outputTokens: event.outputTokens,
                 cacheReadTokens: event.cacheReadTokens ?? 0,
                 cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                engineName: opts.engine.name,
                 model,
+                ...(event.builderCreditsUsed !== undefined
+                  ? { builderCreditsUsed: event.builderCreditsUsed }
+                  : {}),
               };
               usage.inputTokens += eventUsage.inputTokens;
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (eventUsage.builderCreditsUsed !== undefined) {
+                usage.builderCreditsUsed =
+                  (usage.builderCreditsUsed ?? 0) +
+                  eventUsage.builderCreditsUsed;
+              }
               usage.usageReported = true;
               opts.onUsage?.(eventUsage);
             } else if (event.type === "stop") {
@@ -5368,6 +6039,7 @@ export async function runAgentLoop(opts: {
                   contextOverflow: event.contextOverflow,
                   requestId: event.requestId,
                   requestShape: event.requestShape,
+                  retryAfterMs: event.retryAfterMs,
                 });
               }
             }
@@ -5391,14 +6063,13 @@ export async function runAgentLoop(opts: {
         }
 
         // A provider can close cleanly after streaming only a partial tool
-        // input. Do not treat that as a completed turn or execute guessed args.
-        const hasEmptyAssistantContent =
-          assistantContent === undefined || assistantContent.length === 0;
+        // input. Prose in the terminal frame does not complete that call.
+        const hasCompleteToolCall =
+          streamedAssistantToolCalls.length > 0 ||
+          toolCallErrors.size > 0 ||
+          assistantContent?.some((part) => part.type === "tool-call") === true;
         const hasUnfinishedToolInput =
-          activeToolInputs.size > 0 &&
-          hasEmptyAssistantContent &&
-          streamedAssistantToolCalls.length === 0 &&
-          toolCallErrors.size === 0;
+          activeToolInputs.size > 0 && !hasCompleteToolCall;
         if (hasUnfinishedToolInput) {
           send({ type: "auto_continue", reason: "stream_ended" });
           return usage;
@@ -5428,10 +6099,15 @@ export async function runAgentLoop(opts: {
             { errorCode: "context_length_exceeded" },
           );
         }
+        // Only for errors `isRetryableError` already approves — this never
+        // widens what's retryable, it only changes how long an approved
+        // retry waits.
+        const retryAfterMs =
+          err instanceof EngineError ? err.retryAfterMs : undefined;
         if (
           retry < maxRetriesForError(err) &&
           isRetryableError(err) &&
-          hasBudgetForEngineRetry(budgetStartedAt, retry)
+          hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output. A fast provider blip
@@ -5451,8 +6127,64 @@ export async function runAgentLoop(opts: {
             });
           }
           send({ type: "clear" });
-          await retryDelay(retry, signal);
+          await retryDelay(retry, signal, retryAfterMs);
           continue;
+        }
+        // The normal retry budget above is exhausted (or never had room for
+        // another attempt) and this is specifically a rate-limit-class error
+        // — try the one sibling model this provider isn't currently
+        // throttling, instead of ending the turn on the first rate limit. At
+        // most once: a fallback that is ALSO rate limited falls straight
+        // through to the terminal error below rather than bouncing between
+        // the two forever. Never persisted to settings or the dispatch
+        // payload — this is a same-process, one-run swap only.
+        if (
+          !fallbackModelAttempted &&
+          isTransientProviderRateLimitError(err) &&
+          // The swap is only worth it with room for a whole fresh attempt;
+          // otherwise the fallback call is cut by the soft timeout and the next
+          // chunk starts the same dance on the primary model again.
+          hasBudgetForEngineRetry(budgetStartedAt, 0)
+        ) {
+          // `resolveFallbackModel` already resolves against the engine's own
+          // `supportedModels` (Builder-catalog ids vs. the direct Anthropic
+          // engine's dated ids), so its result is guaranteed supported here.
+          const fallbackModel = resolveFallbackModel(
+            model,
+            engine.supportedModels,
+          );
+          // A sibling with a smaller window (sonnet → haiku) must not inherit
+          // a context that only fit the primary: that fails deterministically
+          // as a context-length error instead of recovering from throttling.
+          // ponytail: chars/4 is a coarse token estimate; swap in the engine's
+          // count when one is exposed.
+          const fallbackFits =
+            fallbackModel !== undefined &&
+            JSON.stringify(contextMessages).length / 4 <=
+              getContextWindowForModel(fallbackModel) * 0.8;
+          if (fallbackModel && fallbackFits) {
+            fallbackModelAttempted = true;
+            send({
+              type: "activity",
+              label: `${model} is rate limited — switching to ${fallbackModel}`,
+            });
+            send({ type: "clear" });
+            model = fallbackModel;
+            // `usage` is one aggregate attributed to one model. Everything the
+            // throttled primary attempts streamed is discarded here (the
+            // `clear` above drops their text too), so the totals restart and
+            // are attributed to the model that will actually answer. A
+            // rate-limited request bills nothing; a mid-stream 429/529 loses a
+            // partial prefix, which is the honest side of the trade-off versus
+            // pricing a whole answer under the wrong model.
+            usage.inputTokens = 0;
+            usage.outputTokens = 0;
+            usage.cacheReadTokens = 0;
+            usage.cacheWriteTokens = 0;
+            usage.model = fallbackModel;
+            retry = -1;
+            continue;
+          }
         }
         throw err;
       }
@@ -5535,7 +6267,7 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input: normalizeToolCallInputForHistory(part.input, part.name),
           }
         : part,
     );
@@ -5608,21 +6340,26 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        send({
-          type: "text",
-          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-        });
+        terminalActionStop = {
+          message:
+            "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+          errorCode: "empty_final_response",
+        };
+        sendTerminalActionStop(terminalActionStop);
         break;
       }
 
       let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
+      const finalResponseDraftText = collectTextParts(
+        assistantContentForHistory,
+      );
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
             messages,
             requestText: finalResponseGuardRequestText,
             assistantContent: assistantContentForHistory,
-            text: collectTextParts(assistantContentForHistory),
+            text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
             retryCount: finalGuardRetries,
@@ -5669,7 +6406,15 @@ export async function runAgentLoop(opts: {
           continue;
         }
         send({ type: "clear" });
-        send({ type: "text", text: fallbackMessage ?? retryMessage });
+        const exhaustedDraftPrefix =
+          typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
+        send({
+          type: "text",
+          text:
+            exhaustedDraftPrefix && finalResponseDraftText.trim()
+              ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
+              : (fallbackMessage ?? retryMessage),
+        });
       } else {
         flushUnstreamedAssistantText();
       }
@@ -5687,9 +6432,49 @@ export async function runAgentLoop(opts: {
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
 
+    // A `max_tokens` stop is only recognised as truncation in the
+    // `toolCallParts.length === 0` branch above. A tool call cut off
+    // mid-arguments still arrives AS a tool-call part, so without this the
+    // turn reads as a normal one: the partial arguments fail schema
+    // validation, the model is told to "retry with arguments that match the
+    // tool schema", and it re-issues the same oversized payload against the
+    // same ceiling until the identical-error stop fires. The tool never runs
+    // and nothing in the transcript says the response was truncated.
+    //
+    // The tool calls still execute — the assistant turn carrying them is
+    // already in `messages`, and every tool_use needs its tool_result — but
+    // the retry gets a raised ceiling and the error text below names the real
+    // cause.
+    const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
+    if (toolCallTruncatedByOutputCap) {
+      if (truncatedToolCallRetries < TRUNCATED_TOOL_CALL_RETRY_LIMIT) {
+        truncatedToolCallRetries += 1;
+        effectiveMaxOutputTokens =
+          resolveEmptyResponseRetryMaxOutputTokens(model);
+      } else {
+        // Retries spent. The raised ceiling was lent to those attempts, not to
+        // the rest of the run — leaving it in place kept every later request
+        // above the configured cap.
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
+      }
+    } else {
+      truncatedToolCallRetries = 0;
+      effectiveMaxOutputTokens = opts.maxOutputTokens;
+    }
+
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    let requestedConnection:
+      | {
+          requestId: string;
+          provider: string;
+          reason: "connect" | "grant" | "reauthorize" | "admin_required";
+          appId?: string;
+          detail: string;
+          source?: { id: string; kind?: string; label?: string };
+        }
+      | undefined;
     // An `endsTurn` action ran and handed control to the user. Distinct from
     // `requestedActionStop`, which also covers failure stops that must not
     // suppress the remaining tool calls.
@@ -5708,18 +6493,28 @@ export async function runAgentLoop(opts: {
       };
     };
 
-    const noteRepeatedToolCall = (toolName: string, input: unknown) => {
+    // Returns the stop THIS call actually installed (or null) so a caller that
+    // later learns the call was a resurfaced dedupe re-fetch — not a genuine
+    // repeat — can undo it by identity, safely under the parallel read batch
+    // where several calls run through this concurrently (see the resurfaced
+    // branch in `runToolCall`, below).
+    const noteRepeatedToolCall = (
+      toolName: string,
+      input: unknown,
+    ): TerminalActionStop | null => {
       const key = toolCallCacheKey(toolName, input);
       const count = (repeatedToolCalls.get(key) ?? 0) + 1;
       repeatedToolCalls.set(key, count);
-      if (count < MAX_IDENTICAL_TOOL_CALLS) return;
-      requestedActionStop ??= {
+      if (count < MAX_IDENTICAL_TOOL_CALLS) return null;
+      const stop: TerminalActionStop = {
         message:
           `Stopped because ${toolName} was called ${count} times with identical arguments in one turn, ` +
           `which means the same step is repeating rather than making progress. ` +
           `Everything completed before this point is preserved above.`,
         errorCode: "repeated_tool_call",
       };
+      requestedActionStop ??= stop;
+      return requestedActionStop === stop ? stop : null;
     };
 
     // Human-in-the-loop approvals granted by the user for this turn (opt-in;
@@ -5753,13 +6548,20 @@ export async function runAgentLoop(opts: {
       // Count after the same normalization that is persisted in the journal:
       // a model can send a JSON-encoded object/array, while the action and
       // ledger both see the coerced value. Serving a repeat from cache still
-      // counts as asking the same question again.
-      noteRepeatedToolCall(toolCall.name, toolCall.input);
+      // counts as asking the same question again. The dedupe/resurfaced
+      // decision below isn't known yet at this point in the call — dedupe
+      // needs this same normalized input — so a resurfaced re-fetch undoes
+      // this strike after the fact instead of skipping it up front.
+      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
+        toolCall.name,
+        toolCall.input,
+      );
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
+        toolCall.name,
       );
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
@@ -5785,32 +6587,51 @@ export async function runAgentLoop(opts: {
         name: toolCall.name,
         input: normalizedToolInput,
       });
-      const recordToolResult = (content: string, isError: boolean) => {
+      const recordToolResult = (
+        content: string,
+        isError: boolean,
+        artifacts?: ArtifactReceipt[],
+      ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
+          ...(artifacts?.length ? { artifacts } : {}),
         });
       };
+      // An action that stops itself (AgentActionStopError) is classified on
+      // its user-facing `message`, not on the model-facing `toolResult` that
+      // becomes the tool result; an explicit `permanent_precondition` code is
+      // the classification and need not match the text heuristics.
+      let directStop: { message: string; explicit: boolean } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
         // Counting is the wrong instrument for a precondition the turn cannot
         // satisfy: six identical round-trips through a missing API key cost the
         // user minutes and end where the first one did. Classified first so the
         // remedy reaches them on attempt one.
-        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        const permanentRemedy = directStop?.explicit
+          ? directStop.message
+          : permanentPreconditionRemedy(directStop?.message ?? sanitizedResult);
         if (permanentRemedy) {
+          const reason = permanentPreconditionReason(
+            toolCall.name,
+            permanentRemedy,
+          );
           requestedActionStop ??= {
-            message:
-              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
-              "Retrying would not have changed it, and anything completed before this is saved.",
+            message: reason
+              ? `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
+              : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+                "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
             details: sanitizedResult,
           };
-          return (
-            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
-            `Do not retry it with different arguments. ${sanitizedResult}`
-          );
+          return reason
+            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`
+            : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+                `Do not retry it with different arguments. ${sanitizedResult}`;
         }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,
@@ -5978,6 +6799,19 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
+          try {
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+          } catch {
+            // Fail closed: an unreadable policy must leave the approval gate in
+            // place instead of turning a storage outage into authorization.
+            mustApprove = true;
+          }
+        }
         if (mustApprove) {
           // `askId` identifies THIS gate hit, distinct from any earlier ask
           // for the same approvalKey/toolCallId. A failed resume (expired
@@ -5999,6 +6833,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -6040,6 +6877,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6122,8 +6965,11 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             completedSideEffect: true,
+            ...(journaled.artifacts?.length
+              ? { artifacts: journaled.artifacts }
+              : {}),
           });
-          recordToolResult(result, false);
+          recordToolResult(result, false, journaled.artifacts);
           noteToolCallSucceeded(actionEntry);
           return {
             type: "tool-result" as const,
@@ -6165,7 +7011,7 @@ export async function runAgentLoop(opts: {
             // Zombie completed — recover the real result without re-executing.
             const result =
               `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
-              ledgerResult;
+              ledgerResult.result;
             send({
               type: "tool_start",
               id: toolCall.id,
@@ -6179,9 +7025,12 @@ export async function runAgentLoop(opts: {
               input: toolCall.input as Record<string, unknown>,
               result,
               completedSideEffect: true,
+              ...(ledgerResult.artifacts.length > 0
+                ? { artifacts: ledgerResult.artifacts }
+                : {}),
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
-            recordToolResult(result, false);
+            recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
             return {
               type: "tool-result" as const,
@@ -6280,6 +7129,7 @@ export async function runAgentLoop(opts: {
               toolCallSchemaError.input,
               toolCallSchemaError.error,
               actionEntry?.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
@@ -6313,6 +7163,7 @@ export async function runAgentLoop(opts: {
               toolCall.input,
               rawToolInputError,
               actionEntry.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
@@ -6343,8 +7194,11 @@ export async function runAgentLoop(opts: {
           actionEntry.readOnly === true && actionEntry.dedupe !== false
             ? toolCallCacheKey(toolCall.name, toolCall.input)
             : null;
-        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const cachedResult = cacheKey
+          ? readOnlyToolResultCache.get(cacheKey)
+          : undefined;
+        if (cacheKey && cachedResult) {
+          const previousResult = cachedResult.content;
           // `contextMessages` (not `messages`) is what the model actually sees
           // this iteration — context-xray eviction/summarization and
           // observational-memory trimming can drop the earlier result from
@@ -6373,6 +7227,30 @@ export async function runAgentLoop(opts: {
             // can't see the answer anymore. Re-serve it in full and don't
             // count a strike.
             duplicateReadOnlyToolCalls.set(cacheKey, 0);
+            // `noteRepeatedToolCall` already counted this call before we knew
+            // it would land here — undo that strike (and the stop it may have
+            // installed) now that we know it's a resurfaced re-fetch, not a
+            // stuck loop. Undoing by identity, not just by errorCode, keeps
+            // this safe under the parallel read batch: another concurrent
+            // call's genuine trip is a different object and is left alone.
+            const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
+            const repeatCount = repeatedToolCalls.get(repeatKey);
+            const repeatCountAfterRollback =
+              typeof repeatCount === "number" && repeatCount > 0
+                ? repeatCount - 1
+                : 0;
+            repeatedToolCalls.set(repeatKey, repeatCountAfterRollback);
+            if (
+              repeatGuardStopFromThisCall &&
+              requestedActionStop === repeatGuardStopFromThisCall &&
+              // A concurrent genuine repeat for this same key can have pushed
+              // the count back up to/past the threshold before this resurfaced
+              // call's rollback runs — that stop is still earned and must
+              // survive this call's own rollback.
+              repeatCountAfterRollback < MAX_IDENTICAL_TOOL_CALLS
+            ) {
+              requestedActionStop = null;
+            }
             result = resurfacedDuplicateReadOnlyToolResult(
               toolCall.name,
               previousResult,
@@ -6393,6 +7271,9 @@ export async function runAgentLoop(opts: {
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
+            ...(cachedResult.images?.length
+              ? { images: cachedResult.images }
+              : {}),
           };
         }
 
@@ -6429,6 +7310,8 @@ export async function runAgentLoop(opts: {
         let toolResultImages:
           | import("./engine/types.js").EngineToolResultImagePart[]
           | undefined;
+        let toolArtifacts: ArtifactReceipt[] = [];
+        let fileMutation: AgentFileMutationProof | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -6443,11 +7326,27 @@ export async function runAgentLoop(opts: {
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const appAuthorization = await resolveTurnAppAuthorization(
+            actionUserEmail ?? undefined,
+            actionOrgId,
+          );
           const actionContext = {
             send,
             userEmail: actionUserEmail ?? undefined,
             orgId: actionOrgId,
             appId: opts.appId,
+            ...(appAuthorization
+              ? {
+                  appRoles: appAuthorization.roles,
+                  appPermissions: Object.entries(appAuthorization.permissions)
+                    .filter(([, roles]) =>
+                      roles.some((role) =>
+                        appAuthorization.roles.includes(role),
+                      ),
+                    )
+                    .map(([permission]) => permission),
+                }
+              : {}),
             caller: opts.actionCaller ?? "tool",
             automation: opts.automation,
             networkProtocol: opts.networkProtocol,
@@ -6512,12 +7411,23 @@ export async function runAgentLoop(opts: {
                 ) {
                   return;
                 }
-                const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
+                const zombieResultForAgent = zombieMcp
+                  ? zombieMcp.text
+                  : extractAgentImagesFromActionResult(zombieRaw).value;
                 const zombieStr =
-                  typeof zombieText === "string"
-                    ? zombieText
-                    : JSON.stringify(zombieText, null, 2);
-                void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
+                  typeof zombieResultForAgent === "string"
+                    ? zombieResultForAgent
+                    : JSON.stringify(zombieResultForAgent, null, 2);
+                const zombieArtifacts = detectArtifactReceipts(
+                  zombieResultForAgent,
+                  toolCall.name,
+                );
+                void writeLedgerEntry(
+                  ledgerThreadId,
+                  ledgerToolKey,
+                  zombieStr,
+                  zombieArtifacts,
+                );
               })
               .catch(() => {
                 // Action errored in the zombie — no result to ledger.
@@ -6584,6 +7494,7 @@ export async function runAgentLoop(opts: {
               toolResultImages = extracted.images;
             }
           }
+          toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
@@ -6613,23 +7524,76 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentActionStopError(err)) {
+          // An abort is an unknown outcome, not a failure: the request may
+          // already have reached the provider. Recorded as an error, the
+          // resuming chunk reads it as "did not happen" and re-dispatches the
+          // write. The marker is what `seedWriteToolInterruptionsFromHistory`
+          // counts, so the ledger recovery and interruption budget apply.
+          // Keyed on `signal.aborted`, not the message, so the per-tool
+          // timeout (which rejects on `timeoutSignal`) stays a real failure.
+          if (signal.aborted) {
+            result = INTERRUPTED_TOOL_RESULT_MARKER;
+          } else if (isAgentConnectionRequiredError(err)) {
+            const message =
+              sanitizeToolErrorValue(err.message) ||
+              `Connect ${err.provider} to continue.`;
+            result = sanitizeToolErrorValue(err.toolResult || message);
+            requestedConnection ??= {
+              requestId: randomUUID(),
+              provider: err.provider,
+              reason: err.reason,
+              appId: err.appId,
+              detail: message,
+              source: err.source,
+            };
+            turnYieldedToUser = true;
+            requestedActionStop ??= {
+              message,
+              errorCode: "connection-required",
+            };
+          } else if (isAgentActionStopError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Stopped after ${toolCall.name} failed.`;
             result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedActionStop ??= {
+            // A stop that is itself a permanent precondition gets its
+            // reason-led headline from `finalizeToolErrorResult`; seeding the
+            // raw message here would win its `??=` and hide that headline.
+            directStop = {
               message,
-              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              explicit: err.errorCode === "permanent_precondition",
             };
+            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
+              requestedActionStop ??= {
+                message,
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+              };
+            }
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }
+        // The marker must survive verbatim (the interruption counter matches
+        // on it), and an unknown outcome must not feed the repeated-error
+        // breakers, which are for calls that genuinely failed.
         if (isError) {
-          result = finalizeToolErrorResult(result);
+          if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
+            result = finalizeToolErrorResult(result);
+          }
+        } else {
+          fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
 
         // Side-channel warnings raised anywhere inside the action's call stack
@@ -6686,12 +7650,17 @@ export async function runAgentLoop(opts: {
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+          ...(fileMutation ? { fileMutation } : {}),
+          ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError);
+        recordToolResult(result, isError, toolArtifacts);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
-            readOnlyToolResultCache.set(cacheKey, result);
+            readOnlyToolResultCache.set(cacheKey, {
+              content: result,
+              ...(toolResultImages?.length ? { images: toolResultImages } : {}),
+            });
           } else if (actionEntry.readOnly !== true) {
             // A genuine write invalidates all cached reads. A dedupe:false
             // read-only tool also has a null cacheKey (see above) but must NOT
@@ -6739,6 +7708,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
@@ -6768,7 +7747,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",
@@ -6823,7 +7803,11 @@ export async function runAgentLoop(opts: {
       // TypeScript can't track ??= through async closures; cast to known type.
       const stop = requestedActionStop as TerminalActionStop;
       terminalActionStop = stop;
-      sendTerminalActionStop(stop);
+      if (requestedConnection) {
+        send({ type: "connection_required", ...requestedConnection });
+      } else {
+        sendTerminalActionStop(stop);
+      }
       break;
     }
   }
@@ -6850,12 +7834,7 @@ export async function runAgentLoop(opts: {
     }
     reportOutcome({
       state: "failed",
-      code:
-        terminalTripwire.processor === "run-input-token-budget"
-          ? "budget_exhausted"
-          : terminalTripwire.processor
-            ? `guardrail:${terminalTripwire.processor}`
-            : "guardrail",
+      code: terminalActionStop?.errorCode ?? "guardrail",
       // Re-running the same request with the same deterministic guardrail
       // would reproduce the stop. A caller can issue a smaller follow-up, but
       // must not automatically replay this turn.
@@ -6946,6 +7925,12 @@ export async function runAgentLoop(opts: {
       code: "awaiting_user_input",
       message: finalTerminalActionStop.message,
     });
+  } else if (finalTerminalActionStop?.errorCode === "connection-required") {
+    reportOutcome({
+      state: "input_required",
+      code: "connection_required",
+      message: finalTerminalActionStop.message,
+    });
   } else if (finalTerminalActionStop) {
     reportOutcome({
       state: "failed",
@@ -6999,6 +7984,13 @@ export function isRecoverableContinuationError(event: {
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The gateway's in-stream throttle stop; same cap as `http_429` below.
+    code === "rate_limited" ||
+    // Bare upstream 403 the gateway tags distinctly from a real credential
+    // rejection — see the constant's own doc comment. Recoverable here does
+    // NOT mean unbounded: `shouldChainBackgroundContinuation` below caps how
+    // many rate-limit-class chunks in a row this can chain into.
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
     // The 5xx family the message clauses below used to reach by prose alone
     // ("temporarily unavailable", "gateway timeout"). The client's own
     // continuation list (sse-event-processor) has always carried these codes;
@@ -7170,10 +8162,19 @@ export function backgroundContinuationReasonForRun(
   }
   if (last?.type === "error" && isRecoverableContinuationError(last)) {
     return continuationReasonForResumableError(
-      new EngineError(last.error, { errorCode: last.errorCode }),
+      new EngineError(last.error, {
+        errorCode: last.errorCode,
+        // Carries the engine's own retryable verdict through so the bare-403
+        // branch of `continuationReasonForResumableError` can see it here too
+        // — this event field exists for exactly that (see its doc comment).
+        providerRetryable: last.providerRetryable,
+      }),
     );
   }
-  if (endsAfterCompletedToolWithoutAssistantFinal(run)) {
+  if (
+    endsAfterToolResultWithoutAssistantFinal(run) ||
+    endsDuringActionPreparation(run)
+  ) {
     return "stream_ended";
   }
   return "run_timeout";
@@ -7218,6 +8219,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model: opts.model,
   };
   const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
@@ -7225,6 +8227,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.outputTokens += next.outputTokens;
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
+    if (next.builderCreditsUsed !== undefined) {
+      usage.builderCreditsUsed =
+        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
+    }
+    usage.engineName = next.engineName ?? usage.engineName;
     usage.model = next.model;
     if (typeof next.llmCalls === "number") {
       usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
@@ -7329,7 +8336,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
-    endsAfterCompletedToolWithoutAssistantFinal(run)
+    endsAfterToolResultWithoutAssistantFinal(run) ||
+    endsDuringActionPreparation(run)
   );
 }
 
@@ -7341,7 +8349,7 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
  * budget counts (`agent-teams.ts`), and the same events
- * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * `endsAfterToolResultWithoutAssistantFinal` reads to tell an unfinished
  * turn from a finished one.
  */
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
@@ -7432,6 +8440,75 @@ export function installBackgroundNoProgressTerminalEvent(
 }
 
 /**
+ * True when this run's own terminal error is rate-limit class AND the chunk
+ * immediately before it in this same turn ALSO ended rate-limited. Caps
+ * rate-limit-driven chaining at exactly one hop: a provider throttle either
+ * clears within that one retry or it doesn't, and chaining a second one back
+ * to back only extends the multi-minute 429 storm this exists to bound (the
+ * chain observed in production was `http_429 > stale_run > http_429 > ...`
+ * for 8-38 minutes, stopped only by the 25-row turn ledger).
+ *
+ * `priorContinuationReason` is the successor marker's own record of what the
+ * PRECEDING chunk ended with (`__backgroundRun.continuationReason`, set from
+ * this same function's result when that chunk chained) — already threaded
+ * through the dispatch for the no-progress streak above, so this needs no new
+ * DB read.
+ */
+export function rateLimitChainCapTripped(opts: {
+  run: ActiveRun;
+  priorContinuationReason?: string;
+}): boolean {
+  return (
+    opts.priorContinuationReason === "rate_limited" &&
+    backgroundContinuationReasonForRun(opts.run) === "rate_limited"
+  );
+}
+
+/** User-facing terminal message for the `provider_rate_limited` shape: shared
+ *  by the rate-limit chain cap below AND `run-loop-with-resume.ts`'s
+ *  cooled-down-continuation exhaustion, so both lanes end a sustained
+ *  provider throttle the same way. Mirrors the client's own
+ *  `provider_rate_limited` handling: never auto-continued, so this is the
+ *  manual-retry lane. */
+export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE =
+  "The AI provider is rate limiting requests right now. Wait a minute and try again.";
+
+/**
+ * The honest failure the rate-limit chain cap leaves behind. `recoverable` is
+ * explicitly false: true would mark this an internal continuation boundary,
+ * which thread-data-builder drops from the persisted turn and
+ * `isRecoverableContinuationError` would chain again — the exact spiral the
+ * cap stops. The dedicated `provider_rate_limited` code also keeps the
+ * client's own continuation list (which now treats a bare `http_429`/
+ * `http_529` the same way, non-auto-recoverable) from re-entering it; the
+ * user sees the message and retries by hand.
+ */
+export function rateLimitChainCapTerminalEvent(
+  run: ActiveRun,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  const last = run.events.at(-1)?.event;
+  if (last?.type !== "error") return null;
+  return {
+    ...last,
+    error: PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
+    errorCode: PROVIDER_RATE_LIMITED_ERROR_CODE,
+    recoverable: false,
+  };
+}
+
+export function installRateLimitChainCapTerminalEvent(run: ActiveRun): boolean {
+  const terminalEvent = rateLimitChainCapTerminalEvent(run);
+  const lastRunEvent = run.events.at(-1);
+  if (!terminalEvent || lastRunEvent?.event.type !== "error") return false;
+  run.events = [
+    ...run.events.slice(0, -1),
+    { ...lastRunEvent, event: terminalEvent },
+  ];
+  run.continuationTerminalEvent = terminalEvent;
+  return true;
+}
+
+/**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
  * either of two independently-gated cases, both requiring a recoverable
@@ -7447,7 +8524,8 @@ export function installBackgroundNoProgressTerminalEvent(
  *     `isBackgroundWorker` branch above, never both.
  * Aborted / user-stopped runs do NOT chain either way, and neither does a run
  * whose no-progress streak has tripped
- * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`).
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`), nor a SECOND consecutive
+ * rate-limit-class chunk (`rateLimitChainCapTripped`).
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -7472,6 +8550,10 @@ export function shouldChainBackgroundContinuation(opts: {
    *  `resolveBackgroundNoProgressRepeat`. Absent on the first chunk. */
   priorNoProgressErrorCode?: string;
   priorNoProgressCount?: number;
+  /** What the marker says the PRECEDING chunk of this turn ended with — see
+   *  `rateLimitChainCapTripped`, which this delegates to. Absent on the first
+   *  chunk (nothing to cap yet). */
+  priorContinuationReason?: string;
 }): boolean {
   const eligible =
     opts.isBackgroundWorker ||
@@ -7486,7 +8568,11 @@ export function shouldChainBackgroundContinuation(opts: {
       run: opts.run,
       priorErrorCode: opts.priorNoProgressErrorCode,
       priorCount: opts.priorNoProgressCount,
-    }).tripped
+    }).tripped &&
+    !rateLimitChainCapTripped({
+      run: opts.run,
+      priorContinuationReason: opts.priorContinuationReason,
+    })
   );
 }
 
@@ -7553,6 +8639,41 @@ export function resolveSelfChainContinuationBudget(
     return { skipToBoundary: true, softTimeoutMs: 0 };
   }
   return { skipToBoundary: false, softTimeoutMs: remaining };
+}
+
+/**
+ * Resolve a pre-send step with the bounded fallback used by durable workers.
+ * The timeout callback runs before the fallback resolves so required setup can
+ * record failure synchronously; a late promise settlement cannot turn it back
+ * into a successful empty value.
+ */
+export function resolvePresendWithCap<T>(opts: {
+  enabled: boolean;
+  thunk: () => Promise<T>;
+  fallback: T;
+  timeoutMs: number;
+  onTimeout?: () => void;
+}): Promise<T> {
+  if (!opts.enabled) return opts.thunk();
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => {
+      opts.onTimeout?.();
+      resolve(opts.fallback);
+    }, opts.timeoutMs);
+    // A synchronous throw from the thunk is treated like a rejected step.
+    void Promise.resolve()
+      .then(opts.thunk)
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        () => {
+          clearTimeout(timer);
+          resolve(opts.fallback);
+        },
+      );
+  });
 }
 
 export async function markBackgroundContinuationChunkTerminal(opts: {
@@ -7637,49 +8758,90 @@ export async function claimBackgroundWorkerRunEarly(opts: {
         ? opts.requestTurnId.trim()
         : opts.runId;
 
-  await record(
-    opts.runId,
-    RUN_DIAG_STAGE.workerEntered,
-    [
-      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
-      `continuationCount=${opts.continuationCount}`,
-      opts.backgroundRuntimeDetail,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  ).catch(() => {});
+  let preclaimHeartbeatInFlight = false;
+  let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const preclaimHeartbeatStartedAt = Date.now();
+  const heartbeatWhileUnclaimed = () => {
+    if (
+      Date.now() - preclaimHeartbeatStartedAt >=
+      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+    ) {
+      stopPreclaimHeartbeat();
+      return;
+    }
+    if (preclaimHeartbeatInFlight) return;
+    preclaimHeartbeatInFlight = true;
+    void heartbeat(opts.runId)
+      .catch(() => {})
+      .finally(() => {
+        preclaimHeartbeatInFlight = false;
+      });
+  };
+  const stopPreclaimHeartbeat = () => {
+    if (preclaimHeartbeatTimer !== undefined) {
+      clearInterval(preclaimHeartbeatTimer);
+      preclaimHeartbeatTimer = undefined;
+    }
+  };
 
-  // A failed durable abort read must surface as infrastructure failure. It is
-  // not evidence that the user stopped the turn.
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+  // The foreground subscribes as soon as this worker proves it is alive, so
+  // the worker must keep the still-unclaimed row fresh while its abort checks
+  // and atomic claim are in flight. Once claimed, run-manager owns the timer.
+  preclaimHeartbeatTimer = setInterval(
+    heartbeatWhileUnclaimed,
+    BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+  );
+  // Close the gap before the first interval tick when the row is already near
+  // the unclaimed-reaper cutoff.
+  heartbeatWhileUnclaimed();
+  try {
+    await record(
+      opts.runId,
+      RUN_DIAG_STAGE.workerEntered,
+      [
+        `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+        `continuationCount=${opts.continuationCount}`,
+        opts.backgroundRuntimeDetail,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ).catch(() => {});
 
-  if (opts.continuationCount > 0) {
-    await insert(opts.runId, threadId, turnId, {
-      dispatchMode: "background",
-    }).catch(() => {});
-  }
+    // A failed durable abort read must surface as infrastructure failure. It is
+    // not evidence that the user stopped the turn.
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+    if (opts.continuationCount > 0) {
+      await insert(opts.runId, threadId, turnId, {
+        dispatchMode: "background",
+      }).catch(() => {});
+    }
 
-  const won = await claim(opts.runId);
-  if (!won) {
-    await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
-    return { claimed: false, skipped: "already-claimed" };
-  }
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
-  await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
+    const won = await claim(opts.runId);
+    stopPreclaimHeartbeat();
+    if (!won) {
+      await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
+      return { claimed: false, skipped: "already-claimed" };
+    }
+
+    await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
+    await heartbeat(opts.runId).catch(() => {});
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
+    return { claimed: true };
+  } finally {
+    stopPreclaimHeartbeat();
   }
-  return { claimed: true };
 }
 
 /**
@@ -7690,6 +8852,85 @@ export async function claimBackgroundWorkerRunEarly(opts: {
  */
 export const AGENT_CHAT_TURN_INPUT_TOKENS_FIELD =
   "__agentNativeTurnInputTokens";
+
+/**
+ * Same rationale as `AGENT_CHAT_TURN_INPUT_TOKENS_FIELD` above, for the
+ * preceding chunk's `continuationReason`: it rides the BODY, not the marker,
+ * because `chainServerDrivenContinuation` strips the marker from
+ * `continuationBody` before persisting it as `dispatch_payload` (the next
+ * chunk gets a fresh marker). A stale-run recovery or unclaimed-run
+ * redispatch delivers only a skeleton `{ runId, payloadRef: true }` marker
+ * and rehydrates the rest of the body from that same `dispatch_payload`, so
+ * without this field `rateLimitChainCapTripped` sees no prior reason on
+ * every recovery hop and never trips. See `resolvePriorContinuationReason`.
+ */
+export const AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD =
+  "__agentNativePriorContinuationReason";
+
+/**
+ * Same rationale as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` above, for
+ * the no-progress streak (`BackgroundNoProgressRepeat`): a recovery
+ * redispatch's skeleton marker carries neither, so the breaker
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`) would otherwise reset on
+ * every such hop. See `resolvePriorContinuationState`.
+ */
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD =
+  "__agentNativePriorNoProgressErrorCode";
+export const AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD =
+  "__agentNativePriorNoProgressCount";
+
+/**
+ * Marker-first-then-body resolution for the three pieces of continuation
+ * state a stale-run / unclaimed-run redispatch's skeleton
+ * `{ runId, payloadRef: true }` marker cannot carry: the preceding chunk's
+ * `continuationReason` (for `rateLimitChainCapTripped`) and no-progress
+ * streak (for `resolveBackgroundNoProgressRepeat`). The delivered
+ * `__backgroundRun` marker carries all three on every normal chain hop
+ * (`continuationMarker` in `chainServerDrivenContinuation`); a recovery
+ * redispatch never does, so each falls back to its body-level companion
+ * field, which survives the same rehydration the marker does not.
+ */
+export function resolvePriorContinuationState(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): {
+  continuationReason: string | undefined;
+  noProgressErrorCode: string | undefined;
+  noProgressCount: number;
+} {
+  const continuationReason =
+    typeof backgroundRunMarker?.continuationReason === "string"
+      ? backgroundRunMarker.continuationReason
+      : typeof body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD] as string)
+        : undefined;
+  const noProgressErrorCode =
+    typeof backgroundRunMarker?.noProgressErrorCode === "string"
+      ? backgroundRunMarker.noProgressErrorCode
+      : typeof body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] === "string"
+        ? (body[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD] as string)
+        : undefined;
+  const noProgressCountSource =
+    typeof backgroundRunMarker?.noProgressCount === "number" &&
+    Number.isFinite(backgroundRunMarker.noProgressCount)
+      ? backgroundRunMarker.noProgressCount
+      : body[AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD];
+  const noProgressCount =
+    typeof noProgressCountSource === "number" &&
+    Number.isFinite(noProgressCountSource)
+      ? Math.max(0, Math.floor(noProgressCountSource))
+      : 0;
+  return { continuationReason, noProgressErrorCode, noProgressCount };
+}
+
+/** Thin wrapper kept for callers/tests that only need the reason. */
+export function resolvePriorContinuationReason(
+  backgroundRunMarker: Record<string, unknown> | null | undefined,
+  body: Record<string, unknown>,
+): string | undefined {
+  return resolvePriorContinuationState(backgroundRunMarker, body)
+    .continuationReason;
+}
 
 /**
  * First `started_at` for a logical turn — the turn's true wall-clock origin
@@ -8057,7 +9298,18 @@ export async function chainServerDrivenContinuation(opts: {
     }
   };
 
-  if (turnRunCount !== null && turnRunLedgerExhausted(turnRunCount)) {
+  // Fail closed: an unreadable ledger must not allow unbounded chaining.
+  // Treating DB failure as "count unknown, keep going" is how runaway
+  // continuations survive the budget that exists to stop them.
+  if (turnRunCount === null) {
+    await stopTurn(
+      "turn_budget_unreadable",
+      `turn ${effectiveTurnId} run-count ledger unreadable — refusing to chain further`,
+      `I stopped because I could not verify this request's continuation budget.`,
+    );
+    return;
+  }
+  if (turnRunLedgerExhausted(turnRunCount)) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
       `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
@@ -8126,6 +9378,15 @@ export async function chainServerDrivenContinuation(opts: {
     internalContinuation: true,
     ...(typeof opts.turnInputTokens === "number"
       ? { [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: opts.turnInputTokens }
+      : {}),
+    [AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]: continuationReason,
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]:
+            opts.noProgressRepeat.errorCode,
+          [AGENT_CHAT_PRIOR_NO_PROGRESS_COUNT_FIELD]:
+            opts.noProgressRepeat.count,
+        }
       : {}),
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
@@ -8532,6 +9793,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       displayMessage,
+      parentId,
       queuedMessageId,
       internalContinuation,
       turnId: requestTurnId,
@@ -8543,6 +9805,12 @@ export function createProductionAgentHandler(
       harness: requestHarness,
       trackInRunsTray,
     } = body;
+    const requestParentId =
+      parentId === null
+        ? null
+        : typeof parentId === "string" && parentId.trim()
+          ? parentId.trim()
+          : undefined;
     setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
@@ -8564,6 +9832,22 @@ export function createProductionAgentHandler(
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete body.__resolvedActionSurface;
+    }
+    let requestedActionScope: AgentActionScope | undefined;
+    if (hasOwn(body, "actionScope")) {
+      try {
+        requestedActionScope = normalizeAgentActionScope(body.actionScope);
+        body.actionScope = requestedActionScope;
+      } catch (error) {
+        setResponseStatus(event, 400);
+        return {
+          error: error instanceof Error ? error.message : "Invalid actionScope",
+        };
+      }
+    }
+    if (requestedActionScope && !options.resolveActionSurface) {
+      setResponseStatus(event, 400);
+      return { error: "actionScope requires resolveActionSurface" };
     }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
@@ -8600,17 +9884,20 @@ export function createProductionAgentHandler(
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
         : 0;
-    // No-progress streak so far, carried on the marker: this invocation has no
-    // other memory of what the previous chunk failed with.
-    const priorNoProgressErrorCode =
-      typeof backgroundRunMarker?.noProgressErrorCode === "string"
-        ? backgroundRunMarker.noProgressErrorCode
-        : undefined;
-    const priorNoProgressCount =
-      typeof backgroundRunMarker?.noProgressCount === "number" &&
-      Number.isFinite(backgroundRunMarker.noProgressCount)
-        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
-        : 0;
+    // No-progress streak and the PRECEDING chunk's continuation reason,
+    // carried on the marker: this invocation has no other memory of what the
+    // previous chunk failed with. Falls back to the body companion fields
+    // when a recovery redispatch delivered only a skeleton marker (see
+    // `resolvePriorContinuationState`). The reason feeds
+    // `rateLimitChainCapTripped`, which caps a rate-limit-class repeat at one
+    // hop using this same marker, no new DB read.
+    const priorContinuationState = resolvePriorContinuationState(
+      backgroundRunMarker,
+      body as unknown as Record<string, unknown>,
+    );
+    const priorNoProgressErrorCode = priorContinuationState.noProgressErrorCode;
+    const priorNoProgressCount = priorContinuationState.noProgressCount;
+    const priorContinuationReason = priorContinuationState.continuationReason;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
       const earlyClaim = await claimBackgroundWorkerRunEarly({
@@ -8647,7 +9934,9 @@ export function createProductionAgentHandler(
         mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
       }
     }
-    const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
+    const requestBrowserTabId =
+      normalizeBrowserTabId(browserTabId) ??
+      normalizeBrowserTabId(getRequestRunContext()?.browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();
     if (requestRunCtx) {
@@ -8744,6 +10033,14 @@ export function createProductionAgentHandler(
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
         : undefined;
+      if (
+        isBackgroundWorker &&
+        requestedActionScope &&
+        (!persistedSurface || !("actionScope" in persistedSurface))
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Resolved actionScope is required for continuation" };
+      }
       const surface =
         persistedSurface !== undefined
           ? persistedSurface
@@ -8754,13 +10051,33 @@ export function createProductionAgentHandler(
               threadId,
               mode: requestMode,
               internalContinuation: Boolean(internalContinuation),
+              ...(typeof requestTurnId === "string" && requestTurnId.trim()
+                ? { requestedTurnId: requestTurnId.trim() }
+                : {}),
+              ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+                ? { queuedMessageId: queuedMessageId.trim() }
+                : {}),
+              ...(requestedActionScope
+                ? { actionScope: requestedActionScope }
+                : {}),
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      if (
+        requestedActionScope &&
+        (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
+      ) {
+        throw new Error(
+          "resolveActionSurface must return actionScope for a scoped request",
+        );
+      }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
         useDefaultRequestActionSurface = true;
-        if (runCtx) delete runCtx.allowedActionNames;
+        if (runCtx) {
+          delete runCtx.allowedActionNames;
+          delete runCtx.actionScope;
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
@@ -8779,11 +10096,21 @@ export function createProductionAgentHandler(
           );
         }
         const allowedNames = Object.keys(surfacedRequestActions);
-        if (runCtx) runCtx.allowedActionNames = allowedNames;
+        if (runCtx) {
+          runCtx.allowedActionNames = allowedNames;
+          if (normalizedSurface.actionScope) {
+            runCtx.actionScope = normalizedSurface.actionScope;
+          } else {
+            delete runCtx.actionScope;
+          }
+        }
         if (!isBackgroundWorker) {
           body.__resolvedActionSurface = {
             orgId: getRequestOrgId() ?? null,
             allowedActionNames: allowedNames,
+            ...(normalizedSurface.actionScope
+              ? { actionScope: normalizedSurface.actionScope }
+              : {}),
           };
         }
       }
@@ -8808,7 +10135,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {
@@ -8935,6 +10264,7 @@ export function createProductionAgentHandler(
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
+    const turnUsageLabel = normalizeUsageLabel(body.usageLabel);
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
@@ -9033,7 +10363,7 @@ export function createProductionAgentHandler(
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
 
-    let systemPromptError: any = null;
+    let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const sysPromptStart = Date.now();
@@ -9044,7 +10374,14 @@ export function createProductionAgentHandler(
               : options.systemPrompt;
           return built;
         } catch (error) {
-          systemPromptError = error;
+          systemPromptError =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" && error.trim()
+                    ? error
+                    : "system prompt preparation failed",
+                );
           return "";
         } finally {
           setupMarks.sysPromptMs = Date.now() - sysPromptStart;
@@ -9187,7 +10524,7 @@ export function createProductionAgentHandler(
             const {
               resourceListAccessible,
               SHARED_OWNER,
-              WORKSPACE_OWNER,
+              isWorkspaceResourceOwner,
               resourceGet,
             } = await import("../resources/store.js");
             const {
@@ -9211,12 +10548,11 @@ export function createProductionAgentHandler(
               const agentLines: string[] = [];
               const jobLines: string[] = [];
               for (const r of allResources) {
-                const scope =
-                  r.owner === WORKSPACE_OWNER
-                    ? "workspace"
-                    : r.owner === SHARED_OWNER
-                      ? "shared"
-                      : "personal";
+                const scope = isWorkspaceResourceOwner(r.owner)
+                  ? "workspace"
+                  : r.owner === SHARED_OWNER
+                    ? "shared"
+                    : "personal";
                 const kind = getResourceKind(r.path);
                 if (kind === "file") {
                   fileLines.push(`  ${r.path} (${scope})`);
@@ -9312,27 +10648,17 @@ export function createProductionAgentHandler(
       thunk: () => Promise<T>,
       fallback: T,
       ms: number,
+      onTimeout?: () => void,
     ): Promise<T> => {
-      if (!isBackgroundWorker) return thunk();
-      return new Promise<T>((resolve) => {
-        const timer = setTimeout(() => {
+      return resolvePresendWithCap({
+        enabled: isBackgroundWorker,
+        thunk,
+        fallback,
+        timeoutMs: ms,
+        onTimeout: () => {
+          onTimeout?.();
           workerStep(`presend_timeout:${label}`);
-          resolve(fallback);
-        }, ms);
-        // Defer invocation one microtask so every sibling cap arms its timer
-        // before any thunk's synchronous prefix runs.
-        void Promise.resolve()
-          .then(thunk)
-          .then(
-            (v) => {
-              clearTimeout(timer);
-              resolve(v);
-            },
-            () => {
-              clearTimeout(timer);
-              resolve(fallback);
-            },
-          );
+        },
       });
     };
     const fallbackLoopSettings: AgentLoopSettings = {
@@ -9345,7 +10671,10 @@ export function createProductionAgentHandler(
       scope: "default",
       source: "default",
     };
-    const [
+    const systemPromptTimeoutError = new Error(
+      "system prompt preparation timed out before the agent could start",
+    );
+    let [
       systemPrompt,
       timeBlock,
       screenBlock,
@@ -9354,8 +10683,15 @@ export function createProductionAgentHandler(
       filesContext,
       loopSettings,
       enrichedMessage,
+      jevContextCredentials,
     ] = await Promise.all([
-      presendCap("systemPrompt", systemPromptThunk, "", 13000),
+      presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
+        // An empty configured prompt is valid, but an empty timeout fallback
+        // is not: required app instructions must either finish or fail before
+        // the model is called. Set the error synchronously with the cap so a
+        // late rejection/success cannot race the check below.
+        systemPromptError ??= systemPromptTimeoutError;
+      }),
       presendCap("time", timeContextThunk, "", 9000),
       presendCap("screen", screenContextThunk, "", 9000),
       presendCap("url", urlContextThunk, "", 9000),
@@ -9363,6 +10699,12 @@ export function createProductionAgentHandler(
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
+      presendCap(
+        "jevContextCredentials",
+        () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
+        { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
@@ -9370,15 +10712,19 @@ export function createProductionAgentHandler(
     workerStep("context_all");
 
     if (systemPromptError) {
+      // A durable worker was claimed before pre-send setup. Returning an SSE
+      // error here leaves that claim running because `_process-run` never sees
+      // the failure; unwind through its existing finalizer instead.
+      if (isBackgroundWorker) throw systemPromptError;
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
-      const err = systemPromptError;
+      const err = systemPromptError as Error;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err?.message ?? String(err)}` })}\n\n`,
+              `data: ${JSON.stringify({ type: "error", error: `Failed to load system prompt: ${err.message}` })}\n\n`,
             ),
           );
           controller.close();
@@ -9397,7 +10743,7 @@ export function createProductionAgentHandler(
           options.initialToolNames,
         )
       : availableRequestTools;
-    const requestTools =
+    const curatedRequestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({
             request: requestMessage,
@@ -9406,11 +10752,49 @@ export function createProductionAgentHandler(
             availableTools: availableRequestTools,
           })
         : initialRequestTools;
+    const jevContextMaxChars = options.jevContextCompact
+      ? Math.max(
+          0,
+          COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
+        )
+      : undefined;
+    const [requestTools, jevContext] = await Promise.all([
+      preloadJevTools({
+        request: requestMessage,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        registry: requestActions,
+        initialTools: curatedRequestTools,
+        availableTools: availableRequestTools,
+        readOnlyOnly: requestMode === "plan",
+      }),
+      preloadJevContextForPrompt({
+        request: requestMessage,
+        apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
+        builderAuth: jevContextCredentials.builderAuth,
+        compact: options.jevContextCompact,
+        maxChars: jevContextMaxChars,
+      }),
+    ]);
+    if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
+      ...(jevContext
+        ? await buildSystemManifestSections([
+            {
+              label: "Jev-prefetched skills and resources",
+              provenance: "runtime-context",
+              governance: "inherited",
+              content: jevContext,
+              sourceRef: { scope: "jev" },
+            },
+          ])
+        : []),
       ...(requestTools.length > 0
         ? await buildSystemManifestSections([
             {
@@ -9489,47 +10873,6 @@ export function createProductionAgentHandler(
       tools: requestTools,
       availableToolCount: availableRequestTools.length,
     });
-
-    // Atomically claim the run slot for this thread. The claim checks SQL for
-    // a live (non-stale) running row so two near-simultaneous POSTs on
-    // different serverless isolates both see the correct state — a plain
-    // read-then-act check races on multi-isolate deployments because both
-    // reads see no running row before either insert commits.
-    //
-    // The background worker SKIPS this: the foreground POST already claimed the
-    // slot and inserted the run row before dispatching, so re-claiming here
-    // would falsely 409 against the row the foreground holds.
-    if (threadId && !isBackgroundWorker) {
-      if (
-        typeof requestTurnId === "string" &&
-        requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
-      ) {
-        return { ok: true, stopped: true };
-      }
-      const slot = await tryClaimRunSlot(threadId);
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
-    }
-
-    // Start agent loop in background via run-manager. The background worker
-    // reuses the runId carried in the marker (signed into the dispatch token):
-    //  - First background chunk (count 0): the foreground generated + INSERTED
-    //    this runId, so the event stream the client is already subscribed to is
-    //    the one we write to.
-    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
-    //    runId for this one (a reused runId would restart `startRun`'s in-memory
-    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
-    //    insertRunEvent's ON CONFLICT would drop — making the continuation
-    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
-    //    one assistant message and is surfaced by the existing
-    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
-    //    its own background row below (the foreground only inserted chunk-0's).
     const isChainedBackgroundContinuation =
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
@@ -9555,6 +10898,82 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    const foregroundSelfChainEligible =
+      !isBackgroundWorker &&
+      !dispatchToBackground &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      isAgentChatForegroundSelfChainEnabled();
+    let foregroundRunRowInserted = false;
+
+    // Claim and insert one durable run row in the same advisory-locked SQL
+    // statement so different serverless isolates cannot execute this turn twice.
+    //
+    // The background worker SKIPS this: the foreground POST already claimed the
+    // slot and inserted the run row before dispatching, so re-claiming here
+    // would falsely 409 against the row the foreground holds.
+    if (threadId && !isBackgroundWorker) {
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { ok: true, stopped: true };
+      }
+      const slot = await tryClaimRunSlot(threadId, runId, undefined, {
+        turnId: effectiveTurnId,
+        replayCompletedTurn:
+          typeof requestTurnId === "string" &&
+          Boolean(requestTurnId.trim()) &&
+          !requestedApprovedToolCalls,
+        dispatchMode: dispatchToBackground
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
+        ...(dispatchToBackground
+          ? { dispatchPayload: JSON.stringify(body) }
+          : {}),
+      });
+      if (slot.turnAborted) {
+        return { ok: true, stopped: true };
+      }
+      if (slot.completedRunId) {
+        const stream = await replayCompletedTurn(threadId, effectiveTurnId);
+        if (!stream) {
+          setResponseStatus(event, 500);
+          return { error: "Failed to replay completed agent run" };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!slot.claimed) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Run already in progress for this thread",
+          activeRunId: slot.activeRunId,
+        };
+      }
+      foregroundRunRowInserted = true;
+    }
+
+    // Start agent loop in background via run-manager. The background worker
+    // reuses the runId carried in the marker (signed into the dispatch token):
+    //  - First background chunk (count 0): the foreground generated + INSERTED
+    //    this runId, so the event stream the client is already subscribed to is
+    //    the one we write to.
+    //  - Chained continuation chunk (count > 0): the prior chunk minted a FRESH
+    //    runId for this one (a reused runId would restart `startRun`'s in-memory
+    //    seq log at 0 and collide with the prior chunk's persisted seqs, which
+    //    insertRunEvent's ON CONFLICT would drop — making the continuation
+    //    invisible). A fresh runId on the SAME thread + SAME turnId folds onto
+    //    one assistant message and is surfaced by the existing
+    //    `/runs/active?threadId` reconnect path. The continuation worker inserts
+    //    its own background row below (the foreground only inserted chunk-0's).
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -9580,6 +10999,14 @@ export function createProductionAgentHandler(
       consumeApproval: async (binding: AgentApprovalBinding) => {
         if (!ownerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
+      },
+      isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return isAgentToolAlwaysAllowed({
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          toolName: binding.toolName,
+        });
       },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;
@@ -9689,15 +11116,25 @@ export function createProductionAgentHandler(
     // before dispatching; the background worker must NOT repeat it (it re-enters
     // with the same body, which would double-persist the user message).
     if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
-      await options.onRunPrepared({
-        runId,
-        threadId,
-        message: messageToPersist,
-        attachments: requestAttachments,
-        ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
-          ? { queuedMessageId: queuedMessageId.trim() }
-          : {}),
-      });
+      try {
+        await options.onRunPrepared({
+          runId,
+          threadId,
+          message: messageToPersist,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+        });
+      } catch (error) {
+        if (foregroundRunRowInserted) {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "run_preparation_failed");
+          }
+        }
+        throw error;
+      }
     }
 
     // ─── Durable-background dispatch decision ──────────────────────────────
@@ -9709,28 +11146,30 @@ export function createProductionAgentHandler(
     // change. With the flag OFF this whole branch is skipped and the inline
     // `startRun` path below runs exactly as before (byte-for-byte).
     if (dispatchToBackground) {
-      let backgroundRowInserted = false;
-      try {
-        // Insert the run row up front so /runs/active sees it immediately and
-        // the slot stays held while the background function cold-starts. Mark
-        // it background-dispatched so the stale reaper uses the wider window.
-        // The full request body is persisted ON the row (dispatch_payload) so
-        // the self-POST below can carry only the tiny marker — Netlify caps
-        // background-function request bodies at 256KB, and a large chat
-        // history (inline attachments especially) silently exceeded that.
-        await insertRun(runId, effectiveThreadId, effectiveTurnId, {
-          dispatchMode: "background",
-          dispatchPayload: JSON.stringify(body),
-        });
-        backgroundRowInserted = true;
-      } catch (err) {
-        // A duplicate-PK collision means the row already exists (ret­ried POST);
-        // any other failure means we can't safely hand off — fall back to the
-        // inline path rather than dropping the turn.
-        console.error(
-          "[agent-chat] background insertRun failed; falling back to inline:",
-          err instanceof Error ? err.message : err,
-        );
+      let backgroundRowInserted = foregroundRunRowInserted;
+      if (!backgroundRowInserted) {
+        try {
+          // Insert the run row up front so /runs/active sees it immediately and
+          // the slot stays held while the background function cold-starts. Mark
+          // it background-dispatched so the stale reaper uses the wider window.
+          // The full request body is persisted ON the row (dispatch_payload) so
+          // the self-POST below can carry only the tiny marker — Netlify caps
+          // background-function request bodies at 256KB, and a large chat
+          // history (inline attachments especially) silently exceeded that.
+          await insertRun(runId, effectiveThreadId, effectiveTurnId, {
+            dispatchMode: "background",
+            dispatchPayload: JSON.stringify(body),
+          });
+          backgroundRowInserted = true;
+        } catch (err) {
+          // A duplicate-PK collision means the row already exists (ret­ried POST);
+          // any other failure means we can't safely hand off — fall back to the
+          // inline path rather than dropping the turn.
+          console.error(
+            "[agent-chat] background insertRun failed; falling back to inline:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
 
       // Stop may land after the pre-claim check but before the durable row was
@@ -9812,13 +11251,17 @@ export function createProductionAgentHandler(
       // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
       // row sits at `dispatch_mode='background'` until the reaper errors it
       // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
-      // polls briefly for the claim and decides:
-      //   - "stream":    a worker claimed the run → subscribe to it.
+      // polls briefly for the claim or a live setup marker and decides:
+      //   - "stream":    a worker claimed or entered setup → subscribe to it.
       //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
       //                  run a second copy.
       //   - "inline":    dispatch failed OR no worker claimed within grace → we
       //                  atomically own the run; recover by running it inline so a
       //                  dead worker degrades to a working synchronous turn.
+      // Once the worker has entered setup, the SQL stream opens immediately and
+      // the worker continues setup in the background. The bounded preclaim
+      // heartbeat keeps the reaper from racing that setup; the reaper owns
+      // recovery if the worker later fails before claiming the run.
       const backgroundOutcome = await resolveBackgroundDispatchOutcome({
         dispatched,
         backgroundRowInserted,
@@ -9828,6 +11271,7 @@ export function createProductionAgentHandler(
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
       });
 
       if (
@@ -9919,12 +11363,6 @@ export function createProductionAgentHandler(
     // via `/runs/active?threadId` and the successor chunk resumes from the
     // thread's persisted thread_data — without a thread there is neither a
     // discovery channel nor durable progress to resume from.
-    const foregroundSelfChainEligible =
-      !isBackgroundWorker &&
-      !dispatchToBackground &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      isAgentChatForegroundSelfChainEnabled();
     const noProgressRepeatForRun = (run: ActiveRun) =>
       resolveBackgroundNoProgressRepeat({
         run,
@@ -9940,6 +11378,7 @@ export function createProductionAgentHandler(
         dispatchedToBackground: dispatchToBackground,
         priorNoProgressErrorCode,
         priorNoProgressCount,
+        priorContinuationReason,
       });
 
     const completeTrackedProgressRun = async (
@@ -10049,7 +11488,20 @@ export function createProductionAgentHandler(
               ).catch(() => {});
             }
             const noProgressRepeat = noProgressRepeatForRun(run);
-            if (noProgressRepeat.tripped) {
+            // Checked before the generic no-progress streak: the rate-limit
+            // cap trips on just ONE repeat (vs. `MAX_CONSECUTIVE_NO_PROGRESS_
+            // CONTINUATIONS` reps of the identical code below), so on the rare
+            // turn where both would apply, the client gets the more specific
+            // `provider_rate_limited` terminal instead of the generic one.
+            if (rateLimitChainCapTripped({ run, priorContinuationReason })) {
+              // Install the replacement before the thread writer runs. The
+              // writer builds durable thread_data from events, so changing
+              // only continuationTerminalEvent afterwards leaves the original
+              // recoverable http_429/529/transient-403 persisted, which the
+              // CLIENT's own continuation list would still auto-recover even
+              // though the server just refused to chain it further.
+              installRateLimitChainCapTerminalEvent(run);
+            } else if (noProgressRepeat.tripped) {
               // Install the replacement before the thread writer runs. The
               // writer builds durable thread_data from events, so changing
               // only continuationTerminalEvent afterwards leaves the original
@@ -10099,6 +11551,21 @@ export function createProductionAgentHandler(
                   run.runId,
                   RUN_DIAG_STAGE.workerThrew,
                   `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
+                ).catch(() => {});
+              }
+            } else if (
+              rateLimitChainCapTripped({ run, priorContinuationReason })
+            ) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: rate-limit cap reached ` +
+                    `(second consecutive rate-limited chunk)`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_rate_limited`,
                 ).catch(() => {});
               }
             } else if (willChainBackgroundContinuation(run)) {
@@ -10236,6 +11703,24 @@ export function createProductionAgentHandler(
         )
       : null;
 
+    // The budget this run ACTUALLY executes inside, resolved once and used by
+    // both `startRun` (which arms the chunk timer with it) and the agent loop
+    // (which clamps per-tool timeouts under it). Resolving it only inside
+    // `startRun` left the loop to re-derive a generic hosted/background
+    // ceiling, so an app-configured chunk shorter than that ceiling got
+    // per-tool timeouts longer than the chunk containing them — dead code, and
+    // the chunk boundary won instead. `resolveRunSoftTimeoutMs` clamps an
+    // already-resolved number to itself, so passing it back in is a no-op.
+    const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
+      selfChainBudget && !selfChainBudget.skipToBoundary
+        ? selfChainBudget.softTimeoutMs
+        : options.runSoftTimeoutMs,
+      {
+        useHostedDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+      },
+    );
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -10356,6 +11841,15 @@ export function createProductionAgentHandler(
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
+                  // Same `startRun` chunk and same signal as the main loop, so
+                  // the same budget. Left off, the loop re-derives the generic
+                  // hosted/background ceiling, which can sit above the chunk
+                  // these nested calls actually run inside — and then the
+                  // per-tool timeout is unreachable and the chunk boundary
+                  // preempts it.
+                  ...(resolvedRunSoftTimeoutMs > 0
+                    ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+                    : {}),
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -10375,6 +11869,8 @@ export function createProductionAgentHandler(
                     outputTokens: subUsage.outputTokens,
                     cacheReadTokens: subUsage.cacheReadTokens,
                     cacheWriteTokens: subUsage.cacheWriteTokens,
+                    builderCreditsUsed: subUsage.builderCreditsUsed,
+                    engineName: engine.name,
                     model: subUsage.model,
                     label: `custom-agent:${ref.name}`,
                     runId,
@@ -10500,6 +11996,7 @@ export function createProductionAgentHandler(
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          engineName: engine.name,
           model: effectiveModel,
         };
         const agentLoopOpts = {
@@ -10519,10 +12016,18 @@ export function createProductionAgentHandler(
             turnUsage.outputTokens += usage.outputTokens;
             turnUsage.cacheReadTokens += usage.cacheReadTokens;
             turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+            if (usage.builderCreditsUsed !== undefined) {
+              turnUsage.builderCreditsUsed =
+                (turnUsage.builderCreditsUsed ?? 0) + usage.builderCreditsUsed;
+            }
+            turnUsage.engineName = usage.engineName ?? turnUsage.engineName;
             turnUsage.model = usage.model;
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          ...(options.appId && getRequestOrgId()
+            ? { appAuthorization: getRequestRunContext()?.appAuthorization }
+            : {}),
           attachments: requestAttachments,
           reasoningEffort,
           // The interactive chat turn needs real completion headroom — the
@@ -10537,6 +12042,13 @@ export function createProductionAgentHandler(
           priorTurnInputTokens: turnInputTokens,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
+          // The chunk this loop is running inside, so a per-tool timeout is
+          // clamped under the budget it can actually spend rather than under a
+          // re-derived generic ceiling. `0` (local dev) keeps the loop's own
+          // fallback.
+          ...(resolvedRunSoftTimeoutMs > 0
+            ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+            : {}),
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
@@ -10550,6 +12062,7 @@ export function createProductionAgentHandler(
             : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
+          isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -10594,11 +12107,13 @@ export function createProductionAgentHandler(
               signal: agentLoopOpts.signal,
               ownerEmail,
               orgId: getRequestOrgId() ?? null,
+              appId: options.appId,
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
               approvedToolCalls: approvedToolCallsForExecution,
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
+              isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
             return;
@@ -10616,8 +12131,17 @@ export function createProductionAgentHandler(
                 threadId: threadId ?? null,
                 userId: ownerEmail,
                 config: obsConfig,
+                // A caller that named its turn (a template surface, an MCP
+                // host, a background send) gets that name in the trace list;
+                // a plain chat turn stays `agent_run` so the common case
+                // still aggregates.
+                spanName:
+                  turnUsageLabel && turnUsageLabel !== "chat"
+                    ? `agent_run:${turnUsageLabel}`
+                    : undefined,
                 metadata: {
                   modelSelectionSource,
+                  ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }
                     : {}),
@@ -10673,7 +12197,8 @@ export function createProductionAgentHandler(
               (turnUsage.inputTokens > 0 ||
                 turnUsage.outputTokens > 0 ||
                 turnUsage.cacheReadTokens > 0 ||
-                turnUsage.cacheWriteTokens > 0)
+                turnUsage.cacheWriteTokens > 0 ||
+                turnUsage.builderCreditsUsed != null)
             ) {
               const { recordUsage } = await import("../usage/store.js");
               await recordUsage({
@@ -10682,8 +12207,10 @@ export function createProductionAgentHandler(
                 outputTokens: turnUsage.outputTokens,
                 cacheReadTokens: turnUsage.cacheReadTokens,
                 cacheWriteTokens: turnUsage.cacheWriteTokens,
+                builderCreditsUsed: turnUsage.builderCreditsUsed,
+                engineName: engine.name,
                 model: turnUsage.model,
-                label: body.usageLabel || "chat",
+                label: turnUsageLabel || "chat",
                 // token_usage has had run_id/thread_id/task_id since it was
                 // created and every row was NULL on all three, so no spend could
                 // be tied back to a run, thread, or outcome.
@@ -10706,10 +12233,7 @@ export function createProductionAgentHandler(
         // (durable-background worker, plain foreground POST) is unaffected:
         // `selfChainBudget` is `null` for them and this falls through to the
         // exact prior value.
-        softTimeoutMs:
-          selfChainBudget && !selfChainBudget.skipToBoundary
-            ? selfChainBudget.softTimeoutMs
-            : options.runSoftTimeoutMs,
+        softTimeoutMs: resolvedRunSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
         // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
         // executing inside a real Netlify `-background` function (15-min budget,
@@ -10728,6 +12252,7 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,
         // A durable background worker reaches this same call site, so keying
         // only on the foreground self-chain flag stamped every worker run
@@ -10739,6 +12264,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
+        runRowAlreadyInserted: foregroundRunRowInserted,
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this
@@ -10784,6 +12310,7 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnByRefDurably,
   abortTurnDurably,
   subscribeToRun,
 };

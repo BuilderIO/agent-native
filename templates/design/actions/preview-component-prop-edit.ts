@@ -22,13 +22,13 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 and §7 (preview vs apply contract).
  */
 
-import { defineAction } from "@agent-native/core";
-import { getText, hasCollabState } from "@agent-native/core/collab";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import type { CodeLayerSource } from "../shared/code-layer.js";
@@ -45,15 +45,17 @@ async function liveContent(
   fileId: string,
   storedContent: string,
 ): Promise<string> {
-  try {
-    if (await hasCollabState(fileId)) {
-      const live = await getText(fileId, "content");
-      if (typeof live === "string") return live;
-    }
-  } catch {
-    // Collab reads are best-effort; SQL content is the fallback.
-  }
-  return storedContent;
+  return (
+    await readLiveSourceFile({
+      id: fileId,
+      designId: "",
+      filename: "index.html",
+      fileType: "html",
+      content: storedContent,
+      createdAt: null,
+      updatedAt: null,
+    })
+  ).content;
 }
 
 // ─── Bridge message shapes ────────────────────────────────────────────────────
@@ -130,7 +132,9 @@ export default defineAction({
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
-      accessFilter(schema.designs, schema.designShares),
+      accessFilter(schema.designs, schema.designShares, undefined, "viewer", {
+        includePublic: true,
+      }),
       eq(schema.designFiles.designId, designId),
       fileId
         ? eq(schema.designFiles.id, fileId)

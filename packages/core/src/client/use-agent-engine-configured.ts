@@ -8,6 +8,7 @@ import {
   invalidateClientStatusRequest,
   type ClientStatusResult,
 } from "./client-status-requests.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
@@ -214,8 +215,26 @@ export function useAgentEngineConfigured(
       retryAttempt += 1;
       scheduleRetry(delay);
     };
+    // The composer gate is not visible during first paint; defer the initial
+    // probe so it does not compete in the startup window. Event-driven
+    // re-checks below stay immediate.
+    let initialCheckRan = false;
+    const cancelInitialCheck = scheduleAfterPaint(() => {
+      initialCheckRan = true;
+      if (!cancelled) void check();
+    });
+    // An event inside the deferral window consumes the scheduled initial
+    // probe, so one client-status request lands immediately instead of two
+    // when the window elapses.
+    const checkNow: typeof check = (options) => {
+      if (!initialCheckRan) {
+        initialCheckRan = true;
+        cancelInitialCheck();
+      }
+      return check(options);
+    };
     const onConfiguredChanged = () => {
-      void check();
+      checkNow();
     };
     const onMissing = (event: Event) => {
       if (!missingKeyEventMatchesScope(event, options)) return;
@@ -223,7 +242,7 @@ export function useAgentEngineConfigured(
         setState("configured");
         return;
       }
-      void check({ missingFallback: true });
+      checkNow({ missingFallback: true });
     };
     const onVisibilityChange = () => {
       if (!document.hidden && retryTimer !== undefined) {
@@ -233,7 +252,6 @@ export function useAgentEngineConfigured(
       }
     };
 
-    void check();
     window.addEventListener(
       "agent-engine:configured-changed",
       onConfiguredChanged,
@@ -244,6 +262,7 @@ export function useAgentEngineConfigured(
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
+      cancelInitialCheck();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener(

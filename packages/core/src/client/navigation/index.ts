@@ -26,6 +26,7 @@ export {
   openAgentSettings,
   openCommandMenu,
   submitToAgent,
+  useCommandMenuNestedDialog,
   useCommandMenuShortcut,
   type CommandMenuProps,
   type CommandMenuDoc,

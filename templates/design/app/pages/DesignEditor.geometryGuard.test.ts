@@ -4,6 +4,7 @@ import {
   isSaneCanvasFrameGeometryForPersist,
   MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
+  quantizeCanvasFrameGeometryForPersist,
   sanitizeCanvasFrameGeometryForPersist,
 } from "./design-editor/geometry-persistence";
 
@@ -202,5 +203,67 @@ describe("sanitizeCanvasFrameGeometryForPersist", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe("quantizeCanvasFrameGeometryForPersist", () => {
+  it("rounds the fractional coordinates a zoomed gesture produces", () => {
+    expect(
+      quantizeCanvasFrameGeometryForPersist({
+        "screen-1": { x: 192.1, y: 168.4, width: 320.7, height: 640.2 },
+      }),
+    ).toEqual({
+      "screen-1": { x: 192, y: 168, width: 321, height: 640 },
+    });
+  });
+
+  it("quantizes changed coordinates without rounding unchanged fractional fields", () => {
+    const before = {
+      "screen-1": { x: 0.2, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": { x: 2000.4, y: 0.6, width: 500.3, height: 700.1 },
+    };
+    expect(
+      quantizeCanvasFrameGeometryForPersist(
+        {
+          "screen-1": { ...before["screen-1"], x: 5.4 },
+          "screen-2": before["screen-2"],
+        },
+        before,
+      ),
+    ).toEqual({
+      "screen-1": { x: 5, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": before["screen-2"],
+    });
+  });
+
+  it("leaves rotation and z alone — only x/y/width/height are pixel coordinates", () => {
+    expect(
+      quantizeCanvasFrameGeometryForPersist({
+        "screen-1": { x: 10.6, rotation: 11.5, z: 3 },
+      }),
+    ).toEqual({ "screen-1": { x: 11, rotation: 11.5, z: 3 } });
+  });
+
+  it("returns the same object when every frame is already whole, so a clean board never dirties a save", () => {
+    const geometry = {
+      "screen-1": { x: 0, y: 0, width: 1280, height: 800 },
+    };
+    expect(quantizeCanvasFrameGeometryForPersist(geometry)).toBe(geometry);
+  });
+
+  it("keeps an absent coordinate absent instead of inventing a zero", () => {
+    expect(quantizeCanvasFrameGeometryForPersist({ "screen-1": {} })).toEqual({
+      "screen-1": {},
+    });
+  });
+
+  it("passes a non-finite coordinate through so the sanity guard still sees it", () => {
+    const quantized = quantizeCanvasFrameGeometryForPersist({
+      "screen-1": { x: Number.NaN, y: 5 },
+    });
+    expect(quantized["screen-1"]!.x).toBeNaN();
+    expect(isSaneCanvasFrameGeometryForPersist(quantized["screen-1"]!)).toBe(
+      false,
+    );
   });
 });

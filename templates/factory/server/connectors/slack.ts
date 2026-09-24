@@ -54,7 +54,7 @@ export interface SlackReactionResult {
 }
 
 export interface SlackReactionState {
-  eyesPresent: boolean;
+  present: boolean;
 }
 
 export interface SlackPostMessageResult {
@@ -257,10 +257,11 @@ export async function authTest(
   };
 }
 
-export async function getEyesReaction(
+export async function hasReaction(
   workspace: Workspace,
   channelId: string,
   timestamp: string,
+  name: string,
   tokenResolver?: SlackTokenResolver,
 ): Promise<SlackReactionState> {
   const data = await slackApi<{
@@ -275,23 +276,24 @@ export async function getEyesReaction(
     throw new Error("Slack reaction response is missing the message.");
   }
   return {
-    eyesPresent: (data.message.reactions ?? []).some(
-      (reaction) => reaction.name === "eyes" && (reaction.count ?? 0) > 0,
+    present: (data.message.reactions ?? []).some(
+      (reaction) => reaction.name === name && (reaction.count ?? 0) > 0,
     ),
   };
 }
 
-export async function addEyesReaction(
+export async function addReaction(
   workspace: Workspace,
   channelId: string,
   timestamp: string,
+  name: string,
   tokenResolver?: SlackTokenResolver,
 ): Promise<SlackReactionResult> {
   try {
     await slackWrite(
       workspace,
       "reactions.add",
-      { channel: channelId, timestamp, name: "eyes" },
+      { channel: channelId, timestamp, name },
       tokenResolver,
     );
     return { added: true, already_present: false };

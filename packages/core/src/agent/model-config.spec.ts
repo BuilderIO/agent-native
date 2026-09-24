@@ -11,6 +11,7 @@ import {
   DEFAULT_OPENAI_MODEL,
   getContextWindowForModel,
   getMaxOutputTokensForModel,
+  resolveFallbackModel,
 } from "./model-config.js";
 
 describe("agent model config catalog", () => {
@@ -106,6 +107,19 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-opus-4-8");
   });
 
+  it("offers Claude Opus 5.5 through direct APIs until Builder adds gateway support", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toContain("claude-opus-5-5");
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toContain(
+      "claude-opus-5-5",
+    );
+    expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toContain(
+      "anthropic/claude-opus-5.5",
+    );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "claude-opus-5-5",
+    );
+  });
+
   it("keeps the Builder catalog aligned to the gateway allow-list", () => {
     const hiddenSonnetModel =
       CLAUDE_SONNET_MODEL_ID === "claude-sonnet-5"
@@ -135,7 +149,7 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("exposes only GPT-5.6 Sol, Terra, and Luna in OpenAI-backed catalogs", () => {
+  it("keeps OpenAI-backed catalogs aligned to their curated model ids", () => {
     expect(
       (BUILDER_MODEL_CONFIG.supportedModels as readonly string[]).filter(
         (model) => model.startsWith("gpt-"),
@@ -143,8 +157,10 @@ describe("agent model config catalog", () => {
     ).toEqual(["gpt-5-6-luna", "gpt-5-6-terra", "gpt-5-6-sol"]);
     expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
       "gpt-5.6-luna",
+      "gpt-6-luna",
       "gpt-5.6-terra",
       "gpt-5.6-sol",
+      "gpt-6-sol",
     ]);
     expect(
       (
@@ -152,8 +168,12 @@ describe("agent model config catalog", () => {
       ).filter((model) => model.startsWith("openai/gpt-")),
     ).toEqual([
       "openai/gpt-5.6-luna",
+      "openai/gpt-6-luna",
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-sol",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-astra",
+      "openai/gpt-6-astra-pro",
     ]);
   });
 
@@ -161,6 +181,7 @@ describe("agent model config catalog", () => {
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toEqual([
       "claude-haiku-4-5-20251001",
       "claude-sonnet-5",
+      "claude-opus-5-5",
       "claude-opus-4-8",
       "claude-fable-5",
     ]);
@@ -197,6 +218,17 @@ describe("agent model config catalog", () => {
         : "anthropic/claude-sonnet-4.6",
     );
     expect(openrouterModels).toContain("google/gemini-2.5-flash");
+    expect(openrouterModels).toEqual(
+      expect.arrayContaining([
+        "openai/gpt-6-astra",
+        "openai/gpt-6-astra-pro",
+        "anthropic/claude-fable-5.1",
+        "google/gemini-3.8-flash",
+        "qwen/qwen3.8-max-0902",
+        "meta/muse-spark-1.3",
+        "inception/mercury-2.5",
+      ]),
+    );
     expect(openrouterModels).toContain("z-ai/glm-5.2");
   });
 });
@@ -209,7 +241,7 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-haiku-4-5-20251001")).toBe(200_000);
   });
 
-  it("returns 1M for Claude Fable 5, Sonnet 5/4.6, and Opus 4.x", () => {
+  it("returns 1M for Claude Fable 5, Sonnet 5/4.6, and Opus 4.6+", () => {
     expect(getContextWindowForModel("claude-fable-5")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-sonnet-5")).toBe(1_000_000);
     expect(getContextWindowForModel("anthropic/claude-sonnet-5")).toBe(
@@ -218,6 +250,10 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-sonnet-4-6")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-7")).toBe(1_000_000);
     expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
+    expect(getContextWindowForModel("claude-opus-5-5")).toBe(1_000_000);
+    expect(getContextWindowForModel("anthropic/claude-opus-5.5")).toBe(
+      1_000_000,
+    );
   });
 
   it("returns the documented context windows for GPT-5.6 models", () => {
@@ -230,6 +266,17 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("gpt-5-6-luna")).toBe(400_000);
     // OpenRouter advertises Luna with the same 1.05M context as Sol and Terra.
     expect(getContextWindowForModel("openai/gpt-5.6-luna")).toBe(1_050_000);
+  });
+
+  it("returns the documented 1.05M context window for GPT-6 Sol and Luna", () => {
+    for (const model of [
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-luna",
+    ]) {
+      expect(getContextWindowForModel(model)).toBe(1_050_000);
+    }
   });
 
   it("returns 1M for Gemini 2.x / 3.x models", () => {
@@ -257,6 +304,7 @@ describe("getContextWindowForModel", () => {
   it("uses heuristic fallback for unlisted gpt-5 variants", () => {
     expect(getContextWindowForModel("gpt-5.6")).toBe(1_050_000);
     expect(getContextWindowForModel("openai/gpt-5.6")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-6-preview")).toBe(1_050_000);
   });
 });
 
@@ -265,6 +313,10 @@ describe("getContextWindowForModel", () => {
 describe("getMaxOutputTokensForModel", () => {
   it("returns 128K for Claude flagship models (Fable 5, Opus 4.6+, Sonnet 5/4.6)", () => {
     expect(getMaxOutputTokensForModel("claude-fable-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("claude-opus-5-5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("anthropic/claude-opus-5.5")).toBe(
+      128_000,
+    );
     expect(getMaxOutputTokensForModel("claude-opus-4-8")).toBe(128_000);
     expect(getMaxOutputTokensForModel("claude-opus-4-7")).toBe(128_000);
     expect(getMaxOutputTokensForModel("claude-sonnet-5")).toBe(128_000);
@@ -295,15 +347,102 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
+  it("returns 128K for GPT-6 Sol and Luna in direct and OpenRouter forms", () => {
+    for (const model of [
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "openai/gpt-6-sol",
+      "openai/gpt-6-luna",
+    ]) {
+      expect(getMaxOutputTokensForModel(model)).toBe(128_000);
+    }
+  });
+
   it("uses heuristic fallback for unlisted flagship variants", () => {
     expect(getMaxOutputTokensForModel("claude-opus-4-9")).toBe(64_000);
     expect(getMaxOutputTokensForModel("gpt-5.6")).toBe(128_000);
     expect(getMaxOutputTokensForModel("openai/gpt-5.6")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-6-preview")).toBe(128_000);
   });
 
   it("returns the conservative 64K default for unknown or missing models", () => {
     expect(getMaxOutputTokensForModel("unknown-model-xyz")).toBe(64_000);
     expect(getMaxOutputTokensForModel("")).toBe(64_000);
     expect(getMaxOutputTokensForModel(undefined)).toBe(64_000);
+  });
+});
+
+describe("resolveFallbackModel", () => {
+  it("swaps haiku and sonnet for each other on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5");
+  });
+
+  it("falls back opus to sonnet on the Builder catalog", () => {
+    expect(
+      resolveFallbackModel(
+        "claude-opus-4-8",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+  });
+
+  it("resolves by family against the direct Anthropic engine's dated ids", () => {
+    // The direct Anthropic engine advertises a dated haiku id
+    // ("claude-haiku-4-5-20251001") that never appears in the Builder
+    // catalog — the resolver must match by family, not by literal id.
+    expect(
+      resolveFallbackModel(
+        CLAUDE_SONNET_MODEL_ID,
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe("claude-haiku-4-5-20251001");
+    expect(
+      resolveFallbackModel(
+        "claude-haiku-4-5-20251001",
+        ANTHROPIC_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBe(CLAUDE_SONNET_MODEL_ID);
+  });
+
+  it("returns undefined for an unknown model family", () => {
+    expect(
+      resolveFallbackModel("auto", BUILDER_MODEL_CONFIG.supportedModels),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gpt-5-6-luna",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "gemini-3-5-flash",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveFallbackModel(
+        "unknown-model-xyz",
+        BUILDER_MODEL_CONFIG.supportedModels,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when supportedModels has no sibling in the target family", () => {
+    expect(
+      resolveFallbackModel("claude-haiku-4-5", ["claude-haiku-4-5"]),
+    ).toBeUndefined();
+    expect(resolveFallbackModel("claude-haiku-4-5", undefined)).toBeUndefined();
   });
 });

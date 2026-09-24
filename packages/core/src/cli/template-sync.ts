@@ -210,6 +210,7 @@ export async function materializeTemplate(
 
 export function isMergeExcluded(rel: string): boolean {
   const segments = rel.split("/");
+  if (segments[0] === "data" && segments[1] === "pglite") return true;
   if (segments[0] === "changelog") return true;
   for (const name of segments) {
     if (!name || name === "." || name === "..") return true;
@@ -401,7 +402,7 @@ export function resolveTargets(cwd: string, appArg?: string): AppTarget[] {
   }
 
   throw new Error(
-    "No Agent Native app found. Run from an app directory, or pass an app name from a workspace root.",
+    "No Agent-Native app found. Run from an app directory, or pass an app name from a workspace root.",
   );
 }
 

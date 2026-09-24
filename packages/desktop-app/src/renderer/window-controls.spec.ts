@@ -29,34 +29,22 @@ describe("chat-first macOS window controls", () => {
     );
   });
 
-  it("fades the green control and background in on hover", () => {
-    expect(shellCss).toContain(".collapsed-mac-window-controls::before {");
-    expect(shellCss).toContain("opacity: 0;");
-    expect(shellCss).toContain("transition: opacity var(--ease-collapse);");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover::before,\n.collapsed-mac-window-controls:focus-within::before {",
+  it("shows all three collapsed controls without hover chrome", () => {
+    expect(shellCss).not.toContain(".collapsed-mac-window-controls::before");
+    expect(shellCss).not.toContain(".collapsed-mac-window-controls:hover");
+    expect(shellCss).not.toContain(
+      ".collapsed-mac-window-controls:focus-within",
     );
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls .win-btn--maximize {",
     );
-    expect(shellCss).toContain("pointer-events: none;");
-    expect(shellCss).toContain("transform: translateX(-7px) scale(0.86);");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover .win-btn--maximize,\n.collapsed-mac-window-controls:focus-within .win-btn--maximize {",
-    );
-    expect(shellCss).toContain("pointer-events: auto;");
-    expect(shellCss).toContain("transform: translateX(0) scale(1);");
+    expect(shellCss).not.toContain("translateX(-4px) scale(0.8)");
   });
 
-  it("shows all three controls without hover chrome in settings", () => {
+  it("keeps the collapsed controls inside the narrow rail", () => {
+    expect(shellCss).toContain("left: 8px;\n  width: 48px;");
     expect(shellCss).toContain(
-      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls::before,",
-    );
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover::before,\n.platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls:focus-within::before {",
-    );
-    expect(shellCss).toContain(
-      ".platform-darwin\n  .shell:has(.settings-overlay)\n  .collapsed-mac-window-controls\n  .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;\n  transform: translateX(0) scale(1);",
+      ".collapsed-mac-window-controls .win-btn--maximize {\n  left: 34px;",
     );
   });
 });

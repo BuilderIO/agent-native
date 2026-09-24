@@ -1,6 +1,9 @@
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
 import { runDispatchMigrations } from "@agent-native/dispatch/server";
+
+loadEnv();
 
 /**
  * Release-time schema entrypoint for Dispatch.

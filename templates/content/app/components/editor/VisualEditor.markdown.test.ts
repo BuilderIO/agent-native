@@ -6,11 +6,25 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import {
+  suggestionFormattingSourceRange,
+  suggestionFormattingSourceSlice,
+} from "@shared/suggestion-formatting";
+import { suggestionTextPresentationForSource } from "@shared/suggestion-text";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
-import { NodeSelection, type Transaction } from "@tiptap/pm/state";
+import {
+  NodeSelection,
+  TextSelection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { act, createElement } from "react";
+import {
+  act,
+  createElement,
+  type ComponentProps,
+  type ComponentType,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { Markdown } from "tiptap-markdown";
@@ -20,10 +34,87 @@ import * as Y from "yjs";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import {
+  createSuggestionDraftSession,
+  previewSuggestionDraft,
+  recordSuggestionReplacementIntent,
+  suggestionDraftOperations,
+} from "./suggestions/draft-session";
+
+it("maps a native escaped-backtick code proposal and preserves native Undo", () => {
+  const editor = new Editor({
+    extensions: [StarterKit],
+    content: nfmToDoc("\\`"),
+  });
+  try {
+    const baseline = docToNfm(editor.getJSON() as any);
+    const session = createSuggestionDraftSession({
+      id: "undo-format",
+      baseContent: baseline,
+      baseRevision: "one",
+      startedAt: "2026-09-08T00:00:00.000Z",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 2 });
+    editor.commands.toggleCode();
+    const draft = docToNfm(editor.getJSON() as any);
+    expect(draft).toBe("`` ` ``");
+    const operations = suggestionDraftOperations(session, draft);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      kind: "set_inline_mark",
+      before: { changedText: "\\`" },
+      after: { changedText: "`` ` ``" },
+    });
+    expect(previewSuggestionDraft(session, draft, null).status).toBe("ready");
+    for (const presentation of ["draft", "canonical"] as const) {
+      const source = presentation === "draft" ? draft : baseline;
+      const sourceEditor = createMarkdownEditor(source);
+      try {
+        const anchor =
+          presentation === "draft"
+            ? draftSuggestionAnchors(operations, draft)[0]!
+            : operations[0]!.anchor;
+        expect(
+          suggestionHighlightSpec(sourceEditor.state.doc, {
+            id: `escaped-backtick-${presentation}`,
+            kind: operations[0]!.kind,
+            beforeText: operations[0]!.before.changedText,
+            afterText: operations[0]!.after.changedText,
+            anchor,
+            presentation,
+          }),
+        ).not.toBeNull();
+      } finally {
+        sourceEditor.destroy();
+      }
+    }
+    expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+    expect(session.baseContent).toBe(baseline);
+    expect(editor.commands.undo()).toBe(true);
+    expect(
+      previewSuggestionDraft(session, docToNfm(editor.getJSON() as any), null),
+    ).toEqual({ status: "ready", suggestions: [] });
+  } finally {
+    editor.destroy();
+  }
+});
+
+type TooltipProviderProps = Omit<
+  ComponentProps<typeof TooltipProvider>,
+  "children"
+>;
+const TooltipProviderWithoutChildren =
+  TooltipProvider as ComponentType<TooltipProviderProps>;
+
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
+import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
+import {
+  draftSuggestionAnchors,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 import {
   createVisualEditorExtensions,
   commitPendingImageUpload,
@@ -32,8 +123,10 @@ import {
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
   parseNfmForCollabReconcile,
+  parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
   restorePendingImagePicker,
+  runIfMediaCreationAllowed,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -42,11 +135,342 @@ import {
   shouldPersistEffectivelyEmptyEditorUpdate,
   shouldPersistCollaborativeEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
+  shouldFlushVisualEditorDraft,
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
   serializeEditorDraftForPersistence,
+  suggestionReplacementIntentForTransaction,
+  type VisualEditorSuggestion,
   VisualEditor,
+  suggestionHighlightSpec,
+  type VisualEditorHistoryController,
 } from "./VisualEditor";
+
+describe("suggestion replacement intent", () => {
+  it("keeps a plain-word replacement on the canonical paragraph/list revision", () => {
+    const canonical =
+      "Alpha bravo charlie delta.\n\n- Echo foxtrot golf\n- Hotel india juliet\n- Kilo lima mike";
+    const editor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "paragraph-list-word",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      const from = 7;
+      const to = from + "bravo".length;
+      const transaction = editor.state.tr.insertText("BRAVISSIMO", from, to);
+      const intent = suggestionReplacementIntentForTransaction(transaction, {
+        from,
+        to,
+        empty: false,
+      });
+      expect(intent).toMatchObject({
+        beforeText: "bravo",
+        afterText: "BRAVISSIMO",
+        startOffset: canonical.indexOf("bravo"),
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      editor.view.dispatch(transaction);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const operations = suggestionDraftOperations(session, draft);
+
+      expect(operations).toHaveLength(1);
+      expect(operations[0]).toMatchObject({
+        kind: "replace_text",
+        before: { markdown: canonical, changedText: "bravo" },
+        after: {
+          markdown: canonical.replace("bravo", "BRAVISSIMO"),
+          changedText: "BRAVISSIMO",
+        },
+        anchor: {
+          from: canonical.indexOf("bravo"),
+          to: canonical.indexOf("bravo") + "bravo".length,
+        },
+      });
+      const draftAnchor = draftSuggestionAnchors(operations, draft)[0]!;
+      expect(
+        suggestionTextPresentationForSource(operations[0]!.after.changedText, {
+          source: operations[0]!.after.markdown,
+          from: operations[0]!.anchor.from,
+          to:
+            operations[0]!.anchor.from +
+            operations[0]!.after.changedText.length,
+        }),
+      ).not.toBeNull();
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-list-word",
+          kind: operations[0]!.kind,
+          beforeText: operations[0]!.before.changedText,
+          afterText: operations[0]!.after.changedText,
+          beforePresentation: {
+            source: operations[0]!.before.markdown,
+            from: operations[0]!.anchor.from,
+            to: operations[0]!.anchor.to,
+          },
+          afterPresentation: {
+            source: operations[0]!.after.markdown,
+            from: operations[0]!.anchor.from,
+            to:
+              operations[0]!.anchor.from +
+              operations[0]!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps three raw-revision replacements to every draft preview and highlight", () => {
+    const raw = "one alpha.\n\n- two beta\n- three gamma";
+    const draft = "ONE alpha.\n- TWO beta\n- THREE gamma";
+    const session = createSuggestionDraftSession({
+      id: "three-replacements",
+      baseContent: raw,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const operations = suggestionDraftOperations(session, draft);
+    expect(
+      operations.map(({ before, after }) => [
+        before.changedText,
+        after.changedText,
+      ]),
+    ).toEqual([
+      ["one", "ONE"],
+      ["two", "TWO"],
+      ["three", "THREE"],
+    ]);
+    expect(
+      operations.every((operation) => operation.before.markdown === raw),
+    ).toBe(true);
+
+    const anchors = draftSuggestionAnchors(operations, draft);
+    const editor = createMarkdownEditor(draft);
+    try {
+      operations.forEach((operation, index) => {
+        const anchor = anchors[index]!;
+        expect(draft.slice(anchor.from, anchor.to)).toBe(
+          operation.after.changedText,
+        );
+        expect(
+          suggestionTextPresentationForSource(operation.after.changedText, {
+            source: operation.after.markdown,
+            from: operation.anchor.from,
+            to: operation.anchor.from + operation.after.changedText.length,
+          }),
+        ).not.toBeNull();
+        expect(
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `three-replacements-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            beforePresentation: {
+              source: operation.before.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.to,
+            },
+            afterPresentation: {
+              source: operation.after.markdown,
+              from: operation.anchor.from,
+              to: operation.anchor.from + operation.after.changedText.length,
+            },
+            anchor,
+            presentation: "draft",
+          }),
+        ).not.toBeNull();
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a suffix Add after native backspaces cancel an insertion in a mixed session", () => {
+    const editor = createMarkdownEditor(
+      "This reads better compared to the original.\n\nEditors publish carefully.\n\nFinal sentence.",
+    );
+    const baseContent = docToNfm(editor.state.doc.toJSON());
+    const session = createSuggestionDraftSession({
+      id: "mixed-native",
+      baseContent,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    editor.on("beforeTransaction", ({ transaction }) => {
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      );
+      if (intent)
+        recordSuggestionReplacementIntent(
+          session,
+          intent,
+          intent.beforeMarkdown,
+        );
+    });
+    const select = (from: number, to = from) =>
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, from, to),
+        ),
+      );
+    const find = (text: string) => {
+      let found = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.isText && node.text?.includes(text))
+          found = pos + node.text.indexOf(text);
+      });
+      expect(found).toBeGreaterThanOrEqual(0);
+      return found;
+    };
+    try {
+      const original = "This reads better compared to the original.";
+      const replacement = "This reads more clearly than the original.";
+      select(find(original), find(original) + original.length);
+      editor.view.dispatch(editor.state.tr.insertText(replacement));
+      select(find("publish"), find("publish") + "publish".length);
+      editor.view.dispatch(editor.state.tr.deleteSelection());
+      const canceled = " Added words.";
+      select(find("Final sentence.") + "Final sentence".length);
+      for (const character of canceled)
+        editor.view.dispatch(editor.state.tr.insertText(character));
+      for (let index = 0; index < canceled.length; index++) {
+        const caret = editor.state.selection.from;
+        editor.view.dispatch(editor.state.tr.delete(caret - 1, caret));
+      }
+      const canceledOperations = suggestionDraftOperations(
+        session,
+        docToNfm(editor.state.doc.toJSON()),
+      );
+      expect(canceledOperations).toHaveLength(2);
+      select(find("Final sentence.") + "Final sentence.".length);
+      for (const character of canceled)
+        editor.view.dispatch(editor.state.tr.insertText(character));
+      expect(
+        suggestionDraftOperations(
+          session,
+          docToNfm(editor.state.doc.toJSON()),
+        ).map((operation) => [
+          operation.kind,
+          operation.before.changedText,
+          operation.after.changedText,
+        ]),
+      ).toEqual([
+        ["replace_text", original, replacement],
+        ["delete_text", "publish", ""],
+        ["insert_text", "", canceled],
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not treat collapsed-caret deletion as selected overwrite", () => {
+    const editor = createMarkdownEditor("Final sentence. Added words.");
+    try {
+      const caret = editor.state.doc.content.size - 1;
+      expect(
+        suggestionReplacementIntentForTransaction(
+          editor.state.tr.delete(caret - 1, caret),
+          { from: caret, to: caret, empty: true },
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("captures whole-document replacement without inserting inline markers at the root", () => {
+    const editor = createMarkdownEditor(
+      "First paragraph.\n\nSecond paragraph.",
+    );
+    try {
+      const intent = suggestionReplacementIntentForTransaction(
+        editor.state.tr.insertText(
+          "Replacement",
+          0,
+          editor.state.doc.content.size,
+        ),
+        { from: 0, to: editor.state.doc.content.size, empty: false },
+      );
+      expect(intent).not.toBeNull();
+      expect(intent!.beforeText).toBe(intent!.beforeMarkdown);
+      expect(intent!.startOffset).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("maps repeated text after a link to its serialized selection", () => {
+    const content =
+      "same\n\n[abcdefghijklmnopqrst](https://example.test/a-very-long-link-path)\n\nsame";
+    const editor = createMarkdownEditor(content);
+    try {
+      let last = 0;
+      editor.state.doc.descendants((node, position) => {
+        if (node.isText && node.text === "same") last = position;
+      });
+      const intent = suggestionReplacementIntentForTransaction(
+        editor.state.tr.insertText("different", last, last + 4),
+        { from: last, to: last + 4, empty: false },
+      );
+      expect(intent).not.toBeNull();
+      expect(intent!.startOffset).toBe(
+        intent!.beforeMarkdown.lastIndexOf("same"),
+      );
+      expect(intent!.beforeText).toBe("same");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("captures an exact native selected-text replacement", () => {
+    const editor = createMarkdownEditor("Use this workflow today.");
+    try {
+      const transaction = editor.state.tr.insertText("workflows", 10, 18);
+
+      expect(
+        suggestionReplacementIntentForTransaction(transaction, {
+          from: 10,
+          to: 18,
+          empty: false,
+        }),
+      ).toEqual({
+        beforeText: "workflow",
+        afterText: "workflows",
+        startOffset: 9,
+        beforeMarkdown: "Use this workflow today.",
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not reinterpret an ordinary insertion as a replacement", () => {
+    const editor = createMarkdownEditor("Use this workflow today.");
+    try {
+      const transaction = editor.state.tr.insertText("s", 18);
+      expect(
+        suggestionReplacementIntentForTransaction(transaction, {
+          from: 18,
+          to: 18,
+          empty: true,
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function createMarkdownEditor(content: string) {
   return new Editor({
@@ -76,6 +500,1708 @@ function createFullEditor(content = "") {
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
 }
+
+describe("markdown clipboard parsing", () => {
+  it("parses a large multi-block Markdown document as block content", () => {
+    const section = [
+      "## A section heading",
+      "",
+      "A paragraph with **bold text** and [a link](https://example.test).",
+      "",
+      "- First item",
+      "- Second item",
+      "",
+      "```ts",
+      'const message = "still responsive";',
+      "```",
+    ].join("\n");
+    const markdown = ["# Large pasted draft", ...Array(120).fill(section)].join(
+      "\n\n",
+    );
+    const editor = createFullEditor();
+
+    try {
+      expect(markdown.length).toBeGreaterThan(15_000);
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      expect(slice?.openStart).toBeGreaterThan(0);
+      expect(slice?.openEnd).toBeGreaterThan(0);
+
+      editor.view.dispatch(
+        editor.state.tr.replaceSelection(slice!).scrollIntoView(),
+      );
+      const saved = docToNfm(editor.state.doc.toJSON());
+      expect(saved).toContain("# Large pasted draft");
+      expect(saved.match(/^## A section heading$/gm)).toHaveLength(120);
+      expect(saved).toContain('const message = "still responsive";');
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves non-Markdown clipboard text to the default paste behavior", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(
+          editor,
+          "An ordinary plain text paragraph.",
+        ),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves top-level Markdown block types", () => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "# Heading\n\n- list item\n\n> quoted",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "bulletList",
+        ),
+      ).toBe(true);
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "blockquote",
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fits Markdown to a nested list-item selection", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Existing item" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      let cursor = 1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph")
+          cursor = pos + node.content.size + 1;
+      });
+      editor.commands.setTextSelection(cursor);
+      const slice = parseMarkdownClipboardSlice(
+        editor,
+        "Nested paragraph with **bold** text.\n\n- nested item",
+      );
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("bulletList");
+      expect(editor.state.doc.textContent).toContain("Existing item");
+      expect(editor.state.doc.textContent).toContain("Nested paragraph");
+      expect(editor.state.doc.textContent).toContain("nested item");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**", "bold"],
+    ["*italic*", "italic"],
+    ["[link](https://example.test)", "link"],
+  ])("preserves standalone inline Markdown %s", (markdown, markName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        markName,
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["**bold**after", "bold"],
+    ["*italic*after", "italic"],
+  ])(
+    "recognizes inline Markdown followed by text: %s",
+    (markdown, markName) => {
+      const editor = createFullEditor();
+      try {
+        const slice = parseMarkdownClipboardSlice(editor, markdown);
+        expect(slice).not.toBeNull();
+        editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+        expect(
+          editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name,
+        ).toBe(markName);
+        expect(editor.state.doc.textContent).toBe(markdown.replace(/\*/g, ""));
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    ["- first\n- second", "bulletList"],
+    ["1. first\n2. second", "orderedList"],
+    ["> first\n> second", "blockquote"],
+    ["```ts\nconst value = 1;\n```", "codeBlock"],
+  ])("parses standalone block Markdown: %s", (markdown, nodeName) => {
+    const editor = createFullEditor();
+    try {
+      const slice = parseMarkdownClipboardSlice(editor, markdown);
+      expect(slice).not.toBeNull();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === nodeName,
+        ),
+      ).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["Formula: 2*3*4", "Use * asterisk * literally"])(
+    "keeps ordinary asterisk text literal: %s",
+    (text) => {
+      const editor = createFullEditor();
+      try {
+        expect(parseMarkdownClipboardSlice(editor, text)).toBeNull();
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps ordinary asterisks literal through the paste event", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/plain",
+      "Formula: 2*3*4\n\nUse * asterisk * literally",
+    );
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toBe(
+        "Formula: 2*3*4Use * asterisk * literally",
+      );
+      expect(
+        editor.state.doc.firstChild?.firstChild?.marks.map(
+          (mark) => mark.type.name,
+        ),
+      ).toEqual([]);
+      expect(editor.state.doc.lastChild?.firstChild?.marks).toHaveLength(0);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("rejects large unmatched link delimiters without reparsing", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        parseMarkdownClipboardSlice(editor, "[".repeat(100_000)),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const markdown = "# Plain paste heading\n\n- first\n- second";
+    try {
+      const slice = editor.view.someProp("clipboardTextParser", (parse) =>
+        parse(markdown, editor.state.selection.$from, true, editor.view),
+      );
+      expect(slice).toBeDefined();
+      editor.view.dispatch(editor.state.tr.replaceSelection(slice!));
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(editor.state.doc.childCount).toBe(3);
+      expect(
+        Array.from(
+          { length: editor.state.doc.childCount },
+          (_, index) => editor.state.doc.child(index).type.name,
+        ),
+      ).toEqual(["paragraph", "paragraph", "paragraph"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps dual-format paste-as-plain-text Markdown literal", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Plain paste heading\n\n- first</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Plain paste heading\n\n- first");
+
+    try {
+      const input = (
+        editor.view as unknown as {
+          input: { shiftKey: boolean; lastKeyCode: number | null };
+        }
+      ).input;
+      input.shiftKey = true;
+      input.lastKeyCode = 86;
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.textContent).toContain("# Plain paste heading");
+      expect(editor.state.doc.textContent).toContain("- first");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) =>
+            node.type.name === "heading" || node.type.name === "bulletList",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps Markdown literal when pasting into a code block", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<pre><code># Literal heading\n**literal bold**</code></pre>",
+    );
+    clipboardData.setData("text/plain", "# Literal heading\n**literal bold**");
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "codeBlock" }],
+      });
+      editor.commands.setTextSelection(1);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock");
+      expect(editor.state.doc.textContent).toContain("# Literal heading");
+      expect(editor.state.doc.textContent).toContain("**literal bold**");
+      expect(editor.state.doc.firstChild?.firstChild?.marks).toHaveLength(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves inline code HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>**literal**</code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged && transaction.getMeta("paste")) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      const text = editor.state.doc.firstChild?.firstChild;
+      expect(text?.text).toBe("**literal**");
+      expect(text?.marks.map((mark) => mark.type.name)).toEqual(["code"]);
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("accepts empty inline code HTML without creating an empty text node", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code></code></p>");
+    clipboardData.setData("text/plain", "**literal**");
+
+    try {
+      expect(() =>
+        editor.view.dom.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      ).not.toThrow();
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves line breaks inside rich inline code HTML", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<p><code>first<br>second</code></p>");
+    clipboardData.setData("text/plain", "first\nsecond");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.childCount).toBe(3);
+      expect(editor.state.doc.firstChild?.child(1).type.name).toBe("hardBreak");
+      expect(editor.state.doc.firstChild?.child(0).marks[0]?.type.name).toBe(
+        "code",
+      );
+      expect(editor.state.doc.firstChild?.child(2).marks[0]?.type.name).toBe(
+        "code",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("marks intercepted code-wrapper Markdown as a paste transaction", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/html", "<pre><code># Heading</code></pre>");
+    clipboardData.setData("text/plain", "# Heading");
+    const pasteMetadata: unknown[][] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) {
+        pasteMetadata.push([
+          transaction.getMeta("paste"),
+          transaction.getMeta("uiEvent"),
+        ]);
+      }
+    });
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+      expect(pasteMetadata).toContainEqual([true, "paste"]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves paragraph-only rich HTML instead of reparsing its text", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      "<p><strong># Rich heading</strong></p><p><em>- first</em><br>- second</p>",
+    );
+    clipboardData.setData("text/plain", "# Rich heading\n\n- first\n- second");
+
+    try {
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+      expect(editor.state.doc.firstChild?.firstChild?.marks[0]?.type.name).toBe(
+        "bold",
+      );
+      expect(editor.state.doc.textContent).toContain("# Rich heading");
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves media-bearing rich HTML instead of dropping the media", () => {
+    const editor = createFullEditor();
+    const clipboardData = new DataTransfer();
+    clipboardData.setData(
+      "text/html",
+      '<p># Caption</p><img src="https://example.test/image.png">',
+    );
+    clipboardData.setData("text/plain", "# Caption\n\n**alt text**");
+
+    try {
+      const event = new ClipboardEvent("paste", {
+        clipboardData,
+        bubbles: true,
+        cancelable: true,
+      });
+      editor.view.dom.dispatchEvent(event);
+
+      expect(editor.state.doc.textContent).toContain("# Caption");
+      expect(JSON.stringify(editor.state.doc.toJSON())).toContain(
+        '"type":"image"',
+      );
+      expect(
+        editor.state.doc.content.content.some(
+          (node) => node.type.name === "heading",
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("live suggestion presentation", () => {
+  function createSuggestionEditor(content: string) {
+    return new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(content),
+    });
+  }
+  it.each([
+    "**Echo**",
+    "*Echo*",
+    "~~Echo~~",
+    "`Echo`",
+    '<span underline="true">Echo</span>',
+    "[Echo](https://example.test)",
+  ])(
+    "anchors a saved and draft formatting change %s to only its text",
+    (formatted) => {
+      const before = "Echo sample.\nOther paragraph.";
+      const after = formatted + before.slice(4);
+      for (const presentation of ["draft", "canonical"] as const) {
+        const editor = createSuggestionEditor(
+          presentation === "draft" ? after : before,
+        );
+        try {
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: "format",
+            kind: "set_inline_mark",
+            beforeText: "Echo",
+            afterText: formatted,
+            anchor: { from: 0, prefix: "", suffix: before.slice(4) },
+            presentation,
+          });
+          expect(spec).toMatchObject({ kind: "mark", from: 1, to: 5 });
+          setSuggestionHighlights(editor.view, { specs: [spec!] });
+          expect(
+            editor.view.dom.querySelector('[data-suggestion-id="format"]')
+              ?.textContent,
+          ).toBe("Echo");
+          expect(docToNfm(editor.state.doc.toJSON())).toBe(
+            presentation === "draft" ? after : before,
+          );
+        } finally {
+          editor.destroy();
+        }
+      }
+    },
+  );
+  it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
+    const editor = createSuggestionEditor("BBBB target x\nC target y");
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "stale",
+          kind: "delete_text",
+          beforeText: "target",
+          afterText: "",
+          anchor: { from: 5, prefix: "BBBB ", suffix: " y" },
+          presentation: "canonical",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each(["draft", "canonical"] as const)(
+    "uses current-source coordinates for a repeated mixed %s hard-break range",
+    (presentation) => {
+      const content = "x<br>".repeat(20);
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "periodic",
+          kind: presentation === "draft" ? "insert_text" : "delete_text",
+          beforeText: presentation === "draft" ? "" : "x<br>",
+          afterText: presentation === "draft" ? "x<br>" : "",
+          anchor: {
+            from: 25,
+            prefix: content.slice(0, 25),
+            suffix: content.slice(30, 62),
+          },
+          presentation,
+        });
+        expect(spec).toMatchObject({ from: 11, to: 13 });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("maps composed draft offsets from the current source rather than its baseline", () => {
+    const content = "Earlier addition. " + "x<br>".repeat(20);
+    const from = "Earlier addition. ".length + 25;
+    const editor = createSuggestionEditor(content);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "composed",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "x<br>",
+        anchor: {
+          from,
+          prefix: content.slice(Math.max(0, from - 32), from),
+          suffix: content.slice(from + 5, from + 37),
+        },
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ from: 29, to: 31 });
+      const stale = suggestionHighlightSpec(editor.state.doc, {
+        id: "ambiguous",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "x<br>",
+        anchor: { from: 25, prefix: "", suffix: "" },
+        presentation: "draft",
+      });
+      expect(stale).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("does not use raw offsets when formatting changes the current source mapping", () => {
+    const editor = createSuggestionEditor("**prefix** " + "x<br>".repeat(20));
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-format",
+          kind: "insert_text",
+          beforeText: "",
+          afterText: "x<br>",
+          anchor: { from: 35, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each(["<br>", "\n"])(
+    "gives a draft %j addition a visible anchored marker without changing content",
+    (breakText) => {
+      const content = `Ec${breakText}ho`;
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "break",
+          kind: "insert_text",
+          beforeText: "",
+          afterText: breakText,
+          anchor: { from: 2, prefix: "Ec", suffix: "ho" },
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({ kind: "insert", from: 3 });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector('[data-suggestion-id="break"]')
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(content);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it.each(["draft", "canonical"] as const)(
+    "renders a %s hard-break deletion without losing the structural anchor",
+    (presentation) => {
+      const content = presentation === "draft" ? "Echo" : "Ec<br>ho";
+      const editor = createSuggestionEditor(content);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "break",
+          kind: "delete_text",
+          beforeText: "<br>",
+          afterText: "",
+          anchor: { from: 2, prefix: "Ec", suffix: "ho" },
+          presentation,
+        });
+        expect(spec).toMatchObject({ from: 3 });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-delete-widget")
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(content);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("anchors mixed text and hard breaks to the intended repeated occurrence", () => {
+    const editor = createSuggestionEditor("Ec<br>ho and Ec<br>ho");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "mixed",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "Ec<br>ho",
+        anchor: { from: 13, prefix: "Ec<br>ho and ", suffix: "" },
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ from: 11, to: 16, kind: "mark" });
+      const missing = suggestionHighlightSpec(editor.state.doc, {
+        id: "missing",
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "<br>",
+        anchor: { from: 2, prefix: "Wrong", suffix: "context" },
+        presentation: "draft",
+      });
+      expect(missing).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("anchors a generated hard break beside an independent paragraph merge", () => {
+    const base =
+      "Alpha \nbeta gamma.\nRepeat repeat repeat.\nBold italic underline strike code link.";
+    const draft =
+      "Alpha beta gamma.\nRepeat <br>repeat repeat.\nBold italic underline strike code link.";
+    const operations = markdownSuggestionOperations(base, draft);
+    expect(operations).toHaveLength(2);
+    expect(operations[1]!.after.changedText).toBe("<br>");
+    for (const presentation of ["draft", "canonical"] as const) {
+      const source = presentation === "draft" ? draft : base;
+      const editor = createSuggestionEditor(source);
+      try {
+        const anchors =
+          presentation === "draft"
+            ? draftSuggestionAnchors(operations, draft)
+            : operations.map((operation) => operation.anchor);
+        const specs = operations.map((operation, index) =>
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `structural-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            anchor: anchors[index]!,
+            presentation,
+          }),
+        );
+        expect(specs.every(Boolean)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        expect(
+          editor.view.dom.querySelector('[data-suggestion-id="structural-1"]')
+            ?.textContent,
+        ).toBe("↵");
+        expect(docToNfm(editor.state.doc.toJSON())).toBe(source);
+      } finally {
+        editor.destroy();
+      }
+    }
+  });
+  it("keeps a deletion visible after an earlier draft insertion changes its context", () => {
+    const base =
+      "Alpha Beta Gamma.\nThe team will publish on Friday.\nThird paragraph stays unchanged.";
+    const inserted = base.replace("Gamma.", "Gamma. Added words.");
+    const draft = inserted.replace("Alpha", "");
+    const editor = createSuggestionEditor(inserted);
+    try {
+      editor.commands.setTextSelection({ from: 1, to: 6 });
+      editor.commands.deleteSelection();
+      const operations = markdownSuggestionOperations(base, draft);
+      const anchors = draftSuggestionAnchors(operations, draft);
+      const specs = operations.map((operation, index) =>
+        suggestionHighlightSpec(editor.state.doc, {
+          id: `draft-${operation.ordinal}`,
+          kind: operation.kind,
+          beforeText: operation.before.changedText,
+          afterText: operation.after.changedText,
+          anchor: anchors[index]!,
+          presentation: "draft",
+        }),
+      );
+      expect(specs.every(Boolean)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Alpha");
+      expect(
+        editor.view.dom.querySelector(".suggestion-change")?.textContent,
+      ).toBe(" Added words.");
+      expect(editor.state.doc.firstChild?.textContent).toBe(
+        " Beta Gamma. Added words.",
+      );
+      expect(editor.state.selection.from).toBe(1);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("shows both sides of a draft replacement without changing draft text", () => {
+    const editor = createSuggestionEditor("The team will publish on Monday.");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "replacement",
+        kind: "replace_text",
+        beforeText: "Fri",
+        afterText: "Mon",
+        anchor: {
+          from: 25,
+          prefix: "The team will publish on ",
+          suffix: "day.",
+        },
+        presentation: "draft",
+      });
+      expect(spec).not.toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Fri");
+      expect(
+        editor.view.dom.querySelector(".suggestion-change")?.textContent,
+      ).toBe("Mon");
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-change")
+          ?.hasAttribute("tabindex"),
+      ).toBe(false);
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-change")
+          ?.hasAttribute("role"),
+      ).toBe(false);
+      expect(editor.state.doc.textContent).toBe(
+        "The team will publish on Monday.",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["draft", "canonical"] as const)(
+    "anchors mixed replacement and insertion operations beside existing marks in %s presentation",
+    (presentation) => {
+      const canonical = [
+        "**Bold** sample.",
+        "*Italic* sample.",
+        "~~Strike~~ sample.",
+        "`Code` sample.",
+        '<span underline="true">Underline</span> sample.',
+        "[Link](https://example.test) sample.",
+      ].join("\n");
+      const draft = canonical
+        .replace("**Bold**", "*Changed*")
+        .replace("*Italic* sample.", "*Italic* sample. Extra.");
+      const session = createSuggestionDraftSession({
+        id: "mixed-marks",
+        baseContent: canonical,
+        baseRevision: "revision-one",
+        startedAt: "now",
+      });
+      recordSuggestionReplacementIntent(session, {
+        beforeText: "Bold",
+        startOffset: canonical.indexOf("Bold"),
+      });
+      const operations = suggestionDraftOperations(session, draft);
+      expect(operations.map((operation) => operation.kind)).toEqual([
+        "replace_text",
+        "insert_text",
+      ]);
+
+      const editor = createSuggestionEditor(
+        presentation === "draft" ? draft : canonical,
+      );
+      const anchors =
+        presentation === "draft"
+          ? draftSuggestionAnchors(operations, draft)
+          : operations.map((operation) => operation.anchor);
+      try {
+        const specs = operations.map((operation, index) =>
+          suggestionHighlightSpec(editor.state.doc, {
+            id: `mixed-${index}`,
+            kind: operation.kind,
+            beforeText: operation.before.changedText,
+            afterText: operation.after.changedText,
+            anchor: anchors[index]!,
+            presentation,
+          }),
+        );
+        expect(specs.every(Boolean)).toBe(true);
+        if (presentation === "canonical") {
+          const italicParagraphEnd =
+            editor.state.doc.child(0).nodeSize +
+            1 +
+            editor.state.doc.child(1).content.size;
+          expect(specs[1]).toMatchObject({
+            kind: "insert",
+            from: italicParagraphEnd,
+          });
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("preserves zero-width source boundaries around paragraphs and hard breaks", () => {
+    const specAt = (source: string, from: number) => {
+      const editor = createSuggestionEditor(source);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: `boundary-${from}`,
+        kind: "insert_text",
+        beforeText: "",
+        afterText: "added",
+        anchor: {
+          from,
+          prefix: source.slice(Math.max(0, from - 32), from),
+          suffix: source.slice(from, from + 32),
+        },
+        presentation: "canonical",
+      });
+      return { editor, spec };
+    };
+
+    const paragraphSource = "First paragraph.\nSecond paragraph.";
+    const beforeParagraph = specAt(
+      paragraphSource,
+      paragraphSource.indexOf("\n"),
+    );
+    const afterParagraph = specAt(
+      paragraphSource,
+      paragraphSource.indexOf("\n") + 1,
+    );
+    const hardBreakSource = "Ec<br>ho";
+    const beforeHardBreak = specAt(
+      hardBreakSource,
+      hardBreakSource.indexOf("<br>"),
+    );
+    const afterHardBreak = specAt(
+      hardBreakSource,
+      hardBreakSource.indexOf("<br>") + "<br>".length,
+    );
+    try {
+      expect(beforeParagraph.spec).toMatchObject({
+        kind: "insert",
+        from: 1 + beforeParagraph.editor.state.doc.child(0).content.size,
+      });
+      expect(afterParagraph.spec).toMatchObject({
+        kind: "insert",
+        from: afterParagraph.editor.state.doc.child(0).nodeSize + 1,
+      });
+      let hardBreakPosition = -1;
+      beforeHardBreak.editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "hardBreak") hardBreakPosition = pos;
+      });
+      expect(hardBreakPosition).toBeGreaterThan(0);
+      expect(beforeHardBreak.spec).toMatchObject({
+        kind: "insert",
+        from: hardBreakPosition,
+      });
+      expect(afterHardBreak.spec).toMatchObject({
+        kind: "insert",
+        from: hardBreakPosition + 1,
+      });
+    } finally {
+      beforeParagraph.editor.destroy();
+      afterParagraph.editor.destroy();
+      beforeHardBreak.editor.destroy();
+      afterHardBreak.editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "marked paragraphs",
+      canonical: "**Bold** one.\n*Italic* two.",
+    },
+    {
+      name: "marked hard break",
+      canonical: "**Bold** one.<br>*Italic* two.",
+    },
+  ])(
+    "anchors an actual selected replacement across $name in draft and canonical presentation",
+    ({ canonical }) => {
+      const sourceEditor = createMarkdownEditor(canonical);
+      const session = createSuggestionDraftSession({
+        id: "cross-structure",
+        baseContent: canonical,
+        baseRevision: "revision-one",
+        startedAt: "now",
+      });
+      try {
+        const from = 1;
+        const to = sourceEditor.state.doc.content.size - 1;
+        sourceEditor.commands.setTextSelection({ from, to });
+        const transaction = sourceEditor.state.tr.insertText("Changed");
+        const intent = suggestionReplacementIntentForTransaction(
+          transaction,
+          sourceEditor.state.selection,
+        );
+        expect(intent).not.toBeNull();
+        expect(
+          canonical.slice(
+            intent!.startOffset,
+            intent!.startOffset + intent!.beforeText.length,
+          ),
+        ).toBe(intent!.beforeText);
+        recordSuggestionReplacementIntent(
+          session,
+          intent!,
+          intent!.beforeMarkdown,
+        );
+        sourceEditor.view.dispatch(transaction);
+        const draft = docToNfm(sourceEditor.state.doc.toJSON());
+        const operations = suggestionDraftOperations(session, draft);
+        expect(operations).toHaveLength(1);
+        expect(operations[0]!.kind).toBe("replace_text");
+
+        for (const presentation of ["draft", "canonical"] as const) {
+          const editor = createSuggestionEditor(
+            presentation === "draft" ? draft : canonical,
+          );
+          try {
+            const anchor =
+              presentation === "draft"
+                ? draftSuggestionAnchors(operations, draft)[0]!
+                : operations[0]!.anchor;
+            expect(
+              suggestionHighlightSpec(editor.state.doc, {
+                id: `cross-structure-${presentation}`,
+                kind: operations[0]!.kind,
+                beforeText: operations[0]!.before.changedText,
+                afterText: operations[0]!.after.changedText,
+                anchor,
+                presentation,
+              }),
+            ).not.toBeNull();
+          } finally {
+            editor.destroy();
+          }
+        }
+      } finally {
+        sourceEditor.destroy();
+      }
+    },
+  );
+
+  it("keeps an exact native replacement across a marked hard break and renders both sides bold", () => {
+    const canonical = "**Prefix Upper**<br>**Lower suffix.**";
+    const sourceEditor = createMarkdownEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "marked-hardbreak-exact",
+      baseContent: canonical,
+      baseRevision: "revision-one",
+      startedAt: "now",
+    });
+    try {
+      sourceEditor.commands.setTextSelection({ from: 8, to: 19 });
+      const transaction = sourceEditor.state.tr.insertText("Across");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        sourceEditor.state.selection,
+      );
+      expect(intent).toMatchObject({
+        beforeText: "Upper**<br>**Lower",
+        afterText: "Across",
+        startOffset: 9,
+      });
+      recordSuggestionReplacementIntent(
+        session,
+        intent!,
+        intent!.beforeMarkdown,
+      );
+      sourceEditor.view.dispatch(transaction);
+      const draft = docToNfm(sourceEditor.state.doc.toJSON());
+      expect(draft).toBe("**Prefix Across suffix.**");
+      const [operation] = suggestionDraftOperations(session, draft);
+      expect(operation).toMatchObject({
+        kind: "replace_text",
+        before: { changedText: "Upper**<br>**Lower" },
+        after: { changedText: "Across" },
+        anchor: { from: 9, to: 27 },
+      });
+
+      for (const presentation of ["draft", "canonical"] as const) {
+        const editor = createSuggestionEditor(
+          presentation === "draft" ? draft : canonical,
+        );
+        try {
+          const anchor =
+            presentation === "draft"
+              ? draftSuggestionAnchors([operation!], draft)[0]!
+              : operation!.anchor;
+          const spec = suggestionHighlightSpec(editor.state.doc, {
+            id: `marked-hardbreak-${presentation}`,
+            kind: operation!.kind,
+            beforeText: operation!.before.changedText,
+            afterText: operation!.after.changedText,
+            beforePresentation: {
+              source: operation!.before.markdown,
+              from: operation!.anchor.from,
+              to: operation!.anchor.to,
+            },
+            afterPresentation: {
+              source: operation!.after.markdown,
+              from: operation!.anchor.from,
+              to: operation!.anchor.from + operation!.after.changedText.length,
+            },
+            anchor,
+            presentation,
+          });
+          expect(spec).toMatchObject(
+            presentation === "draft"
+              ? { from: 8, to: 14, kind: "mark" }
+              : { from: 8, to: 19, kind: "replace" },
+          );
+          setSuggestionHighlights(editor.view, { specs: [spec!] });
+          if (presentation === "draft") {
+            expect(
+              editor.view.dom.querySelector(".suggestion-delete-widget")
+                ?.textContent,
+            ).toBe("Upper↵Lower");
+            expect(
+              editor.view.dom.querySelectorAll(
+                ".suggestion-delete-widget strong",
+              ),
+            ).toHaveLength(2);
+          } else {
+            expect(
+              editor.view.dom.querySelector(".suggestion-insert")?.textContent,
+            ).toBe("Across");
+            expect(
+              editor.view.dom.querySelector(".suggestion-insert strong")
+                ?.textContent,
+            ).toBe("Across");
+          }
+          expect(editor.view.dom.textContent).not.toContain("**");
+        } finally {
+          editor.destroy();
+        }
+      }
+    } finally {
+      sourceEditor.destroy();
+    }
+  });
+
+  it("keeps a registered native Tab indent visible on a marked replacement", () => {
+    const canonical = [
+      "***Changed*** sample.",
+      "*Italic* sample.",
+      '<span underline="true">Underline</span> sample.',
+      "~~Strike~~ sample.",
+      "`Code` sample.",
+      "[Link](https://example.test) sample.",
+      "**Prefix Across suffix.**",
+    ].join("\n");
+    const editor = createSuggestionEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "native-indent-marked-replacement",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    const find = (text: string) => {
+      let found = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (found < 0 && node.isText && node.text?.includes(text))
+          found = pos + node.text.indexOf(text);
+      });
+      return found;
+    };
+    try {
+      const changed = find("Changed");
+      editor.commands.setTextSelection({
+        from: changed,
+        to: changed + "Changed".length,
+      });
+      const transaction = editor.state.tr.insertText("Bright");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      )!;
+      recordSuggestionReplacementIntent(session, intent, intent.beforeMarkdown);
+      editor.view.dispatch(transaction);
+      const bright = find("Bright");
+      editor.commands.setTextSelection({
+        from: bright,
+        to: bright + "Bright".length,
+      });
+      expect(editor.commands.toggleItalic()).toBe(true);
+      expect(editor.commands.keyboardShortcut("Tab")).toBe(true);
+
+      const draft = docToNfm(editor.getJSON() as any);
+      const [operation] = suggestionDraftOperations(session, draft);
+      expect(draft.startsWith("\t**Bright** sample.")).toBe(true);
+      expect(operation).toMatchObject({
+        before: { changedText: "***Changed***" },
+        after: { changedText: "\t**Bright**" },
+        anchor: { from: 0, to: 13 },
+      });
+      const context = {
+        source: operation!.after.markdown,
+        from: operation!.anchor.from,
+        to: operation!.anchor.from + operation!.after.changedText.length,
+      };
+      expect(operation!.after.markdown.slice(context.from, context.to)).toBe(
+        operation!.after.changedText,
+      );
+      expect(
+        suggestionTextPresentationForSource(
+          operation!.after.changedText,
+          context,
+        ),
+      ).toMatchObject([
+        { type: "indent", value: "⇥" },
+        { type: "strong", children: [{ type: "text", value: "Bright" }] },
+      ]);
+      expect(
+        suggestionFormattingSourceRange(
+          context.source,
+          context.from,
+          context.to,
+        ),
+      ).toMatchObject({ from: 0, to: 6 });
+      const anchor = draftSuggestionAnchors([operation!], draft)[0]!;
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "native-indent-marked-replacement",
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: context,
+          anchor,
+          presentation: "draft",
+        }),
+      ).not.toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["Plain sample.", "Tab", "\tPlain sample.", "after", "paragraph"],
+    ["\tPlain sample.", "Shift-Tab", "Plain sample.", "before", "paragraph"],
+    ["# Plain heading", "Tab", "\t# Plain heading", "after", "heading"],
+    ["\t# Plain heading", "Shift-Tab", "# Plain heading", "before", "heading"],
+  ] as const)(
+    "renders a registered native %s structural indent change for a %s",
+    (canonical, shortcut, draft, comparisonSide, _blockType) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        editor.commands.setTextSelection(1);
+        expect(editor.commands.keyboardShortcut(shortcut)).toBe(true);
+        expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const comparison = operation![comparisonSide];
+        const to =
+          comparisonSide === "before"
+            ? operation!.anchor.to
+            : operation!.anchor.from + comparison.changedText.length;
+        expect(
+          suggestionFormattingSourceSlice(
+            comparison.markdown,
+            operation!.anchor.from,
+            to,
+          ),
+        ).toEqual([{ type: "indent", text: "⇥" }]);
+        const draftAnchor = draftSuggestionAnchors([operation!], draft)[0]!;
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `native-${shortcut}-${comparisonSide}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: draftAnchor.from,
+            to: draftAnchor.from + operation!.after.changedText.length,
+          },
+          anchor: draftAnchor,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: shortcut === "Tab" ? "insert" : "delete",
+        });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(
+            `[data-suggestion-id="native-${shortcut}-${comparisonSide}"]`,
+          )?.textContent,
+        ).toBe("⇥");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("uses the registered Tab indent for a marked heading replacement", () => {
+    const canonical = "# ***Changed*** heading";
+    const editor = createSuggestionEditor(canonical);
+    const session = createSuggestionDraftSession({
+      id: "native-heading-indent",
+      baseContent: canonical,
+      baseRevision: "one",
+      startedAt: "now",
+    });
+    try {
+      editor.commands.setTextSelection({ from: 1, to: 8 });
+      const transaction = editor.state.tr.insertText("Bright");
+      const intent = suggestionReplacementIntentForTransaction(
+        transaction,
+        editor.state.selection,
+      )!;
+      recordSuggestionReplacementIntent(session, intent, intent.beforeMarkdown);
+      editor.view.dispatch(transaction);
+      editor.commands.setTextSelection({ from: 1, to: 7 });
+      expect(editor.commands.toggleItalic()).toBe(true);
+      expect(editor.commands.keyboardShortcut("Tab")).toBe(true);
+      const draft = docToNfm(editor.getJSON() as any);
+      expect(draft).toBe("\t# **Bright** heading");
+      const operations = suggestionDraftOperations(session, draft);
+      expect(operations).toHaveLength(2);
+      const presentations = operations.map((operation) =>
+        suggestionTextPresentationForSource(operation.after.changedText, {
+          source: operation.after.markdown,
+          from: operation.anchor.from,
+          to: operation.anchor.from + operation.after.changedText.length,
+        }),
+      );
+      expect(presentations).toContainEqual([{ type: "indent", value: "⇥" }]);
+      expect(presentations).toContainEqual([
+        { type: "strong", children: [{ type: "text", value: "Bright" }] },
+      ]);
+      for (const presentation of presentations) {
+        expect(presentation).not.toBeNull();
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when a suggestion presentation context is stale", () => {
+    const editor = createSuggestionEditor("**Echo**");
+    try {
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "stale-presentation",
+          kind: "replace_text",
+          beforeText: "Echo",
+          afterText: "Other",
+          beforePresentation: {
+            source: "**Different**",
+            from: 2,
+            to: 6,
+          },
+          anchor: { from: 2, prefix: "**", suffix: "**" },
+          presentation: "canonical",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "replacement inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Build** sample.",
+      beforeText: "ol",
+      afterText: "uil",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "replace_text",
+    },
+    {
+      name: "deletion inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Bd** sample.",
+      beforeText: "ol",
+      afterText: "",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "delete_text",
+    },
+    {
+      name: "insertion inside bold text",
+      canonical: "**Bold** sample.",
+      draft: "**Bo!ld** sample.",
+      beforeText: "",
+      afterText: "!",
+      canonicalFrom: 4,
+      draftFrom: 4,
+      kind: "insert_text",
+    },
+    {
+      name: "replacement in the second repeated marked word",
+      canonical: "**Echo** and **Echo**",
+      draft: "**Echo** and **EOHo**",
+      beforeText: "ch",
+      afterText: "OH",
+      canonicalFrom: 16,
+      draftFrom: 16,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement of escaped marked text",
+      canonical: "**A\\*B**",
+      draft: "**AxB**",
+      beforeText: "\\*",
+      afterText: "x",
+      canonicalFrom: 3,
+      draftFrom: 3,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement of inline-code punctuation",
+      canonical: "``a`b``",
+      draft: "`axb`",
+      beforeText: "`",
+      afterText: "x",
+      canonicalFrom: 3,
+      draftFrom: 2,
+      kind: "replace_text",
+    },
+    {
+      name: "replacement in link text that also occurs in its href",
+      canonical: "[same](https://same.test) sample.",
+      draft: "[sOMe](https://same.test) sample.",
+      beforeText: "am",
+      afterText: "OM",
+      canonicalFrom: 2,
+      draftFrom: 2,
+      kind: "replace_text",
+    },
+  ])(
+    "anchors a source-exact $name in draft and canonical presentation",
+    ({
+      canonical,
+      draft,
+      beforeText,
+      afterText,
+      canonicalFrom,
+      draftFrom,
+      kind,
+    }) => {
+      for (const presentation of ["draft", "canonical"] as const) {
+        const source = presentation === "draft" ? draft : canonical;
+        const from = presentation === "draft" ? draftFrom : canonicalFrom;
+        const quote = presentation === "draft" ? afterText : beforeText;
+        const editor = createSuggestionEditor(source);
+        try {
+          expect(
+            suggestionHighlightSpec(editor.state.doc, {
+              id: `inside-mark-${presentation}`,
+              kind: kind as VisualEditorSuggestion["kind"],
+              beforeText,
+              afterText,
+              anchor: {
+                from,
+                prefix: source.slice(Math.max(0, from - 32), from),
+                suffix: source.slice(
+                  from + quote.length,
+                  from + quote.length + 32,
+                ),
+              },
+              presentation,
+            }),
+          ).not.toBeNull();
+        } finally {
+          editor.destroy();
+        }
+      }
+    },
+  );
+
+  it.each(["draft", "canonical"] as const)(
+    "makes a %s paragraph-break deletion visible",
+    (presentation) => {
+      const editor = createSuggestionEditor(
+        presentation === "draft" ? "First.Second." : "First.\nSecond.",
+      );
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: "paragraph-break",
+          kind: "delete_text",
+          beforeText: "\n",
+          afterText: "",
+          anchor: { from: 6, prefix: "First.", suffix: "Second." },
+          presentation,
+        });
+        expect(spec).not.toBeNull();
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-delete-widget")
+            ?.textContent,
+        ).toBe("↵");
+        expect(editor.state.doc.childCount).toBe(
+          presentation === "draft" ? 1 : 2,
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+  it("shows the deleted document at the remaining empty paragraph", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "all",
+        kind: "delete_text",
+        beforeText: "Whole document",
+        afterText: "",
+        beforePresentation: {
+          source: "Whole document",
+          from: 0,
+          to: "Whole document".length,
+        },
+        afterPresentation: { source: "", from: 0, to: 0 },
+        anchor: { from: 0, prefix: "", suffix: "" },
+        presentation: "draft",
+      });
+      expect(spec).not.toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-delete-widget")?.textContent,
+      ).toBe("Whole document");
+      expect(editor.state.doc.textContent).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      name: "middle paragraph",
+      canonical: "First paragraph.\nMiddle paragraph.\nLast paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "final paragraph",
+      canonical: "First paragraph.\nFinal paragraph.",
+      childIndex: 1,
+    },
+    {
+      name: "middle paragraph with repeated context",
+      canonical: "Repeat.\nRepeat.\nRepeat.",
+      childIndex: 1,
+    },
+  ])(
+    "maps a mounted deletion of all text in the $name to its empty textblock",
+    ({ canonical, childIndex }) => {
+      const editor = createSuggestionEditor(canonical);
+      try {
+        let childPos = 0;
+        for (let index = 0; index < childIndex; index += 1)
+          childPos += editor.state.doc.child(index).nodeSize;
+        const paragraph = editor.state.doc.child(childIndex);
+        editor.view.dispatch(
+          editor.state.tr.delete(
+            childPos + 1,
+            childPos + 1 + paragraph.content.size,
+          ),
+        );
+        const draft = docToNfm(editor.state.doc.toJSON());
+        const [operation] = markdownSuggestionOperations(canonical, draft);
+        const expectedFrom =
+          canonical.split("\n").slice(0, childIndex).join("\n").length +
+          (childIndex > 0 ? 1 : 0);
+        expect(operation).toMatchObject({
+          kind: "delete_text",
+          before: { changedText: paragraph.textContent },
+          after: { changedText: "<empty-block/>" },
+          anchor: {
+            from: expectedFrom,
+            to: expectedFrom + paragraph.content.size,
+          },
+        });
+        const [anchor] = draftSuggestionAnchors([operation!], draft);
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `clear-${childIndex}`,
+          kind: operation!.kind,
+          beforeText: operation!.before.changedText,
+          afterText: operation!.after.changedText,
+          beforePresentation: {
+            source: operation!.before.markdown,
+            from: operation!.anchor.from,
+            to: operation!.anchor.to,
+          },
+          afterPresentation: {
+            source: operation!.after.markdown,
+            from: anchor!.from,
+            to: anchor!.to,
+          },
+          anchor: anchor!,
+          presentation: "draft",
+        });
+        expect(spec).toMatchObject({
+          kind: "delete",
+          from: childPos + 1,
+          to: childPos + 1,
+          deletedText: paragraph.textContent,
+        });
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a mounted paragraph-boundary deletion distinct from clearing a textblock", () => {
+    const canonical = "First paragraph.\nSecond paragraph.";
+    const editor = createSuggestionEditor(canonical);
+    try {
+      const boundary = editor.state.doc.child(0).nodeSize - 1;
+      editor.view.dispatch(editor.state.tr.delete(boundary, boundary + 2));
+      expect(editor.state.doc.childCount).toBe(1);
+      const draft = docToNfm(editor.state.doc.toJSON());
+      const [operation] = markdownSuggestionOperations(canonical, draft);
+      expect(operation).toMatchObject({
+        kind: "delete_text",
+        before: { changedText: "\n" },
+        after: { changedText: "" },
+      });
+      const [anchor] = draftSuggestionAnchors([operation!], draft);
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "delete-boundary",
+        kind: operation!.kind,
+        beforeText: operation!.before.changedText,
+        afterText: operation!.after.changedText,
+        beforePresentation: {
+          source: operation!.before.markdown,
+          from: operation!.anchor.from,
+          to: operation!.anchor.to,
+        },
+        afterPresentation: {
+          source: operation!.after.markdown,
+          from: anchor!.from,
+          to: anchor!.to,
+        },
+        anchor: anchor!,
+        presentation: "draft",
+      });
+      expect(spec).toMatchObject({ kind: "delete" });
+      expect(spec?.from).toBe(spec?.to);
+      expect(spec?.deletedText).toBe("\n");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("fails closed when the deletion does not identify one empty textblock", () => {
+    const editor = createSuggestionEditor("");
+    try {
+      editor.view.dispatch(
+        editor.state.tr.insert(
+          editor.state.doc.content.size,
+          editor.schema.nodes.paragraph.create(),
+        ),
+      );
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(
+        suggestionHighlightSpec(editor.state.doc, {
+          id: "ambiguous-clear",
+          kind: "delete_text",
+          beforeText: "Whole document",
+          afterText: "",
+          beforePresentation: {
+            source: "Whole document",
+            from: 0,
+            to: "Whole document".length,
+          },
+          afterPresentation: { source: "", from: 0, to: 0 },
+          anchor: { from: 0, prefix: "", suffix: "" },
+          presentation: "draft",
+        }),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function waitForDeferredCallback() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -171,6 +2297,27 @@ describe("collaborative update persistence", () => {
         userInitiated: false,
       }),
     ).toBe(true);
+  });
+
+  it("flushes only an editable editor with local user intent", () => {
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: true,
+        hasUserEditIntent: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: false,
+        hasUserEditIntent: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFlushVisualEditorDraft({
+        editable: true,
+        hasUserEditIntent: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -303,6 +2450,15 @@ describe("slash image picker lifecycle", () => {
 });
 
 describe("media draft persistence", () => {
+  it("denies stale media side effects in Suggesting and retains ordinary callbacks", () => {
+    const sideEffect = vi.fn();
+
+    expect(runIfMediaCreationAllowed(true, sideEffect)).toBe(false);
+    expect(sideEffect).not.toHaveBeenCalled();
+    expect(runIfMediaCreationAllowed(false, sideEffect)).toBe(true);
+    expect(sideEffect).toHaveBeenCalledTimes(1);
+  });
+
   it("detects a media source enrichment but not unrelated media movement", () => {
     const editor = createFullEditor();
     const transactions: Transaction[] = [];
@@ -343,16 +2499,17 @@ describe("media draft persistence", () => {
     (type, src) => {
       const editor = createFullEditor();
       const persisted: string[] = [];
-      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAll = (element: Element, selector: string) =>
+        Element.prototype.querySelectorAll.call(element, selector);
       const querySelectorAllSpy = vi
         .spyOn(Element.prototype, "querySelectorAll")
         .mockImplementation(function (this: Element, selector: string) {
           try {
-            return querySelectorAll.call(this, selector);
+            return querySelectorAll(this, selector);
           } catch {
             const matches = selector.split(",").flatMap((part) => {
               try {
-                return Array.from(querySelectorAll.call(this, part));
+                return Array.from(querySelectorAll(this, part));
               } catch {
                 return [];
               }
@@ -1098,9 +3255,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1112,7 +3270,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     try {
@@ -1142,6 +3300,219 @@ describe("VisualEditor markdown round-tripping", () => {
       warning.mockRestore();
       queryClient.clear();
       ydoc.destroy();
+      container.remove();
+    }
+  });
+
+  it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const nextDocumentYdoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onChange = vi.fn();
+    const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
+    let controller: VisualEditorHistoryController | null = null;
+
+    const renderEditor = (
+      documentId: string,
+      content: string,
+      contentUpdatedAt: string,
+      contentRevision: string,
+      activeYdoc = ydoc,
+    ) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              key: documentId,
+              documentId,
+              content,
+              contentUpdatedAt,
+              contentRevision,
+              onChange,
+              ydoc: activeYdoc,
+              collabSynced: true,
+              editable: true,
+              onHistoryControllerChange: (next) => {
+                controller = next;
+              },
+            }),
+          ),
+        ),
+      );
+
+    try {
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:00.000Z",
+            "revision-a",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(controller).not.toBeNull();
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Draft A body",
+        );
+      });
+      onChange.mockClear();
+
+      const editorElement =
+        container.querySelector<HTMLElement>(".notion-editor");
+      const mountedEditor = (editorElement as HTMLElement & { editor?: Editor })
+        .editor;
+      expect(mountedEditor).toBeDefined();
+      editorElement!.focus();
+      editorElement!.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          data: "Draft B body",
+          inputType: "insertText",
+        }),
+      );
+      act(() => {
+        const to = mountedEditor!.state.doc.content.size - 1;
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insertText("Draft B body", 1, to),
+        );
+        const paragraph = mountedEditor!.schema.nodes.paragraph.create();
+        mountedEditor!.view.dispatch(
+          mountedEditor!.state.tr.insert(
+            mountedEditor!.state.doc.content.size,
+            paragraph,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith(draftBWithTrailingEmpty);
+      });
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      onChange.mockClear();
+
+      let applied = false;
+      act(() => {
+        applied = controller!.replaceWithAuthoritativeContent({
+          content: "Draft A body",
+          contentUpdatedAt: "2026-09-08T14:00:02.000Z",
+          contentRevision: "revision-restored-a",
+        });
+        root.render(
+          renderEditor(
+            "page-a",
+            "Draft A body",
+            "2026-09-08T14:00:02.000Z",
+            "revision-restored-a",
+          ),
+        );
+      });
+
+      expect(applied).toBe(true);
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(docToNfm(mountedEditor!.getJSON() as any)).toBe("Draft A body");
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Draft A body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      editorElement!.blur();
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            "Newer C body",
+            "2026-09-08T14:00:03.000Z",
+            "revision-c",
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Newer C body",
+        );
+      });
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-a",
+            draftBWithTrailingEmpty,
+            "2026-09-08T14:00:01.000Z",
+            "revision-b",
+          ),
+        );
+      });
+      await act(() => waitForDeferredCallback());
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        controller!.undo();
+      });
+      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        "Newer C body",
+      );
+      expect(onChange).not.toHaveBeenCalled();
+
+      act(() => {
+        root.render(
+          renderEditor(
+            "page-b",
+            "Older Page B body",
+            "2026-09-08T13:00:00.000Z",
+            "revision-page-b",
+            nextDocumentYdoc,
+          ),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+          "Older Page B body",
+        );
+      });
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      nextDocumentYdoc.destroy();
       container.remove();
     }
   });
@@ -1200,9 +3571,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1214,7 +3586,30 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
+      );
+
+    const editorParagraphs = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+        (node) => node.textContent,
+      );
+    // The seed → reconcile handoff inside useCollabReconcile is a chain of
+    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
+    // so its wall-clock latency has no tight upper bound under load. Poll for
+    // the DOM it actually produces instead of sleeping a guessed duration:
+    // that keeps this fast when the machine is idle and merely patient (never
+    // silently wrong) when it is not. Confirmed against this exact test with
+    // an artificially widened reconcile retry interval: with a blind sleep it
+    // fails on stale content; with this poll it converges to the right
+    // content every time, proving the reconcile itself is not racy — only a
+    // fixed sleep waiting on it was.
+    const waitForParagraphs = (expected: string[]) =>
+      vi.waitFor(
+        () => {
+          expect(editorParagraphs()).toEqual(expected);
+        },
+        { timeout: 5000, interval: 20 },
       );
 
     try {
@@ -1224,7 +3619,14 @@ describe("VisualEditor markdown round-tripping", () => {
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       act(() => root.unmount());
       root = createRoot(container);
 
@@ -1233,30 +3635,19 @@ describe("VisualEditor markdown round-tripping", () => {
           renderEditor("Initial local block", "2026-07-09T20:00:00.000Z"),
         );
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual(["Initial local block"]);
+      await act(() => waitForParagraphs(["Initial local block"]));
 
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T20:00:01.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual([
-        "→ → slack questions",
-        'much simpler "what"',
-        "what is it and how different from other app builders",
-        "when to engage prospects",
-      ]);
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       expect(emitted).not.toContain("<empty-block/>");
     } finally {
       await act(async () => root.unmount());
@@ -1282,8 +3673,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1295,7 +3688,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1328,8 +3721,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1341,7 +3736,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1382,8 +3777,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1397,7 +3794,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });

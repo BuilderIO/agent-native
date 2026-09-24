@@ -22,6 +22,10 @@ agent-native template sync
 
 `sync` verwendet standardmäßig die Vorlagenversion, die zu Ihrem installierten `@agent-native/core` passt, sodass Code und Pakete nach einem Lauf im Anschluss an `upgrade` auf derselben Version bleiben.
 
+Der bloße Aufruf von `agent-native upgrade` hebt `@agent-native/*`-Abhängigkeiten auf `latest` an, installiert sie, aktualisiert die Scaffold-Skills (`skills update scaffold --project`) und führt, sofern verfügbar, einen Typecheck aus. Verwenden Sie zunächst `agent-native upgrade check` für einen reinen Diagnosebericht zu Framework-Overrides/-Patches und ausstehenden Aktualisierungen.
+
+Beheben Sie ein fehlgeschlagenes Upgrade **nicht** mit `pnpm.overrides`, `patchedDependencies` oder Änderungen unter `node_modules/@agent-native/*` (insbesondere core/dispatch); das verdeckt die eigentliche Inkompatibilität, statt sie zu beheben. Schlägt das Upgrade oder der Typecheck fehl, korrigieren Sie App-Code oder fragen Sie nach, und führen Sie das Upgrade danach erneut aus.
+
 Schauen Sie nach, bevor Sie zusammenführen:
 
 ```bash

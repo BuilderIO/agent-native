@@ -3,7 +3,12 @@ import { stat } from "fs/promises";
 import path from "path";
 
 import { streamFile } from "@agent-native/core/server";
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { tenantExportDir } from "../../../lib/tenant-files.js";
@@ -59,8 +64,9 @@ export default defineEventHandler(async (event) => {
   const ext = path.extname(filename).toLowerCase();
   const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
-  event.node!.res!.setHeader("Content-Type", contentType);
-  event.node!.res!.setHeader(
+  setResponseHeader(event, "Content-Type", contentType);
+  setResponseHeader(
+    event,
     "Content-Disposition",
     `attachment; filename="${filename}"`,
   );

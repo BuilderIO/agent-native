@@ -14,14 +14,13 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const schedules = table("schedules", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   timezone: text("timezone").notNull().default("UTC"),
-  isDefault: integer("is_default", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   ...ownableColumns(),

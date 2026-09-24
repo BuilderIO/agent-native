@@ -29,7 +29,7 @@ Model source of truth: `shared/crm-contract.ts`. Type registry:
 ## Setup and modes
 
 - `configure-native-crm` starts a local-authoritative CRM with no provider,
-  portable across SQLite, Postgres, and D1. Then use the normal record, list,
+  backed by Postgres through local PGlite or a hosted database. Then use the normal record, list,
   task, view, and evidence actions. Never require a connection for Native SQL.
 - After HubSpot or Salesforce is authorized in workspace Connections, register
   it with `configure-crm-connection`. Never pass a token. HubSpot starts with
@@ -119,6 +119,12 @@ program linked to one view.
 company domain, shared email root domain, and normalized name plus location, and
 returns a reason and confidence per candidate. A shared company domain is a
 signal between accounts only — colleagues are a relationship, not a duplicate.
+For a user-requested second opinion on one record, pass its `recordIds` and
+`semanticReview: true`. Jev reviews at most five ambiguous, accessible pairs;
+its same-entity probability is a suggestion separate from rule confidence.
+If `semanticReviewUnavailable` is true, show the rule-based candidates and
+report that Jev did not complete its review.
+Do not run this for an automatic recent-record scan or treat it as merge approval.
 
 `merge-crm-records` needs an explicit survivor. It promotes only the values the
 survivor lacks, moves list entries, tasks, interactions, evidence, signals, and

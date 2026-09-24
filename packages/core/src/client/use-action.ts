@@ -42,9 +42,13 @@ import {
   clientCompatibilityVersion,
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
+import { isTerminalAuthFailure } from "./create-query-client.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
-const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
+function actionPrefix(): string {
+  return agentNativePath("/_agent-native/actions");
+}
 
 /**
  * Upper bound on how long a single action fetch may stay in flight (headers
@@ -55,16 +59,6 @@ const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
  */
 const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
 
-function isAuthFailure(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "status" in error &&
-    ((error as { status?: unknown }).status === 401 ||
-      (error as { status?: unknown }).status === 403)
-  );
-}
-
 function isActionTimeout(error: unknown): boolean {
   return (
     !!error &&
@@ -73,12 +67,22 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
-function isActionMethodMismatch(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    (error as { code?: unknown }).code === "action_method_mismatch"
-  );
+/**
+ * Statuses a second identical request can plausibly resolve: a rate limit that
+ * expires, and the gateway/infrastructure 5xx a healthy origin recovers from.
+ *
+ * 500 is deliberately absent. It is what an action's own unhandled throw
+ * becomes, so it is deterministic about THIS request — and it is the one
+ * status the route reports to error tracking, which made each retry cost a
+ * duplicate report as well as a duplicate execution.
+ */
+function isRetryableActionStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function actionErrorStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown } | undefined)?.status;
+  return typeof status === "number" ? status : undefined;
 }
 
 /** @internal exported for tests */
@@ -86,12 +90,9 @@ export function defaultActionQueryRetry(
   failureCount: number,
   error: unknown,
 ): boolean {
-  if (isAuthFailure(error)) return false;
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
-  // Wrong verb is deterministic — retrying sends the same wrong verb again.
-  if (isActionMethodMismatch(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
   // Network-level failures never carry an HTTP `status` (actionFetch only
   // sets it after a response arrives). Chrome reports connection-pool
@@ -99,7 +100,19 @@ export function defaultActionQueryRetry(
   // fetch", indistinguishable from a transient blip — allow one retry, not
   // three, so an exhausted tab cannot sustain its own fetch storm.
   if (isNetworkLevelFailure(error)) return failureCount < 1;
-  return failureCount < 3;
+
+  const status = actionErrorStatus(error);
+  // No response arrived and the error is not one actionFetch shapes (React
+  // Query internals, a wrapping queryFn, a test double). Unreadable, not
+  // known-deterministic — keep the transient budget rather than swallowing a
+  // real blip.
+  if (status === undefined) return failureCount < 3;
+
+  // Retry by exception, not by exclusion. The previous deny-list retried every
+  // status nobody had thought to add to it: an action refusing with 400/404/
+  // 409 cost four executions, and a 500 cost four error-tracking reports, for
+  // one deterministic answer.
+  return isRetryableActionStatus(status) && failureCount < 3;
 }
 
 /** @internal alias kept for existing specs. */
@@ -136,6 +149,31 @@ function isNetworkLevelFailure(error: unknown): boolean {
  */
 export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.min(500 * 2 ** failureCount, 2_000);
+}
+
+/**
+ * The message an action wrote for whoever called it, or `undefined` when the
+ * failure produced none (a network drop, an HTML error page from a proxy, a
+ * bare status line).
+ *
+ * `error.message` keeps the `Action <name> failed:` framing, which helps in a
+ * console and reads wrong in a toast. Use this in UI, with your own copy as
+ * the fallback:
+ *
+ * ```ts
+ * const { mutate } = useActionMutation("update-brand-kit", {
+ *   onError: (error) =>
+ *     toast.error(actionErrorMessage(error) ?? t("brandKits.updateFailed")),
+ * });
+ * ```
+ *
+ * Actions raise these through `fail()`. A bare `throw` never reaches the
+ * browser as text, so it returns `undefined` here on purpose.
+ */
+export function actionErrorMessage(error: unknown): string | undefined {
+  const value = (error as { actionMessage?: unknown } | undefined)
+    ?.actionMessage;
+  return typeof value === "string" ? value : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +219,8 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   /** Override the default 60s fetch timeout for long-running actions. */
   timeoutMs?: number;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,11 +288,34 @@ export interface ActionFetchOptions {
   serializedBody?: string;
   /** Omit the tab echo-suppression tag for imperative callers. */
   includeRequestSource?: boolean;
+  /** Additional same-origin headers for a narrowly scoped capability call. */
+  headers?: Record<string, string>;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  uiCapabilityRetry?: boolean;
 };
+
+let uiCapabilityRequest: Promise<void> | undefined;
+
+async function ensureUiActionCapability(): Promise<void> {
+  const request =
+    uiCapabilityRequest ??
+    (uiCapabilityRequest = fetch(
+      agentNativePath("/_agent-native/ui-capability"),
+      { credentials: "same-origin", cache: "no-store" },
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Could not establish the browser UI capability.");
+        }
+      })
+      .finally(() => {
+        uiCapabilityRequest = undefined;
+      }));
+  return request;
+}
 
 /**
  * Conservative per-document keepalive body budget. Browsers commonly enforce
@@ -291,9 +354,11 @@ async function performActionFetch<T>(
   options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
-  let url = `${ACTION_PREFIX}/${name}`;
+  let url = `${actionPrefix()}/${name}`;
+  const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Agent-Native-Browser-Tab": browserTabId,
     // Tag browser-originated action calls so the server can set
     // `ctx.caller = "frontend"` (vs a bare programmatic `"http"` POST).
     // Mirrors the X-Agent-Native-Tool-Bridge: 1 convention. The header is
@@ -305,9 +370,10 @@ async function performActionFetch<T>(
           // The server copies this onto the emitted action sync event.
           // useDbSync can then ignore the echo in this tab while other tabs
           // still refresh.
-          "X-Request-Source": getBrowserTabId(),
+          "X-Request-Source": browserTabId,
         }
       : {}),
+    ...(options?.headers ?? {}),
   };
   const compatibilityVersion = clientCompatibilityVersion();
   if (compatibilityVersion) {
@@ -390,6 +456,7 @@ async function performActionFetch<T>(
   try {
     try {
       res = await Promise.race([fetch(url, init), timedOutSignal]);
+      throwIfAborted(outerSignal);
       options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
@@ -423,6 +490,7 @@ async function performActionFetch<T>(
     }
 
     // 204 No Content — nothing to parse.
+    throwIfAborted(outerSignal);
     if (res.status === 204) return null as T;
 
     // Read the body as text first so we can:
@@ -445,6 +513,11 @@ async function performActionFetch<T>(
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
+  // A fetch implementation or service worker can resolve a response after it
+  // ignored the abort signal. Never let that abandoned response reach a query
+  // cache as if it were the current server state.
+  throwIfAborted(outerSignal);
+
   let data: any = undefined;
   let parseFailed = false;
   if (raw.length > 0) {
@@ -457,8 +530,38 @@ async function performActionFetch<T>(
   }
 
   if (!res.ok) {
+    if (
+      res.status === 403 &&
+      data?.errorCode === "ui_capability_required" &&
+      !options?.uiCapabilityRetry &&
+      typeof window !== "undefined"
+    ) {
+      await ensureUiActionCapability();
+      return performActionFetch<T>(name, method, params, {
+        ...options,
+        uiCapabilityRetry: true,
+      });
+    }
+
+    // The server does not recognise this browser any more. Nothing else
+    // tells the session gate that, so without this the shell stays mounted
+    // on a stale authenticated answer and the failure reaches the user as a
+    // generic load error instead of a redirect to sign-in. 403 is
+    // deliberately excluded: that is an authenticated caller being refused
+    // one thing.
+    if (res.status === 401) recheckSessionAfterUnauthorized();
+
+    // Text the action itself wrote for the caller, as opposed to transport
+    // noise. Only a JSON `error`/`message` qualifies: an HTML error page or a
+    // bare status line is not something a UI should ever put in a toast.
+    const authored =
+      typeof data?.error === "string" && data.error
+        ? data.error
+        : typeof data?.message === "string" && data.message
+          ? data.message
+          : undefined;
     const message =
-      (data && (data.error || data.message)) ||
+      authored ||
       // Truncate non-JSON bodies so we don't dump entire HTML pages into the
       // console, but still give the developer a hint as to what came back.
       (raw && raw.slice(0, 200)) ||
@@ -487,6 +590,20 @@ async function performActionFetch<T>(
 
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
+    // `message` keeps the "Action <name> failed:" framing, which belongs in a
+    // console but not in a toast. Carry the unframed text separately so a UI
+    // can render it without string-surgery on the prefix.
+    if (authored !== undefined) (error as any).actionMessage = authored;
+    if (typeof data?.errorCode === "string") {
+      (error as any).errorCode = data.errorCode;
+    }
+    if (
+      data?.details &&
+      typeof data.details === "object" &&
+      !Array.isArray(data.details)
+    ) {
+      (error as any).details = data.details;
+    }
     throw error;
   }
 
@@ -515,11 +632,62 @@ async function performActionFetch<T>(
     throw error;
   }
 
+  throwIfAborted(outerSignal);
   return (data ?? (null as unknown)) as T;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  throw error;
 }
 
 function actionTelemetryNow(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+/**
+ * Bumped every time the document transitions to hidden. `actionFetch`
+ * snapshots this at request start and diffs it at completion so a call
+ * spanning a backgrounded tab is flagged even if the tab is visible again by
+ * the time the call settles — its wall-clock duration was inflated by
+ * browser timer throttling for however long it was hidden, which is exactly
+ * how a suspended tab produces a multi-minute "timeout". Guarded for SSR/no
+ * DOM; never installed twice because this module only evaluates once.
+ */
+let pageHiddenEpoch = 0;
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") pageHiddenEpoch += 1;
+  });
+}
+
+/**
+ * `undefined` when there is no document to ask (SSR, a non-browser caller) —
+ * "unknown" must stay absent rather than default to a guessed `false`.
+ *
+ * `hiddenEpochAtStart`/`hiddenEpochNow` only catch a transition INTO hidden
+ * that happens during the call. A call that starts already hidden (a
+ * background tab load, a cmd-click, a hidden desktop webview) sees no such
+ * transition even if the tab surfaces again before the call completes, so
+ * `hiddenAtStart` is checked directly instead of being inferred from a
+ * transition that never fires.
+ *
+ * @internal exported for tests
+ */
+export function computePageHidden(
+  hiddenAtStart: boolean,
+  hiddenEpochAtStart: number,
+  hiddenEpochNow: number,
+  visibilityState: DocumentVisibilityState | undefined,
+): boolean | undefined {
+  if (visibilityState === undefined) return undefined;
+  return (
+    hiddenAtStart ||
+    hiddenEpochAtStart !== hiddenEpochNow ||
+    visibilityState !== "visible"
+  );
 }
 
 function parseServerTiming(
@@ -542,23 +710,33 @@ function parseServerTiming(
   return timings;
 }
 
-function shouldTrackActionResponse(
+type ActionResponseSampling = {
+  track: boolean;
+  sampleRate: number;
+  sampled: boolean;
+};
+
+function getActionResponseSampling(
   error: unknown,
   durationMs: number,
   response: Response | undefined,
-): boolean {
-  if (error || durationMs >= 1_000) return true;
-  if (response && response.status >= 400 && response.status < 500) return true;
+): ActionResponseSampling {
+  if (error || durationMs >= 1_000) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
+  if (response && response.status >= 400 && response.status < 500) {
+    return { track: true, sampleRate: 1, sampled: false };
+  }
   if (
     /\bstartup(?:-db)?\s*;/i.test(response?.headers.get("server-timing") ?? "")
   ) {
-    return true;
+    return { track: true, sampleRate: 1, sampled: false };
   }
   const raw = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE;
   const parsed = raw === undefined ? 0.1 : Number(raw);
   const rate = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.1;
-  return Math.random() < rate;
+  return { track: Math.random() < rate, sampleRate: rate, sampled: true };
 }
 
 async function actionFetch<T>(
@@ -569,6 +747,10 @@ async function actionFetch<T>(
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
+  const hiddenEpochAtStart = pageHiddenEpoch;
+  const hiddenAtStart =
+    typeof document !== "undefined" && document.visibilityState !== "visible";
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
   let response: Response | undefined;
   let responseAt: number | undefined;
   let error: unknown;
@@ -588,7 +770,8 @@ async function actionFetch<T>(
     try {
       const completedAt = actionTelemetryNow();
       const durationMs = Math.max(0, completedAt - startedAt);
-      if (shouldTrackActionResponse(error, durationMs, response)) {
+      const sampling = getActionResponseSampling(error, durationMs, response);
+      if (sampling.track) {
         const ttfbMs =
           responseAt === undefined
             ? undefined
@@ -604,13 +787,37 @@ async function actionFetch<T>(
         const timedOut =
           (error as { timedOut?: unknown } | undefined)?.timedOut === true;
         const cancelled = options?.signal?.aborted === true && !timedOut;
-        const contentLength = Number(response?.headers.get("content-length"));
+        // `Number(null)` is 0 — an absent header must not read the same as a
+        // server-declared empty body, so check presence before coercing.
+        const contentLengthHeader = response?.headers.get("content-length");
+        const contentLength =
+          contentLengthHeader == null ? undefined : Number(contentLengthHeader);
+        // `boot`/`init` only ride the Server-Timing header on the "app"
+        // phase a live (non-cacheable) response reports (see
+        // http-response-telemetry.ts); a shared-cacheable response instead
+        // gets a single `origin` snapshot entry with neither, and their
+        // absence there says nothing about boot state. `cold_start` below is
+        // keyed on `app` specifically, not on the header merely being
+        // present, for the same reason.
+        const serverBootMs = serverTiming.get("boot");
+        const serverInitMs = serverTiming.get("init");
+        const pageHidden = computePageHidden(
+          hiddenAtStart,
+          hiddenEpochAtStart,
+          pageHiddenEpoch,
+          typeof document === "undefined"
+            ? undefined
+            : document.visibilityState,
+        );
 
         trackEvent("action.response", {
           request_id:
             response?.headers.get("x-agent-native-request-id") ?? undefined,
           action: name,
           method,
+          sample_rate: sampling.sampleRate,
+          sample_weight: 1 / sampling.sampleRate,
+          sampled: sampling.sampled,
           status_code: statusCode,
           status_class:
             statusCode === undefined
@@ -645,9 +852,20 @@ async function actionFetch<T>(
           startup_db_operation_wall_ms: serverTiming.get("startup-db"),
           startup_db_connect_total_ms: serverTiming.get("startup-db-connect"),
           response_bytes:
-            Number.isFinite(contentLength) && contentLength >= 0
-              ? contentLength
-              : undefined,
+            contentLength === undefined ||
+            !Number.isFinite(contentLength) ||
+            contentLength < 0
+              ? undefined
+              : contentLength,
+          server_boot_ms:
+            serverBootMs === undefined ? undefined : Math.round(serverBootMs),
+          server_init_ms:
+            serverInitMs === undefined ? undefined : Math.round(serverInitMs),
+          cold_start: serverTiming.has("app")
+            ? serverTiming.has("boot")
+            : undefined,
+          page_hidden: pageHidden,
+          timeout_ms: timeoutMs,
         });
       }
     } catch {
@@ -676,7 +894,108 @@ export function callAction<
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
+    headers: options.headers,
   });
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as Error).name === "AbortError"
+  );
+}
+
+/**
+ * Backoff that settles as soon as the caller aborts. A plain `setTimeout` keeps
+ * an abandoned call alive for the full delay and then spends another attempt on
+ * an already-aborted signal.
+ */
+// Read through a call so control-flow narrowing cannot conclude the flag is
+// still what it was before the backoff — `aborted` flips underneath us.
+function isAborted(signal?: AbortSignal): boolean {
+  return signal?.aborted === true;
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
+/**
+ * GET-only, because a retried write is not the same request twice. A gateway
+ * 502/504 can arrive after the origin already committed the mutation, so
+ * re-sending a POST duplicates a create, a send, or a charge. `callAction`
+ * defaults to POST; this helper never does, and refuses any other method
+ * outright rather than leaving the hazard to a caller's attention.
+ */
+export type RetriedActionCallOptions = Omit<
+  ClientActionCallOptions,
+  "method"
+> & { method?: "GET" };
+
+/**
+ * `callAction` with the transient-failure budget `useActionQuery` already
+ * applies, reusing `defaultActionQueryRetry` — so a deterministic refusal
+ * (400/403/404/409/500) and a timeout still surface on the first attempt.
+ *
+ * Use this for an imperative read whose failure the UI has to render as a
+ * state. Without a retry budget, one gateway blip against a cold backend is
+ * indistinguishable from a real outage, and the page settles on an error over
+ * data that is about to arrive.
+ *
+ * Reads only — see `RetriedActionCallOptions`. An action with no GET route
+ * stays on `callAction`.
+ */
+export async function callActionWithRetry<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: RetriedActionCallOptions = {},
+): Promise<TResult extends undefined ? ActionResult<TName> : TResult> {
+  const method = (options as ClientActionCallOptions).method;
+  if (method !== undefined && method !== "GET") {
+    throw new Error(
+      `callActionWithRetry refuses ${method} for "${String(actionName)}": ` +
+        "retrying a write can duplicate a mutation the origin already " +
+        "committed. Use callAction for writes.",
+    );
+  }
+  let failureCount = 0;
+  for (;;) {
+    try {
+      return await callAction<TResult, TName>(actionName, params, {
+        ...options,
+        method: "GET",
+      });
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        isAborted(options.signal) ||
+        !defaultActionQueryRetry(failureCount, error)
+      ) {
+        throw error;
+      }
+      const delayMs = defaultActionQueryRetryDelay(failureCount);
+      failureCount += 1;
+      await abortableDelay(delayMs, options.signal);
+      // The caller gave up during the backoff. Surface the failure we already
+      // have instead of spending an attempt on a dead signal.
+      if (isAborted(options.signal)) throw error;
+    }
+  }
 }
 
 export type KeepaliveActionCallRejectionReason =
@@ -773,6 +1092,27 @@ export function tryCallActionKeepalive<
 // ---------------------------------------------------------------------------
 
 /**
+ * Wraps a caller-supplied `refetchInterval` so polling stops once the query's
+ * last error is a terminal auth failure (401/403) instead of reissuing the
+ * identical rejection on every tick — the same condition useDbSync's
+ * `hasTerminalAuthFailure` already skips sync-driven invalidation for. A
+ * remount, a mutation's invalidation, or an explicit `refetch()` still
+ * retries: this only gates the interval timer, not the query's error state.
+ *
+ * @internal exported for tests
+ */
+export function guardActionQueryRefetchInterval<TData = unknown>(
+  refetchInterval: NonNullable<UseQueryOptions<TData>["refetchInterval"]>,
+): NonNullable<UseQueryOptions<TData>["refetchInterval"]> {
+  return (query) => {
+    if (isTerminalAuthFailure(query.state.error)) return false;
+    return typeof refetchInterval === "function"
+      ? refetchInterval(query)
+      : refetchInterval;
+  };
+}
+
+/**
  * Query an action exposed as GET.
  *
  * When the action type registry is generated, the return type and parameter
@@ -802,6 +1142,7 @@ export function useActionQuery<
   // the caller asked for, and an unfired query reads as "no data" rather than
   // as an error the UI has to special-case.
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
+  const { refetchInterval, ...restOptions } = options ?? {};
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -811,7 +1152,10 @@ export function useActionQuery<
       actionFetch<R>(actionName, "GET", params, { signal }),
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
-    ...options,
+    ...restOptions,
+    ...(refetchInterval !== undefined
+      ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
+      : {}),
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
@@ -850,6 +1194,8 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** Override the default 60s fetch timeout for long-running actions. */
+    timeoutMs?: number;
   },
 ) {
   const queryClient = useQueryClient();
@@ -857,6 +1203,7 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    timeoutMs,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -867,12 +1214,14 @@ export function useActionMutation<
   return useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>),
+      actionFetch<D>(actionName, method, params as Record<string, any>, {
+        timeoutMs,
+      }),
     onSuccess: (...args: [any, any, any]) => {
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.
       if (!skipActionQueryInvalidation) {
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
       return (onSuccess as Function)?.(...args);
     },

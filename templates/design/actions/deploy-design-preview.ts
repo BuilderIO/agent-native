@@ -24,7 +24,7 @@
  * `deployPreview` is the lighter "preview build" step exposed here.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,

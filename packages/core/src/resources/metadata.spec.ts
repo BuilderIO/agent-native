@@ -7,6 +7,7 @@ import {
   isSkillPath,
   isRemoteAgentPath,
   parseRemoteAgentManifest,
+  parseRemoteAgentUrl,
   remoteAgentResourcePath,
 } from "./metadata.js";
 
@@ -37,6 +38,170 @@ describe("resource metadata", () => {
       name: "Legacy QA",
       url: "https://qa.example.com",
     });
+  });
+
+  it("preserves custom card URLs and vault-backed auth references", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "foundry-qa",
+        name: "Foundry QA",
+        url: "https://foundry.example.com",
+        cardUrl:
+          "https://foundry.example.com/agents/qa/endpoint/protocols/a2a/agentCard/v1.0",
+        auth: {
+          type: "oauth-client-credentials",
+          tokenUrl: "https://login.example.com/oauth2/token",
+          clientId: "client-id",
+          clientSecretRef: "FOUNDRY_CLIENT_SECRET",
+          scope: "https://ai.azure.com/.default",
+        },
+      }),
+      "remote-agents/foundry-qa.json",
+    );
+
+    expect(manifest).toMatchObject({
+      id: "foundry-qa",
+      cardUrl:
+        "https://foundry.example.com/agents/qa/endpoint/protocols/a2a/agentCard/v1.0",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.com/oauth2/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_CLIENT_SECRET",
+        scope: "https://ai.azure.com/.default",
+      },
+    });
+  });
+
+  it("parses native Anthropic Managed Agents provider configuration", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "anthropic-managed",
+        name: "Anthropic Managed Agent",
+        url: "https://api.anthropic.com",
+        kind: {
+          provider: "anthropic-managed-agents",
+          agentId: "agt_123",
+          environmentId: "env_123",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      }),
+      "remote-agents/anthropic-managed.json",
+    );
+
+    expect(manifest).toMatchObject({
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_123",
+        environmentId: "env_123",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+  });
+
+  it("defaults the native provider to Claude Platform when url is omitted", () => {
+    const manifest = parseRemoteAgentManifest(
+      JSON.stringify({
+        id: "anthropic-managed",
+        kind: {
+          provider: "anthropic-managed-agents",
+          agentId: "agt_123",
+          environmentId: "env_123",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      }),
+      "remote-agents/anthropic-managed.json",
+    );
+
+    expect(manifest?.url).toBe("https://api.anthropic.com");
+  });
+
+  it("rejects incomplete native provider configuration", () => {
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://api.anthropic.com",
+          kind: {
+            provider: "anthropic-managed-agents",
+            agentId: "agt_123",
+            environmentId: "",
+            credentialRef: "ANTHROPIC_API_KEY",
+          },
+        }),
+        "remote-agents/invalid-anthropic.json",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects auth entries that contain values instead of references", () => {
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.com",
+          auth: { type: "bearer", credentialRef: "" },
+        }),
+        "remote-agents/invalid-auth.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.com",
+          auth: {
+            type: "oauth-client-credentials",
+            tokenUrl: "https://login.example.com/token",
+            clientId: "client-id",
+            clientSecretRef: "",
+          },
+        }),
+        "remote-agents/invalid-oauth.json",
+      ),
+    ).toBeNull();
+  });
+
+  it("requires HTTPS for credential-bearing hosted URLs", () => {
+    expect(parseRemoteAgentUrl("http://agent.example.test/card")).toBe(
+      "http://agent.example.test/card",
+    );
+    expect(
+      parseRemoteAgentUrl("http://agent.example.test/card", {
+        requireHttps: true,
+        allowLoopbackHttp: true,
+      }),
+    ).toBeUndefined();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "http://agent.example.test",
+          auth: { type: "bearer", credentialRef: "TOKEN" },
+        }),
+        "remote-agents/insecure.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "https://agent.example.test",
+          auth: {
+            type: "oauth-client-credentials",
+            tokenUrl: "http://login.example.test/token",
+            clientId: "client",
+            clientSecretRef: "SECRET",
+          },
+        }),
+        "remote-agents/insecure-oauth.json",
+      ),
+    ).toBeNull();
+    expect(
+      parseRemoteAgentManifest(
+        JSON.stringify({
+          url: "http://127.0.0.1:8787",
+          cardUrl: "http://127.0.0.1:8787/card",
+          auth: { type: "bearer", credentialRef: "TOKEN" },
+        }),
+        "remote-agents/local.json",
+      ),
+    ).toMatchObject({ url: "http://127.0.0.1:8787" });
   });
 
   it("keeps markdown agents classified as local custom agents", () => {

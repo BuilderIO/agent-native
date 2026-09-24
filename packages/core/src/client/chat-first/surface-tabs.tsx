@@ -271,17 +271,23 @@ export function ChatFirstSurfaceTabs({
               );
             })}
             {apps.length > 0 && onOpenApp ? (
-              <div className="mt-1 border-t border-border pt-1">
+              <div
+                className="mt-1 border-t border-border pt-1"
+                data-chat-first-workspace-apps
+              >
                 <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {copy("workspaceApps")}
                 </p>
-                <div className="space-y-0.5">
+                <div
+                  className="grid grid-cols-2 gap-1.5"
+                  data-chat-first-workspace-app-list
+                >
                   {apps.map((app) => (
                     <button
                       key={app.id}
                       type="button"
                       data-chat-first-surface-app={app.id}
-                      className="flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-start text-xs text-foreground transition-colors hover:bg-accent"
+                      className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border border-transparent bg-muted/20 px-2 py-2 text-start text-xs text-foreground transition-colors hover:border-border hover:bg-accent"
                       title={copy("openApp", { name: app.name })}
                       aria-label={copy("openApp", { name: app.name })}
                       onClick={() => onOpenApp(app)}

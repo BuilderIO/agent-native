@@ -1,8 +1,8 @@
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeaders,
-  setResponseStatus,
 } from "h3";
 
 import {
@@ -11,21 +11,32 @@ import {
   getDesktopDownloadManifest,
   getDesktopReleaseError,
 } from "../../../lib/desktop-releases";
+import { publicApiError } from "../../../lib/public-api-errors";
 
 export default defineEventHandler(async (event) => {
+  const queryChannel = getQuery(event).channel;
   const channel =
-    getQuery(event).channel === "nightly" ? "nightly" : "production";
+    queryChannel === "production" || queryChannel === "nightly"
+      ? queryChannel
+      : getRequestURL(event).hostname === "beta.agent-native.com"
+        ? "nightly"
+        : "production";
   let manifest: DesktopDownloadManifest;
   try {
     manifest = await getDesktopDownloadManifest(channel);
   } catch (error) {
     const e = getDesktopReleaseError(error);
-    setResponseStatus(event, e.statusCode, e.statusMessage);
-    setResponseHeaders(event, {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=30",
-    });
-    return { error: e.statusMessage };
+    return publicApiError(
+      event,
+      e.statusCode,
+      {
+        code: "desktop_release_unavailable",
+        message: "Desktop release information is temporarily unavailable.",
+        resolution:
+          "Retry shortly. If the problem persists, check the Agent-Native release page.",
+      },
+      "public, max-age=30",
+    );
   }
 
   setResponseHeaders(event, {

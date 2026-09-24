@@ -36,6 +36,31 @@ Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
 as a deployment step; clearing one is not the production promotion.
 
+## Auth-path post-merge gate
+
+When a merge changes Better Auth, OAuth callback/identity plumbing, or the
+shared AuthPage/onboarding surface, beta deployment is only the built-runtime
+checkpoint. After the affected beta sites deploy, dispatch both lanes below
+from `main`, using the exact affected app ids:
+
+```bash
+gh workflow run beta-e2e.yml --ref main \
+  -f lane=signup \
+  -f signup_apps=<email-signup-affected-apps> \
+  -f signup_environments=beta
+gh workflow run beta-e2e.yml --ref main \
+  -f lane=public+authed \
+  -f apps=<affected-beta-apps>
+```
+
+The signup lane's `signup_apps` input is independent of the browser lane's
+`apps` input. Wait for the signup job's classified output to be exactly
+`success` and for the affected browser lane to pass. Complete each touched
+Google callback in a real browser session as well; the seeded authenticated
+lane deliberately excludes Google-only Mail and Calendar. A failure,
+cancellation, inconclusive Mailosaur result, missing beta deploy, or untested
+provider path stays Open - do not report the auth fix as done.
+
 ## Post-merge monitoring
 
 After `/new-branch`:

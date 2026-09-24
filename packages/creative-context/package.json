@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/creative-context",
-  "version": "0.7.2",
+  "version": "0.8.8",
   "description": "Shared creative context ingestion, versioning, search, brand DNA, and context-pack primitives for agent-native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -29,6 +29,7 @@
     "./actions": "./dist/actions/index.js",
     "./client": "./dist/client/index.js",
     "./connectors": "./dist/connectors/index.js",
+    "./connectors/serverless-chromium": "./dist/connectors/serverless-chromium.js",
     "./messages": "./dist/client/messages.js",
     "./jobs": "./dist/jobs/index.js",
     "./embeddings": "./dist/embeddings/index.js",
@@ -92,7 +93,7 @@
     }
   },
   "optionalDependencies": {
-    "@sparticuz/chromium": "149.0.0",
+    "@sparticuz/chromium-min": "149.0.0",
     "officeparser": "^7.3.0",
     "playwright": "^1.61.1"
   },

@@ -36,27 +36,22 @@ const CATALOG_MESSAGES = {
 
 function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(ResponsiveInteractBar, {
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>
+        {createElement(ResponsiveInteractBar, {
           deviceName: "Desktop",
           width: 1440,
           height: 900,
-          zoom: 100,
           onDeviceChange: vi.fn(),
           onWidthChange: vi.fn(),
           onHeightChange: vi.fn(),
-          onZoomChange: vi.fn(),
           onModeChange: vi.fn(),
           canAnnotate: true,
           onClose: vi.fn(),
           ...props,
-        } as ResponsiveInteractBarProps),
-      ),
-    }),
+        } as ResponsiveInteractBarProps)}
+      </TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 
@@ -72,6 +67,43 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain('aria-label="Exit responsive preview"');
     expect(markup).toContain("tabler-icon-transform-point");
     expect(markup).toContain("tabler-icon-scribble");
+  });
+
+  // Reported gap: the only way out of Interact was an icon-only Close button
+  // discoverable solely by hovering for its tooltip. The exit control now
+  // carries its own visible text so it doesn't depend on discovery.
+  it("shows the exit control's label as visible text, not just a tooltip", () => {
+    const markup = renderBar();
+    const exitButtonStart = markup.indexOf(
+      'aria-label="Exit responsive preview"',
+    );
+    const exitButtonEnd = markup.indexOf("</button>", exitButtonStart);
+
+    expect(exitButtonStart).toBeGreaterThan(-1);
+    expect(markup.slice(exitButtonStart, exitButtonEnd)).toContain(
+      "Exit responsive preview",
+    );
+  });
+
+  // Reported gap #2: the docked bar's own Close can get clipped by its
+  // column's `overflow-hidden` when a wide left rail leaves little room
+  // (see DesignEditor.tsx's pinned ResponsiveInteractExitButton, which
+  // covers Close for that case instead). `showClose={false}` is how a
+  // caller opts a render out of the in-bar Close so there's exactly one
+  // interactive Close control on screen, while an invisible label-sized
+  // spacer keeps the scrollable controls clear of that pinned control.
+  it("reserves the pinned Close width without rendering a second control", () => {
+    const markup = renderBar({ showClose: false });
+
+    expect(markup).toContain('aria-label="Edit"');
+    expect(markup).not.toContain('aria-label="Exit responsive preview"');
+    expect(markup).toContain(
+      'aria-hidden="true" class="invisible flex shrink-0 items-center pl-1"',
+    );
+    expect(markup).toMatch(
+      /<button class="[^"]*h-7[^"]*shrink-0[^"]*gap-1\.5[^"]*px-2[^"]*!text-\[12px\][^"]*" disabled="" tabindex="-1">/,
+    );
+    expect(markup).toContain("Exit responsive preview");
   });
 
   it("hides Annotate for a caller without edit access", () => {
@@ -91,8 +123,9 @@ describe("ResponsiveInteractBar mode exits", () => {
         ),
       );
     }
-    expect(markup).toMatch(
-      /<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*>100\.0%/,
+    expect(markup).not.toContain("100.0%");
+    expect(markup).toContain(
+      'class="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1"',
     );
   });
 });

@@ -19,7 +19,7 @@ export default function Placeholder() {
       <p className="text-muted-foreground max-w-sm">
         {t("common.pageUnderConstruction")}
       </p>
-      <Link to="/">
+      <Link to="/home">
         <Button>{t("common.returnToDashboard")}</Button>
       </Link>
     </div>

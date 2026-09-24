@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+
 type Condition =
   | { op: "access" }
   | { op: "and"; conditions: Condition[] }
@@ -113,7 +120,7 @@ const mocks = vi.hoisted(() => {
   };
 
   function likeNeedle(value: unknown) {
-    return String(value ?? "")
+    return testString(value ?? "")
       .replace(/^%|%$/g, "")
       .replace(/\\([\\%_])/g, "$1")
       .toLowerCase();
@@ -136,7 +143,7 @@ const mocks = vi.hoisted(() => {
       return condition.vals.includes(row[condition.col.name]);
     }
     if (condition.op === "like") {
-      const value = String(row[condition.col.name] ?? "").toLowerCase();
+      const value = testString(row[condition.col.name] ?? "").toLowerCase();
       return value.includes(likeNeedle(condition.val));
     }
     return false;
@@ -145,8 +152,8 @@ const mocks = vi.hoisted(() => {
   const applyOrder = (items: Row[], order?: { column?: Column }) => {
     if (!order?.column) return items;
     return [...items].sort((a, b) =>
-      String(b[order.column!.name] ?? "").localeCompare(
-        String(a[order.column!.name] ?? ""),
+      testString(b[order.column!.name] ?? "").localeCompare(
+        testString(a[order.column!.name] ?? ""),
       ),
     );
   };
@@ -228,6 +235,7 @@ vi.mock("drizzle-orm", () => ({
 import {
   buildFederatedSearchCoverage,
   buildSnippet,
+  citationEvidenceMatchesCapture,
   escapeLikeTerm,
   normalizeSearchTerms,
   redactSensitiveText,
@@ -479,6 +487,57 @@ describe("Brain universal search helpers", () => {
     );
     expect(snippet).toContain("policy requires approvals");
     expect(snippet.startsWith("...")).toBe(true);
+  });
+
+  it("requires citation text to match the accessible capture", () => {
+    const content =
+      "Contact ava@example.com. The rollout policy requires approvals before launch.";
+
+    expect(
+      citationEvidenceMatchesCapture(
+        { quote: "rollout policy requires approvals" },
+        content,
+      ),
+    ).toBe(true);
+    expect(
+      citationEvidenceMatchesCapture({ quote: "Contact [redacted]." }, content),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        { quote: "Contact mallory@example.com." },
+        content,
+      ),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "...Contact [redacted]. The rollout policy requires...",
+          verbatim: false,
+        },
+        content,
+      ),
+    ).toBe(true);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "unrelated generated preview",
+          verbatim: false,
+        },
+        content,
+      ),
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        {
+          quote: null,
+          preview: "The rollout policy requires approvals",
+          verbatim: true,
+        },
+        content,
+      ),
+    ).toBe(false);
   });
 
   it("redacts emails, Slack mailto tokens, and phone-like values", () => {

@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,9 +8,19 @@ import {
   makeSeekable,
   normalizeTimelineToMp4,
   probeHasAudioStream,
+  resolveFfmpegCommand,
   remuxWebmToSeekable,
   timelineNormalizationFfmpegArgs,
 } from "./video-remux";
+
+const hasSystemFfmpeg = (() => {
+  try {
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function atom(type: string, payload: Uint8Array = new Uint8Array()) {
   const bytes = new Uint8Array(8 + payload.byteLength);
@@ -129,6 +141,25 @@ describe("makeSeekable dispatch", () => {
   it("reports ffmpeg availability as a boolean", () => {
     expect(typeof isFfmpegAvailable()).toBe("boolean");
   });
+
+  it.skipIf(!hasSystemFfmpeg)(
+    "uses the configured system command for availability and execution",
+    () => {
+      const previousFfmpegPath = process.env.FFMPEG_PATH;
+      process.env.FFMPEG_PATH = "ffmpeg";
+
+      try {
+        expect(resolveFfmpegCommand()).toBe("ffmpeg");
+        expect(isFfmpegAvailable()).toBe(true);
+      } finally {
+        if (previousFfmpegPath === undefined) {
+          delete process.env.FFMPEG_PATH;
+        } else {
+          process.env.FFMPEG_PATH = previousFfmpegPath;
+        }
+      }
+    },
+  );
 });
 
 describe("timeline normalization", () => {

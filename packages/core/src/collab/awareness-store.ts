@@ -6,15 +6,15 @@
  * multi-instance/serverless deployment, a cursor published to instance A is
  * invisible to a client polling instance B, and an agent action running in
  * its own invocation can't reach the SSE instance's memory at all. This
- * store mirrors awareness rows into a `_collab_awareness` table (SQLite +
- * Postgres portable) so every instance serves the same participant set.
+ * store mirrors awareness rows into a `_collab_awareness` table so every
+ * instance serves the same participant set.
  *
  * Everything here is best-effort: presence must never fail or slow down an
  * edit. Writes are throttled per (docId, clientId) and skipped when the
  * state hasn't changed; expired rows are purged opportunistically.
  */
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import type { AwarenessEntry } from "./awareness.js";
 
@@ -44,7 +44,7 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (doc_id, client_id)
         )
       `;
-      if (isPostgres()) {
+      {
         await ensureTableExists("_collab_awareness", createSql);
         return;
       }
@@ -90,18 +90,12 @@ export async function upsertAwarenessRow(
 
     await ensureTable();
     const client = getDbExec();
-    if (isPostgres()) {
+    {
       await client.execute({
         sql: `INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen)
               VALUES (?, ?, ?, ?)
               ON CONFLICT (doc_id, client_id)
               DO UPDATE SET state = EXCLUDED.state, last_seen = EXCLUDED.last_seen`,
-        args: [docId, clientId, state, lastSeen],
-      });
-    } else {
-      await client.execute({
-        sql: `INSERT OR REPLACE INTO _collab_awareness (doc_id, client_id, state, last_seen)
-              VALUES (?, ?, ?, ?)`,
         args: [docId, clientId, state, lastSeen],
       });
     }

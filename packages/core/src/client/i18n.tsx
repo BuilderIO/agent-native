@@ -1,9 +1,3 @@
-import {
-  Picker,
-  useDesignSystemComponent,
-} from "@agent-native/toolkit/design-system";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
 import React, {
   createContext,
@@ -30,23 +24,25 @@ import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
-  LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
-  localeDisplayName,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
+  normalizeLocaleCode,
   normalizeLocalizationPreference,
   resolveLocaleFromCandidates,
   resolveLocaleFromPreference,
   type LocaleCode,
   type LocaleMetadata,
+  type LocaleMetadataMap,
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
-import { cn } from "./utils.js";
+import { useSession } from "./use-session.js";
 
 export {
   DEFAULT_LOCALE,
@@ -54,7 +50,11 @@ export {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  isLocaleCode,
+  isValidLocaleCode,
   localeDirection,
+  localeMetadataFor,
+  type BuiltinLocaleCode,
   normalizeLocaleCode,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
@@ -66,6 +66,7 @@ export {
   type LocalizationPreference,
 } from "../localization/shared.js";
 export { getLocaleInitScript } from "../localization/server.js";
+export { LanguagePicker } from "./LanguagePicker.js";
 
 export type LocaleMessages = Record<string, unknown>;
 
@@ -77,6 +78,14 @@ function isAgentNativeI18nModuleNamespace(
   value: LocaleMessages | { default: LocaleMessages },
 ): value is { default: LocaleMessages } {
   return Object.prototype.toString.call(value) === "[object Module]";
+}
+
+async function loadAgentNativeI18nLocale(
+  loader: AgentNativeI18nLocaleLoader | undefined,
+): Promise<LocaleMessages | null> {
+  if (!loader) return null;
+  const loaded = await loader();
+  return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
 }
 
 export interface LocaleHydrationPayload {
@@ -91,6 +100,12 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+  /** Metadata for app-registered locales shown in the language picker. */
+  locales?: readonly LocaleMetadata[];
+  /** Optional partial framework translations for app-registered locales. */
+  coreMessageOverrides?: Partial<
+    Record<LocaleCode, AgentNativeI18nLocaleLoader>
+  >;
   /**
    * Locales this app actually ships translations for. Defaults to every
    * framework-supported locale when omitted, which only matches apps whose
@@ -102,6 +117,10 @@ export interface AgentNativeI18nCatalog {
 export function createAgentNativeI18nCatalog(args: {
   messages: LocaleMessages;
   localeLoaders: Partial<Record<LocaleCode, AgentNativeI18nLocaleLoader>>;
+  locales?: readonly LocaleMetadata[];
+  coreMessageOverrides?: Partial<
+    Record<LocaleCode, AgentNativeI18nLocaleLoader>
+  >;
   namespace?: string;
   sourceLocale?: LocaleCode;
   supportedLocales?: readonly LocaleCode[];
@@ -114,12 +133,11 @@ export function createAgentNativeI18nCatalog(args: {
     namespace: args.namespace,
     sourceLocale: args.sourceLocale ?? DEFAULT_LOCALE,
     messages: args.messages,
+    locales: args.locales,
+    coreMessageOverrides: args.coreMessageOverrides,
     supportedLocales: args.supportedLocales,
     loadMessages: async (locale) => {
-      const loader = args.localeLoaders[locale];
-      if (!loader) return null;
-      const loaded = await loader();
-      return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
+      return loadAgentNativeI18nLocale(args.localeLoaders[locale]);
     },
   };
 }
@@ -133,12 +151,25 @@ export interface AgentNativeI18nProviderProps {
   persistPreference?: boolean;
 }
 
+function catalogLocaleMetadata(
+  locales: readonly LocaleMetadata[] | undefined,
+): LocaleMetadataMap {
+  return Object.fromEntries(
+    (locales ?? []).flatMap((metadata) => {
+      if (!isValidLocaleCode(metadata.code)) return [];
+      const code = normalizeLocaleCode(metadata.code, [metadata.code]);
+      return code ? [[code, { ...metadata, code }] as const] : [];
+    }),
+  );
+}
+
 interface LocaleContextValue {
   locale: LocaleCode;
   sourceLocale: LocaleCode;
   preference: LocalePreference;
   dir: "ltr" | "rtl";
   metadata: LocaleMetadata;
+  localeMetadata: LocaleMetadataMap;
   setPreference: (preference: LocalePreference) => Promise<void>;
   loading: boolean;
   supportedLocales: readonly LocaleCode[];
@@ -158,67 +189,6 @@ const LocaleContext =
   (globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ =
     createContext<LocaleContextValue | null>(null));
 
-const LANGUAGE_PICKER_COPY: Record<
-  LocaleCode,
-  { label: string; system: string; systemDescription: string }
-> = {
-  "en-US": {
-    label: "Language",
-    system: "System",
-    systemDescription: "Use your browser language",
-  },
-  "zh-CN": {
-    label: "语言",
-    system: "系统",
-    systemDescription: "使用浏览器语言",
-  },
-  "zh-TW": {
-    label: "語言",
-    system: "系統",
-    systemDescription: "使用瀏覽器語言",
-  },
-  "es-ES": {
-    label: "Idioma",
-    system: "Sistema",
-    systemDescription: "Usar el idioma del navegador",
-  },
-  "fr-FR": {
-    label: "Langue",
-    system: "Système",
-    systemDescription: "Utiliser la langue du navigateur",
-  },
-  "de-DE": {
-    label: "Sprache",
-    system: "System",
-    systemDescription: "Browsersprache verwenden",
-  },
-  "ja-JP": {
-    label: "言語",
-    system: "システム",
-    systemDescription: "ブラウザーの言語を使用",
-  },
-  "ko-KR": {
-    label: "언어",
-    system: "시스템",
-    systemDescription: "브라우저 언어 사용",
-  },
-  "pt-BR": {
-    label: "Idioma",
-    system: "Sistema",
-    systemDescription: "Usar o idioma do navegador",
-  },
-  "hi-IN": {
-    label: "भाषा",
-    system: "सिस्टम",
-    systemDescription: "ब्राउज़र की भाषा का उपयोग करें",
-  },
-  "ar-SA": {
-    label: "اللغة",
-    system: "النظام",
-    systemDescription: "استخدام لغة المتصفح",
-  },
-};
-
 function browserLanguageCandidates(): string[] {
   if (typeof navigator === "undefined") return [];
   return navigator.languages?.length
@@ -228,11 +198,14 @@ function browserLanguageCandidates(): string[] {
       : [];
 }
 
-function readStoredPreference(): LocalePreference | null {
+function readStoredPreference(
+  supportedLocales?: readonly LocaleCode[],
+): LocalePreference | null {
   if (typeof window === "undefined") return null;
   try {
     return normalizeLocalizationPreference(
       window.localStorage.getItem(LOCALE_STORAGE_KEY),
+      supportedLocales,
     ).locale;
   } catch {
     return null;
@@ -261,15 +234,22 @@ function resolveInitialState(args: {
 }): { locale: LocaleCode; preference: LocalePreference } {
   const hydration = readHydrationPayload();
   const preference = normalizeLocalizationPreference(
-    args.initialPreference ?? hydration.preference ?? readStoredPreference(),
+    args.initialPreference ??
+      hydration.preference ??
+      readStoredPreference(args.supportedLocales),
+    args.supportedLocales,
   ).locale;
   const requestedLocale =
     args.initialLocale ??
     hydration.locale ??
-    resolveLocaleFromPreference(preference, browserLanguageCandidates());
-  const locale = args.supportedLocales.includes(requestedLocale)
-    ? requestedLocale
-    : args.sourceLocale;
+    resolveLocaleFromPreference(
+      preference,
+      browserLanguageCandidates(),
+      args.supportedLocales,
+    );
+  const locale =
+    normalizeLocaleCode(requestedLocale, args.supportedLocales) ??
+    args.sourceLocale;
   return { locale, preference };
 }
 
@@ -278,14 +258,20 @@ function resolveSupportedLocales(args: {
   sourceLocale: LocaleCode;
 }): readonly LocaleCode[] {
   const configured = injectedAgentNativeConfig().translations?.locales;
-  const candidates =
-    configured ?? args.catalog?.supportedLocales ?? SUPPORTED_LOCALES;
-  const supported = candidates.filter((locale): locale is LocaleCode =>
-    (SUPPORTED_LOCALES as readonly string[]).includes(locale),
-  );
+  const catalogLocales = args.catalog?.locales?.map(({ code }) => code) ?? [];
+  const candidates = configured ?? [
+    ...(args.catalog?.supportedLocales ?? SUPPORTED_LOCALES),
+    ...catalogLocales,
+  ];
+  const sourceCandidates = [...candidates, args.sourceLocale];
+  const supported = sourceCandidates
+    .map((locale) => normalizeLocaleCode(locale, sourceCandidates))
+    .filter((locale): locale is LocaleCode => locale !== null);
+  const sourceLocale =
+    normalizeLocaleCode(args.sourceLocale, sourceCandidates) ?? DEFAULT_LOCALE;
   return [
-    args.sourceLocale,
-    ...supported.filter((locale) => locale !== args.sourceLocale),
+    sourceLocale,
+    ...supported.filter((locale) => locale !== sourceLocale),
   ].filter((locale, index, all) => all.indexOf(locale) === index);
 }
 
@@ -385,18 +371,30 @@ function createI18nInstance(args: {
   return instance;
 }
 
-export function AgentNativeI18nProvider({
+/**
+ * Runtime half of the i18n provider. `sessionAuthenticated` only matters when
+ * `persistPreference` is true: the preference read and the app-state write
+ * are authenticated server calls, so a signed-out visitor skips them instead
+ * of logging 401 console errors on every load.
+ */
+function I18nRuntime({
   children,
   catalog,
   initialLocale,
   initialPreference,
   initialMessages,
   persistPreference = true,
-}: AgentNativeI18nProviderProps) {
+  sessionAuthenticated,
+}: AgentNativeI18nProviderProps & { sessionAuthenticated: boolean }) {
   const namespace = catalog?.namespace ?? "translation";
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
   const loadMessages = catalog?.loadMessages;
+  const coreMessageOverrides = catalog?.coreMessageOverrides;
+  const localeMetadata = useMemo(
+    () => catalogLocaleMetadata(catalog?.locales),
+    [catalog?.locales],
+  );
   const supportedLocales = useMemo(
     () => resolveSupportedLocales({ catalog, sourceLocale }),
     [catalog, sourceLocale],
@@ -476,7 +474,10 @@ export function AgentNativeI18nProvider({
   useEffect(() => {
     const nextLocale =
       preference === "system"
-        ? resolveLocaleFromCandidates(browserLanguageCandidates())
+        ? resolveLocaleFromCandidates(
+            browserLanguageCandidates(),
+            supportedLocales,
+          )
         : preference;
     setLocale(
       resolveSupportedLocale(nextLocale, supportedLocales, sourceLocale),
@@ -501,14 +502,18 @@ export function AgentNativeI18nProvider({
               : initialLocale === locale && initialMessages
                 ? initialMessages
                 : null;
-          const [coreMessages, loadedAppMessages] = await Promise.all([
-            shouldLoadCoreMessages
-              ? loadCoreMessagesForLocale(locale)
-              : Promise.resolve<LocaleMessages>({}),
-            shouldLoadAppMessages
-              ? Promise.resolve(preloaded ?? loadMessages?.(locale))
-              : Promise.resolve(null),
-          ]);
+          const [coreMessages, loadedAppMessages, loadedCoreOverrides] =
+            await Promise.all([
+              shouldLoadCoreMessages
+                ? loadCoreMessagesForLocale(locale)
+                : Promise.resolve<LocaleMessages>({}),
+              shouldLoadAppMessages
+                ? Promise.resolve(preloaded ?? loadMessages?.(locale))
+                : Promise.resolve(null),
+              shouldLoadCoreMessages
+                ? loadAgentNativeI18nLocale(coreMessageOverrides?.[locale])
+                : Promise.resolve(null),
+            ]);
           const existingMessages = normalizeLoadedMessages(
             i18n.getResourceBundle(locale, namespace),
           );
@@ -520,8 +525,14 @@ export function AgentNativeI18nProvider({
             );
           }
           const appMessages = appMessagesRef.current?.get(locale) ?? null;
+          const resolvedCoreMessages = mergeLocaleMessages(
+            coreMessages,
+            loadedCoreOverrides
+              ? normalizeCoreMessageOverrides(loadedCoreOverrides)
+              : null,
+          );
           const nextMessages = shouldLoadCoreMessages
-            ? composeLocaleMessages(coreMessages, appMessages)
+            ? composeLocaleMessages(resolvedCoreMessages, appMessages)
             : mergeLocaleMessages(existingMessages ?? {}, appMessages);
           i18n.addResourceBundle(locale, namespace, nextMessages, true, true);
           if (shouldLoadCoreMessages) {
@@ -533,6 +544,20 @@ export function AgentNativeI18nProvider({
         }
         if (!cancelled) {
           await i18n.changeLanguage(locale);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error(
+            `[agent-native] Failed to load ${locale} messages; falling back to ${sourceLocale}`,
+            error,
+          );
+          setLocale(sourceLocale);
+          await i18n.changeLanguage(sourceLocale).catch((fallbackError) => {
+            console.error(
+              `[agent-native] Failed to switch to source locale ${sourceLocale}`,
+              fallbackError,
+            );
+          });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -549,7 +574,9 @@ export function AgentNativeI18nProvider({
     i18n,
     initialLocale,
     initialMessages,
+    coreMessageOverrides,
     loadMessages,
+    localeMetadata,
     locale,
     namespace,
     sourceLocale,
@@ -558,15 +585,15 @@ export function AgentNativeI18nProvider({
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const dir = localeDirection(locale);
+    const dir = localeDirection(locale, localeMetadata);
     const root = document.documentElement;
     root.setAttribute("lang", locale);
     root.setAttribute("dir", dir);
     root.setAttribute("data-locale", locale);
-  }, [locale]);
+  }, [locale, localeMetadata]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     let cancelled = false;
     callAction<LocalizationPreference>(
       "get-localization-preference",
@@ -575,7 +602,10 @@ export function AgentNativeI18nProvider({
     )
       .then((value) => {
         if (cancelled) return;
-        const normalized = normalizeLocalizationPreference(value).locale;
+        const normalized = normalizeLocalizationPreference(
+          value,
+          supportedLocales,
+        ).locale;
         setPreferenceState(normalized);
         writeStoredPreference(normalized);
       })
@@ -585,38 +615,48 @@ export function AgentNativeI18nProvider({
     return () => {
       cancelled = true;
     };
-  }, [persistPreference]);
+  }, [persistPreference, sessionAuthenticated, supportedLocales]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== LOCALE_STORAGE_KEY || event.newValue == null) return;
       setPreferenceState(
-        normalizeLocalizationPreference(event.newValue).locale,
+        normalizeLocalizationPreference(event.newValue, supportedLocales)
+          .locale,
       );
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [supportedLocales]);
 
   useEffect(() => {
-    if (!persistPreference) return;
+    if (!persistPreference || !sessionAuthenticated) return;
     void setClientAppState(
       "localization",
       {
         locale,
         preference,
-        dir: localeDirection(locale),
+        dir: localeDirection(locale, localeMetadata),
       },
       { requestSource: "localization" },
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, persistPreference, preference]);
+  }, [
+    locale,
+    localeMetadata,
+    persistPreference,
+    preference,
+    sessionAuthenticated,
+  ]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
-      const normalized = normalizeLocalizationPreference(next).locale;
+      const normalized = normalizeLocalizationPreference(
+        next,
+        supportedLocales,
+      ).locale;
       setPreferenceState(normalized);
       writeStoredPreference(normalized);
       if (!persistPreference) return;
@@ -634,7 +674,7 @@ export function AgentNativeI18nProvider({
         }
       }
     },
-    [persistPreference],
+    [persistPreference, supportedLocales],
   );
 
   const context = useMemo<LocaleContextValue>(
@@ -642,8 +682,9 @@ export function AgentNativeI18nProvider({
       locale,
       sourceLocale,
       preference,
-      dir: localeDirection(locale),
-      metadata: LOCALE_METADATA[locale],
+      dir: localeDirection(locale, localeMetadata),
+      metadata: localeMetadataFor(locale, localeMetadata),
+      localeMetadata,
       setPreference,
       loading,
       supportedLocales,
@@ -655,6 +696,7 @@ export function AgentNativeI18nProvider({
       setPreference,
       sourceLocale,
       supportedLocales,
+      localeMetadata,
     ],
   );
 
@@ -663,6 +705,33 @@ export function AgentNativeI18nProvider({
       <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
     </LocaleContext.Provider>
   );
+}
+
+/**
+ * Session-aware variant: only mounts the session hook (and therefore only
+ * ever resolves the shared session) on surfaces that persist preferences.
+ * AppProviders defaults public paths to the non-persisting variant, so a
+ * public page never resolves the session for localization; a persisting
+ * surface pays one deduped session probe and skips the preference read and
+ * app-state write until the session confirms, which is what keeps anonymous
+ * visits free of localization 401s.
+ */
+function SessionAwareI18nRuntime(
+  props: Omit<AgentNativeI18nProviderProps, "persistPreference"> & {
+    persistPreference: true;
+  },
+) {
+  const { status } = useSession();
+  return (
+    <I18nRuntime {...props} sessionAuthenticated={status === "authenticated"} />
+  );
+}
+
+export function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
+  if (props.persistPreference === false) {
+    return <I18nRuntime {...props} sessionAuthenticated />;
+  }
+  return <SessionAwareI18nRuntime {...props} persistPreference />;
 }
 
 export function useLocale(): LocaleContextValue {
@@ -731,7 +800,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
     '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
   "codeRequired.subtitle":
     "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-  "codeRequired.desktopTitle": "Use Agent Native Desktop",
+  "codeRequired.desktopTitle": "Use Agent-Native Desktop",
   "codeRequired.desktopDescription":
     "Open the project in the desktop app to enable source edits and CLI access.",
   "codeRequired.builderAgentTitle": "Use Builder.io Agent",
@@ -748,7 +817,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.useBuilder": "Use Builder",
   "agentPanel.openDesktopToEditCode": "Open Desktop to edit code",
   "agentPanel.codeUnavailableDescription":
-    "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+    "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
   "agentPanel.downloadDesktop": "Download Desktop",
   "agentPanel.chatMode": "Chat mode",
   "agentPanel.chat": "Chat",
@@ -897,153 +966,5 @@ export function useFormatters() {
       },
     }),
     [locale],
-  );
-}
-
-export function LanguagePicker({
-  className,
-  includeSystem = true,
-  label,
-  variant = "select",
-}: {
-  className?: string;
-  includeSystem?: boolean;
-  label?: string;
-  variant?: "select" | "icon" | "ghost-icon";
-}) {
-  const { locale, preference, setPreference, supportedLocales } = useLocale();
-  const [open, setOpen] = useState(false);
-  const copy =
-    LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
-  const systemCopy =
-    LANGUAGE_PICKER_COPY[
-      resolveLocaleFromCandidates(browserLanguageCandidates())
-    ] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
-  const resolvedLabel = label ?? copy.label;
-  const options = [
-    ...(includeSystem
-      ? [
-          {
-            value: "system" as const,
-            label: systemCopy.system,
-            description: systemCopy.systemDescription,
-          },
-        ]
-      : []),
-    ...supportedLocales.map((code) => ({
-      value: code,
-      label: localeDisplayName(code),
-      description: code,
-    })),
-  ];
-  const selected = options.find((option) => option.value === preference);
-  const selectedLabel = selected?.label ?? preference;
-  const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
-  const customPicker = useDesignSystemComponent("Picker");
-
-  function handleOptionClick(value: LocalePreference) {
-    setOpen(false);
-    void setPreference(normalizeLocalizationPreference(value).locale);
-  }
-
-  if (variant === "select" && customPicker) {
-    return (
-      <Picker<LocalePreference>
-        mode="select"
-        options={options}
-        value={preference}
-        onChange={(value) => {
-          if (value == null) return;
-          void setPreference(normalizeLocalizationPreference(value).locale);
-        }}
-        placeholder={selectedLabel}
-        aria-label={triggerLabel}
-        className={className}
-      />
-    );
-  }
-
-  return (
-    <div className={className}>
-      <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label={triggerLabel}
-            title={triggerLabel}
-            data-language-picker-trigger
-            className={cn(
-              "shrink-0 rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              variant === "ghost-icon"
-                ? "flex h-9 w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                : "border border-border bg-background text-foreground hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
-              variant === "icon"
-                ? "flex h-8 w-8 items-center justify-center"
-                : variant === "select"
-                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
-                  : null,
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {variant === "select" ? (
-                <span className="truncate">{selectedLabel}</span>
-              ) : (
-                <span className="sr-only">{triggerLabel}</span>
-              )}
-            </span>
-            {variant === "select" ? (
-              <IconChevronDown
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            ) : null}
-          </button>
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
-            align={variant === "select" ? "start" : "end"}
-            sideOffset={6}
-            role="menu"
-            className={cn(
-              // compositing-ok: popover content unmounts on close.
-              "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
-              variant === "icon" || variant === "ghost-icon"
-                ? "min-w-56"
-                : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
-            )}
-          >
-            {options.map((option) => {
-              const optionSelected = option.value === preference;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={optionSelected}
-                  title={option.description}
-                  onClick={() => handleOptionClick(option.value)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60 focus-visible:text-foreground",
-                    optionSelected
-                      ? "bg-accent/40 text-foreground"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <IconCheck
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0",
-                      optionSelected ? "opacity-100" : "opacity-0",
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              );
-            })}
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
-    </div>
   );
 }

@@ -35,9 +35,9 @@ Agent-Native 應用程式分為兩種形式：範本具有完整的瀏覽器 UI�
 
 ## 社群模板 {#community-templates}
 
-CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent Native 會隨框架一起
+CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent-Native 會隨框架一起
 維護、測試、記錄和發佈它們。**社群模板**由其儲存庫擁有者負責維護和版本
-管理。它可以使用相同的框架能力，但進入社群清單並不表示 Agent Native 對其
+管理。它可以使用相同的框架能力，但進入社群清單並不表示 Agent-Native 對其
 背書或承諾提供支援。
 
 執行 `create`，選擇**社群模板**，然後貼上公開 GitHub 儲存庫的簡單 URL：
@@ -46,8 +46,8 @@ CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent Native �
 https://github.com/owner/repo
 ```
 
-如果儲存庫根目錄是單一 Agent Native 應用程式，CLI 會直接安裝，不再顯示
-其他選擇器。如果儲存庫是 Agent Native 工作區，CLI 會發現 `apps/*` 的有效
+如果儲存庫根目錄是單一 Agent-Native 應用程式，CLI 會直接安裝，不再顯示
+其他選擇器。如果儲存庫是 Agent-Native 工作區，CLI 會發現 `apps/*` 的有效
 直接子項，排除 `dispatch`，並詢問要安裝哪個應用程式。
 
 非空的 `agent-native.workspaceCore` 標記會使儲存庫被視為工作區，即使根
@@ -58,8 +58,8 @@ package 也相依於 `@agent-native/core`；格式錯誤的標記會被拒絕。
 或 commit。如果未提供 ref，CLI 會先嘗試 `main`，再嘗試 `master`：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 若要以非互動方式選擇工作區儲存庫中的來源應用程式，請使用
@@ -67,8 +67,8 @@ npx @agent-native/core@latest create my-app --template https://github.com/owner/
 因為 zsh 等 shell 會將 `?` 視為 glob：
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 在工作區外，`create` 會將所選來源應用程式建立為獨立應用程式。若要將其
@@ -121,7 +121,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 [Creating Templates](/docs/creating-templates)。
 
 > **安裝相依項目或執行社群程式碼之前，請先進行審查。** 社群模板從第三方
-> 儲存庫下載；Agent Native 不會對其進行 sandbox、稽核或維護。CLI 只下載
+> 儲存庫下載；Agent-Native 不會對其進行 sandbox、稽核或維護。CLI 只下載
 > 原始碼，不會安裝相依項目或執行模板指令碼。請檢查原始碼、授權、相依項目
 > 和 package install scripts，並優先使用已固定且可信的 ref。
 
@@ -139,7 +139,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 
 - **工作代理** — 已連線到應用程式，能夠在您的資料上執行 actions，並了解您正在檢視的內容。請參閱 [Messaging the agent](/docs/messaging)。
 - **Auth** — 登入、工作階段、組織以及多租戶隔離。
-- **資料庫** — 架構、查詢和遷移，皆已準備就緒可供使用。帶上您自己的 SQL 資料庫（Postgres、SQLite、Turso、D1）；框架會進行調整。
+- **資料庫** — 架構、查詢和遷移皆可直接使用。開發時使用本機 PGlite，部署環境使用託管 PostgreSQL。
 - **即時 UI** — 螢幕與代理保持同步。舉例來說，在聊天中起草電子郵件會立即更新收件箱。
 - **部署就緒** — 部署到 Netlify、Vercel、Cloudflare、AWS，或任何可執行 Node 的主機。
 - **品牌掛鉤** — 更改名稱、顏色、徽標和文案。
@@ -200,7 +200,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 
 1. **選取一個應用程式。**使用 CLI 選取器，或瀏覽文件。
 2. **打造品牌。**更改名稱、顏色、徽標和文案。大多數範例應用程式都將其公開在單一設定檔案中。
-3. **自訂它。** 在自己的儲存庫與開發工作流程中變更原始碼。如果代理 frame 被有意授予工作區與寫入工具，它可以提供協助；否則嵌入式代理會透過 actions、資料和已設定的整合來操作應用程式。
+3. **自訂它。** 在自己的儲存庫與開發工作流程中變更原始碼：「在表單中新增優先順序欄位」、「串接我們的 Salesforce」、「把配色改成符合我們的品牌」。如果代理 frame 被有意授予工作區與寫入工具，它可以提供協助；否則嵌入式代理會透過 actions、資料和已設定的整合來操作應用程式。
 4. **發貨。**執行部署指令。您現在在自己的域中擁有一個正式環境應用程式。
 
 步驟 2-4 通常只需要幾天。第 3 步沒有固定的終點 — 應用程式歸您所有並可持續演進，而嵌入式代理仍可操作已部署的產品，並在明確啟用程式碼存取時協助變更原始碼。
@@ -276,13 +276,13 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 若要搭建新應用程式的腳手架：
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 Dispatch 的最小工作區，選擇 **First-party template(s)** 可開啟多選選取器。Community 和 Headless 是獨立應用程式的入口。工作區應用程式共用驗證、品牌、代理設定和資料庫；每個應用程式都會連同所需的所有檔案建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 Dispatch 的最小工作區，選擇 **First-party template(s)** 可開啟多選選取器。Community 和 Headless 是獨立應用程式的入口。工作區應用程式共用驗證、品牌、代理設定和資料庫；每個應用程式都會連同所需的所有檔案建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx --yes @agent-native/core@latest create my-agent --headless`。
 
 填寫 `.env`（`ANTHROPIC_API_KEY` 和 `DATABASE_URL`），然後執行 `pnpm install` 和 `pnpm dev`。沒有登入需要實作，也沒有預留位置路由。
 
-部署目標：任何 Nitro 相容主機（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 相容 SQL 資料庫（SQLite、Postgres、Turso、D1、Supabase、Neon）。對於工作區，`npx @agent-native/core@latest deploy` 一次建置每個應用程式並將它們傳送到單一來源。參見[Deployment](/docs/deployment)。
+部署目標：任何受支援的 Nitro 相容主機和託管 PostgreSQL 資料庫。對於工作區，`npx @agent-native/core@latest deploy` 一次建置所有應用程式，並將它們部署在單一來源之後。參見 [Deployment](/docs/deployment)。
 
 要創作和發布您自己的應用程式範本，請參閱 [Creating Templates](/docs/creating-templates)。

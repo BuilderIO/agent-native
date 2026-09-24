@@ -9,18 +9,37 @@ function readRoute(name: string): string {
 
 describe("authenticated recording route loading", () => {
   it("waits for the browser session before the direct player action", () => {
-    const route = readRoute("r.$recordingId.tsx");
+    const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
-    expect(route).toContain("if (sessionLoading)");
     expect(route).toContain(
       "if (playerDataQ.isLoading || playerDataForbidden)",
     );
+    expect(route).toContain("<RecordingWorkspaceSkeleton />");
+    expect(route).not.toContain("buildSignInReturnHref");
   });
 
-  it("waits for the browser session before the share payload request", () => {
+  it("lets public shares proceed when session status is unavailable", () => {
     const route = readRoute("share.$shareId.tsx");
-    expect(route).toContain("enabled: !!shareId && !sessionLoading");
-    expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
+    expect(route).toContain("status: sessionStatus,");
+    expect(route).toContain("enabled: !!shareId");
+    expect(route).toContain('sessionStatus === "loading"');
+    expect(route).toContain('sessionStatus === "signing-out"');
+    expect(route).toContain('sessionStatus === "unavailable"');
+    expect(route).toContain("retry: retrySession");
+    expect(route).toContain("retrySession();");
+    expect(route).toContain("retriedUnavailableSessionRef");
+    expect(route).toContain('t("sharePage.checkAgain")');
+    expect(route).toContain("void dataQ.refetch();");
+    expect(route).toContain("dataQ.data.status === 401");
+    expect(route).toContain("dataQ.data.status === 404");
+    expect(route).toContain("!needsPassword &&");
+    expect(route).toContain(
+      'type SharePanel = "comments" | "transcript" | "agent"',
+    );
+    expect(route).toContain(
+      "h-[var(--agent-native-viewport-height,100vh)] min-h-0",
+    );
+    expect(route).toMatch(/className="[^"]*min-h-0 flex-1 overflow-y-auto/);
     expect(route).toContain("request-recording-access");
     expect(route).toContain("RequestAccessDialog");
     expect(route).toContain("requesterEmail");
@@ -29,7 +48,35 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("...(userEmail ? { viewerEmail: userEmail } : {})");
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
+    expect(route).toContain('const startAt = searchParams.get("at")');
+    expect(route).toContain("readShareAttribution(search)");
+    expect(route).not.toContain(
+      'typeof window === "undefined" ? "" : window.location.search',
+    );
+    expect(route).not.toContain(
+      'if (typeof window === "undefined") return path;',
+    );
+    expect(route).toContain(
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
+    );
     expect(route).toContain('IconLock className="h-5 w-5"');
+  });
+
+  it("keeps transient missing share records loading while retrying locally", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain("const MISSING_SHARE_RETRY_LIMIT = 8;");
+    expect(route).toContain("status === 404 &&");
+    expect(route).toContain("updateCount < MISSING_SHARE_RETRY_LIMIT");
+    expect(route).toContain("retryingMissingShare ||");
+    expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
+  });
+
+  it("keeps expired share loader data impersonal for CDN caching", () => {
+    const route = readRoute("share.$shareId.tsx");
+
+    expect(route).toContain("isRecordingExpired(rec.expiresAt)");
+    expect(route).not.toContain("isRecordingExpiredForViewer");
+    expect(route).not.toContain("sameOwnerEmail");
   });
 
   it("waits for the browser session before the meeting share payload request", () => {
@@ -48,6 +95,16 @@ describe("authenticated recording route loading", () => {
     expect(route).not.toContain('fetch("/api/public-meeting');
   });
 
+  it("keeps the meeting timestamp stable through hydration", () => {
+    const route = readRoute("share.meeting.$meetingId.tsx");
+    expect(route).toContain("useState(false);");
+    expect(route).toContain('stable ? "en-US" : []');
+    expect(route).toContain('...(stable ? { timeZone: "UTC" } : {})');
+    expect(route).toContain(
+      "formatDateTime(meeting.scheduledStart, !hasHydrated)",
+    );
+  });
+
   it("only renders a non-seekable transcript when the meeting payload shares it", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
     expect(route).toContain("{transcript && (");
@@ -57,12 +114,71 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('t("shareMeeting.copyTranscript")');
   });
 
-  it("keeps editor shares editable and shows their insights", () => {
+  it("keeps editor shares editable and exposes attached viewer insights", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain('viewerRole === "editor"');
     expect(route).toContain("role={viewerRole ??");
-    expect(route).toContain("<InsightsPanel");
-    expect(route).toContain("{viewerCanEdit ? (");
+    expect(route).toContain("<RecordingViewsBadge");
+    expect(route).toContain("canViewDetails={viewerCanEdit}");
+    expect(route).not.toContain("<InsightsPanel");
+  });
+
+  it("keeps public viewer identity, engagement, and side panels aligned", () => {
+    const route = readRoute("share.$shareId.tsx");
+
+    expect(route).toContain("const ownerInitial =");
+    expect(route).toContain("ownerInitial: rec.ownerEmail");
+    expect(route).not.toContain("ownerEmail: rec.ownerEmail");
+    expect(route).toContain("<ClipsAvatar");
+    expect(route).toContain("const recordedOn = formatRecordedOn");
+    expect(route).toContain('stable ? "en-US" : undefined');
+    expect(route).toContain(
+      "formatRecordedOn(recording?.createdAt, !hasHydrated)",
+    );
+    expect(route).toContain("<RecordingViewsBadge");
+    expect(route).toContain("<ShareReactionPicker");
+    expect(route).toContain('t("recordingPage.react")');
+    expect(route).toContain("<ViewerTabsList");
+    expect(route).toContain('<ViewerTabsTrigger value="transcript">');
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain("<RecordingSidePanel");
+    expect(route).toContain('className="contents"');
+    expect(route).toContain(
+      'className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap"',
+    );
+    expect(route).not.toContain(
+      "row-start-1 flex min-w-0 shrink-0 flex-wrap items-center gap-3 border-b border-border",
+    );
+    expect(route).not.toContain("closeLabel");
+    expect(route).not.toContain("onClose={() => setPanel(null)}");
+    expect(route).toContain("PublicAgentEmptyState");
+    expect(route).toContain("AccountGateDialog");
+    expect(route).toContain('onSignup={() => openCreateAccount("agent")}');
+    expect(route).toContain('onSignIn={() => fireShareCtaClick("signin")}');
+    expect(route).not.toContain("SignInPromptDialog");
+    expect(route).toContain('t("sharePage.agentEmptyTitle")');
+    expect(route).toContain('t("sharePage.agentEmptyDescription")');
+    expect(route).toContain('t("sharePage.agentEmptySignInPrompt")');
+    expect(route).toContain('t("signInPrompt.createAccount")');
+    expect(route).toContain('t("signInPrompt.signIn")');
+    expect(route).toContain("CaptureInstallButton");
+    expect(route).toContain('t("sharePage.downloadDesktopApp")');
+    expect(route).not.toContain("agentNativeClips");
+    expect(route).toContain('useState<SharePanel>("comments")');
+    expect(route).toContain("lg:grid-cols-[minmax(0,1fr)_360px]");
+    expect(route).toContain("col-span-full row-start-1");
+    expect(route).toContain("lg:col-start-2");
+    expect(route).toContain(
+      "w-full flex-col gap-5 pb-10 sm:px-4 lg:h-full lg:min-h-0 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))] lg:pt-4",
+    );
+    expect(route).toContain("lg:min-h-0 lg:flex-1 lg:overflow-hidden");
+    expect(route).not.toContain("max-w-[1200px]");
+    expect(route).not.toContain(
+      'variant={panel === "transcript" ? "secondary" : "ghost"}',
+    );
+    expect(route).not.toContain(
+      'variant={panel === "agent" ? "secondary" : "ghost"}',
+    );
   });
 
   it("gates fullscreen share interactions by the viewer permission", () => {
@@ -71,59 +187,79 @@ describe("authenticated recording route loading", () => {
       "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
     );
     expect(route).toContain(
-      "recording.enableComments && viewerCanUseFullscreenInteractions",
+      "recording.enableComments &&\n                    viewerCanUseFullscreenInteractions",
     );
-    expect(route).toContain(
-      "recording.enableReactions && viewerCanUseFullscreenInteractions",
-    );
-    expect(route).toContain(
-      'viewerCanUseFullscreenInteractions\n                  ? () => setPanel("comments")',
-    );
+    expect(route).toContain("recording.enableReactions &&");
+    expect(route).toContain("viewerCanUseFullscreenInteractions");
+    expect(route).toContain("onCommentClick={");
+    expect(route).toContain('setPanel("comments")');
   });
 
-  it("does not expose the insights tab to viewers", () => {
-    const shareRoute = readRoute("share.$shareId.tsx");
-    const shareTrigger = shareRoute.indexOf(
-      '<TabsTrigger value="insights" className="text-xs">',
-    );
-    const shareTriggerGuard = shareRoute.lastIndexOf(
-      "{viewerCanEdit ? (",
-      shareTrigger,
-    );
-    expect(shareTrigger).toBeGreaterThan(-1);
-    expect(shareTriggerGuard).toBeGreaterThan(-1);
+  it("sends anonymous participation into the shared account dialog", () => {
+    const route = readRoute("share.$shareId.tsx");
 
-    const recordingRoute = readRoute("r.$recordingId.tsx");
+    expect(route).toContain("const [accountGateIntent");
+    expect(route).toContain("setAccountGateIntent(intent);");
+    expect(route).toContain("share_account_gate_shown");
+    expect(route).toContain("share_account_action_completed");
+    expect(route).toContain("retrySession();");
+    expect(route).toContain("pendingAccountActionRef");
+    expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
+    expect(route).toContain("onReact={reactToRecording}");
+  });
+
+  it("keeps public comments in flow and consolidates recording insights", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+    expect(shareRoute).toContain('value="comments"');
+    expect(shareRoute).toContain('useState<SharePanel>("comments")');
+    expect(shareRoute).toContain('presentation="inline"');
+    expect(shareRoute).toContain(
+      'className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"',
+    );
+    expect(shareRoute.match(/t\("sharePage\.comments"\)/g)).toHaveLength(1);
+    expect(shareRoute).toContain("const [descriptionExpanded");
+    expect(shareRoute).toContain('!descriptionExpanded && "line-clamp-2"');
+    expect(shareRoute).not.toContain('panel === "insights"');
+
+    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
+    expect(recordingRoute).not.toContain(
+      'trigger("insights", t("recordingPage.insights"))',
+    );
     expect(recordingRoute).toContain(
-      'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
+      'defaultOpen={canEdit && panelParam === "insights"}',
     );
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
   });
 
-  it("keeps Share primary and places overflow after it in clip viewers", () => {
-    const recordingRoute = readRoute("r.$recordingId.tsx");
+  it("gates private recipient sharing and places overflow after Share", () => {
+    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");
     const trigger = readFileSync(
       resolve(process.cwd(), "app/components/player/clips-share-trigger.tsx"),
       "utf8",
     );
 
-    expect(recordingRoute.match(/<ClipsShareTrigger/g)).toHaveLength(2);
+    expect(recordingRoute).toContain("const isPrivateRecipient =");
+    expect(recordingRoute).toContain(
+      '(role === "viewer" || role === "commenter") &&',
+    );
+    expect(recordingRoute).toContain('recording?.visibility === "private";');
+    expect(recordingRoute.match(/isPrivateRecipient \? \(/g)).toHaveLength(2);
+    expect(
+      recordingRoute.match(/t\("recordingPage\.sharedWithYou"\)/g),
+    ).toHaveLength(2);
+    expect(recordingRoute).toContain("const renderShareControl =");
+    expect(recordingRoute.match(/renderShareControl\(/g)).toHaveLength(2);
     expect(shareRoute).toContain("<ClipsShareTrigger");
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
 
-    const publicControlsStart = shareRoute.indexOf(
-      '<div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1',
-    );
+    const publicControlsStart = shareRoute.indexOf("<header");
+    expect(publicControlsStart).toBeGreaterThan(-1);
     const publicControls = shareRoute.slice(publicControlsStart);
-    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
-      publicControls.indexOf("IconDotsVertical"),
-    );
-    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
-      publicControls.indexOf("<RecordingOptionsMenu"),
-    );
-    expect(shareRoute).toContain("IconDotsVertical");
+    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeGreaterThan(-1);
+    expect(publicControls.indexOf("<RecordingOptionsMenu")).toBeGreaterThan(-1);
+    expect(shareRoute).not.toContain("IconDotsVertical");
     expect(shareRoute).not.toContain("IconDots className");
   });
 
@@ -136,5 +272,96 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
     expect(meetingRoute).toContain("recordingTranscripts");
     expect(meetingRoute).toContain("transcript: transcript");
+  });
+
+  it("keeps the shared clip agent scoped to the clip being viewed", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const agentPanel = shareRoute.slice(shareRoute.lastIndexOf("<AgentPanel"));
+
+    expect(agentPanel).toContain("scope={");
+    expect(agentPanel).toContain('type: "recording"');
+    expect(agentPanel).toContain("id: recording.id");
+  });
+
+  it("opens the comments panel on the public share page for ?panel=comments links", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // The signed-in recording route supports a ?panel=comments deep link
+    // (used by search results and the command menu); the public share route
+    // rendered the same param unread and always defaulted to "transcript".
+    expect(shareRoute).toContain(
+      'const panelParam = searchParams.get("panel")',
+    );
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const effect = shareRoute.slice(effectStart, effectStart + 700);
+    expect(effect).toContain('if (panelParam === "comments") {');
+    expect(effect).toContain("selectCommentsPanel();");
+
+    // A share whose owner disabled comments after the link was shared must
+    // land back on transcript - the comments tab and its content are both
+    // conditionally rendered on recording.enableComments, so leaving `panel`
+    // set to "comments" here would strand the Tabs value on nothing.
+    expect(effect).toContain(
+      'setPanel((current) => (current === "comments" ? "transcript" : current));',
+    );
+  });
+
+  it("does not re-select comments every time the viewer changes tabs", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // `panel` must not be a dependency of the deep-link effect: if it were,
+    // switching to Transcript/Agent would re-run the effect, and
+    // `panelParam === "comments"` (still true, since it's read from the URL)
+    // would immediately call selectCommentsPanel() again, trapping the
+    // viewer on the deep link for the whole share session.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).not.toMatch(/(^|[^.\w])panel(?![.\w?])/);
+  });
+
+  it("re-runs the comments deep link when navigating between shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Without `shareId` in the effect's dependency array, navigating from
+    // /share/A?panel=comments to /share/B?panel=comments would not re-run the
+    // effect when both recordings have the same enableComments value, leaving
+    // the new share on whatever `panel` the previous share was left at.
+    const effectStart = shareRoute.indexOf(
+      "if (recording && !recording.enableComments) {",
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = shareRoute.indexOf("}, [", effectStart);
+    const depsEnd = shareRoute.indexOf("]);", depsStart);
+    const deps = shareRoute.slice(depsStart, depsEnd);
+
+    expect(deps).toContain("panelParam");
+    expect(deps).toContain("recording?.enableComments");
+    expect(deps).toContain("shareId");
+  });
+
+  it("preserves ?panel in the sign-in continuation URL for public shares", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // Anonymous viewers who open a ?panel=comments share and then sign in
+    // must return to the comments panel, not lose it because shareReturnTo
+    // only forwarded attribution and `at`.
+    expect(shareRoute).toContain(
+      "buildShareContinuationQuery(attribution, startAt, panelParam)",
+    );
+
+    const attributionSrc = readFileSync(
+      resolve(process.cwd(), "shared/share-attribution.ts"),
+      "utf8",
+    );
+    expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
   });
 });

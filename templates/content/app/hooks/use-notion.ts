@@ -59,11 +59,11 @@ export function invalidateDocumentQueries(
   // path after every debounced editor save). Invalidating the bare ["action"]
   // key would refetch every mounted query app-wide (sidebar tree, comments,
   // database views, search, connection status, ...) on each cycle.
-  queryClient.invalidateQueries(documentQueryFilter(documentId));
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries(documentQueryFilter(documentId));
+  void queryClient.invalidateQueries({
     queryKey: ["action", "list-documents"],
   });
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
 }
@@ -173,8 +173,12 @@ export function useDocumentSyncStatus(documentId: string | null) {
       syncedLocalUpdatedAt &&
       cachedDocuments.length > 0
     ) {
-      queryClient.invalidateQueries(documentQueryFilter(normalizedDocumentId));
-      queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+      void queryClient.invalidateQueries(
+        documentQueryFilter(normalizedDocumentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
     }
   }, [
     normalizedDocumentId,
@@ -213,10 +217,10 @@ export function useDisconnectNotion() {
     {
       onSuccess: () => {
         clearAllAutoSyncToggles();
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "connect-notion-status"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "refresh-notion-sync-status"],
         });
       },

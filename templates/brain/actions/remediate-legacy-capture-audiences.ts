@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull, ne, notExists, or } from "drizzle-orm";
 import { z } from "zod";
@@ -113,8 +113,9 @@ export default defineAction({
             ),
             missingAudienceLineage(db),
           ),
-        );
-      if (scrubbed.rowsAffected === 0) {
+        )
+        .returning({ id: schema.brainRawCaptures.id });
+      if (scrubbed.length === 0) {
         skippedCaptureIds.push(capture.id);
         continue;
       }
@@ -145,8 +146,9 @@ export default defineAction({
             eq(schema.brainRawCaptures.sensitivityDisposition, "pending"),
             missingAudienceLineage(db),
           ),
-        );
-      if (completed.rowsAffected === 0) {
+        )
+        .returning({ id: schema.brainRawCaptures.id });
+      if (completed.length === 0) {
         skippedCaptureIds.push(capture.id);
         continue;
       }

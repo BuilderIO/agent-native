@@ -1,5 +1,13 @@
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
-import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isBuilderGatewayInternalErrorMessage,
+  isContextOverflowMessage,
+  isCreditsLimitErrorCode,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+} from "../agent/engine/error-detail.js";
+
+export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
 /**
  * Append a Builder CTA markdown link to gateway errors that users can fix
@@ -23,9 +31,31 @@ export const BUILDER_SPACE_SETTINGS_URL =
 export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
-const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+const ADD_CREDITS_IN_BUILDER_LABEL = "Add credits in Builder";
 const BUILDER_AUTHENTICATION_ERROR =
   "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
+/**
+ * A 401 says the credential this request carried was refused. It does NOT say
+ * whose credential it was, and the reader is frequently someone with no saved
+ * key to fix: the rejected credential can be a workspace or deployment one they
+ * cannot see. The previous copy named the reader's own "saved provider key" as
+ * the cause and sent everyone to Settings, which is why one shared credential
+ * cost two days of chasing key configuration.
+ *
+ * Say only what the 401 actually proves, and name the recovery that now exists:
+ * a rejected credential is fingerprinted and skipped on the next attempt
+ * (`recordProviderCredentialAuthFailure`), so retrying reaches for a different
+ * one instead of replaying this failure.
+ */
+export const PROVIDER_CREDENTIAL_REJECTED_MESSAGE =
+  "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.";
+/**
+ * Distinctive fragment of the message above. `run-recovery` re-classifies a
+ * message this module already normalized, so the predicate must match its own
+ * output — anchoring both to one constant is what stops them drifting apart.
+ */
+const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
+  "rejected the credential used for this request";
 /**
  * The gateway's unhandled-500 envelope is an internal correlation id and an
  * apology: nothing the reader can act on, and nothing that says whether the
@@ -34,6 +64,46 @@ const BUILDER_AUTHENTICATION_ERROR =
  */
 const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
+/**
+ * Shared between the mapping below and `KNOWN_CHAT_ERROR_KEYS`, so the two
+ * copies of this sentence cannot drift apart.
+ */
+const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
+  "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
+/**
+ * A password-protected PDF still has a valid PDF signature, so it survives
+ * upload and any byte-format sniffing — the provider only discovers it's
+ * unreadable once it tries to decrypt the content. The raw rejection names
+ * the wire field (`pdf.source.base64.data`), which means nothing to a reader
+ * who just attached a bank statement; say what actually broke instead. This
+ * is checked ahead of the generic malformed-request classification below so
+ * the more specific, more actionable copy wins.
+ */
+const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
+  "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
+/**
+ * The gateway codes a payload it could not parse as `invalid_request`, and
+ * that lane deliberately does not retry. Both sentences below therefore have
+ * to carry the recovery, because nothing downstream will try again.
+ */
+const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
+  "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
+const MALFORMED_REQUEST_MESSAGE =
+  "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+/** Codes the gateway and providers use for a payload they refused to parse. */
+const MALFORMED_REQUEST_CODES = new Set([
+  "invalid_request",
+  "invalid_request_error",
+]);
+/**
+ * Provider wire fields that only exist because a message carried an
+ * attachment. Matching the field name rather than the prose keeps this working
+ * across the three providers behind the gateway, which word the same rejection
+ * differently.
+ */
+const ATTACHMENT_REJECTION_PATTERN =
+  /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -51,6 +121,11 @@ export function formatChatErrorText(
   errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage, errorCode);
+  if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
+    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
+      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`
+      : normalized.message;
+  }
   if (
     !isServerChosenVisitorMessage(normalized.message) &&
     (errorCode === "gateway_not_enabled" ||
@@ -70,7 +145,7 @@ export function formatChatErrorText(
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`;
 }
 
 export interface NormalizedChatError {
@@ -88,8 +163,8 @@ export interface NormalizedChatError {
  * Settings" to someone with no account. This is an identity check against the
  * exported constant, not a keyword match: the rewrite is the whole message.
  *
- * Deliberately not a `KNOWN_CHAT_ERROR_KEYS` entry: that map localizes copy,
- * while this returns before any mapping runs at all.
+ * Quota copy is resolved by its safe code before this message guard. Other
+ * visitor messages return unchanged before any copy mapping runs.
  */
 function isServerChosenVisitorMessage(text: string): boolean {
   return text === GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
@@ -101,6 +176,14 @@ type ErrorTranslate = (
 ) => string;
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    CREDITS_LIMIT_REACHED_MESSAGE,
+    "agentChat.errorMessages.creditsLimitReached",
+  ],
+  [
+    ATTACHMENT_PASSWORD_PROTECTED_MESSAGE,
+    "agentChat.errorMessages.attachmentPasswordProtected",
+  ],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
@@ -134,8 +217,16 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.providerRateLimit",
   ],
   [
+    PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+    "agentChat.errorMessages.providerTransientRejection",
+  ],
+  [
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     "agentChat.errorMessages.providerAuthentication",
+  ],
+  [
+    PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+    "agentChat.errorMessages.providerCredentialRejected",
   ],
   [
     "The model provider could not be reached. Check your connection and retry.",
@@ -165,6 +256,11 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "The provider returned an HTML error page.",
     "agentChat.errorMessages.providerHtml",
   ],
+  [
+    MALFORMED_REQUEST_ATTACHMENT_MESSAGE,
+    "agentChat.errorMessages.malformedRequestAttachment",
+  ],
+  [MALFORMED_REQUEST_MESSAGE, "agentChat.errorMessages.malformedRequest"],
 ]);
 
 const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
@@ -173,7 +269,7 @@ const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
     "agentChat.errorMessages.openBuilderSpaceSettings",
   ],
   ["Start new chat", "agentChat.errorMessages.startNewChat"],
-  ["Upgrade at builder.io", "agentChat.errorMessages.upgradeAtBuilder"],
+  ["Add credits in Builder", "agentChat.errorMessages.addCreditsInBuilder"],
 ]);
 
 /** Localize only Core's own normalized error copy; preserve provider details. */
@@ -270,7 +366,9 @@ export function isProviderAuthenticationError(
   return (
     code === "authentication_error" ||
     code === "http_401" ||
+    code === "http_403" ||
     /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /^403 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
@@ -280,9 +378,17 @@ export function isProviderAuthenticationError(
     lower.includes("incorrect api key") ||
     lower.includes("api key is invalid") ||
     lower.includes("rejected the saved api key") ||
-    lower.includes("saved provider key was rejected") ||
+    lower.includes(PROVIDER_CREDENTIAL_REJECTED_FRAGMENT) ||
     (lower.includes("authentication_error") && lower.includes("api"))
   );
+}
+
+// Matches both the raw provider envelope and the already-unwrapped
+// error.message text the gateway forwards, since a password-protected
+// attachment can reach this function in either shape depending on whether
+// the rejection happened before or during streaming.
+function isPasswordProtectedAttachmentError(text: string): boolean {
+  return /password[- ]?protected/i.test(text) && /\bpdf\b/i.test(text);
 }
 
 function isConnectionError(text: string, errorCode?: string): boolean {
@@ -305,13 +411,16 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
+  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
 
-  // Ahead of every mapping below, including the provider-payload fallback: the
-  // server already chose this reader's message, and any re-derivation from a
-  // code hands a visitor the owner instruction it deliberately removed.
+  // Quota is the one safe recovery detail exposed by the Builder-credits lane;
+  // other server-selected visitor messages stay opaque below.
+  if (isCreditsLimitErrorCode(code)) {
+    return { message: CREDITS_LIMIT_REACHED_MESSAGE };
+  }
+  // The server-selected visitor message must not reveal owner-only details.
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
-  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
@@ -325,8 +434,26 @@ export function normalizeChatError(
     };
   }
 
-  if (code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE) {
+  // Match the envelope as well as the canonical code. The gateway emits this
+  // exact apology on its `invalid_request` stop lane too, and that lane never
+  // reaches `canonicalizeBuilderGatewayErrorCode`, so a code-only check left
+  // the raw apology and a bare hex id as the entire user-visible error.
+  if (
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
+    isBuilderGatewayInternalErrorMessage(text)
+  ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
+  }
+
+  // A password-protected PDF still has a valid signature, so it survives
+  // upload and reaches the provider before failing — the provider's raw
+  // wire-field name (pdf.source.base64.data) means nothing to the reader who
+  // just attached a bank statement.
+  if (
+    isPasswordProtectedAttachmentError(text) ||
+    (providerMessage && isPasswordProtectedAttachmentError(providerMessage))
+  ) {
+    return { message: ATTACHMENT_PASSWORD_PROTECTED_MESSAGE, details: text };
   }
 
   if (code === "builder_auth_error") {
@@ -361,6 +488,17 @@ export function normalizeChatError(
     };
   }
 
+  // The gateway sent no reason with this 403 — load-shedding, not a revoked
+  // key. Must be checked ahead of `isProviderAuthenticationError`: the raw
+  // detail text this code carries (a bare "Forbidden" / "403 status code")
+  // is the exact shape that predicate matches.
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) {
+    return {
+      message: PROVIDER_TRANSIENT_REJECTION_MESSAGE,
+      details: text,
+    };
+  }
+
   if (isProviderRateLimit(text, code)) {
     return {
       message:
@@ -370,10 +508,9 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, errorCode)) {
+  if (isProviderAuthenticationError(text, code)) {
     return {
-      message:
-        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+      message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,
     };
   }
@@ -416,6 +553,20 @@ export function normalizeChatError(
     return {
       message:
         "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+      details: text,
+    };
+  }
+
+  // Last classified case, so every more specific `invalid_request` above —
+  // a tool schema, a context overflow, a rate limit the gateway coded this way
+  // — keeps its own copy. What is left is a payload the provider refused to
+  // parse, and its raw sentence names provider wire fields (`input[0]
+  // .content[1].file_url`) that no reader can act on.
+  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
+    return {
+      message: ATTACHMENT_REJECTION_PATTERN.test(text)
+        ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
+        : MALFORMED_REQUEST_MESSAGE,
       details: text,
     };
   }

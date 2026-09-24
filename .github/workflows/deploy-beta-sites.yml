@@ -1,4 +1,4 @@
-name: Deploy Agent Native beta sites
+name: Deploy Agent-Native beta sites
 
 # The prebuilt GitHub workflow is now the sole automatic beta publisher. Keep
 # this Netlify-build implementation as a manual fallback during the pilot;

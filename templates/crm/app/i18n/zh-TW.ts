@@ -60,7 +60,7 @@ const messages = {
   settings: {
     title: "CRM 設定",
     description:
-      "原生 SQL 讓 CRM 自有的記錄留在本機且可攜。HubSpot 與 Salesforce 使用工作區連線，其鏡像只會儲存允許清單內的欄位、受限的中繼資料與有界的證據參照。",
+      "原生 SQL 讓 CRM 自有的記錄保存在 Postgres 中。HubSpot 與 Salesforce 使用工作區連線，其鏡像只會儲存允許清單內的欄位、受限的中繼資料與有界的證據參照。",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -580,6 +580,19 @@ const messages = {
     evaluatedThroughAsk: "透過 Ask CRM 評估。",
   },
   recordActions: {
+    reviewDuplicates: "檢查重複記錄",
+    duplicateReviewTitle: "可能重複的記錄",
+    duplicateReviewDescription:
+      "檢查此記錄與可存取的候選記錄。執行 Jev 會將記錄名稱、類型及最多五筆候選記錄的比對訊號傳送給 TypeSafe。機率僅供參考，合併仍須另行審核。",
+    duplicateReviewRun: "檢查重複記錄",
+    duplicateReviewLoading: "檢查中…",
+    duplicateReviewFailed: "無法完成重複記錄檢查。",
+    duplicateReviewUnavailable:
+      "Jev 無法完成複核，規則篩出的候選記錄仍會顯示。",
+    duplicateReviewEmpty: "未找到可能重複的記錄。",
+    duplicateRuleConfidence: "規則比對度：{{percent}}%",
+    duplicateJevProbability: "Jev 同一實體機率：{{percent}}%",
+    duplicateMatchedOn: "比對依據：{{values}}",
     evidenceAttached: "已附加通話證據。",
     evidenceAttachFailed: "無法附加證據。",
     addEvidence: "新增證據",

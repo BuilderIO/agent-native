@@ -912,7 +912,7 @@ function PairDesktopCard({ onRefresh }: { onRefresh: () => void }) {
         <View className="flex-1">
           <Text className="text-white text-lg font-bold">Pair your laptop</Text>
           <Text className="text-status-gray text-xs leading-4 mt-0.75">
-            Open Agent Native Desktop and pair it in Remote Control.
+            Open Agent-Native Desktop and pair it in Remote Control.
           </Text>
         </View>
       </View>

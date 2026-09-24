@@ -4,8 +4,8 @@
  * Named client helper for storing a bring-your-own provider key (Anthropic,
  * OpenAI, etc.) so the agent chat can run without a Builder connection or an
  * account. The key is persisted by the framework under the matching provider
- * key (e.g. ANTHROPIC_API_KEY) for the current user or org, exactly like the
- * LLM settings panel does — UI code should call this instead of hand-writing
+ * key (e.g. ANTHROPIC_API_KEY) for the active organization, exactly like the
+ * LLM settings panel does - UI code should call this instead of hand-writing
  * a fetch to framework routes.
  */
 
@@ -39,6 +39,7 @@ export interface SaveAgentEngineApiKeyOptions {
   provider?: AgentEngineProvider;
   key?: string;
   apiKey: string;
+  /** @deprecated Agent provider keys are always saved at organization scope. */
   scope?: "user" | "org";
 }
 
@@ -48,7 +49,21 @@ export interface SaveAgentEngineProviderSettingsOptions {
   apiKey?: string;
   baseUrl?: string;
   clearBaseUrl?: boolean;
+  /** @deprecated Agent provider keys are always saved at organization scope. */
   scope?: "user" | "org";
+}
+
+export interface SavedAgentEngineSelection {
+  engine: string;
+  model: string;
+}
+
+export interface AgentEngineProviderKeyStatus {
+  status: "set" | "unset" | "invalid" | "unknown";
+  effectiveScope?: "user" | "org" | "workspace" | "env";
+  overriddenScope?: "org" | "workspace";
+  personalKeyPresent: boolean;
+  organizationKeyPresent: boolean;
 }
 
 function resolveProviderEnvVar(
@@ -66,6 +81,173 @@ function dispatchConfiguredChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(CONFIGURED_CHANGED_EVENT));
   }
+}
+
+export async function getAgentEngineProviderKeyStatus(
+  provider: AgentEngineProvider,
+): Promise<AgentEngineProviderKeyStatus> {
+  const option = getAgentProviderOption(provider);
+  const key = option.key ?? option.endpointKey;
+  if (!key) {
+    throw new Error("This provider does not use a stored key.");
+  }
+  const response = await fetch(agentNativePath("/_agent-native/secrets"), {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load key status (HTTP ${response.status}).`);
+  }
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("Could not read provider key status.");
+  }
+  const secret = payload.find(
+    (item): item is Record<string, unknown> =>
+      item !== null &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>).key === key,
+  );
+  if (
+    !secret ||
+    !["set", "unset", "invalid", "unknown"].includes(String(secret.status))
+  ) {
+    throw new Error("Could not read this provider's key status.");
+  }
+  const effectiveScope = ["user", "org", "workspace", "env"].includes(
+    String(secret.effectiveScope),
+  )
+    ? (secret.effectiveScope as AgentEngineProviderKeyStatus["effectiveScope"])
+    : undefined;
+  const overriddenScope = ["org", "workspace"].includes(
+    String(secret.overriddenScope),
+  )
+    ? (secret.overriddenScope as AgentEngineProviderKeyStatus["overriddenScope"])
+    : undefined;
+  return {
+    status: secret.status as AgentEngineProviderKeyStatus["status"],
+    ...(effectiveScope ? { effectiveScope } : {}),
+    ...(overriddenScope ? { overriddenScope } : {}),
+    personalKeyPresent: effectiveScope === "user",
+    organizationKeyPresent:
+      effectiveScope === "org" || overriddenScope === "org",
+  };
+}
+
+export async function deleteAgentEnginePersonalProviderSettings(
+  provider: AgentEngineProvider,
+): Promise<void> {
+  const response = await fetch(
+    agentNativePath("/_agent-native/agent-engine/api-key"),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ provider }),
+    },
+  );
+  if (!response.ok) {
+    const message = await readProviderSettingsError(response);
+    throw new Error(
+      message ??
+        `Could not remove your personal key (HTTP ${response.status}).`,
+    );
+  }
+  dispatchConfiguredChanged();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodeAgentEngineSelectionPayload(
+  value: unknown,
+  fallbackMessage: string,
+  depth = 0,
+): Record<string, unknown> {
+  if (depth > 3) {
+    throw new Error(fallbackMessage);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new Error(fallbackMessage);
+    }
+    if (/^(Error|Warning):/i.test(trimmed)) {
+      throw new Error(trimmed);
+    }
+    try {
+      return decodeAgentEngineSelectionPayload(
+        JSON.parse(trimmed) as unknown,
+        fallbackMessage,
+        depth + 1,
+      );
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(fallbackMessage);
+      }
+      throw error;
+    }
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(fallbackMessage);
+  }
+
+  if (Object.hasOwn(value, "error")) {
+    const error = value.error;
+    throw new Error(
+      typeof error === "string" && error.trim()
+        ? error.trim()
+        : fallbackMessage,
+    );
+  }
+  if (Object.hasOwn(value, "warning")) {
+    const warning = value.warning;
+    throw new Error(
+      typeof warning === "string" && warning.trim()
+        ? warning.trim()
+        : fallbackMessage,
+    );
+  }
+  if (Object.hasOwn(value, "ok") && value.ok !== true) {
+    throw new Error(fallbackMessage);
+  }
+  if (Object.hasOwn(value, "result")) {
+    return decodeAgentEngineSelectionPayload(
+      value.result,
+      fallbackMessage,
+      depth + 1,
+    );
+  }
+  return value;
+}
+
+async function readProviderSettingsError(
+  response: Response,
+): Promise<string | undefined> {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const body = JSON.parse(trimmed) as unknown;
+    if (body !== null && typeof body === "object") {
+      const error = (body as { error?: unknown }).error;
+      if (typeof error === "string" && error.trim()) {
+        return error.trim();
+      }
+    } else if (typeof body === "string" && body.trim()) {
+      return body.trim();
+    }
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    // Plain-text relay errors are the useful fallback for desktop requests.
+  }
+
+  return trimmed.startsWith("<") ? undefined : trimmed.slice(0, 500);
 }
 
 /**
@@ -97,7 +279,6 @@ export async function saveAgentEngineProviderSettings({
   apiKey,
   baseUrl,
   clearBaseUrl,
-  scope,
 }: SaveAgentEngineProviderSettingsOptions): Promise<void> {
   const trimmed = apiKey?.trim() ?? "";
   const endpoint = baseUrl?.trim() ?? "";
@@ -115,15 +296,12 @@ export async function saveAgentEngineProviderSettings({
         ...(trimmed ? { value: trimmed } : {}),
         ...(endpoint ? { baseUrl: endpoint } : {}),
         ...(clearBaseUrl ? { clearBaseUrl: true } : {}),
-        scope,
+        scope: "org",
       }),
     },
   );
   if (!res.ok) {
-    const message = await res
-      .json()
-      .then((body: { error?: string }) => body?.error)
-      .catch(() => null);
+    const message = await readProviderSettingsError(res);
     throw new Error(
       message ??
         (res.status === 401
@@ -132,6 +310,47 @@ export async function saveAgentEngineProviderSettings({
     );
   }
   dispatchConfiguredChanged();
+}
+
+/**
+ * List the models an Ollama server actually has installed, via its native
+ * `/api/tags` endpoint. Pass `baseUrl` to check a server before it's saved
+ * (e.g. while the user is still typing the endpoint); omit it to use the
+ * saved endpoint. Throws a readable Error if the server can't be reached.
+ */
+export async function fetchOllamaModels(baseUrl?: string): Promise<string[]> {
+  const trimmed = baseUrl?.trim() ?? "";
+  const path = trimmed
+    ? `/_agent-native/agent-engine/ollama-models?baseUrl=${encodeURIComponent(trimmed)}`
+    : "/_agent-native/agent-engine/ollama-models";
+  const response = await fetch(agentNativePath(path), {
+    credentials: "include",
+  });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = text.trim() ? JSON.parse(text) : undefined;
+  } catch {
+    throw new Error(
+      `Could not read the Ollama models response (HTTP ${response.status}).`,
+    );
+  }
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : `Could not list Ollama models (HTTP ${response.status}).`;
+    throw new Error(message);
+  }
+  const models =
+    payload && typeof payload === "object"
+      ? (payload as { models?: unknown }).models
+      : undefined;
+  return Array.isArray(models)
+    ? models.filter((model): model is string => typeof model === "string")
+    : [];
 }
 
 /**
@@ -145,7 +364,7 @@ export async function setAgentEngineProvider({
 }: {
   provider: AgentEngineProvider;
   model?: string;
-}): Promise<void> {
+}): Promise<SavedAgentEngineSelection> {
   const option = getAgentProviderOption(provider);
   const res = await fetch(
     agentNativePath("/_agent-native/actions/manage-agent-engine"),
@@ -159,34 +378,23 @@ export async function setAgentEngineProvider({
       }),
     },
   );
+  const fallbackMessage = `Could not select ${option.label}.`;
+  const text = await res.text();
+  const body = decodeAgentEngineSelectionPayload(text, fallbackMessage);
   if (!res.ok) {
-    const message = await res
-      .json()
-      .then((body: { error?: string; result?: unknown }) =>
-        typeof body?.error === "string"
-          ? body.error
-          : typeof body?.result === "string"
-            ? body.result
-            : undefined,
-      )
-      .catch(() => undefined);
-    throw new Error(message ?? `Could not select ${option.label}.`);
+    throw new Error(fallbackMessage);
   }
-  const body = await res
-    .json()
-    .catch(() => null as { error?: string; result?: unknown } | null);
-  const actionResult = body?.result;
+
+  const savedEngine = body.engine;
+  const savedModel = body.model;
   if (
-    typeof body?.error === "string" ||
-    (typeof actionResult === "string" &&
-      /^(Error|Warning):/i.test(actionResult))
+    body.ok !== true ||
+    savedEngine !== option.engine ||
+    typeof savedModel !== "string" ||
+    !savedModel.trim()
   ) {
-    throw new Error(
-      body.error ??
-        (typeof actionResult === "string"
-          ? actionResult
-          : `Could not select ${option.label}.`),
-    );
+    throw new Error(fallbackMessage);
   }
   dispatchConfiguredChanged();
+  return { engine: savedEngine, model: savedModel.trim() };
 }

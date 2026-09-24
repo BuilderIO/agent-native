@@ -13,6 +13,10 @@ let latestEventRows: Array<{
 }> = [];
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
+let completedTurnRows: Array<{
+  id: string;
+  has_terminal_event?: boolean;
+}> = [];
 let runStatusRows: Array<{ status: string }> = [];
 let claimStateRows: Array<{
   dispatch_mode: string | null;
@@ -32,11 +36,10 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
-  has_dispatch_payload?: boolean | number;
+  has_dispatch_payload?: boolean;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
-let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -45,7 +48,7 @@ let postgres = false;
 // a test can prove per-row independence too.
 const claimedBackgroundRunIds = new Set<string>();
 
-const mockDb = {
+const mockDb: any = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
@@ -54,7 +57,6 @@ const mockDb = {
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
     }
-
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
         rawSql,
@@ -66,6 +68,18 @@ const mockDb = {
     // Must come before the broader stale-run SELECT check since both match
     // "SELECT id FROM agent_runs ... status = 'running'". Matches both the
     // livenessBasisSql CASE expression and any legacy heartbeat-only form.
+    if (
+      /SELECT id,\s*EXISTS \(/i.test(rawSql) &&
+      /WHERE thread_id = \? AND turn_id = \?/i.test(rawSql)
+    ) {
+      return {
+        rows: completedTurnRows.map((row) => ({
+          has_terminal_event: true,
+          ...row,
+        })),
+        rowsAffected: 0,
+      };
+    }
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
       (/COALESCE\(last_progress_at, started_at\)/i.test(rawSql) ||
@@ -148,8 +162,12 @@ const mockDb = {
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
-    // Tool-call result ledger: SELECT result_summary FROM agent_tool_ledger
-    if (/SELECT result_summary FROM agent_tool_ledger/i.test(rawSql)) {
+    // Tool-call result ledger: SELECT result_summary, artifacts_json FROM ...
+    if (
+      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+        rawSql,
+      )
+    ) {
       return { rows: ledgerRows, rowsAffected: 0 };
     }
     // readRunDispatchPayload: SELECT dispatch_payload FROM agent_runs WHERE id = ?
@@ -185,14 +203,18 @@ const mockDb = {
       rowsAffected: /^\s*(UPDATE|INSERT|DELETE)\b/i.test(rawSql) ? 1 : 0,
     };
   }),
+  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockDb)),
 };
 
 const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => "INTEGER",
-  isPostgres: () => postgres,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -237,10 +259,19 @@ const {
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
+  describeStaleReap,
+  staleWindowMsForRow,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
+  BACKGROUND_RUN_STALE_MS,
+  RUN_STALE_MS,
+  resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
-let ledgerRows: Array<{ result_summary: string }> = [];
+let ledgerRows: Array<{
+  result_summary: string;
+  artifacts_json?: string | null;
+}> = [];
 
 describe("run store", () => {
   beforeEach(() => {
@@ -248,6 +279,7 @@ describe("run store", () => {
     latestEventRows = [];
     staleSelectRows = [];
     claimSlotRows = [];
+    completedTurnRows = [];
     runStatusRows = [];
     claimStateRows = [];
     runListRows = [];
@@ -261,11 +293,24 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
     prunedRunRows = [];
-    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
+  });
+
+  it("does not mark replayed provider auth failures recoverable", () => {
+    const resolved = resolveErroredRunTerminalEvent({
+      errorCode: "http_401",
+      errorDetail: "Missing Authentication header",
+    });
+
+    expect(resolved.event).toEqual({
+      type: "error",
+      error: "Missing Authentication header",
+      errorCode: "http_401",
+    });
+    expect(resolved.event).not.toHaveProperty("recoverable");
   });
 
   it("readBackgroundRunClaim parses dispatch_mode + status + diag_stage + liveness, or null when missing", async () => {
@@ -951,8 +996,6 @@ describe("run store", () => {
   });
 
   it("uses a transaction-scoped lease for Postgres cleanup", async () => {
-    postgres = true;
-
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const lock = execCalls.find((call) =>
@@ -964,21 +1007,78 @@ describe("run store", () => {
   // Fix 2: atomic run lease
   it("tryClaimRunSlot grants the slot when no live running row exists", async () => {
     claimSlotRows = []; // no current runner
-    const result = await tryClaimRunSlot("thread-free");
+    const result = await tryClaimRunSlot("thread-free", "run-free");
     expect(result.claimed).toBe(true);
     expect(result.activeRunId).toBeNull();
+    expect(
+      execCalls.some((call) => call.sql.includes("pg_advisory_xact_lock")),
+    ).toBe(true);
+    expect(
+      execCalls.some((call) => call.sql.includes("INSERT INTO agent_runs")),
+    ).toBe(true);
   });
 
   it("tryClaimRunSlot denies the slot when a live running row exists", async () => {
     claimSlotRows = [{ id: "run-active-123" }];
-    const result = await tryClaimRunSlot("thread-busy");
+    const result = await tryClaimRunSlot("thread-busy", "run-contender");
     expect(result.claimed).toBe(false);
     expect(result.activeRunId).toBe("run-active-123");
   });
 
+  it("tryClaimRunSlot reuses a completed run for the same turn", async () => {
+    completedTurnRows = [{ id: "run-completed" }];
+
+    await expect(
+      tryClaimRunSlot("thread-completed", "run-retry", undefined, {
+        turnId: "turn-completed",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-completed",
+    });
+  });
+
+  it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {
+    completedTurnRows = [{ id: "run-continuation", has_terminal_event: false }];
+
+    await expect(
+      tryClaimRunSlot("thread-continuation", "run-retry", undefined, {
+        turnId: "turn-continuation",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: true,
+      activeRunId: null,
+    });
+  });
+
+  it("tryClaimRunSlot replays a terminal run before its completion status lands", async () => {
+    completedTurnRows = [{ id: "run-terminal", has_terminal_event: true }];
+
+    await expect(
+      tryClaimRunSlot("thread-terminal", "run-retry", undefined, {
+        turnId: "turn-terminal",
+        replayCompletedTurn: true,
+      }),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-terminal",
+    });
+    expect(
+      execCalls.some(
+        (call) =>
+          /AS has_terminal_event/i.test(call.sql) &&
+          !call.sql.includes('"type":"auto_continue"'),
+      ),
+    ).toBe(true);
+  });
+
   it("tryClaimRunSlot uses a liveness cutoff to exclude stale rows", async () => {
     claimSlotRows = []; // stale row was filtered by liveness cutoff in SQL
-    const result = await tryClaimRunSlot("thread-stale");
+    const result = await tryClaimRunSlot("thread-stale", "run-replacement");
     expect(result.claimed).toBe(true);
 
     const select = execCalls.find(
@@ -998,7 +1098,7 @@ describe("run store", () => {
     // as int4 from the literal windows, and Date.now() overflows with
     // `value "…" is out of range for type integer`, failing every chat turn.
     claimSlotRows = [];
-    await tryClaimRunSlot("thread-cast");
+    await tryClaimRunSlot("thread-cast", "run-cast");
     const select = execCalls.find(
       (call) =>
         /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(call.sql) &&
@@ -1054,7 +1154,31 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("thread-abc");
     expect(insert?.args[1]).toBe("my-tool:{}");
     expect(insert?.args[2]).toBe("the result");
+    expect(insert?.args[3]).toBe("[]");
     expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("writeLedgerEntry preserves artifact receipts outside the capped result", async () => {
+    const artifacts = [
+      {
+        kind: "image" as const,
+        id: "asset-1",
+        url: "/asset/asset-1",
+        runId: "run-1",
+      },
+    ];
+    await writeLedgerEntry(
+      "thread-artifacts",
+      "generate-image:{}",
+      "X".repeat(8_500),
+      artifacts,
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[2]).toContain("ledger truncated");
+    expect(JSON.parse(insert?.args[3] as string)).toEqual(artifacts);
   });
 
   it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
@@ -1071,15 +1195,92 @@ describe("run store", () => {
   });
 
   it("readLedgerEntry returns the result when an entry exists", async () => {
-    ledgerRows = [{ result_summary: "cached output" }];
+    ledgerRows = [
+      {
+        result_summary: "cached output",
+        artifacts_json:
+          '[{"kind":"image","id":"asset-1","url":"/asset/asset-1"}]',
+      },
+    ];
     const result = await readLedgerEntry("thread-abc", "my-tool:{}");
 
-    expect(result).toBe("cached output");
+    expect(result).toEqual({
+      result: "cached output",
+      artifacts: [{ kind: "image", id: "asset-1", url: "/asset/asset-1" }],
+    });
     const select = execCalls.find((call) =>
-      /SELECT result_summary FROM agent_tool_ledger/i.test(call.sql),
+      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+        call.sql,
+      ),
     );
     expect(select?.args[0]).toBe("thread-abc");
     expect(select?.args[1]).toBe("my-tool:{}");
+  });
+
+  it("readLedgerEntry backfills empty receipts for pre-column entries", async () => {
+    ledgerRows = [{ result_summary: "legacy output", artifacts_json: null }];
+
+    await expect(
+      readLedgerEntry("thread-legacy", "old-tool:{}"),
+    ).resolves.toEqual({ result: "legacy output", artifacts: [] });
+  });
+
+  it("readLedgerEntry preserves a completed result when receipt JSON is malformed", async () => {
+    ledgerRows = [
+      { result_summary: "completed output", artifacts_json: "{truncated" },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-malformed", "write-tool:{}"),
+    ).resolves.toEqual({ result: "completed output", artifacts: [] });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.any(SyntaxError),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-artifacts",
+        }),
+      }),
+    );
+  });
+
+  it("readLedgerEntry filters malformed receipt elements without hiding the completed result", async () => {
+    ledgerRows = [
+      {
+        result_summary: "completed with one valid receipt",
+        artifacts_json: JSON.stringify([
+          null,
+          {},
+          { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+        ]),
+      },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-invalid-elements", "write-tool:{}"),
+    ).resolves.toEqual({
+      result: "completed with one valid receipt",
+      artifacts: [
+        { kind: "image", id: "asset-valid", url: "/asset/asset-valid" },
+      ],
+    });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("contains invalid receipts"),
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-artifacts",
+        }),
+      }),
+    );
+  });
+
+  it("readLedgerEntry preserves a completed result when receipts are undefined", async () => {
+    ledgerRows = [{ result_summary: "pre-receipt output" }];
+
+    await expect(
+      readLedgerEntry("thread-undefined", "legacy-tool:{}"),
+    ).resolves.toEqual({ result: "pre-receipt output", artifacts: [] });
   });
 
   it("readLedgerEntry returns null when no entry exists", async () => {
@@ -1136,6 +1337,7 @@ describe("run store", () => {
       "turn-1",
       "background",
       '{"messages":[]}',
+      expect.any(Number),
     ]);
   });
 
@@ -1271,6 +1473,8 @@ describe("run store", () => {
       /COALESCE\(r\.turn_id, r\.id\) = \?/i.test(c.sql),
     );
     expect(eventsCall?.args).toEqual(["thread-1", "turn-known"]);
+    expect(eventsCall?.sql).toContain("r.continuation_order");
+    expect(eventsCall?.sql).toContain("e.event_at");
   });
 
   it("getCurrentTurnEventsForThread still infers the turn when the caller has none", async () => {
@@ -1329,6 +1533,27 @@ describe("run store", () => {
     expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
   });
 
+  it("orders unclaimed rows by least recent liveness so failed retries yield to newer handoffs", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-old-retry", started_at: 100 },
+      { id: "run-new-handoff", started_at: 200 },
+    ];
+
+    await listUnclaimedBackgroundRunRows({ limit: 2 });
+
+    const select = execCalls.find((call) =>
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toMatch(
+      /ORDER BY COALESCE\(heartbeat_at, started_at\) ASC, started_at ASC/i,
+    );
+    // `started_at` remains the original handoff time used by the five-minute
+    // redispatch bound; the ordering clock is the mutable heartbeat.
+    expect(select?.sql).toContain("SELECT id, started_at");
+  });
+
   it("listUnclaimedBackgroundRunRows ignores rows with a non-string/empty id defensively", async () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-ok", started_at: 100 },
@@ -1349,8 +1574,6 @@ describe("run store", () => {
     unclaimedBackgroundRunRowsWithStartedAt = [
       { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
       { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
-      // SQLite reports booleans as 1/0.
-      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
     ];
 
     const rows = await listUnclaimedBackgroundRunRows();
@@ -1358,7 +1581,6 @@ describe("run store", () => {
     expect(rows).toEqual([
       { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
       { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
-      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
     ]);
   });
 
@@ -1629,5 +1851,124 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
         "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
       );
     }
+  });
+});
+
+describe("stale-reap forensics", () => {
+  const BASE = 1_000_000;
+
+  it("picks the same window the reap SQL does, for all three cases", () => {
+    // Mirrors `backgroundAwareStaleCutoffSql`. A background row WITH a
+    // dispatch payload has a successor to reach, so it gets the tight
+    // post-claim window; one without has nothing to recover and gets the
+    // wider background window; foreground keeps the tight default.
+    expect(
+      staleWindowMsForRow({
+        dispatchMode: "background-processing",
+        hasDispatchPayload: true,
+      }),
+    ).toBe(BACKGROUND_PROCESSING_RUN_STALE_MS);
+    expect(
+      staleWindowMsForRow({
+        dispatchMode: "background-processing",
+        hasDispatchPayload: false,
+      }),
+    ).toBe(BACKGROUND_RUN_STALE_MS);
+    expect(staleWindowMsForRow({ dispatchMode: "background" })).toBe(
+      BACKGROUND_RUN_STALE_MS,
+    );
+    expect(staleWindowMsForRow({ dispatchMode: "foreground" })).toBe(
+      RUN_STALE_MS,
+    );
+    expect(staleWindowMsForRow({})).toBe(RUN_STALE_MS);
+  });
+
+  it("an explicit maxStaleMs overrides the dispatch-mode window", () => {
+    expect(
+      staleWindowMsForRow({ dispatchMode: "background", maxStaleMs: 1234 }),
+    ).toBe(1234);
+  });
+
+  it("separates a dead worker from a live worker that stopped producing", () => {
+    // Dead worker: heartbeat and progress stop together.
+    const dead = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 300_000,
+      lastProgressAt: BASE + 300_000,
+      inFlightSince: null,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 400_000,
+    });
+    expect(dead).toContain("hbAheadOfProgress=0");
+
+    // Live worker, wedged loop: the heartbeat runs on for the better part of an
+    // hour past the last real progress. This is the shape one production run
+    // showed and that nothing recorded.
+    const wedged = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 3_309_000,
+      lastProgressAt: BASE + 293_000,
+      inFlightSince: null,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 3_400_000,
+    });
+    expect(wedged).toContain("hbAheadOfProgress=3016000");
+  });
+
+  it("reports the window actually applied and whether a successor was possible", () => {
+    const detail = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 10_000,
+      lastProgressAt: BASE + 5_000,
+      inFlightSince: BASE + 8_000,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 120_000,
+    });
+    expect(detail).toContain(`window=${BACKGROUND_RUN_STALE_MS}`);
+    expect(detail).toContain("dispatch=background-processing");
+    expect(detail).toContain("redispatchable=0");
+    expect(detail).toContain("sinceHeartbeat=110000");
+    expect(detail).toContain("sinceProgress=115000");
+    expect(detail).toContain("inFlight=1");
+    expect(detail).toContain("inFlightFor=112000");
+    // `runAge` is measured to the liveness basis, not to the reap — the reap
+    // time is detection latency, not run duration.
+    expect(detail).toContain("runAge=10000");
+  });
+
+  it("carries no user content — only numbers, booleans and an enum", () => {
+    const detail = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 1,
+      lastProgressAt: BASE + 1,
+      inFlightSince: null,
+      dispatchMode: "background",
+      hasDispatchPayload: true,
+      now: BASE + 2,
+    });
+    // Every token is `key=<number|enum>`; nothing free-form can reach it.
+    for (const part of detail.split(" ")) {
+      expect(part).toMatch(
+        /^[a-zA-Z]+=(-?\d+|none|background[a-z-]*|foreground)$/,
+      );
+    }
+  });
+
+  it("omits fields it has no value for rather than reporting zero", () => {
+    const detail = describeStaleReap({
+      startedAt: null,
+      heartbeatAt: null,
+      lastProgressAt: null,
+      inFlightSince: null,
+      dispatchMode: null,
+      now: BASE,
+    });
+    expect(detail).not.toContain("sinceHeartbeat");
+    expect(detail).not.toContain("hbAheadOfProgress");
+    expect(detail).toContain("inFlight=0");
+    expect(detail).toContain("dispatch=none");
   });
 });

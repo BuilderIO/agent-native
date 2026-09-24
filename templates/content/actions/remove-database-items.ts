@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -24,7 +24,7 @@ import {
 
 export default defineAction({
   description:
-    "Remove one or more page memberships from a content database in one atomic batch without deleting the pages. Use this once for two or more selected or named rows instead of looping page operations.",
+    "Remove one or more page memberships from a content collection in one atomic batch without deleting the pages. Use this once for two or more selected or named rows instead of looping page operations.",
   schema: databaseRowBatchSchema,
   run: async (args) => {
     const db = getDb();

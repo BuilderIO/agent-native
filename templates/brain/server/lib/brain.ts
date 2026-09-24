@@ -58,9 +58,10 @@ import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
 } from "./ingest-queue.js";
-import type {
-  BrainAudienceAssignment,
-  BrainSensitivityDecision,
+import {
+  BRAIN_SENSITIVITY_POLICY_VERSION,
+  type BrainAudienceAssignment,
+  type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
@@ -654,10 +655,7 @@ function isUniqueConflict(error: unknown): boolean {
     message?: unknown;
     cause?: unknown;
   };
-  if (
-    candidate.code === "23505" ||
-    candidate.code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
+  if (candidate.code === "23505") {
     return true;
   }
   if (typeof candidate.message === "string") {
@@ -795,11 +793,12 @@ export async function createCapture(values: {
         disposition: "quarantined",
         categories: [],
         confidenceBand: "uncertain",
-        policyVersion: "1",
+        policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
         safeSegments: [],
         safeContent: "",
         classifier: "deterministic",
       },
+      classifierFailureReason: sanitized.classifierFailureReason,
       retentionHours: settings.quarantineRetentionHours ?? 72,
     });
     throw new BrainCaptureBlockedError(receipt);
@@ -918,7 +917,7 @@ export async function createCapture(values: {
       ),
     );
   }
-  const finalized = await db
+  const finalized = (await db
     .update(schema.brainRawCaptures)
     .set({
       title: sanitized.title,
@@ -934,7 +933,7 @@ export async function createCapture(values: {
       audienceAclHash: audience.aclHash,
       updatedAt: now,
     })
-    .where(and(...finalizationClauses));
+    .where(and(...finalizationClauses))) as { rowsAffected: number };
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
@@ -1250,6 +1249,7 @@ export async function recordBlockedCapture(input: {
   source: typeof schema.brainSources.$inferSelect;
   values: Parameters<typeof createCapture>[0];
   decision: BrainSensitivityDecision;
+  classifierFailureReason?: string;
   retentionHours: number;
 }): Promise<BrainSensitivityReceipt> {
   const db = getDb();
@@ -1309,6 +1309,10 @@ export async function recordBlockedCapture(input: {
       locatorHmac,
       disposition,
       categoriesJson: stableJson(input.decision.categories),
+      decisionScoresJson: input.decision.categoryScores
+        ? stableJson(input.decision.categoryScores)
+        : null,
+      classifierFailureReason: input.classifierFailureReason ?? null,
       confidenceBand: input.decision.confidenceBand,
       policyVersion: input.decision.policyVersion,
       upstreamProvider: input.source.provider,
@@ -1326,6 +1330,10 @@ export async function recordBlockedCapture(input: {
         captureId: input.existing?.id ?? null,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
+        decisionScoresJson: input.decision.categoryScores
+          ? stableJson(input.decision.categoryScores)
+          : null,
+        classifierFailureReason: input.classifierFailureReason ?? null,
         confidenceBand: input.decision.confidenceBand,
         quarantineBlobHandle,
         expiresAt,

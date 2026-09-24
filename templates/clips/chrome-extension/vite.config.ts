@@ -68,6 +68,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(root, "src/background.ts"),
+        "content-history-bridge": resolve(
+          root,
+          "src/content-history-bridge.ts",
+        ),
         "content-script": resolve(root, "src/content-script.ts"),
         "github-preview-content": resolve(
           root,

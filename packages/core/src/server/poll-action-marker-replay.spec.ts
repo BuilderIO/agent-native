@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSyncState } from "./poll.js";
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 const NOW = 1_800_000_000_000;
 
 /**
@@ -22,8 +28,8 @@ function makeDb(
           const sql = typeof query === "string" ? query : query.sql;
           const args = typeof query === "string" ? [] : (query.args ?? []);
 
-          // Postgres uses `INSERT INTO`, sqlite `INSERT OR IGNORE INTO`.
-          if (/insert(\s+or\s+ignore)?\s+into\s+sync_events/i.test(sql)) {
+          // The insert is idempotent for an existing marker.
+          if (/insert\s+into\s+sync_events/i.test(sql)) {
             persisted.push({
               id: String(args[0]),
               key: String(args[5] ?? ""),
@@ -89,7 +95,6 @@ describe("action marker replay on cold start", () => {
     ]);
     const state = new AppSyncState({
       getDb: () => db.exec as never,
-      isPostgres: () => false,
     });
     await state.seedVersionFromDb();
     await state.checkExternalDbChanges({ durableEvents: false });
@@ -118,7 +123,6 @@ describe("action marker replay on cold start", () => {
     ]);
     const state = new AppSyncState({
       getDb: () => db.exec as never,
-      isPostgres: () => false,
     });
     await state.seedVersionFromDb();
     await state.checkExternalDbChanges({ durableEvents: false });

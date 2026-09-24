@@ -98,6 +98,38 @@ All five functions throw on a failed request, a non-2xx response, or a body that
 
 `requestSource` is commonly set to `TAB_ID`, a plain constant every template exports from `app/lib/tab-id.ts`: a short random string that stays the same for the life of a tab and differs between tabs. Pairing `requestSource: TAB_ID` on a write with `useDbSync({ ignoreSource: TAB_ID })` on the read side is how a tab avoids refetching its own write while still reacting to everyone else. See [Context Awareness](/docs/context-awareness#jitter-prevention) for the full walkthrough.
 
+## Isolated Background Agent Sessions {#isolated-background-agent-sessions}
+
+Use `startBackgroundAgentSession()` when every invocation needs a fresh, stable
+thread and must not add a foreground tab, hidden tab, sidebar state, or runs-tray
+entry. It starts the normal authenticated agent-chat route, so the shared run
+manager still owns persistence, tools, retries, and hosted durable execution.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+
+// An explicit handoff opens this exact thread and stages a draft atomically.
+session.open({ prefill: "Show me what changed" });
+```
+
+The handle exposes `operationId`, `threadId`, and `turnId` immediately.
+`accepted` resolves when the route accepts the run; `completion` follows the
+response stream, while `status()` reads the durable run state independently.
+Call `cancel()` to stop the turn. If a caller retries after losing an
+acknowledgement, pass both the original `operationId` and `threadId` so the
+request keeps the same identity.
+
 ## sendToAgentChat: Background Sends {#background-send}
 
 Use `background: true` when a UI action should kick off real agent work without

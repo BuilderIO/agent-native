@@ -61,7 +61,7 @@ async function findDeduplicatedJob(
   schema: any,
   actor: { ownerEmail: string; orgId: string | null },
   logicalKey: string,
-): Promise<any | null> {
+): Promise<any> {
   const scope = tenantDedupeScope(actor);
   const scoped = await db
     .select()

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
-const mockResolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const mockResolveBuilderRequestAuthorization = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("./s3-upload-provider.js", () => ({
@@ -9,7 +9,9 @@ vi.mock("./s3-upload-provider.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveBuilderCredentials: () => mockResolveBuilderCredentials(),
+  BUILDER_ASSETS_WRITE_SCOPE: "builder:assets:write",
+  resolveBuilderRequestAuthorization: () =>
+    mockResolveBuilderRequestAuthorization(),
 }));
 
 import { deleteRecordingMediaObjects } from "./recording-media-cleanup";
@@ -19,9 +21,10 @@ describe("recording-media-cleanup", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", mockFetch);
     mockDeleteS3ObjectByUrl.mockResolvedValue(false);
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: "private-key",
-      publicKey: "public-key",
+    mockResolveBuilderRequestAuthorization.mockResolvedValue({
+      authorization: "Bearer private-key",
+      source: "legacy",
+      legacyPublicKey: "public-key",
     });
     mockFetch.mockResolvedValue({
       ok: true,
@@ -63,6 +66,25 @@ describe("recording-media-cleanup", () => {
     });
   });
 
+  it("uses an OAuth token without legacy API key fields", async () => {
+    mockResolveBuilderRequestAuthorization.mockResolvedValue({
+      authorization: "Bearer oauth-token",
+      source: "oauth",
+    });
+
+    await deleteRecordingMediaObjects({
+      id: "rec_1",
+      videoUrl: "https://cdn.builder.io/api/v1/image/assets%2Fvideo.webm",
+    });
+
+    const requestUrl = new URL(String(mockFetch.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.get("apiKey")).toBeNull();
+    expect(mockFetch.mock.calls[0]?.[1]).toMatchObject({
+      method: "DELETE",
+      headers: { Authorization: "Bearer oauth-token" },
+    });
+  });
+
   it("skips protected URLs before calling provider delete APIs", async () => {
     const result = await deleteRecordingMediaObjects(
       {
@@ -91,10 +113,7 @@ describe("recording-media-cleanup", () => {
   });
 
   it("skips Builder CDN URLs when request-scoped Builder credentials are missing", async () => {
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-    });
+    mockResolveBuilderRequestAuthorization.mockResolvedValue(null);
 
     const result = await deleteRecordingMediaObjects({
       id: "rec_1",

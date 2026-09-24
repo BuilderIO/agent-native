@@ -417,7 +417,7 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open https://dispatch.agent-native.test/identities while signed in and link Slack.",
     });
   });
 
@@ -439,7 +439,7 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
     });
     expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
   });
@@ -518,7 +518,7 @@ describe("beforeDispatchProcess", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
     expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
@@ -526,6 +526,51 @@ describe("beforeDispatchProcess", () => {
 });
 
 describe("managed Slack execution identity", () => {
+  it("uses an explicit identity link for a manually configured Slack app", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("dev@local.test");
+    const incoming = slackIncoming({
+      senderId: "U-LINKED",
+      senderEmail: "Alice@Example.Test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-MANUAL", channelId: "D-MANUAL" },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).resolves.toEqual({
+      ownerEmail: "dev@local.test",
+      orgId: null,
+      principalType: "user",
+    });
+    expect(mocks.resolveLinkedOwner).toHaveBeenCalledWith(
+      "slack",
+      "T-MANUAL:U-LINKED",
+      { allowAnyOrgFallback: true },
+    );
+    expect(incoming.platformContext.identityLinkRequired).toBeUndefined();
+  });
+
+  it("uses an adapter-verified member when the manually configured Slack app has no managed installation", async () => {
+    mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org-verified");
+    const incoming = slackIncoming({
+      senderId: "U-VERIFIED",
+      senderEmail: "Alice@Example.Test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-MANUAL", channelId: "D-MANUAL" },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).resolves.toEqual({
+      ownerEmail: "alice@example.test",
+      orgId: "org-verified",
+      principalType: "user",
+    });
+    expect(incoming.platformContext.identityVerificationFailed).toBeUndefined();
+  });
+
   it("fails closed when no managed installation matches a Slack DM", async () => {
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
     const incoming = slackIncoming({
@@ -607,7 +652,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });
@@ -650,7 +695,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });
@@ -803,7 +848,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment. If this keeps happening, open Dispatch while signed in and link Slack from Identities.",
       },
     );
   });
@@ -844,7 +889,7 @@ describe("managed Slack execution identity", () => {
       {
         handled: true,
         responseText:
-          "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+          "Agent-Native is ready, but this Slack account is not linked to an Agent-Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
       },
     );
   });

@@ -1,5 +1,6 @@
 import { getSetting } from "../settings/store.js";
 import {
+  CONNECT_APPS_FLAG,
   registerFeatureFlags,
   type FeatureFlagDefinition,
 } from "./registry.js";
@@ -21,7 +22,7 @@ export function createFeatureFlagsPlugin(options: {
   };
 }): NitroPluginDef {
   return async () => {
-    registerFeatureFlags(options.flags);
+    registerFeatureFlags([CONNECT_APPS_FLAG, ...options.flags]);
     if (!options.legacyBooleanSetting) return;
 
     const legacy = await getSetting(options.legacyBooleanSetting.settingKey);

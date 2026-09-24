@@ -9,7 +9,7 @@ description: "액션을 호출하고 그 결과를 표시하는 React 라우트�
 
 ## 라우트 만들기 {#add-a-page}
 
-개발 서버는 시작할 때 라우트 파일을 읽습니다. `app/routes/text-analyses.tsx`를 만들고 `pnpm dev`가 이미 실행 중이면 파일을 만든 후 다시 시작하세요. `http://localhost:8080/text-analyses`에서 사용할 수 있습니다.
+개발 서버는 시작할 때 라우트 파일을 읽습니다. `app/routes/text-analyses.tsx`를 만들고 `pnpm dev`가 이미 실행 중이면 파일을 만든 후 다시 시작하세요. `pnpm dev`가 표시한 로컬 URL 끝에 `/text-analyses`를 추가해 여세요. 8080이 이미 사용 중이면 포트가 바뀔 수 있습니다.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -54,7 +54,7 @@ export default function TextAnalysesRoute() {
 
 `useActionQuery`는 에이전트가 사용하는 것과 동일한 읽기 전용 액션을 호출합니다. 이 페이지에는 사용자 지정 API 라우트, 별도의 데이터 계층, SQL이 아직 필요하지 않습니다.
 
-`http://localhost:8080/text-analyses`를 열거나 에이전트에게 다음과 같이 요청하세요:
+표시된 로컬 URL 끝에 `/text-analyses`를 추가해 열거나 에이전트에게 다음과 같이 요청하세요:
 
 > Navigate to `/text-analyses`.
 

@@ -30,31 +30,43 @@ import {
   IconInfoCircle,
   IconMessage,
   IconHistory,
+  IconLogout,
 } from "@tabler/icons-react";
 import React, {
   createContext,
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type ReactNode,
 } from "react";
 
-import { parseChangelog } from "../changelog/parse.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { sendToAgentChat } from "./agent-chat.js";
-import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import {
+  getChangelogLatestId,
+  useChangelogSeen,
+} from "./changelog/use-changelog-seen.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
+import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
+import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
 import { cn } from "./utils.js";
+
+const LazyChangelogDialog = lazy(async () => {
+  const { ChangelogDialog } = await import("./changelog/Changelog.js");
+  return { default: ChangelogDialog };
+});
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  registerNestedDialog: (dismiss: () => void) => () => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -63,6 +75,17 @@ function useCommandMenuContext() {
   const ctx = useContext(CommandMenuContext);
   if (!ctx) throw new Error("CommandMenu.* must be used inside <CommandMenu>");
   return ctx;
+}
+
+export function useCommandMenuNestedDialog(dismiss: (() => void) | null) {
+  const { registerNestedDialog } = useCommandMenuContext();
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+
+  useEffect(() => {
+    if (!dismiss) return;
+    return registerNestedDialog(() => dismissRef.current?.());
+  }, [dismiss !== null, registerNestedDialog]);
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
@@ -262,12 +285,26 @@ export interface CommandMenuProps {
   children: ReactNode;
   /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
+  /**
+   * Compose app controls around the listbox while retaining this menu's search
+   * and command state. `renderList` must be rendered exactly once.
+   */
+  renderContent?: (options: {
+    search: string;
+    renderList: (results?: ReactNode) => ReactNode;
+  }) => ReactNode;
   /** Placeholder text for the search input */
   placeholder?: string;
+  /** Accessible label for the search input. Defaults to the placeholder. */
+  inputLabel?: string;
   /** Text shown when no results match (before showing agent fallback) */
   emptyText?: string;
   /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
+  /** Clear the current command query on Escape before dismissing the menu. */
+  clearSearchOnEscape?: boolean;
+  /** Customize focus restoration when the dialog closes. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Custom class for the dialog content */
   className?: string;
   /**
@@ -287,7 +324,7 @@ export interface CommandMenuProps {
    */
   changelogKey?: string;
   /**
-   * Whether to show the built-in "About Agent Native" entry. Defaults to true
+   * Whether to show the built-in "About Agent-Native" entry. Defaults to true
    * for app-shell menus that provide a changelog; set false for local menus.
    */
   showAbout?: boolean;
@@ -298,9 +335,13 @@ export function CommandMenu({
   onOpenChange,
   children,
   renderResults,
+  renderContent,
   placeholder = "Type a command or ask AI...",
+  inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  clearSearchOnEscape = false,
+  onCloseAutoFocus,
   className,
   changelog,
   changelogLabel = "What's new",
@@ -310,7 +351,16 @@ export function CommandMenu({
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nestedDialogsRef = useRef<Array<() => void>>([]);
   const t = useT();
+  const registerNestedDialog = useCallback((dismiss: () => void) => {
+    nestedDialogsRef.current.push(dismiss);
+    return () => {
+      nestedDialogsRef.current = nestedDialogsRef.current.filter(
+        (registered) => registered !== dismiss,
+      );
+    };
+  }, []);
 
   // Built-in "What's new" changelog surface (only active when `changelog` is
   // passed). The dialog is rendered alongside the menu so it survives the menu
@@ -320,11 +370,7 @@ export function CommandMenu({
   const hasChangelog =
     typeof changelog === "string" && changelog.trim().length > 0;
   const showAbout = showAboutProp ?? hasChangelog;
-  const changelogEntries = useMemo(
-    () => (hasChangelog ? parseChangelog(changelog as string) : []),
-    [hasChangelog, changelog],
-  );
-  const latestChangelogId = changelogEntries[0]?.id;
+  const latestChangelogId = getChangelogLatestId(changelog);
   const { unseen: changelogUnseen, markSeen: markChangelogSeen } =
     useChangelogSeen(changelogKey ?? "app", latestChangelogId);
 
@@ -384,7 +430,7 @@ export function CommandMenu({
       .includes(search.toLowerCase());
   const showChangelogRow = hasChangelog && changelogRowMatches;
   const aboutLabel = t("agentChat.aboutAgentNative.title", {
-    defaultValue: "About Agent Native",
+    defaultValue: "About Agent-Native",
   });
   const aboutVersionLabel = t("agentChat.aboutAgentNative.version", {
     defaultValue: "Version",
@@ -405,7 +451,7 @@ export function CommandMenu({
     !search ||
     [
       aboutLabel,
-      "agent native",
+      "agent-native",
       aboutVersionLabel,
       "versions",
       "package",
@@ -417,12 +463,32 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
+  const signOutLabel = t("agentChat.auth.logOut");
+  const showSignOutRow =
+    !search ||
+    [signOutLabel, ...SIGN_OUT_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleSignOut = useCallback(() => {
+    onOpenChange(false);
+    void signOut();
+  }, [onOpenChange]);
 
   // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
     return React.Children.map(nodes, (child) => {
       if (!React.isValidElement(child)) return child;
       const props = child.props as Record<string, unknown>;
+
+      if (child.type === React.Fragment) {
+        const fragmentChildren = filterChildren(props.children as ReactNode);
+        if (React.Children.count(fragmentChildren) === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          children: fragmentChildren,
+        } as Record<string, unknown>);
+      }
 
       // If it's a CommandGroup, filter its children
       if (child.type === CommandGroup) {
@@ -477,29 +543,139 @@ export function CommandMenu({
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
   const dynamicResults = open ? renderResults?.(search) : null;
-  const hasDynamicResults = Boolean(dynamicResults);
+
+  const renderList = (results: ReactNode = dynamicResults) => (
+    <CommandListPrimitive>
+      {results}
+      {hasResults && filteredChildren}
+
+      {showChangelogRow && (
+        <>
+          {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openChangelog}
+            >
+              <IconHistory className="h-4 w-4 text-muted-foreground" />
+              <span>{changelogLabel}</span>
+              {changelogUnseen && (
+                <span
+                  className="ms-auto h-2 w-2 rounded-full bg-primary"
+                  aria-label="New updates available"
+                />
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAboutRow && (
+        <>
+          {(hasResults || showChangelogRow) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openAbout}
+            >
+              <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+              <span>{aboutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showSignOutRow && (
+        <>
+          {(hasResults || showChangelogRow || showAboutRow) && (
+            <CommandSeparator />
+          )}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSignOut}
+            >
+              <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
+              <span>{signOutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAgentFallback && (
+        <>
+          {(hasResults ||
+            showChangelogRow ||
+            showAboutRow ||
+            showSignOutRow ||
+            Boolean(results)) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSubmitToAgent}
+            >
+              <IconMessage className="h-4 w-4 text-muted-foreground" />
+              <span>
+                {search.trim() ? (
+                  <>
+                    Ask AI:{" "}
+                    <span className="text-muted-foreground">"{search}"</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Ask AI anything...
+                  </span>
+                )}
+              </span>
+              {search.trim() && (
+                <span className="ms-auto text-xs text-muted-foreground">↵</span>
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+    </CommandListPrimitive>
+  );
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && nestedDialogsRef.current.length > 0) return;
+          onOpenChange(nextOpen);
+        }}
+      >
         <DialogContent
           ref={containerRef}
           aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            const dismissNested = nestedDialogsRef.current.at(-1);
+            if (dismissNested) {
+              event.preventDefault();
+              queueMicrotask(dismissNested);
+              return;
+            }
+            if (clearSearchOnEscape && search.length > 0) {
+              event.preventDefault();
+              setSearch("");
+            }
+          }}
           hideClose
           motion="instant"
-          overlayClassName="fixed inset-0 z-50 bg-black/50 backdrop-blur-none transition-none"
+          overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
           overlayStyle={{
-            zIndex: 50,
             backgroundColor: "rgb(0 0 0 / 0.5)",
             backdropFilter: "none",
             animation: "none",
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{
             animation: "none",
             transition: "none",
@@ -511,107 +687,37 @@ export function CommandMenu({
             shouldFilter={false}
             className="h-auto rounded-lg"
           >
-            <CommandMenuContext.Provider value={{ search, onOpenChange }}>
+            <CommandMenuContext.Provider
+              value={{ search, onOpenChange, registerNestedDialog }}
+            >
               {/* Search input */}
               <CommandInputPrimitive
                 ref={inputRef}
                 value={search}
                 onValueChange={setSearch}
                 placeholder={placeholder}
+                aria-label={inputLabel}
               />
 
-              {/* Command list */}
-              <CommandListPrimitive>
-                {dynamicResults}
-                {hasResults && filteredChildren}
-
-                {/* What's new — built-in changelog entry */}
-                {showChangelogRow && (
-                  <>
-                    {hasResults && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openChangelog}
-                      >
-                        <IconHistory className="h-4 w-4 text-muted-foreground" />
-                        <span>{changelogLabel}</span>
-                        {changelogUnseen && (
-                          <span
-                            className="ms-auto h-2 w-2 rounded-full bg-primary"
-                            aria-label="New updates available"
-                          />
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* About Agent Native — built-in framework diagnostics entry */}
-                {showAboutRow && (
-                  <>
-                    {(hasResults || showChangelogRow) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openAbout}
-                      >
-                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-                        <span>{aboutLabel}</span>
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* Ask AI — always visible at the bottom */}
-                {showAgentFallback && (
-                  <>
-                    {(hasResults ||
-                      showChangelogRow ||
-                      showAboutRow ||
-                      hasDynamicResults) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={handleSubmitToAgent}
-                      >
-                        <IconMessage className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {search.trim() ? (
-                            <>
-                              Ask AI:{" "}
-                              <span className="text-muted-foreground">
-                                "{search}"
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Ask AI anything...
-                            </span>
-                          )}
-                        </span>
-                        {search.trim() && (
-                          <span className="ms-auto text-xs text-muted-foreground">
-                            ↵
-                          </span>
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-              </CommandListPrimitive>
+              {open && renderContent
+                ? renderContent({ search, renderList })
+                : open && renderList()}
             </CommandMenuContext.Provider>
           </CommandPrimitive>
         </DialogContent>
       </Dialog>
 
-      {hasChangelog && (
-        <ChangelogDialog
-          open={changelogOpen}
-          onOpenChange={setChangelogOpen}
-          markdown={changelog as string}
-          title={changelogLabel}
-        />
+      {hasChangelog && changelogOpen && (
+        <LazyChunkErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <LazyChangelogDialog
+              open
+              onOpenChange={setChangelogOpen}
+              markdown={changelog as string}
+              title={changelogLabel}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       {showAbout && (
@@ -662,14 +768,37 @@ export function openCommandMenu() {
  */
 export function useCommandMenuShortcut(
   onOpen: () => void,
-  options: { allowContentEditable?: boolean } = {},
+  options: {
+    allowContentEditable?: boolean;
+    /** Return false to leave an editable shortcut untouched for its local handler. */
+    shouldHandleContentEditable?: (event: KeyboardEvent) => boolean;
+  } = {},
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        // Don't trigger if user is typing in a native form control.
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "k"
+      ) {
         const target = e.target instanceof HTMLElement ? e.target : null;
         const isContentEditable = target?.isContentEditable;
+        if (
+          isContentEditable &&
+          options.allowContentEditable &&
+          options.shouldHandleContentEditable &&
+          !options.shouldHandleContentEditable(e)
+        ) {
+          return;
+        }
+
+        // Claim the shortcut before checking the focused element so an outer
+        // host cannot open its own command menu while this one is focused.
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Don't trigger if user is typing in a native form control.
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||
@@ -678,7 +807,6 @@ export function useCommandMenuShortcut(
         ) {
           return;
         }
-        e.preventDefault();
         onOpen();
       }
     };
@@ -690,7 +818,11 @@ export function useCommandMenuShortcut(
       document.removeEventListener("keydown", handleKeyDown, useCapture);
       window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     };
-  }, [onOpen, options.allowContentEditable]);
+  }, [
+    onOpen,
+    options.allowContentEditable,
+    options.shouldHandleContentEditable,
+  ]);
 }
 
 export type {

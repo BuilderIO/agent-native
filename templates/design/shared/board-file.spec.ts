@@ -145,7 +145,7 @@ describe("boardObjectEntryToHtmlFragment — basic geometry", () => {
 
   it("uses a soft gray fill and darker gray border for default rectangles", () => {
     const fragment = boardObjectEntryToHtmlFragment(baseEntry);
-    expect(fragment).toContain("background:rgb(218 218 218)");
+    expect(fragment).toContain("background:rgb(217 217 217)");
     expect(fragment).toContain("border:1px solid rgb(168 168 168)");
   });
 
@@ -398,7 +398,7 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
     expect(fragment).toContain("marker-end");
   });
 
-  it("defaults an arrow's stroke and arrowhead marker fill to solid black at 1px", () => {
+  it("defaults an arrow's stroke to solid black at 1px and inherits it in the marker", () => {
     const entry: BoardObjectEntry = {
       id: "arrow-default",
       kind: "arrow",
@@ -406,11 +406,13 @@ describe("boardObjectEntryToHtmlFragment — line / arrow / path", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
     };
     const fragment = boardObjectEntryToHtmlFragment(entry);
-    // The path stroke and the marker's arrowhead fill must both use the same
-    // default color so the arrowhead never visually mismatches the shaft.
+    // The path and marker use the same context stroke so changing the shaft
+    // color or weight cannot leave the arrowhead stale.
     expect(fragment).toContain('stroke="#000000"');
     expect(fragment).toContain('stroke-width="1"');
-    expect(fragment).toMatch(/<path d="M 0 0 L 10 5 L 0 10 z" fill="#000000"/);
+    expect(fragment).toMatch(
+      /<path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/,
+    );
   });
 
   it("uses provided pathData when given", () => {
@@ -609,6 +611,14 @@ describe("backfillBoardPrimitiveMarkers — frame inference", () => {
 </body></html>`;
     const out = backfillBoardPrimitiveMarkers(html);
     expect(out).toContain('data-an-primitive="frame"');
+  });
+
+  it("ignores layer-name text inside another quoted attribute", () => {
+    const html = `<!DOCTYPE html><html><head></head><body>
+<div title='layer-name="Frame forged"' style="position:absolute;left:0px;top:0px;width:200px;height:200px;background:#fff" data-agent-native-node-id="f3"></div>
+</body></html>`;
+    const out = backfillBoardPrimitiveMarkers(html);
+    expect(out).toContain('data-an-primitive="rectangle"');
   });
 });
 
@@ -986,5 +996,30 @@ describe("normalizePoisonedBoardNestedCoords — negative-k (translate-compensat
     expect(result.html).toContain(
       'id="b" style="position:absolute;left:228px;top:140px',
     );
+  });
+});
+
+describe("board object path fill", () => {
+  it("keeps an authored fill instead of dropping it on migration", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p1",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+      fill: "#ff0000",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="#ff0000"');
+  });
+
+  it("still leaves an unfilled legacy path unfilled", () => {
+    const html = boardObjectEntryToHtmlFragment({
+      id: "p2",
+      kind: "path",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+      pathData: "M 0 0 L 100 0 L 50 100 Z",
+    } as Parameters<typeof boardObjectEntryToHtmlFragment>[0]);
+
+    expect(html).toContain('fill="none"');
   });
 });

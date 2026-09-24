@@ -84,7 +84,7 @@ function useCodeModeInternal(apiBase: string): {
       setIsLoading(false);
       return;
     }
-    fetchCodeMode(apiBase).then((val) => {
+    void fetchCodeMode(apiBase).then((val) => {
       setState(val);
       setIsLoading(false);
     });

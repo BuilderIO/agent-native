@@ -4,6 +4,11 @@ import {
   findSlideExportSource,
   preloadImagesWithCors,
 } from "./export-pdf-client";
+import {
+  type FontMetrics,
+  retargetPptxForGoogleSlides,
+  WRAP_MARK,
+} from "./pptx-google-slides";
 
 interface PptxExportSlide {
   id: string;
@@ -263,7 +268,10 @@ function createUnscaledExportClone(
 ) {
   const sourceRect = source.getBoundingClientRect();
   const imageGeometry = collectImageGeometry(source);
-  const textGeometry = collectTextGeometry(source);
+  const textGeometry = collectTextGeometry(source, {
+    x: sourceRect.width / dims.width || 1,
+    y: sourceRect.height / dims.height || 1,
+  });
   const positionedGeometry = collectPositionedGeometry(source);
 
   const stage = document.createElement("div");
@@ -421,7 +429,19 @@ function collectImageGeometry(root: HTMLElement) {
   );
 }
 
-function collectTextGeometry(root: HTMLElement) {
+/**
+ * `slideScale` is how much the whole slide canvas is scaled on the page. The
+ * export reads the active slide at the editor's zoom and every other slide from
+ * its sidebar thumbnail, so a text element's own rect-to-layout ratio is mostly
+ * that page scale; only what is left after dividing it out is a real transform
+ * inside the slide, such as autofit. Using the raw ratio shrank every
+ * non-active slide's type to thumbnail size and flagged its paragraphs as
+ * single lines.
+ */
+function collectTextGeometry(
+  root: HTMLElement,
+  slideScale: { x: number; y: number },
+) {
   return Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,p,div"))
     .filter(isTextGeometryCandidate)
     .flatMap((element): TextGeometryRecord[] => {
@@ -446,9 +466,9 @@ function collectTextGeometry(root: HTMLElement) {
           path,
           position: style.position,
           rect,
-          scaleX: rect.width / Math.max(1, layoutWidth),
-          scaleY: rect.height / Math.max(1, layoutHeight),
-          singleLine: rect.height <= lineHeight * 1.35,
+          scaleX: rect.width / Math.max(1, layoutWidth) / slideScale.x,
+          scaleY: rect.height / Math.max(1, layoutHeight) / slideScale.y,
+          singleLine: rect.height / slideScale.y <= lineHeight * 1.35,
         },
       ];
     });
@@ -681,6 +701,53 @@ function restoreImageGeometry(
   }
 }
 
+/**
+ * Grows a text box to `width` without moving anything around it. The extra
+ * width comes back out of the margin on the side the text is aligned away
+ * from, so the element keeps its footprint in flow, flex and grid layout and
+ * its text stays where it was drawn. Setting the width alone grew grid tracks
+ * and slid every later column of a table sideways in the export, after
+ * `restoreTextGeometry` had already pinned positions from the old layout.
+ */
+export function widenInPlace(element: HTMLElement, width: number) {
+  const rect = element.getBoundingClientRect();
+  const extra = width - rect.width;
+  if (!(extra > 0)) return;
+  const style = window.getComputedStyle(element);
+  const rightToLeft = style.direction === "rtl";
+  const align =
+    style.textAlign === "start" || style.textAlign === "justify"
+      ? rightToLeft
+        ? "right"
+        : "left"
+      : style.textAlign === "end"
+        ? rightToLeft
+          ? "left"
+          : "right"
+        : style.textAlign;
+  const share =
+    align === "center" || align === "-webkit-center"
+      ? 0.5
+      : align === "right"
+        ? 1
+        : 0;
+  const marginLeft = Number.parseFloat(style.marginLeft) || 0;
+  const marginRight = Number.parseFloat(style.marginRight) || 0;
+  element.style.boxSizing = "border-box";
+  element.style.maxWidth = "none";
+  element.style.width = `${width}px`;
+  element.style.marginLeft = `${marginLeft - extra * share}px`;
+  element.style.marginRight = `${marginRight - extra * (1 - share)}px`;
+  // Chrome reports a grid item's auto margins as 0px, so pinning them in
+  // pixels drops the centring they applied; move the box back by what it drifted.
+  const drift =
+    element.getBoundingClientRect().left - (rect.left - extra * share);
+  if (Math.abs(drift) > 0.5) {
+    element.style.marginLeft = `${marginLeft - extra * share - drift}px`;
+    element.style.marginRight = `${marginRight - extra * (1 - share) + drift}px`;
+  }
+}
+
 function normalizeSingleLineText(
   clone: HTMLElement,
   records: TextGeometryRecord[],
@@ -695,21 +762,31 @@ function normalizeSingleLineText(
     if (!rect.width || !rect.height) continue;
 
     element.dataset.exportSingleLineText = "true";
-    if (element.dataset.exportTextGeometry === "true") continue;
     element.style.boxSizing = "border-box";
     element.style.whiteSpace = noWrapWhiteSpace(element);
     if (record.heading) {
-      element.style.maxWidth = "none";
-      element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
+      widenInPlace(
+        element,
+        Math.max(rect.width, Math.ceil(cloneRect.right - rect.left)),
+      );
       continue;
     }
 
+    // Headroom, not decoration. `restoreTextGeometry` writes each box at the
+    // width Chrome measured for this exact font, and the receiving app never
+    // has those metrics — PowerPoint substitutes a missing face, and Google
+    // Slides drops `wrap="none"` outright and re-wraps at whatever width the
+    // box states. A line that fits by one pixel here becomes two lines there.
+    // This ran on nothing before: `restoreTextGeometry` marks every element it
+    // touches with `exportTextGeometry`, and the early return above that mark
+    // meant the geometry-restored boxes — which is all of them — kept a
+    // zero-slack width.
     const buffer = Math.max(24, rect.width * 0.25);
     const available = Math.max(rect.width, cloneRect.right - rect.left);
-    element.style.width = `${Math.max(
-      1,
-      Math.ceil(Math.min(rect.width + buffer, available)),
-    )}px`;
+    widenInPlace(
+      element,
+      Math.max(1, Math.ceil(Math.min(rect.width + buffer, available))),
+    );
   }
 }
 
@@ -917,6 +994,288 @@ export async function patchBulletIndentsInPptxBlob(
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
   });
+}
+
+/**
+ * How long to wait for one family's CSS before giving up on embedding it.
+ * The export must not be held hostage by a font CDN — a substituted face is a
+ * downgrade, a hung download is a broken feature.
+ */
+const FONT_RESOLVE_TIMEOUT_MS = 4_000;
+
+/** A family the deck actually renders with, paired with the roman font files to embed for it. */
+interface ResolvedExportFont {
+  name: string;
+  urls: string[];
+}
+
+/**
+ * Families the export clones actually paint text with, first-in-stack the way
+ * dom-to-pptx reads them, ordered by how much text each one sets.
+ *
+ * The order matters: the first entry becomes the theme font, so it has to be
+ * the family the deck is mostly written in rather than whichever element the
+ * walk happened to reach first.
+ */
+export function usedFontFamilies(roots: HTMLElement[]): string[] {
+  const weight = new Map<string, number>();
+  for (const root of roots) {
+    for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      if (!(node instanceof HTMLElement)) continue;
+      // A `<style>` block's CSS is a direct text node that inherits the slide's
+      // family, so a large stylesheet could outweigh every visible word and
+      // pick the theme font. Slide HTML is allowed to carry one.
+      if (NON_RENDERING_TAGS.has(node.tagName)) continue;
+      // Only text this element sets itself; a wrapper would otherwise count
+      // every descendant's characters toward its own family.
+      const own = Array.from(node.childNodes)
+        .filter((child) => child.nodeType === Node.TEXT_NODE)
+        .map((child) => child.nodeValue ?? "")
+        .join("")
+        .trim();
+      if (!own) continue;
+      const primary = window
+        .getComputedStyle(node)
+        .fontFamily.split(",")[0]
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (
+        !primary ||
+        primary.startsWith("-") ||
+        GENERIC_FAMILIES.has(primary)
+      ) {
+        continue;
+      }
+      weight.set(primary, (weight.get(primary) ?? 0) + own.length);
+    }
+  }
+  return Array.from(weight.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([family]) => family);
+}
+
+/** Elements whose text is source, not something the slide paints. */
+const NON_RENDERING_TAGS = new Set(["SCRIPT", "STYLE", "TEMPLATE", "TITLE"]);
+
+const GENERIC_FAMILIES = new Set([
+  "cursive",
+  "fantasy",
+  "monospace",
+  "sans-serif",
+  "serif",
+  "system-ui",
+  "ui-monospace",
+  "ui-rounded",
+  "ui-sans-serif",
+  "ui-serif",
+]);
+
+/**
+ * `src: url(...)` targets of the roman faces for one family, in document order.
+ *
+ * Italic faces are dropped deliberately. dom-to-pptx groups faces by family
+ * name alone and keeps the first one's glyphs for any codepoint
+ * (dist/dom-to-pptx.mjs merges `fonts[0]` then dedupes by unicode), and the
+ * Google Fonts `css2` response lists italics first — so handing it a family's
+ * full face list embeds the italic master and renders the whole deck slanted
+ * in PowerPoint.
+ */
+function romanFaceUrls(cssText: string, family: string): string[] {
+  const urls: string[] = [];
+  for (const block of cssText.split("@font-face")) {
+    if (!block.includes("font-family")) continue;
+    const name = block
+      .match(/font-family:\s*(?:"([^"]+)"|'([^']+)'|([^;]+))/)
+      ?.slice(1)
+      .find(Boolean)
+      ?.trim();
+    if (name !== family) continue;
+    if (/font-style:\s*italic/.test(block)) continue;
+    const url = block.match(/url\(\s*["']?([^"')]+)["']?\s*\)/)?.[1];
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
+/** Same-origin `@font-face` rules are the only ones the CSSOM will hand back; cross-origin sheets throw. */
+function localFaceUrls(family: string): string[] {
+  const urls: string[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules ?? undefined;
+    } catch {
+      // coercion-ok: a cross-origin sheet is unreadable by design. The Google
+      // Fonts fetch below is what covers those families, so this is a skip with
+      // a defined successor, not a swallowed failure.
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      if (!(rule instanceof CSSFontFaceRule)) continue;
+      const name = rule.style
+        .getPropertyValue("font-family")
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (name !== family) continue;
+      if (rule.style.getPropertyValue("font-style").trim() === "italic")
+        continue;
+      const url = rule.style
+        .getPropertyValue("src")
+        .match(/url\(\s*["']?([^"')]+)["']?\s*\)/)?.[1];
+      if (url) urls.push(url);
+    }
+  }
+  return urls;
+}
+
+/** Whether the page loaded this family as a web font, rather than resolving it from the system. */
+function isLoadedWebFont(family: string): boolean {
+  // `FontFaceSet` is iterable in browsers but not in every test DOM, so this
+  // reads it through the callback form and treats an absent set as "nothing
+  // loaded" — which skips embedding rather than guessing at it.
+  let found = false;
+  document.fonts?.forEach?.((face) => {
+    if (face.family.replace(/^["']|["']$/g, "") === family) found = true;
+  });
+  return found;
+}
+
+/**
+ * The font files to embed, for the families this deck actually paints with.
+ *
+ * dom-to-pptx's own `autoEmbedFonts` resolves families by walking
+ * `document.styleSheets`, and a cross-origin sheet throws `SecurityError`,
+ * which it catches and warns about. Every deck font that arrives through the
+ * design system's Google Fonts `<link>` is therefore invisible to it, while
+ * the app's own self-hosted Poppins is not — so it shipped 700KB of Poppins in
+ * a deck set in Geist, and declared `typeface="Poppins"` for a face nobody
+ * asked for. This resolves the same families deliberately: locally where the
+ * rules are readable, and straight from the Google Fonts CSS where they are
+ * not.
+ */
+async function resolveExportFonts(
+  roots: HTMLElement[],
+): Promise<ResolvedExportFont[]> {
+  const pending = usedFontFamilies(roots).map(
+    async (family): Promise<ResolvedExportFont | undefined> => {
+      const local = localFaceUrls(family);
+      if (local.length) return { name: family, urls: local };
+      // Only families the page actually loaded as a web font are worth
+      // fetching. Anything else is a system face (or absent, and already
+      // rendering as its fallback) — embedding it would ship a file that looks
+      // different from the deck the user is looking at, and would put a
+      // network round-trip in front of an export that does not need one.
+      if (!isLoadedWebFont(family)) return undefined;
+      try {
+        // A weight list, not a single pinned weight: css2 answers a lone
+        // `wght@400` with the VARIABLE font, which dom-to-pptx's reader
+        // rejects as "ttf file damaged". A list returns static instances it
+        // can parse. Every URL is merged into one font where the first file
+        // wins each codepoint, filling OOXML's single `<p:regular>` slot —
+        // PowerPoint synthesises bold from it, which is what the deck's
+        // `b="1"` runs ask for.
+        const href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(
+          family,
+        ).replace(/%20/g, "+")}:wght@400;500;600;700&display=swap`;
+        const response = await fetch(href, {
+          mode: "cors",
+          signal: AbortSignal.timeout(FONT_RESOLVE_TIMEOUT_MS),
+        });
+        if (!response.ok) return undefined;
+        const urls = romanFaceUrls(await response.text(), family);
+        if (!urls.length) return undefined;
+        return { name: family, urls };
+      } catch (err) {
+        // A family we cannot resolve is one the receiving app substitutes —
+        // a visible downgrade, and exactly what happened before this resolver
+        // existed. Never a reason to hold the export: an export that hangs on
+        // a slow font CDN is worse than one that ships with a substituted
+        // face, so this degrades and says so rather than waiting.
+        console.warn(
+          `[export-pptx] could not resolve "${family}" for embedding; the receiving app will substitute it`,
+          err,
+        );
+        return undefined;
+      }
+    },
+  );
+  // Concurrently and bounded: font resolution is an enhancement on the way to
+  // a file the user is waiting for, never a gate in front of it.
+  return (await Promise.all(pending)).filter(
+    (font): font is ResolvedExportFont => font !== undefined,
+  );
+}
+
+/**
+ * Rewrites every text body so a Google Slides import cannot re-fit it.
+ *
+ * dom-to-pptx derives `wrap` from the clone's computed `white-space`
+ * (dist/dom-to-pptx.mjs `wrap: !(style.whiteSpace === "nowrap" || ...)`) and
+ * hardcodes `autoFit: true`, so single-line text ships as
+ * `wrap="none"` + `<a:spAutoFit/>`. PowerPoint honours both and the slide is
+ * fine. Google Slides has no text-wrap property at all — its shape model
+ * simply has no such field — so `wrap="none"` is dropped on import and the
+ * text rewraps inside a box whose width Chrome measured for one unbroken
+ * line. `spAutoFit` it *does* honour, as "resize shape to fit text", so the
+ * shape then grows downward over whatever sits beneath it. That pair is what
+ * turns a correct deck into overlapping text one import later.
+ *
+ * Both are fixed in the emitted XML rather than upstream, next to the two
+ * passes that already rewrite it. Wrapping is made explicit so the box holds
+ * its measured width, and autofit is switched off so the box holds its
+ * measured height; `normalizeSingleLineText` gives single-line boxes the
+ * headroom that keeps them on one line under either renderer's metrics.
+ */
+export async function pinTextBoxesForImport(
+  blob: Blob,
+  themeFont?: string,
+): Promise<Blob> {
+  const { default: JSZip } = await importExportModule(() => import("jszip"));
+  const zip = await JSZip.loadAsync(blob);
+
+  const slideNames = Object.keys(zip.files).filter((name) =>
+    /^ppt\/slides\/slide\d+\.xml$/.test(name),
+  );
+  for (const name of slideNames) {
+    const xml = await zip.file(name)!.async("string");
+    zip.file(name, pinTextBoxesInXml(xml));
+  }
+
+  // pptxgenjs writes a stock Calibri theme. Any run that inherits from it —
+  // `+mj-lt`/`+mn-lt` rather than a literal typeface — lands on a font this
+  // deck never used, and Calibri is not a Google Font, so Slides substitutes
+  // it a second time on its own terms. Point the theme at the deck's own
+  // family so inherited text falls where the rest of the text falls.
+  if (themeFont) {
+    for (const name of Object.keys(zip.files).filter((file) =>
+      /^ppt\/theme\/theme\d+\.xml$/.test(file),
+    )) {
+      const xml = await zip.file(name)!.async("string");
+      zip.file(name, retypeThemeFonts(xml, themeFont));
+    }
+  }
+
+  return zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+}
+
+/** Repoints a theme's latin major/minor typefaces at the deck's own family. */
+export function retypeThemeFonts(xml: string, family: string): string {
+  const escaped = family.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return xml.replace(
+    /(<a:(?:majorFont|minorFont)>\s*<a:latin typeface=")[^"]*"/g,
+    `$1${escaped}"`,
+  );
+}
+
+/** The XML half of `pinTextBoxesForImport`, split out so it can be tested without a zip. */
+export function pinTextBoxesInXml(xml: string): string {
+  return xml
+    .replace(/(<a:bodyPr\b[^>]*?)\swrap="none"/g, '$1 wrap="square"')
+    .replace(/<a:spAutoFit\s*\/>/g, "<a:noAutofit/>");
 }
 
 /** Placement on the page; inside a standalone raster it is drawn a second time. */
@@ -1273,6 +1632,120 @@ export function materializeClipPathShapes(root: HTMLElement) {
   }
 }
 
+const BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+const BORDER_CORNERS = [
+  "top-left",
+  "top-right",
+  "bottom-right",
+  "bottom-left",
+] as const;
+const TRANSPARENT_COLOR = /^(?:transparent|rgba\([^)]*,\s*0(?:\.0+)?\))$/;
+
+/**
+ * Redraws a border whose sides differ as boxes of its own.
+ *
+ * dom-to-pptx calls any border that is not identical on all four sides
+ * `composite` (`getBorderInfo`) and lays an SVG picture over the shape, so a
+ * table rule or a divider reaches Slides as an image nobody can edit. Each
+ * side's width moves into that side's padding, which is neutral under either
+ * `box-sizing`, so the boxes the geometry passes pinned stay where they are.
+ */
+export function materializeCompositeBorders(root: HTMLElement) {
+  // The slide root carries its own border into the export, and is not part of
+  // its own `querySelectorAll`.
+  for (const element of [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>("*")),
+  ]) {
+    const style = window.getComputedStyle(element);
+    const edges = BORDER_SIDES.map((side) => ({
+      color: style.getPropertyValue(`border-${side}-color`),
+      side,
+      stroke: style.getPropertyValue(`border-${side}-style`),
+      width: computedLength(style.getPropertyValue(`border-${side}-width`), 0),
+    }));
+    const [first] = edges;
+    if (!edges.some((edge) => edge.width > 0)) continue;
+    if (
+      edges.every(
+        (edge) =>
+          edge.width === first.width &&
+          edge.stroke === first.stroke &&
+          edge.color === first.color,
+      )
+    ) {
+      continue;
+    }
+    // A dashed rule keeps its picture: a plain box would redraw it solid.
+    if (edges.some((edge) => edge.width > 0 && edge.stroke !== "solid")) {
+      continue;
+    }
+    // Rounded corners would come back square.
+    if (
+      BORDER_CORNERS.some(
+        (corner) =>
+          computedLength(style.getPropertyValue(`border-${corner}-radius`), 0) >
+          0,
+      )
+    ) {
+      continue;
+    }
+    // CSS mitres the corner where two sides meet, and two bars would simply
+    // stack there, so a border with a real join keeps its picture.
+    if (
+      edges.some((edge, index) => {
+        const next = edges[(index + 1) % edges.length];
+        return (
+          edge.width > 0 &&
+          next.width > 0 &&
+          (edge.width !== next.width || edge.color !== next.color)
+        );
+      })
+    ) {
+      continue;
+    }
+    // A border moved into the padding grows the padding box, which is the
+    // containing block anything inside is positioned against — and making a
+    // static box relative would hand it descendants it never held.
+    const positioned = Array.from(
+      element.querySelectorAll<HTMLElement>("*"),
+    ).some((child) => {
+      const position = window.getComputedStyle(child).position;
+      return position === "absolute" || position === "fixed";
+    });
+    if (positioned) continue;
+    if (style.position === "static") element.style.position = "relative";
+
+    for (const edge of edges) {
+      if (!(edge.width > 0)) continue;
+      const padding = computedLength(
+        style.getPropertyValue(`padding-${edge.side}`),
+        0,
+      );
+      element.style.setProperty(
+        `padding-${edge.side}`,
+        `${padding + edge.width}px`,
+      );
+      element.style.setProperty(`border-${edge.side}-width`, "0");
+      if (TRANSPARENT_COLOR.test(edge.color)) continue;
+      const bar = element.ownerDocument.createElement("div");
+      bar.style.position = "absolute";
+      bar.style.backgroundColor = edge.color;
+      bar.style.setProperty(edge.side, "0");
+      if (edge.side === "top" || edge.side === "bottom") {
+        bar.style.left = "0";
+        bar.style.right = "0";
+        bar.style.height = `${edge.width}px`;
+      } else {
+        bar.style.top = "0";
+        bar.style.bottom = "0";
+        bar.style.width = `${edge.width}px`;
+      }
+      element.append(bar);
+    }
+  }
+}
+
 /**
  * Rasterize every inline `<svg>` in place, and return how many came back with
  * nothing painted. A blank bitmap is a shape that vanished from the deck, so
@@ -1465,11 +1938,10 @@ function widenNoWrapTextElements(root: HTMLElement) {
     const rect = element.getBoundingClientRect();
     if (!rect.width || !rect.height) continue;
     const buffer = Math.max(24, rect.width * 0.25);
-    element.style.boxSizing = "border-box";
     if (style.display === "inline") {
       element.style.display = "inline-block";
     }
-    element.style.width = `${Math.ceil(rect.width + buffer)}px`;
+    widenInPlace(element, Math.ceil(rect.width + buffer));
   }
 }
 
@@ -1561,10 +2033,270 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
   slideRoot.style.backgroundRepeat = "no-repeat";
 }
 
+/** The app a PPTX is built for. Google Slides lays text out on its own terms; see `pptx-google-slides.ts`. */
+export type PptxExportTarget = "powerpoint" | "google-slides";
+
+/**
+ * Ascent and descent, in em, of each family the clones paint text with — the
+ * metrics Chrome centres each line's leading around. Families it cannot
+ * measure are left out, and their boxes keep their measured position.
+ */
+function measureFontMetrics(roots: HTMLElement[]): Record<string, FontMetrics> {
+  const context = document.createElement("canvas").getContext?.("2d");
+  if (!context || typeof context.measureText !== "function") return {};
+  const metrics: Record<string, FontMetrics> = {};
+  for (const family of usedFontFamilies(roots)) {
+    context.font = `100px "${family.replace(/["\\]/g, "\\$&")}"`;
+    const { fontBoundingBoxAscent, fontBoundingBoxDescent } =
+      context.measureText("Hg");
+    if (fontBoundingBoxAscent > 0 && fontBoundingBoxDescent >= 0) {
+      metrics[family] = {
+        ascent: fontBoundingBoxAscent / 100,
+        descent: fontBoundingBoxDescent / 100,
+      };
+    }
+  }
+  return metrics;
+}
+
+const FONT_PROBE_TEXT = "mmmmmmmmmmlli 0123 WwQq";
+
+/** Concrete faces for generic families, which name nothing a receiving app can set. */
+const GENERIC_EXPORT_FACES: Record<string, string> = {
+  "sans-serif": "Arial",
+  "system-ui": "Arial",
+  "ui-sans-serif": "Arial",
+  "ui-rounded": "Arial",
+  "-apple-system": "Arial",
+  blinkmacsystemfont: "Arial",
+  serif: "Times New Roman",
+  "ui-serif": "Times New Roman",
+  monospace: "Courier New",
+  "ui-monospace": "Courier New",
+};
+
+/** Metric-compatible stand-ins for system faces Google Slides does not serve. */
+const GOOGLE_SLIDES_FACE_EQUIVALENTS: Record<string, string> = {
+  helvetica: "Arial",
+  "helvetica neue": "Arial",
+  "segoe ui": "Arial",
+  "sf pro": "Arial",
+  "sf pro text": "Arial",
+  "sf pro display": "Arial",
+  times: "Times New Roman",
+  courier: "Courier New",
+  menlo: "Courier New",
+  monaco: "Courier New",
+  consolas: "Courier New",
+  "sf mono": "Courier New",
+};
+
+/**
+ * Whether Chrome is painting a family rather than falling through to the next
+ * face in the stack — undefined when this document cannot measure text, which
+ * is not the same as "every family is missing".
+ */
+function createFontRenderProbe(): ((family: string) => boolean) | undefined {
+  const context = document.createElement("canvas").getContext?.("2d");
+  if (!context || typeof context.measureText !== "function") return undefined;
+  const width = (font: string) => {
+    context.font = font;
+    return context.measureText(FONT_PROBE_TEXT).width;
+  };
+  if (width("72px monospace") === width("72px serif")) return undefined;
+  const cache = new Map<string, boolean>();
+  return (family) => {
+    const key = family.toLowerCase();
+    if (key in GENERIC_EXPORT_FACES) return true;
+    let rendered = cache.get(key);
+    if (rendered === undefined) {
+      const quoted = `"${family.replace(/["\\]/g, "\\$&")}"`;
+      rendered = ["monospace", "serif"].some(
+        (generic) =>
+          width(`72px ${quoted}, ${generic}`) !== width(`72px ${generic}`),
+      );
+      cache.set(key, rendered);
+    }
+    return rendered;
+  };
+}
+
+/**
+ * Names, on every text element, the face Chrome actually paints it with.
+ *
+ * Agent-written slides ask for `font-family: Inter, sans-serif`, and unless the
+ * viewer has Inter the slide is set in the fallback. dom-to-pptx declares the
+ * first family in the stack regardless, so the file said Inter for text Chrome
+ * measured in Helvetica, and Google Slides — which does serve Inter — set every
+ * line wider than the box it was measured into.
+ */
+export function pinRenderedFontFamilies(
+  root: HTMLElement,
+  target: PptxExportTarget,
+) {
+  const isRendered = createFontRenderProbe();
+  if (!isRendered) return;
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    if (!(element instanceof HTMLElement)) continue;
+    if (NON_RENDERING_TAGS.has(element.tagName)) continue;
+    const ownText = Array.from(element.childNodes).some(
+      (child) => child.nodeType === Node.TEXT_NODE && child.nodeValue?.trim(),
+    );
+    if (!ownText) continue;
+    const stack = window
+      .getComputedStyle(element)
+      .fontFamily.split(",")
+      .map((family) => family.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+    const painted = stack.find((family) => isRendered(family));
+    if (!painted) continue;
+    const key = painted.toLowerCase();
+    const face =
+      GENERIC_EXPORT_FACES[key] ??
+      (target === "google-slides"
+        ? GOOGLE_SLIDES_FACE_EQUIVALENTS[key]
+        : undefined) ??
+      painted;
+    if (face !== stack[0]) element.style.fontFamily = `"${face}"`;
+  }
+}
+
+function hasRotatedAncestor(
+  element: Element,
+  root: HTMLElement,
+  cache: Map<Element, boolean>,
+): boolean {
+  const cached = cache.get(element);
+  if (cached !== undefined) return cached;
+  const transform = window.getComputedStyle(element).transform;
+  const matrix = transform.match(/^matrix\(([^)]*)\)$/)?.[1].split(",");
+  const rotated =
+    (matrix !== undefined &&
+      (Math.abs(Number(matrix[1])) > 1e-6 ||
+        Math.abs(Number(matrix[2])) > 1e-6)) ||
+    transform.startsWith("matrix3d") ||
+    (element !== root &&
+      element.parentElement !== null &&
+      hasRotatedAncestor(element.parentElement, root, cache));
+  cache.set(element, rotated);
+  return rotated;
+}
+
+const PRESERVED_NEWLINE_WHITE_SPACE = /^(pre|pre-wrap|pre-line|break-spaces)$/;
+
+/**
+ * Marks each place Chrome wrapped a line inside a block with `WRAP_MARK`, so the
+ * Google Slides build can pin the break rather than let Slides choose its own.
+ * A line that starts after a `<br>`, a preserved newline, or a nested block is
+ * already its own paragraph in dom-to-pptx and is left unmarked.
+ */
+export function markWrappedLines(root: HTMLElement): number {
+  const displays = new Map<Element, string>();
+  const display = (element: Element) => {
+    let value = displays.get(element);
+    if (value === undefined) {
+      value = window.getComputedStyle(element).display;
+      displays.set(element, value);
+    }
+    return value;
+  };
+  const containerOf = (node: Node): Element => {
+    let element = node.parentElement;
+    while (
+      element &&
+      element !== root &&
+      (display(element) === "inline" || display(element) === "contents")
+    ) {
+      element = element.parentElement;
+    }
+    return element ?? root;
+  };
+
+  const rotation = new Map<Element, boolean>();
+  const lineBottoms = new Map<Element, number>();
+  // A tall inline run can reach below the centres of the next line's glyphs,
+  // so a glyph that lands below the one before it and back toward the side
+  // lines start on also starts a line.
+  const previousGlyphs = new Map<Element, DOMRect>();
+  const marks: Array<{ node: Text; offset: number }> = [];
+  const range = document.createRange();
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+  );
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof Element) {
+      const value = display(node);
+      if (
+        node.tagName === "BR" ||
+        (value !== "inline" && value !== "contents")
+      ) {
+        const container = containerOf(node);
+        lineBottoms.delete(container);
+        previousGlyphs.delete(container);
+      }
+      continue;
+    }
+    if (!(node instanceof Text)) continue;
+    const parent = node.parentElement;
+    if (!parent || NON_RENDERING_TAGS.has(parent.tagName)) continue;
+    // The export stage itself is aria-hidden, so only a hidden subtree inside
+    // the slide counts.
+    const hidden = parent.closest('[aria-hidden="true"]');
+    if (hidden && hidden !== root && root.contains(hidden)) continue;
+    const container = containerOf(node);
+    if (hasRotatedAncestor(container, root, rotation)) continue;
+    const keepsNewlines = PRESERVED_NEWLINE_WHITE_SPACE.test(
+      window.getComputedStyle(parent).whiteSpace,
+    );
+    const rightToLeft = window.getComputedStyle(container).direction === "rtl";
+    const text = node.data;
+    for (let offset = 0; offset < text.length; offset++) {
+      const character = text[offset];
+      if (character === "\n" && keepsNewlines) {
+        lineBottoms.delete(container);
+        previousGlyphs.delete(container);
+        continue;
+      }
+      if (/\s/.test(character)) continue;
+      range.setStart(node, offset);
+      range.setEnd(node, offset + 1);
+      const rect = range.getClientRects()[0];
+      if (!rect || (!rect.width && !rect.height)) continue;
+      const bottom = lineBottoms.get(container);
+      const previous = previousGlyphs.get(container);
+      const wrapped =
+        bottom !== undefined &&
+        (rect.top + rect.height / 2 > bottom ||
+          (previous !== undefined &&
+            rect.top > previous.top + 0.5 &&
+            (rightToLeft
+              ? rect.right > previous.right + 0.5
+              : rect.left < previous.left - 0.5)));
+      if (wrapped) {
+        marks.push({ node, offset });
+        lineBottoms.set(container, rect.bottom);
+      } else {
+        lineBottoms.set(
+          container,
+          Math.max(bottom ?? rect.bottom, rect.bottom),
+        );
+      }
+      previousGlyphs.set(container, rect);
+    }
+  }
+  // Last offset first, so an insertion never shifts one still to be made.
+  for (const { node, offset } of marks.reverse()) {
+    node.insertData(offset, WRAP_MARK);
+  }
+  return marks.length;
+}
+
 export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
+  { target = "powerpoint" }: { target?: PptxExportTarget } = {},
 ): Promise<{ blob: Blob; filename: string; blankShapes: number }> {
   const { exportToPptx } = await importExportModule(
     () => import("dom-to-pptx"),
@@ -1622,33 +2354,53 @@ export async function buildDeckPptxBlob(
       // Runs after that restore, which re-applies each image's own measured
       // box — the uncropped one — and would undo the crop.
       await flattenCroppedImages(clone.element);
+      materializeCompositeBorders(clone.element);
       // Runs last: it prepends a child to the slide root, which shifts every
       // child index the geometry passes above resolve their recorded paths
       // through.
       materializeImportedBackgroundGrid(clone.element);
+      pinRenderedFontFamilies(clone.element, target);
+      // After the font swap, so the marked breaks are the ones the declared
+      // face produces.
+      if (target === "google-slides") markWrappedLines(clone.element);
     }
 
-    const initialBlob = await exportToPptx(
-      exportClones.map((clone) => clone.element),
-      {
-        autoEmbedFonts: true,
-        fileName: safePptxName(deckTitle),
-        height: dims.pptxInches.h,
-        skipDownload: true,
-        svgAsVector: false,
-        width: dims.pptxInches.w,
-      },
-    );
+    // `autoEmbedFonts` is off because it cannot see this deck's fonts and
+    // confidently embeds the wrong one instead; `fonts` is merged into the same
+    // map when it is on, so leaving it enabled would put Poppins straight back.
+    const cloneElements = exportClones.map((clone) => clone.element);
+    // The theme font is the family the deck is mostly set in, whether or not
+    // we can embed it: a deck whose body is a system font and whose caption is
+    // a web font would otherwise retype the theme to the caption's family.
+    const [dominantFamily] = usedFontFamilies(cloneElements);
+    const fonts = await resolveExportFonts(cloneElements);
+    const initialBlob = await exportToPptx(cloneElements, {
+      autoEmbedFonts: false,
+      fonts,
+      fileName: safePptxName(deckTitle),
+      height: dims.pptxInches.h,
+      skipDownload: true,
+      svgAsVector: false,
+      width: dims.pptxInches.w,
+    });
 
+    const pinnedBlob = await pinTextBoxesForImport(initialBlob, dominantFamily);
     const bulletPatchedBlob = await patchBulletIndentsInPptxBlob(
-      initialBlob,
+      pinnedBlob,
       slideBulletIndents,
     );
-    const blob = await addSpeakerNotesToPptxBlob(
+    const notedBlob = await addSpeakerNotesToPptxBlob(
       bulletPatchedBlob,
       slides,
       dims.pptxInches,
     );
+    const blob =
+      target === "google-slides"
+        ? await retargetPptxForGoogleSlides(
+            notedBlob,
+            measureFontMetrics(cloneElements),
+          )
+        : notedBlob;
     if (blankShapes > 0) {
       console.warn(
         `[export-pptx] ${blankShapes} shape(s) rendered empty and are missing from ${deckTitle}`,

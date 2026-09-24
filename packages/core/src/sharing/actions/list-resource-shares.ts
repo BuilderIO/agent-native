@@ -108,7 +108,13 @@ export default defineAction({
 
     const db = reg.getDb() as any;
     const shares = await db
-      .select()
+      .select({
+        id: reg.sharesTable.id,
+        principalType: reg.sharesTable.principalType,
+        principalId: reg.sharesTable.principalId,
+        role: reg.sharesTable.role,
+        createdAt: reg.sharesTable.createdAt,
+      })
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);

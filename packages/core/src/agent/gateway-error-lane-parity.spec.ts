@@ -292,6 +292,8 @@ const COVERED_ELSEWHERE: Record<string, string> = {
     "Needs run-manager's SQL mocks; proved in run-manager.spec.ts ('keeps a truncated gateway stream out of Sentry').",
   startRun:
     "Its `classifyTerminalErrorCode` is the persistence fallback for an error event with NO code, which the invariant below forbids for a gateway stop.",
+  rateLimitChainCapTerminalEvent:
+    "Reaches no verdict: it rewrites an already-classified terminal error into the `provider_rate_limited` shape. The cap decision it serves (`rateLimitChainCapTripped`) is proved in production-agent.spec.ts.",
 };
 
 interface ClassifierInput {

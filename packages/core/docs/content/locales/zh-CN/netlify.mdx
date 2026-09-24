@@ -5,7 +5,7 @@ description: "使用 Netlify Nitro 预设将代理本机应用部署到 Netlify,
 
 # Netlify
 
-Nitro 的 `netlify` 预设效果很好,在实践中,对于与外部 Postgres(Neon)通信的模板,它带来的冷启动比 Cloudflare Pages 快得多(TTFB 约 200 毫秒,而后者约 9 秒)。可以在 `vite.config.ts` 中设置预设:
+Nitro 的 `netlify` 预设效果很好,在实践中,对于与外部 Postgres(Neon)通信的模板,它带来的冷启动比 Cloudflare Pages 快得多(TTFB 约 200 毫秒,而后者约 9 秒)。对于生成脚手架之外的最小配置，请在 `vite.config.ts` 中这样设置预设：
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,22 @@ export default defineConfig({
 });
 ```
 
+生成的 Chat scaffold 仍然导入 `agentNative`。配置会通过类型断言将它赋给本地别名
+`agentNativePlugins`，再展开返回的插件数组，以匹配 Vite 软件包类型。该别名接受与上方
+`agentNative` 示例相同的选项。要将此 scaffold 部署到 Netlify，请在现有
+`agentNativePlugins({ ... })` 调用的选项中添加 `nitro: { preset: "netlify" }`。保留其他
+Chat 专用插件、选项和别名。
+
 ……或者在构建时设置 `NITRO_PRESET=netlify`。
+
+对于独立应用，请构建 Netlify 输出并部署静态资源和函数：
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+首次生产部署前，请在 Netlify 站点环境变量中设置 `DATABASE_URL` 和稳定的 `BETTER_AUTH_SECRET`。不要依赖本地开发使用的 PGlite 数据库；`DATABASE_URL` 必须指向部署函数可以访问的持久 PostgreSQL 数据库。
 
 对于工作区,通过运行以下命令从同一个 Netlify 站点部署每个应用:
 

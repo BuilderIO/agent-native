@@ -20,7 +20,7 @@ export interface SuggestAutoLayoutArgs {
   designSourceType: "inline" | "localhost" | "fusion";
   getActiveFileSelectedNodeIds: (content: string) => string[];
   getFreshActiveContent: () => string;
-  liveComputedLayoutForNode: (nodeId: string) => {
+  liveComputedLayoutForNode: (node: CodeLayerNode) => {
     display: string;
     transform: string;
     rotate: string;
@@ -71,7 +71,12 @@ export function runSuggestAutoLayout({
     toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
     return;
   }
-  const projection = buildCodeLayerProjection(sourceContent);
+  const projection = buildCodeLayerProjection(sourceContent, {
+    source:
+      sourceType === "localhost"
+        ? { kind: "inline-html", fileId: activeFile.id }
+        : { kind: "design-file", fileId: activeFile.id },
+  });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedIds = getActiveFileSelectedNodeIds(sourceContent);
   if (selectedIds.length !== 1) {
@@ -88,7 +93,7 @@ export function runSuggestAutoLayout({
     .map((childId) => nodesById.get(childId))
     .filter((child): child is CodeLayerNode => Boolean(child))
     .map((child) => {
-      const computed = liveComputedLayoutForNode(child.id);
+      const computed = liveComputedLayoutForNode(child);
       return {
         ...rectFromCodeLayerNode(child),
         transformed: hasMeaningfulCssTransform({

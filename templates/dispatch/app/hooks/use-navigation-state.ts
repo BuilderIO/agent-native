@@ -20,6 +20,7 @@ export interface NavigationState {
   dreamId?: string;
   sourceId?: string;
   query?: string;
+  automationId?: string;
   operationsView?: "monitoring" | "database";
 }
 
@@ -99,6 +100,11 @@ export function buildDispatchNavigationState(
     const params = new URLSearchParams(search);
     state.operationsView =
       params.get("view") === "database" ? "database" : "monitoring";
+  }
+
+  if (state.view === "automations") {
+    const automationId = new URLSearchParams(search).get("automationId");
+    if (automationId) state.automationId = automationId;
   }
 
   return state;

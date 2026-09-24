@@ -1,7 +1,11 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 
 import type { AspectRatio } from "./aspect-ratios";
 import { buildDeckPptxBlob } from "./export-pptx-client";
+import { retargetPptxForGoogleSlides } from "./pptx-google-slides";
 
 interface GoogleSlidesExportSlide {
   id: string;
@@ -18,6 +22,29 @@ export type GoogleSlidesExportResult =
 export interface DeckPptxFile {
   blob: Blob;
   filename: string;
+}
+
+async function googleDriveIsConnected(): Promise<boolean> {
+  const response = await fetch(
+    new URL(
+      agentNativePath("/_agent-native/google-docs/status"),
+      window.location.origin,
+    ),
+    { credentials: "same-origin" },
+  );
+  const payload = (await response.json()) as {
+    connected?: boolean;
+    error?: string;
+    message?: string;
+  } | null;
+  if (!response.ok || !payload || typeof payload.connected !== "boolean") {
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        `Could not check Google Drive (${response.status})`,
+    );
+  }
+  return payload.connected === true;
 }
 
 /**
@@ -79,9 +106,22 @@ export async function exportDeckToGoogleSlides(
    */
   buildPptx?: () => Promise<DeckPptxFile>,
 ): Promise<GoogleSlidesExportResult> {
-  const { blob, filename } = await (buildPptx
-    ? buildPptx()
-    : buildDeckPptxBlob(deckTitle, slides, aspectRatio));
+  if (!(await googleDriveIsConnected())) {
+    return {
+      url: null,
+      requiresConnection: true,
+      reason: "No connected Google account.",
+    };
+  }
+
+  const { blob, filename } = buildPptx
+    ? await buildPptx().then(async (file) => ({
+        ...file,
+        blob: await retargetPptxForGoogleSlides(file.blob),
+      }))
+    : await buildDeckPptxBlob(deckTitle, slides, aspectRatio, {
+        target: "google-slides",
+      });
 
   const form = new FormData();
   form.append("file", blob, filename);

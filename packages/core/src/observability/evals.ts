@@ -264,6 +264,7 @@ export async function runLlmJudgeEval(
         tools: [],
         abortSignal: controller.signal,
         maxOutputTokens: 512,
+        reasoningEffort: "none",
         temperature: 0,
       });
 
@@ -411,6 +412,7 @@ async function evaluateTestCase(
         tools: [],
         abortSignal: controller.signal,
         maxOutputTokens: 512,
+        reasoningEffort: "none",
         temperature: 0,
       });
 

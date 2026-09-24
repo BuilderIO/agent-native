@@ -42,7 +42,7 @@ Um aplicativo típico constrói sua própria camada de API e a chama com solicit
   </div>
   <div class="fmcmp-vs diagram-muted">vs</div>
   <div class="fmcmp-col">
-    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="fmcmp-label diagram-muted">Agent-Native</div>
     <div class="diagram-node">Componente</div>
     <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
     <div class="diagram-node">useActionQuery("get-lead")</div>
@@ -403,7 +403,7 @@ Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é
   returns={{ type: "void" }}
 />
 
-Este gancho é destinado a manter a UI sincronizada com mudanças no banco de dados que ocorrem fora das suas próprias actions, como uma gravação do agente, um webhook, ou uma mudança feita em outra aba do navegador. Ele escuta mudanças por server-sent events, e recorre à pesquisa quando server-sent events não estão disponíveis.
+Este gancho é destinado a manter a UI sincronizada com mudanças no banco de dados que ocorrem fora das suas próprias actions, como uma gravação do agente, um webhook, ou uma mudança feita em outra aba do navegador. Ele escuta mudanças por server-sent events, e recorre à pesquisa quando server-sent events não estão disponíveis. Em uma implantação serverless de produção, o próprio stream `/_agent-native/events` do app não está disponível por design — o servidor responde imediatamente com 204 em vez de manter uma instância de função aberta —, então a pesquisa cuida de toda a sincronização ali, no mesmo ritmo, a menos que o app tenha ativado o [Gateway de sincronização em tempo real hospedado](/docs/real-time-collaboration#hosted-gateway).
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

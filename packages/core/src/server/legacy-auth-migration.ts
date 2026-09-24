@@ -1,5 +1,62 @@
 import { getBetterAuthInternalAdapter } from "./better-auth-instance.js";
 
+export interface CanonicalLegacyUser {
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    image?: string | null;
+  };
+  accounts: Array<{ id: string; providerId: string; accountId: string }>;
+}
+
+async function ensureCanonicalUser(
+  email: string,
+): Promise<{ user: CanonicalLegacyUser | null; created: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+    return { user: null, created: false };
+  }
+
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) {
+    throw new Error("Better Auth internal adapter is unavailable");
+  }
+
+  const findExisting = () =>
+    adapter.findUserByEmail(normalizedEmail, { includeAccounts: false });
+  const existing = await findExisting();
+  if (existing) return { user: existing, created: false };
+
+  const name = normalizedEmail.split("@")[0] || "User";
+  try {
+    const created = await adapter.createUser({
+      email: normalizedEmail,
+      name,
+      emailVerified: true,
+    });
+    return {
+      user: {
+        user: { id: created.id, email: normalizedEmail, name },
+        accounts: [],
+      },
+      created: true,
+    };
+  } catch (error) {
+    // A concurrent request may have created the same canonical user. Treat
+    // that race as success only after the adapter can read the winner.
+    const winner = await findExisting();
+    if (winner) return { user: winner, created: false };
+    throw error;
+  }
+}
+
+export async function resolveCanonicalUserForLegacySession(
+  email: string,
+): Promise<CanonicalLegacyUser | null> {
+  return (await ensureCanonicalUser(email)).user;
+}
+
 /**
  * Backfill the canonical Better Auth user for a verified legacy session.
  *
@@ -12,29 +69,5 @@ import { getBetterAuthInternalAdapter } from "./better-auth-instance.js";
 export async function ensureCanonicalUserForLegacySession(
   email: string,
 ): Promise<boolean> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes("@")) return false;
-
-  const adapter = await getBetterAuthInternalAdapter();
-  if (!adapter) {
-    throw new Error("Better Auth internal adapter is unavailable");
-  }
-
-  const findExisting = () =>
-    adapter.findUserByEmail(normalizedEmail, { includeAccounts: false });
-  if (await findExisting()) return false;
-
-  try {
-    await adapter.createUser({
-      email: normalizedEmail,
-      name: normalizedEmail.split("@")[0] || "User",
-      emailVerified: true,
-    });
-    return true;
-  } catch (error) {
-    // A concurrent request may have created the same canonical user. Treat
-    // that race as success only after the adapter can read the winner.
-    if (await findExisting()) return false;
-    throw error;
-  }
+  return (await ensureCanonicalUser(email)).created;
 }

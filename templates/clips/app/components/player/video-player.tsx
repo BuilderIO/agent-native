@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import { resolveMediaDurationMs } from "@/components/player/media-duration";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { useMseVideoSource } from "@/hooks/use-mse-video-source";
 import { usePlaybackPosition } from "@/hooks/use-playback-position";
+import { setUrlSearchParam } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -47,6 +49,7 @@ import {
   originalToEdited,
   parseEdits,
   type TrimRange,
+  lastKeptMs,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +65,7 @@ import type {
   ReactionHandlerResult,
   ReactionSummary,
 } from "./reactions-tray";
+import { timelineMarkerMs } from "./scrubber-position";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -108,23 +112,6 @@ function videoSourceIdentity(url: string | undefined): string {
     }
     parsed.searchParams.sort();
     return `${parsed.origin}${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
-
-function setUrlSearchParam(url: string, key: string, value: string): string {
-  try {
-    const base =
-      typeof window === "undefined"
-        ? "http://clips.local"
-        : window.location.href;
-    const parsed = new URL(url, base);
-    parsed.searchParams.set(key, value);
-    if (url.startsWith("/") && !url.startsWith("//")) {
-      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    }
-    return parsed.href;
   } catch {
     return url;
   }
@@ -350,6 +337,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const autoPlayAttemptedSourceRef = useRef("");
     const playAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
@@ -390,17 +378,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // start muted or the browser blocks autoplay with a NotAllowedError. The
     // share page (no autoplay) keeps full sound.
     const [muted, setMuted] = useState(() => !!autoPlay);
+    // True while the only reason we're muted is that autoplay-policy fallback,
+    // not a deliberate viewer choice. The viewer's first real gesture inside
+    // the player clears it and restores sound (see `unmuteAutoplayFallback`).
+    const autoMutedRef = useRef(!!autoPlay);
+    const lastAutoMutedRecordingIdRef = useRef(recordingId);
     const [speed, setSpeed] = useState(() =>
       readPlaybackSpeedPreference(defaultSpeed),
     );
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
+    const [markerLanes, setMarkerLanes] = useState<Map<number, number>>(
+      new Map(),
+    );
     const [isFullscreen, setIsFullscreen] = useState(false);
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
     const [, setCanPlay] = useState(false);
-    const [isPlayPending, setIsPlayPending] = useState(false);
+    // Native autoplay has its own async play attempt; keep the loading overlay
+    // visible until media starts or a pause/error makes click-to-play available.
+    const [isPlayPending, setIsPlayPending] = useState(() => !!autoPlay);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
     const clearPlayAttemptWatchdog = useCallback(() => {
@@ -492,6 +490,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   id: comment.id,
                   content: comment.content,
+                  authorEmail: comment.authorEmail,
+                  authorName: comment.authorName,
                   videoTimestampMs: editedMs,
                 },
               ];
@@ -973,6 +973,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       videoRef.current?.pause();
     }, [clearPlayAttemptWatchdog]);
 
+    // The viewer made a deliberate audio choice, so stop treating the mute as
+    // the autoplay-policy fallback. Called from every explicit mute/volume
+    // control as well as the gesture-driven unmute below.
+    const clearAutoMuted = useCallback(() => {
+      autoMutedRef.current = false;
+    }, []);
+
+    // Restore sound the first time the viewer engages an autoplay-muted clip
+    // (the Slack unfurl case): the embed had to start muted to satisfy the
+    // browser, but the tap/play is a real gesture that permits audio. Returns
+    // true when it consumed the gesture as an unmute.
+    const unmuteAutoplayFallback = useCallback(() => {
+      const v = videoRef.current;
+      if (!v || !autoMutedRef.current || !v.muted) return false;
+      v.muted = false;
+      setMuted(false);
+      autoMutedRef.current = false;
+      return true;
+    }, []);
+
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
@@ -987,6 +1007,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        unmuteAutoplayFallback();
         requestPlay();
         return;
       }
@@ -994,15 +1015,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pauseVideo();
         return;
       }
+      unmuteAutoplayFallback();
       requestPlay();
-    }, [isPlaying, pauseVideo, requestPlay]);
+    }, [isPlaying, pauseVideo, requestPlay, unmuteAutoplayFallback]);
 
     const activateVideoSurface = useCallback(
       (input: "mouse" | "touch") => {
-        // Match native mobile players: touching the video reveals the controls
-        // without unexpectedly pausing or resuming it. Embeds that explicitly
-        // hide their chrome keep surface-tap playback so they remain usable.
+        // An autoplay-muted embed (Slack unfurl) is already playing silently.
+        // The viewer's first tap means "let me hear it", so unmute in place
+        // instead of pausing an otherwise-fine clip; later taps toggle play.
+        const v = videoRef.current;
+        if (v && !v.paused && !v.ended && unmuteAutoplayFallback()) {
+          bumpControls();
+          return;
+        }
+
+        // Touch taps should behave like native mobile players: pause while
+        // playing, resume while paused, and keep the chrome visible long
+        // enough to expose the explicit controls. Embeds that explicitly hide
+        // their chrome keep surface-tap playback so they remain usable.
         if (input === "touch" && !hideChrome) {
+          togglePlayback();
           bumpControls();
           return;
         }
@@ -1010,7 +1043,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         togglePlayback();
         bumpControls();
       },
-      [bumpControls, hideChrome, togglePlayback],
+      [bumpControls, hideChrome, togglePlayback, unmuteAutoplayFallback],
     );
 
     const handlePlayerPointerDown = useCallback(
@@ -1067,11 +1100,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       (rate: number) => {
         const nextSpeed = parsePlaybackSpeed(rate) ?? defaultSpeed;
         const v = videoRef.current;
-        const shouldKeepPlaying = Boolean(
-          v &&
-          !v.ended &&
-          (isPlaying || playAttemptPendingRef.current || !v.paused),
-        );
 
         if (v) {
           v.defaultPlaybackRate = nextSpeed;
@@ -1080,15 +1108,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setSpeed(nextSpeed);
         savePlaybackSpeedPreference(nextSpeed);
         onSpeedChange?.(nextSpeed);
-
-        if (shouldKeepPlaying && typeof window !== "undefined") {
-          window.requestAnimationFrame(() => {
-            const current = videoRef.current;
-            if (current && current.paused && !current.ended) requestPlay();
-          });
-        }
       },
-      [defaultSpeed, isPlaying, onSpeedChange, requestPlay],
+      [defaultSpeed, onSpeedChange],
     );
 
     const seekToVisibleMs = useCallback(
@@ -1111,7 +1132,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         const v = videoRef.current;
         if (!v) return;
-        const clamped = clampSeek(ms, v, resolvedDurationMs);
+        // Dragging past the end of the kept footage would otherwise show the
+        // trimmed tail, which is still in the file and was never redacted.
+        const requested =
+          lastKept > 0 && lastKept < resolvedDurationMs // i18n-ignore — a comparison, not copy
+            ? Math.min(ms, lastKept - 1)
+            : ms;
+        const clamped = clampSeek(requested, v, resolvedDurationMs);
         const visibleMs = clampSeek(
           skipExcludedRange(clamped, excludedRanges, resolvedDurationMs),
           v,
@@ -1119,7 +1146,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
         onSeek?.(visibleMs);
+        onTimeUpdate?.(visibleMs, resolvedDurationMs);
       },
       [
         activeVideoSrc,
@@ -1176,6 +1205,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           if (videoRef.current) {
             videoRef.current.muted = !videoRef.current.muted;
             setMuted(videoRef.current.muted);
+            autoMutedRef.current = false;
           }
         },
         toggleCaptions: () => setCaptionsOn((v) => !v),
@@ -1206,6 +1236,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
       }
     }, [
       activeVideoSrc,
@@ -1329,12 +1360,42 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      autoPlayAttemptedSourceRef.current = "";
+      // Only re-arm the autoplay-muted marker for an actual recording change.
+      // A repaired/replaced media URL for the *same* recording changes
+      // `activeVideoSourceIdentity` too, and must not overwrite a mute choice
+      // the viewer already made on this clip.
+      if (lastAutoMutedRecordingIdRef.current !== recordingId) {
+        lastAutoMutedRecordingIdRef.current = recordingId;
+        autoMutedRef.current = !!autoPlay;
+      }
       clearPlayAttemptWatchdog();
       setCanPlay(false);
-      setIsPlayPending(false);
+      setIsPlayPending(!!autoPlay);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, recordingId]);
+    }, [
+      activeVideoSourceIdentity,
+      autoPlay,
+      clearPlayAttemptWatchdog,
+      recordingId,
+    ]);
+
+    useEffect(() => {
+      if (!autoPlay || !domVideoSrc || !activeVideoSrc || isLoomEmbed) return;
+      if (autoPlayAttemptedSourceRef.current === activeVideoSrc) return;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      autoPlayAttemptedSourceRef.current = activeVideoSrc;
+      if (!v.paused && !v.ended) return;
+
+      // Native autoplay can reject without dispatching a media event. Route a
+      // tracked attempt through the same promise and watchdog as click-to-play
+      // so blocked embeds immediately regain an actionable play control.
+      requestPlay();
+    }, [activeVideoSrc, autoPlay, domVideoSrc, isLoomEmbed, requestPlay]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
@@ -1486,6 +1547,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       return () => {
         v.removeEventListener("enterpictureinpicture", onEnter);
         v.removeEventListener("leavepictureinpicture", onLeave);
+        if (document.pictureInPictureElement === v) {
+          v.pause();
+          void document
+            .exitPictureInPicture()
+            .catch((error) =>
+              console.warn("[clips] PiP cleanup failed", error),
+            );
+        }
       };
     }, [activeVideoSrc]);
 
@@ -1629,6 +1698,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    const controlsVisible =
+      showControls || !isPlaying || isPlayPending || isBuffering;
     // Mobile Safari may defer loadeddata/canplay until playback starts. Keep
     // the paused state actionable even when those readiness events have not
     // fired yet; once the user asks to play, the pending/buffering states give
@@ -1644,11 +1715,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           : "ready"
         : null;
     const centerOverlayLabel =
-      isPlayPending && !hasPlaybackStarted
+      isPlayPending && !hasPlaybackStarted && !autoPlay
         ? "Starting playback"
         : isPlayPending || isBuffering
           ? "Buffering"
           : "Preparing clip";
+
+    // Trims are not baked into the file, so playback can run past the end of the
+    // kept footage into removed material a redaction never covered.
+    const lastKept = useMemo(
+      () => lastKeptMs(resolvedDurationMs, excludedRanges),
+      [excludedRanges, resolvedDurationMs],
+    );
 
     return (
       <div
@@ -1824,6 +1902,38 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onTimeUpdate?.(0, resolvedDurationMs);
                 return;
               }
+              // A trimmed tail is not somewhere to skip forward to: there is
+              // nothing kept after it, so correcting forward lands on the last
+              // frame of the file — removed footage, which a redaction drawn
+              // against the edited video never covered — and it is on screen
+              // until `ended` fires. Stop at the last kept frame instead.
+              if (
+                lastKept > 0 && // i18n-ignore — a comparison, not copy
+                lastKept < resolvedDurationMs &&
+                ms >= lastKept
+              ) {
+                try {
+                  v.pause();
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // Seeking can throw while the element is tearing down. The
+                  // state below still reads as finished, which is what matters
+                  // — but a seek failing for any other reason leaves the
+                  // trimmed tail on screen, so it gets said out loud.
+                  console.warn(
+                    "[player] could not stop at the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+                setCurrentMs(lastKept);
+                setIsPlaying(false);
+                setIsBuffering(false);
+                onTimeUpdate?.(lastKept, resolvedDurationMs);
+                onEnded?.();
+                return;
+              }
               const visibleMs = clampSeek(
                 skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
                 v,
@@ -1856,6 +1966,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onEnded={() => {
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
+              // Leave a frame the viewer is meant to see. Without this the
+              // element rests wherever it stopped, which after a trimmed tail
+              // is inside the removed footage — and a redaction that ran to
+              // the end of the edit does not cover it.
+              const v = videoRef.current;
+              const restOnKeptFrame =
+                lastKept > 0 && lastKept < resolvedDurationMs; // i18n-ignore — a comparison, not copy
+              if (v && restOnKeptFrame) {
+                try {
+                  v.currentTime = Math.max(0, lastKept / 1000 - 0.05);
+                } catch (err) {
+                  // A seek can throw while the element is tearing down; the
+                  // poster is the fallback. Still worth saying, because the
+                  // frame left on screen is the thing this exists to control.
+                  console.warn(
+                    "[player] could not rest on the last kept frame",
+                    {
+                      err: err instanceof Error ? err.message : String(err),
+                    },
+                  );
+                }
+              }
               const endedMs =
                 resolvedDurationMs > 0
                   ? resolvedDurationMs
@@ -1965,7 +2097,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             aria-hidden="true"
             onError={() => setThumbnailLoadFailed(true)}
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              "pointer-events-none absolute inset-0 h-full w-full",
               cover ? "object-cover" : "object-contain",
             )}
           />
@@ -1987,11 +2119,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 v.muted = false;
                 setMuted(false);
               }
+              clearAutoMuted();
               requestPlay();
             }}
             onSpeedChange={applySpeed}
             menuPortalContainer={fullscreenMenuContainer}
           />
+        ) : null}
+
+        {playError && centerOverlayMode ? (
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex justify-center">
+            <p
+              role="status"
+              className="max-w-xs rounded-md bg-background px-3 py-2 text-center text-xs font-medium text-foreground ring-1 ring-border"
+            >
+              {playError}
+            </p>
+          </div>
         ) : null}
 
         {/* Captions */}
@@ -2004,18 +2148,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Timestamped comments */}
-        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted && !showEndCta ? (
           <PlaybackCommentOverlay
             comments={comments}
             currentMs={currentMs}
             playbackRate={speed}
+            durationMs={scrubberTimeline.durationMs}
+            getTimelinePositionMs={(comment) =>
+              isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits)
+            }
+            getTimelineLane={(comment) => {
+              const editedMs = isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits);
+              if (editedMs === null) return null;
+              return markerLanes.get(timelineMarkerMs(editedMs)) ?? 0;
+            }}
             onClick={onCommentClick}
           />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
-          <div data-player-ui className="absolute bottom-16 right-4 z-30">
+          <div data-player-ui className="absolute bottom-16 right-4 z-50">
             <CtaButton
               cta={cta!}
               onClick={() => onCtaClick?.(cta!.id)}
@@ -2028,7 +2185,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {showEndCta ? (
           <div
             data-player-ui
+            data-player-end-cta
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            style={{ zIndex: 60 }}
           >
             <div className="flex flex-col items-center gap-4 text-white">
               <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>
@@ -2037,8 +2196,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={() => onCtaClick?.(cta!.id)}
                 large
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 data-player-ui
                 aria-label={t("videoPlayer.playClip")}
                 onClick={(e) => {
@@ -2053,11 +2214,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   }
                   requestPlay();
                 }}
-                className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="border-player-control-foreground/30 bg-player-control-foreground/10 text-player-control-foreground hover:bg-player-control-foreground/20 hover:text-player-control-foreground focus-visible:ring-player-control-foreground pointer-events-auto h-8 px-2.5 text-xs"
               >
-                <IconPlayerPlay className="h-4 w-4 fill-current" />
+                <IconPlayerPlay className="fill-current" />
                 {t("videoPlayer.playClip")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -2066,8 +2227,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {!hideChrome && !isLoomEmbed ? (
           <div
             className={cn(
-              "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
-              showControls ? "opacity-100" : "opacity-0 pointer-events-none",
+              "absolute inset-x-0 bottom-0 z-20 opacity-100 transition-opacity duration-200",
+              controlsVisible ? "" : "sm:opacity-0 sm:pointer-events-none",
             )}
           >
             <PlayerControls
@@ -2084,6 +2245,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               comments={scrubberTimeline.comments}
               chapters={scrubberTimeline.chapters}
               reactions={scrubberTimeline.reactions}
+              onMarkerLanesChange={setMarkerLanes}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();
@@ -2099,6 +2261,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   v.muted = vol === 0;
                   setVolume(vol);
                   setMuted(vol === 0);
+                  clearAutoMuted();
                 }
               }}
               onToggleMute={() => {
@@ -2106,6 +2269,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 if (v) {
                   v.muted = !v.muted;
                   setMuted(v.muted);
+                  clearAutoMuted();
                 }
               }}
               onSpeedChange={(rate) => {
@@ -2170,31 +2334,35 @@ function CenterPlaybackOverlay({
           </div>
         ) : (
           <>
-            <button
+            <Button
               data-player-ui
               type="button"
+              variant="secondary"
+              size="icon"
               aria-label={t("videoPlayer.playClip")}
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay();
               }}
-              className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="bg-player-control-foreground text-player-control ring-player-control-foreground/35 hover:bg-player-control-foreground hover:text-player-control focus-visible:ring-player-control-foreground focus-visible:ring-offset-player-control pointer-events-auto size-[clamp(2.75rem,8cqw,4rem)] rounded-full shadow-xl ring-1 hover:scale-105 [&_svg]:size-[clamp(1.25rem,3.5cqw,1.75rem)]"
             >
-              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
-            </button>
+              <IconPlayerPlay className="fill-current" />
+            </Button>
 
             <div
               data-player-ui
-              className="pointer-events-auto flex items-center gap-2 rounded-md bg-black/75 px-3 py-2 text-sm font-semibold text-white shadow-xl ring-1 ring-white/10 backdrop-blur-md"
+              className="bg-player-control/75 text-player-control-foreground ring-player-control-foreground/10 pointer-events-auto flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold shadow-lg ring-1 backdrop-blur-md"
             >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-md px-2 py-1 tabular-nums transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    variant="ghost"
+                    size="sm"
+                    className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground focus-visible:ring-player-control-foreground/70 h-6 rounded px-1.5 text-xs tabular-nums"
                   >
                     {formatSpeedLabel(speed)}
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="center"
@@ -2233,12 +2401,6 @@ function CenterPlaybackOverlay({
                 )}
               </span>
             </div>
-
-            {playError ? (
-              <p className="max-w-xs rounded-md bg-black/70 px-3 py-2 text-center text-xs font-medium text-white/85 ring-1 ring-white/10">
-                {playError}
-              </p>
-            ) : null}
           </>
         )}
       </div>

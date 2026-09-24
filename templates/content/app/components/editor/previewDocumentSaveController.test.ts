@@ -16,7 +16,7 @@ const DOC = "doc-1";
 
 async function flushMicrotasks(times = 6) {
   for (let i = 0; i < times; i++) {
-    await vi.runAllTicks();
+    vi.runAllTicks();
     await Promise.resolve();
   }
 }

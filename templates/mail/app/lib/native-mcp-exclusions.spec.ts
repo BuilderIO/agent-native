@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { MAIL_NATIVE_MCP_PRESET_EXCLUSIONS } from "./native-mcp-exclusions";
 
 describe("Mail native MCP exclusions", () => {
-  it("removes the duplicate Google Workspace setup path", () => {
+  it("does not advertise the retired Google Workspace MCP setup path", () => {
     const googleWorkspace = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "google-workspace",
     );
@@ -16,7 +16,7 @@ describe("Mail native MCP exclusions", () => {
       defaults: { exclude: [...MAIL_NATIVE_MCP_PRESET_EXCLUSIONS] },
     });
 
-    expect(googleWorkspace?.brandAliases).toContain("Gmail");
+    expect(googleWorkspace).toBeUndefined();
     expect(
       configuredIntegrations.map((integration) => integration.id),
     ).not.toContain("google-workspace");

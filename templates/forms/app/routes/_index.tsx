@@ -1,23 +1,10 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
-import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { redirect, type LoaderFunctionArgs } from "react-router";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 import messages from "@/i18n/en-US";
 
 const SEO_TITLE = messages.routeTitles.formsIndex;
 const SEO_DESCRIPTION = messages.routeDescriptions.formsIndex;
-
-function target(url: URL): string {
-  return `/ask${url.search}${url.hash}`;
-}
-
-export function loader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
-}
-
-export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
-}
 
 export function meta() {
   return [
@@ -34,14 +21,14 @@ export function meta() {
   ];
 }
 
-export function HydrateFallback() {
+export default function MarketingHomeRoute() {
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <DefaultSpinner />
-    </div>
+    <MarketingHome
+      appName="Forms"
+      tagline={SEO_TITLE}
+      description={SEO_DESCRIPTION}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
   );
-}
-
-export default function IndexRoute() {
-  return null;
 }

@@ -1,12 +1,39 @@
 import type { ActionRunContext } from "../action.js";
+import {
+  queueTrackingEvent,
+  type TrackingEventOrigin,
+} from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import {
+  canonicalTrackingEvent,
+  legacyLifecycleEvent,
+  withCanonicalTrackingProperties,
+} from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
+
+export { isQaTestEmail } from "../shared/qa-test-email.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
+}
+
+function isTrackingSuppressed(
+  userId: string | undefined,
+  properties?: Record<string, unknown>,
+): boolean {
+  const requestContext = getRequestContext();
+  return (
+    requestContext?.isSyntheticTraffic === true ||
+    isQaTestEmail(requestContext?.userEmail) ||
+    isQaTestEmail(userId) ||
+    isQaTestEmail(properties?.email) ||
+    isQaTestEmail(properties?.userEmail) ||
+    isQaTestEmail(properties?.user_email)
+  );
 }
 
 function getRegistry(): Map<string, TrackingProvider> {
@@ -40,6 +67,19 @@ export interface TrackingMeta {
   anonymousId?: string;
   /** Overrides the ambient request's browser session. */
   sessionId?: string;
+  /**
+   * When the event actually happened, in epoch ms. Defaults to now.
+   *
+   * Needed by callers that buffer and flush a batch of events at the end of a
+   * unit of work — an agent run emits its trace, generation, and tool spans in
+   * one burst, and stamping all of them with the flush time collapses a
+   * multi-second waterfall into a single instant. PostHog orders an LLM trace
+   * tree by event timestamp, so without this the tree renders with a synthetic
+   * timeline.
+   */
+  occurredAt?: number;
+  /** Marks browser-submitted events so the OTel bridge applies client trust rules. */
+  telemetryOrigin?: TrackingEventOrigin;
 }
 
 /**
@@ -62,18 +102,28 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   userId?: string;
   anonymousId?: string;
   sessionId?: string;
+  occurredAt?: number;
+  telemetryOrigin: TrackingEventOrigin;
 } {
   // The browser session rides the request, not the caller's arguments, so it
   // resolves the same way whether the UI called the action or the agent did.
   const ambientSessionId = getRequestContext()?.browserSessionId;
-  if (!source) return { sessionId: ambientSessionId };
+  if (!source) {
+    return { sessionId: ambientSessionId, telemetryOrigin: "server" };
+  }
   if (isActionRunContext(source)) {
-    return { userId: source.userEmail, sessionId: ambientSessionId };
+    return {
+      userId: source.userEmail,
+      sessionId: ambientSessionId,
+      telemetryOrigin: "server",
+    };
   }
   return {
     userId: source.userId,
     anonymousId: source.anonymousId,
     sessionId: source.sessionId ?? ambientSessionId,
+    occurredAt: source.occurredAt,
+    telemetryOrigin: source.telemetryOrigin ?? "server",
   };
 }
 
@@ -82,22 +132,74 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { userId, anonymousId, sessionId } = resolveTrackingSource(source);
+  const { userId, anonymousId, sessionId, occurredAt, telemetryOrigin } =
+    resolveTrackingSource(source);
+  if (isTrackingSuppressed(userId, properties)) return;
   const clientPlatform = getRequestContext()?.clientPlatform;
-  const trackedProperties = {
+  const actionContext =
+    source && isActionRunContext(source) ? source : undefined;
+  const trackedProperties = withCanonicalTrackingProperties({
     ...(properties ?? {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(userId ? { user_id: userId } : {}),
+    ...(actionContext?.userEmail
+      ? { user_email: actionContext.userEmail }
+      : {}),
+    ...(actionContext?.orgId ? { workspace_id: actionContext.orgId } : {}),
     deployment_environment: resolveDeployEnvironment(),
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
-  };
-  const event: TrackingEvent = {
-    name,
-    properties: trackedProperties,
-    timestamp: new Date().toISOString(),
+  });
+
+  emitTrackingEvent(name, trackedProperties, {
     userId,
     anonymousId,
     sessionId,
+    occurredAt,
+  });
+  const trackingScope = getRequestContext()?.trackingScope;
+  if (trackingScope) {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
+  } else {
+    queueTrackingEvent(name, trackedProperties, telemetryOrigin);
+  }
+
+  const canonical = canonicalTrackingEvent(name, trackedProperties);
+  if (canonical) {
+    emitTrackingEvent(canonical.name, canonical.properties, {
+      userId,
+      anonymousId,
+      sessionId,
+      occurredAt,
+    });
+  }
+
+  const lifecycle = legacyLifecycleEvent(name, trackedProperties);
+  if (lifecycle) {
+    emitTrackingEvent(lifecycle.name, lifecycle.properties, {
+      userId,
+      anonymousId,
+      sessionId,
+      occurredAt,
+    });
+  }
+}
+
+function emitTrackingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  source: TrackingMeta,
+): void {
+  const event: TrackingEvent = {
+    name,
+    properties,
+    // A caller-supplied `occurredAt` of 0 is not a real event time, so `||`
+    // rather than `??` is deliberate here.
+    timestamp: new Date(source.occurredAt || Date.now()).toISOString(),
+    userId: source.userId,
+    anonymousId: source.anonymousId,
+    sessionId: source.sessionId,
   };
 
   for (const provider of getRegistry().values()) {
@@ -121,6 +223,7 @@ export function identify(
   userId: string,
   traits?: Record<string, unknown>,
 ): void {
+  if (isTrackingSuppressed(userId, traits)) return;
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {

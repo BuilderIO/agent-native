@@ -112,4 +112,14 @@ describe("withLocalRuntimes", () => {
     expect(withLocalRuntimes("<div>hi</div>", URLS)).toBe("<div>hi</div>");
     expect(withLocalRuntimes("", URLS)).toBe("");
   });
+
+  it("repairs a measured Group fragment with its standalone runtime", () => {
+    const rewritten = withLocalRuntimes(
+      "<div data-agent-native-measured-flow-group></div>",
+      URLS,
+    );
+    expect(
+      rewritten.match(/<script data-agent-native-group-runtime\b/g),
+    ).toHaveLength(1);
+  });
 });

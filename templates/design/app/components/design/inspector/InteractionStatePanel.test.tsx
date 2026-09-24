@@ -17,7 +17,7 @@ import {
 
 // Minimal catalog covering only the keys this component reads, so tests get
 // the REAL translated strings (not the useT() humanized-fallback path) while
-// staying independent of the full app/i18n-data.ts catalog. Coverage across
+// staying independent of the full app catalog. Coverage across
 // all 11 locales for these keys is verified by `guard:i18n-catalogs`, not
 // here.
 const CATALOG_MESSAGES = {
@@ -52,14 +52,9 @@ function renderWithProviders<P extends object>(
   props: P,
 ): string {
   return renderToStaticMarkup(
-    createElement(AgentNativeI18nProvider, {
-      catalog: { messages: CATALOG_MESSAGES },
-      children: createElement(
-        TooltipProvider,
-        null,
-        createElement(Component, props),
-      ),
-    }),
+    <AgentNativeI18nProvider catalog={{ messages: CATALOG_MESSAGES }}>
+      <TooltipProvider>{createElement(Component, props)}</TooltipProvider>
+    </AgentNativeI18nProvider>,
   );
 }
 

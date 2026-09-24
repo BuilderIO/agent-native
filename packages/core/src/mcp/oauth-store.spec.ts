@@ -1,17 +1,18 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 /**
  * oauth-store persists OAuth clients, short-lived authorization codes, and
  * hashed refresh tokens for the standard remote MCP OAuth flow. We back it with
- * a REAL in-memory sqlite engine (wrapped to the framework's `DbExec` shape, the
- * same wrapper production uses for sqlite) so expiry filtering, consume-once
+ * a REAL in-memory PGlite engine (wrapped to the framework's `DbExec` shape, the
+ * same wrapper production uses for pglite) so expiry filtering, consume-once
  * atomicity, UNIQUE constraints, and refresh rotation are exercised for real —
- * not pattern-matched. SQL stays dialect-agnostic; we never assert sqlite-only
- * behavior.
+ * not pattern-matched. The SQL targets PostgreSQL; the test asserts behavior
+ * rather than local engine details.
  */
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let connectionErrorNext = false;
 let genericErrorNext = false;
 
@@ -30,12 +31,11 @@ function makeExec() {
       const args = (
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
-      const stmt = sqlite.prepare(rawSql);
-      if (stmt.reader) {
-        return { rows: stmt.all(...args) as any[], rowsAffected: 0 };
-      }
-      const result = stmt.run(...args);
-      return { rows: [] as any[], rowsAffected: result.changes ?? 0 };
+      const result = await pglite.query(rawSql, args);
+      return {
+        rows: Array.from(result.rows ?? []) as any[],
+        rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+      };
     },
   };
 }
@@ -45,26 +45,25 @@ let exec = makeExec();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => exec,
   isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   connectionErrorNext = false;
   genericErrorNext = false;
   exec = makeExec();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.restoreAllMocks();
 });
 
 // The store memoizes its CREATE TABLE init in a module-scoped `_initPromise`.
 // Re-importing with a reset module graph each test rebinds that init to the
 // current in-memory DB (there is no reset export), so tables are recreated in
-// the fresh sqlite instance the test just opened.
+// the fresh pglite instance the test just opened.
 async function freshStore() {
   vi.resetModules();
   return import("./oauth-store.js");
@@ -92,7 +91,7 @@ describe("oauth-store hashing & token generation", () => {
 
 describe("client registration", () => {
   it("infers native application type for a pre-migration loopback client", async () => {
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE mcp_oauth_clients (
         client_id TEXT PRIMARY KEY,
         client_name TEXT,
@@ -100,7 +99,7 @@ describe("client registration", () => {
         grant_types TEXT,
         response_types TEXT,
         token_endpoint_auth_method TEXT,
-        created_at INTEGER
+        created_at BIGINT
       );
       INSERT INTO mcp_oauth_clients (
         client_id,
@@ -342,9 +341,9 @@ describe("refresh tokens", () => {
     expect(row.tokenHash).toBe(s.hashOAuthToken("raw-refresh-token"));
     expect(row.tokenHash).not.toBe("raw-refresh-token");
     // The raw value must not be retrievable from any stored column.
-    const dump = sqlite
+    const dump = (await pglite
       .prepare("SELECT * FROM mcp_oauth_refresh_tokens")
-      .all() as any[];
+      .all()) as any[];
     const serialized = JSON.stringify(dump);
     expect(serialized).not.toContain("raw-refresh-token");
     expect(serialized).toContain(row.tokenHash);
@@ -446,9 +445,9 @@ describe("refresh tokens", () => {
       oldRefreshToken: "raw-refresh-token",
       newRefreshToken: "new-refresh-token",
     });
-    const oldRow = sqlite
+    const oldRow = (await pglite
       .prepare("SELECT * FROM mcp_oauth_refresh_tokens WHERE token_hash = ?")
-      .get(s.hashOAuthToken("raw-refresh-token")) as any;
+      .get(s.hashOAuthToken("raw-refresh-token"))) as any;
     expect(oldRow.revoked_at).not.toBeNull();
     expect(oldRow.replaced_by_hash).toBe(s.hashOAuthToken("new-refresh-token"));
   });
@@ -493,9 +492,9 @@ describe("refresh tokens", () => {
     expect(rotated).toBeNull();
     // No replacement row was inserted.
     const count = (
-      sqlite
+      (await pglite
         .prepare("SELECT COUNT(*) AS n FROM mcp_oauth_refresh_tokens")
-        .get() as any
+        .get()) as any
     ).n;
     expect(count).toBe(1);
   });

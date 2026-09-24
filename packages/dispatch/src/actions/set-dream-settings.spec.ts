@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authorizeDispatchAdmin: vi.fn(),
   setDreamSettings: vi.fn(),
+}));
+
+vi.mock("../server/lib/app-roles.js", () => ({
+  authorizeDispatchAdmin: mocks.authorizeDispatchAdmin,
 }));
 
 vi.mock("../server/lib/dreams-store.js", () => ({

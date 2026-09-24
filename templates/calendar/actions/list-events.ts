@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -13,9 +13,21 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
-import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
+import {
+  getCalendarAttendeeCount,
+  getCalendarAttendeeStatusCounts,
+  type CalendarEvent,
+  type ExternalCalendar,
+} from "../shared/api.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  dateTimeInTimezoneToIso,
+  isCalendarTimezone,
+} from "../shared/timezone.js";
 import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -67,6 +79,7 @@ interface ListCalendarEventsArgs {
   query?: string;
   overlayEmails?: string | string[];
   accountEmails?: string[];
+  calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
 }
@@ -74,6 +87,7 @@ interface ListCalendarEventsArgs {
 interface ListCalendarEventsOptions {
   ownedAccounts?: string[];
   range?: CalendarEventRange;
+  timezone?: string;
 }
 
 type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
@@ -81,6 +95,15 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  // Primary-account read failures only, excluding overlay-account
+  // failures - an optional overlay person's calendar failing shouldn't
+  // make an otherwise-successful primary read look failed.
+  primaryErrors: Array<{ email: string; error: string }>;
+  // Count of events the primary read itself contributed, before merging
+  // in overlay/ical/booking events - lets callers tell "primary failed
+  // but a supplementary source had something" apart from "primary really
+  // returned events".
+  primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
   icalErrors: Array<{ id: string; name: string; error: string }>;
@@ -114,6 +137,12 @@ export interface CalendarInventoryItem {
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
   accountEmail?: string;
+  calendarSourceKey?: string;
+  calendarId?: string;
+  calendarName?: string;
+  calendarAccessRole?: CalendarEvent["calendarAccessRole"];
+  calendarPrimary?: boolean;
+  calendarReadOnly?: boolean;
   overlayEmail?: string;
   organizer?: { email?: string; displayName?: string; self?: boolean };
   selfResponseStatus?: CalendarEvent["responseStatus"];
@@ -124,6 +153,7 @@ export interface CalendarInventoryItem {
     displayName?: string;
     responseStatus?: string;
     optional?: boolean;
+    additionalGuests?: number;
     self?: boolean;
     organizer?: boolean;
   }>;
@@ -156,7 +186,7 @@ function cap(
 function sanitizeError(message: unknown, fallback: string) {
   return (
     cap(
-      String(message ?? fallback)
+      (typeof message === "string" ? message : fallback)
         .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
         .replace(
           /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
@@ -222,6 +252,7 @@ function inventoryQueryKey(args: {
   to: string;
   query?: string;
   accountEmails: string[];
+  calendarSourceKeys?: string[];
   overlayEmails?: string | string[];
   sources: CalendarInventorySource[];
 }): string {
@@ -231,6 +262,7 @@ function inventoryQueryKey(args: {
     to: args.to,
     query: args.query?.trim().toLowerCase() || "",
     accountEmails: normalizedEmails(args.accountEmails),
+    calendarSourceKeys: [...(args.calendarSourceKeys ?? [])].sort(),
     overlayEmails: normalizedOverlayEmails(args.overlayEmails),
     sources: [...args.sources].sort(),
   });
@@ -287,17 +319,13 @@ function decodeInventoryCursor(
 
 function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   const attendees = event.attendees ?? [];
-  const attendeeStatusCounts = attendees.reduce<Record<string, number>>(
-    (counts, attendee) => {
-      const status = attendee.responseStatus ?? "unknown";
-      counts[status] = (counts[status] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
+  const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
   const key = [
     event.source,
-    event.accountEmail ?? event.overlayEmail ?? "local",
+    event.calendarSourceKey ??
+      event.accountEmail ??
+      event.overlayEmail ??
+      "local",
     event.googleEventId ?? event.id,
     event.start,
   ].join(":");
@@ -310,7 +338,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         : event.source;
   return {
     key,
-    id: event.googleEventId ?? event.id,
+    // Keep the app id when it carries a calendar namespace; the raw provider
+    // id is only unique within one Google calendar.
+    id:
+      event.googleEventId && event.id !== `google-${event.googleEventId}`
+        ? event.id
+        : (event.googleEventId ?? event.id),
     title: cap(event.title) ?? "Untitled",
     start: event.start,
     end: event.end,
@@ -321,6 +354,12 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     source,
     sourceId: event.sourceId,
     accountEmail: event.accountEmail,
+    calendarSourceKey: event.calendarSourceKey,
+    calendarId: event.calendarId,
+    calendarName: cap(event.calendarName),
+    calendarAccessRole: event.calendarAccessRole,
+    calendarPrimary: event.calendarPrimary,
+    calendarReadOnly: event.calendarReadOnly,
     overlayEmail: event.overlayEmail,
     organizer: event.organizer
       ? {
@@ -330,7 +369,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         }
       : undefined,
     selfResponseStatus: event.responseStatus,
-    attendeeCount: attendees.length,
+    attendeeCount: getCalendarAttendeeCount(attendees),
     attendeeStatusCounts,
     attendees: attendees
       .slice(0, INVENTORY_ATTENDEE_PREVIEW_LIMIT)
@@ -339,6 +378,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         displayName: cap(attendee.displayName),
         responseStatus: attendee.responseStatus,
         optional: attendee.optional,
+        additionalGuests: attendee.additionalGuests,
         self: attendee.self,
         organizer: attendee.organizer,
       })),
@@ -346,84 +386,9 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   };
 }
 
-function normalizeTimezone(timezone?: string): string {
-  if (!timezone) return "UTC";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
-    return timezone;
-  } catch {
-    return "UTC";
-  }
-}
-
-function datePartsInTimezone(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-    second: get("second"),
-  };
-}
-
-function dateOnlyInTimezone(date: Date, timezone: string): string {
-  const parts = datePartsInTimezone(date, timezone);
-  return [
-    String(parts.year).padStart(4, "0"),
-    String(parts.month).padStart(2, "0"),
-    String(parts.day).padStart(2, "0"),
-  ].join("-");
-}
-
-function addDaysToDateOnly(dateOnly: string, days: number): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return [
-    String(date.getUTCFullYear()).padStart(4, "0"),
-    String(date.getUTCMonth() + 1).padStart(2, "0"),
-    String(date.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function offsetMsForTimezone(date: Date, timezone: string): number {
-  const parts = datePartsInTimezone(date, timezone);
-  const asUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return asUtc - date.getTime();
-}
-
-function zonedDateOnlyToUtcIso(dateOnly: string, timezone: string): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const wallClockUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
-  const firstGuess = new Date(wallClockUtc);
-  const firstOffset = offsetMsForTimezone(firstGuess, timezone);
-  const secondGuess = new Date(wallClockUtc - firstOffset);
-  const secondOffset = offsetMsForTimezone(secondGuess, timezone);
-  return new Date(wallClockUtc - secondOffset).toISOString();
-}
-
 function normalizeDateBound(value: string, timezone: string): string {
   if (DATE_ONLY_RE.test(value)) {
-    return zonedDateOnlyToUtcIso(value, timezone);
+    return dateTimeInTimezoneToIso(value, "00:00", timezone);
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -437,19 +402,20 @@ export function resolveCalendarEventRange(args: {
   to?: string;
   timezone?: string;
 }): CalendarEventRange {
-  const timezone = normalizeTimezone(args.timezone ?? getRequestTimezone());
-  const today = dateOnlyInTimezone(new Date(), timezone);
+  const requested = args.timezone ?? getRequestTimezone();
+  const timezone = isCalendarTimezone(requested) ? requested : "UTC";
+  const today = dateKeyInTimezone(new Date(), timezone);
   let from = args.from?.trim();
   let to = args.to?.trim();
   let defaulted = false;
 
   if (!from && !to) {
     from = today;
-    to = addDaysToDateOnly(today, 1);
+    to = addDaysToDateKey(today, 1);
     defaulted = true;
   } else if (from && !to) {
     if (DATE_ONLY_RE.test(from)) {
-      to = addDaysToDateOnly(from, 1);
+      to = addDaysToDateKey(from, 1);
     } else {
       const start = new Date(from);
       if (Number.isNaN(start.getTime())) {
@@ -631,11 +597,13 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
+  const timezone = options.timezone ?? (await getCalendarTimezone(email));
   const range =
     options.range ??
     resolveCalendarEventRange({
       from: args.from,
       to: args.to,
+      timezone,
     });
 
   const sources = resolveInventorySources(args.sources);
@@ -693,6 +661,7 @@ export async function listCalendarEvents(
     connected && includeGoogle
       ? googleCalendar.listEvents(range.from, range.to, email, {
           accountEmails: args.accountEmails,
+          calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
         })
       : Promise.resolve({ events: [], errors: [] });
@@ -782,11 +751,21 @@ export async function listCalendarEvents(
 
   const googleEventIds = new Set(
     googleEvents
+      .filter(
+        (event) =>
+          event.calendarPrimary !== false &&
+          !event.overlayEmail &&
+          event.googleEventId,
+      )
       .map((event) => event.googleEventId)
       .filter((id): id is string => Boolean(id)),
   );
   const googleReadAuthoritative =
-    includeGoogle && connected && errors.length === 0;
+    includeGoogle &&
+    connected &&
+    googleResult.errors.length === 0 &&
+    (!args.calendarSourceKeys?.length ||
+      googleEvents.some((event) => event.calendarPrimary === true));
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -813,6 +792,8 @@ export async function listCalendarEvents(
   return {
     events,
     errors,
+    primaryErrors: googleResult.errors,
+    primaryEventCount: googleResult.events.length,
     googleConnected: connected,
     range,
     icalErrors,
@@ -853,6 +834,14 @@ export default defineAction({
       .describe(
         "Connected Google accounts to read; omitted reads every connected account",
       ),
+    calendarSourceKeys: z
+      .array(z.string().min(1).max(4096))
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(
+        "Opaque Google calendar source keys returned by list-google-calendars; each is revalidated before reading",
+      ),
     sources: z
       .array(z.enum(["google", "bookings", "ics", "overlays"]))
       .max(4)
@@ -882,6 +871,9 @@ export default defineAction({
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
     const owner = inventory ? getRequestUserEmail() : undefined;
     if (inventory && !owner) throw new Error("no authenticated user");
+    const calendarTimezone = inventory
+      ? await getCalendarTimezone(owner!)
+      : undefined;
 
     // Reject invalid, expired, owner-bound, and query-bound cursors before any
     // provider call. Omitted account filters require the cheap owned-account
@@ -895,6 +887,7 @@ export default defineAction({
       preparedRange = resolveCalendarEventRange({
         from: args.from,
         to: args.to,
+        timezone: calendarTimezone,
       });
       preparedOwnedAccounts = args.accountEmails
         ? undefined
@@ -904,6 +897,7 @@ export default defineAction({
         to: preparedRange.to,
         query: args.query,
         accountEmails: args.accountEmails ?? preparedOwnedAccounts ?? [],
+        calendarSourceKeys: args.calendarSourceKeys,
         overlayEmails: args.overlayEmails,
         sources: resolveInventorySources(args.sources),
       });
@@ -921,6 +915,7 @@ export default defineAction({
       {
         ownedAccounts: preparedOwnedAccounts,
         range: preparedRange,
+        timezone: calendarTimezone,
       },
     );
 
@@ -932,6 +927,7 @@ export default defineAction({
           to: result.range.to,
           query: args.query,
           accountEmails: result.requestedAccounts ?? result.resolvedAccounts,
+          calendarSourceKeys: args.calendarSourceKeys,
           overlayEmails: args.overlayEmails,
           sources: result.sources,
         });
@@ -1075,9 +1071,18 @@ export default defineAction({
       };
     }
 
-    if (result.events.length === 0 && result.errors.length > 0) {
+    // Overlay people are a supplementary view on top of the caller's own
+    // calendar - an overlay-only failure (disconnected/erroring peer
+    // account) must not fail the whole request when the caller's own
+    // primary read succeeded fine, even if it happened to return zero
+    // events for this range. Conversely, check primaryEventCount (not
+    // the combined `events.length`) so a real primary failure isn't
+    // silently masked by a supplementary source (overlay/ical/booking)
+    // happening to contribute something - that would otherwise return
+    // an incomplete result that looks like a normal empty success.
+    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
       throw new Error(
-        result.errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
       );
     }
 

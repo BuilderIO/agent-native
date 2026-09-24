@@ -19,6 +19,7 @@ export function generateAgentCard(
       streaming: config.streaming ?? false,
       pushNotifications: false,
       stateTransitionHistory: true,
+      ...(config.connect ? { connect: true } : {}),
     },
     skills: config.skills,
   };

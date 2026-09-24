@@ -153,7 +153,7 @@ function CreateListDialog({ onCreated }: { onCreated: () => void }) {
       });
       setOpen(false);
       onCreated();
-      navigate(listHref(list.id));
+      void navigate(listHref(list.id));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("lists.createFailed"),

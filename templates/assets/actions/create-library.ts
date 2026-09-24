@@ -1,13 +1,14 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { seedDefaultGenerationPresets } from "../server/lib/generation-presets.js";
+import { ensureDefaultTemplates } from "../server/lib/generation-presets.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { serializeLibrary } from "./_helpers.js";
 
@@ -30,13 +31,10 @@ export default defineAction({
       .optional()
       .describe("Optional brand palette as hex colors"),
   }),
-  run: async ({
-    title,
-    description,
-    customInstructions,
-    styleDescription,
-    palette,
-  }) => {
+  run: async (
+    { title, description, customInstructions, styleDescription, palette },
+    ctx,
+  ) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const now = nowIso();
@@ -57,7 +55,18 @@ export default defineAction({
     };
     const db = getDb();
     await db.insert(schema.assetLibraries).values(row);
-    await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
+    await ensureDefaultTemplates({ db, ownerEmail, orgId: row.orgId, now });
+    track(
+      "library_created",
+      {
+        app_name: "assets",
+        template_name: "assets",
+        output_id: row.id,
+        output_type: "asset_library",
+        asset_count: 0,
+      },
+      ctx,
+    );
     return serializeLibrary(row);
   },
 });

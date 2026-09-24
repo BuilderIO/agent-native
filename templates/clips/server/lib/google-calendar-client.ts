@@ -157,7 +157,12 @@ export async function refreshAccessToken(args: {
  * ones should be recorded as a sync error and retried on the next poll.
  */
 export function isPermanentRefreshFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error || "");
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
   const lower = message.toLowerCase();
   return (
     lower.includes("invalid_grant") ||

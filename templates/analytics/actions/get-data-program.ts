@@ -1,7 +1,7 @@
 /**
  * Analytics HTTP surface for reading a stored data program and its latest run.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getDataProgram,
   getLatestRun,

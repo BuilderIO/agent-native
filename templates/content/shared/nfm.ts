@@ -25,7 +25,9 @@
  *     lines (Notion strips them). Intentional blank blocks are `<empty-block/>`.
  *   - Block attributes as a trailing `{toggle="true" color="red"}` list.
  *   - Tables, toggles, callouts, columns, synced blocks, media, mentions use the
- *     HTML-ish tags from the spec. Tables are `<table>` HTML, never pipe tables.
+ *     HTML-ish tags from the spec. Canonical output uses `<table>` HTML; input
+ *     may also use an unaligned GFM pipe table, which is promoted to that typed
+ *     table grammar instead of flattening each row into a paragraph.
  *   - Inline text backslash-escapes the spec's special characters outside code.
  *
  * Registry blocks (the dev-doc / OpenAPI library shared with plan) are encoded
@@ -59,6 +61,20 @@ export interface PMNode {
 export interface PMDoc {
   type: "doc";
   content: PMNode[];
+}
+
+export type NfmFidelityStatus =
+  | "preserved"
+  | "transformed"
+  | "unresolved"
+  | "failed";
+
+export interface NfmFidelityReport {
+  status: NfmFidelityStatus;
+  normalizedChanged: boolean;
+  conversions: Array<{ kind: string; count: number }>;
+  unresolved: Array<{ kind: string; count: number }>;
+  error?: string;
 }
 
 // ── Colors (from the NFM spec) ──────────────────────────────────────
@@ -294,17 +310,18 @@ function serializeInline(nodes: PMNode[] | undefined): string {
   return nodes.map(serializeInlineNode).join("");
 }
 
-function serializeInlineNode(node: PMNode): string {
-  if (node.type === "hardBreak") return "<br>";
-  if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
-  if (node.type !== "text") {
-    // Unknown inline node — best-effort textContent.
-    return node.text ? escapeInlineText(node.text) : "";
-  }
-
+function serializeInlineTextNode(
+  node: PMNode,
+  collectOffsets: boolean,
+): {
+  source: string;
+  textOffsets: number[] | null;
+} | null {
+  if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
   let out: string;
+  let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
     const codeText = raw.replace(/\n/g, "<br>");
     // CommonMark-style variable-length code span delimiter: use a backtick
@@ -332,25 +349,47 @@ function serializeInlineNode(node: PMNode): string {
         codeText.endsWith(" "));
     const body = needsPadding ? ` ${codeText} ` : codeText;
     out = delim + body + delim;
+    if (textOffsets) {
+      let contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = [contentOffset];
+      for (let index = 0; index < raw.length; index += 1) {
+        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
+        textOffsets.push(contentOffset);
+      }
+    }
   } else {
     out = escapeInlineText(raw);
+    if (textOffsets) {
+      let contentOffset = 0;
+      textOffsets = [contentOffset];
+      for (let index = 0; index < raw.length; index += 1) {
+        contentOffset += escapeInlineText(raw[index]!).length;
+        textOffsets.push(contentOffset);
+      }
+    }
   }
+
+  const wrap = (prefix: string, suffix: string) => {
+    out = prefix + out + suffix;
+    if (textOffsets)
+      textOffsets = textOffsets.map((offset) => prefix.length + offset);
+  };
 
   const bold = markOf(node, "bold");
   const italic = markOf(node, "italic");
   if (bold && italic) {
-    out = "***" + out + "***";
+    wrap("***", "***");
   } else {
-    if (markOf(node, "strike")) out = "~~" + out + "~~";
-    if (italic) out = "*" + out + "*";
-    if (bold) out = "**" + out + "**";
+    if (markOf(node, "strike")) wrap("~~", "~~");
+    if (italic) wrap("*", "*");
+    if (bold) wrap("**", "**");
   }
   if (!(bold && italic) && markOf(node, "strike") && (bold || italic)) {
     // strike already applied above; nothing to do
   }
   // strike for the bold+italic branch
   if (bold && italic && markOf(node, "strike")) {
-    out = "~~" + out + "~~";
+    wrap("~~", "~~");
   }
 
   const span = markOf(node, "notionSpan");
@@ -372,14 +411,33 @@ function serializeInlineNode(node: PMNode): string {
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) out = `<span${attrStr}>${out}</span>`;
+    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");
   if (link?.attrs?.href) {
-    out = `[${out}](${serializeUrlForParens(link.attrs.href)})`;
+    wrap("[", `](${serializeUrlForParens(link.attrs.href)})`);
   }
-  return out;
+  return { source: out, textOffsets };
+}
+
+export function serializeInlineTextNodeWithOffsets(node: PMNode): {
+  source: string;
+  textOffsets: number[];
+} | null {
+  const serialized = serializeInlineTextNode(node, true);
+  return serialized?.textOffsets
+    ? { source: serialized.source, textOffsets: serialized.textOffsets }
+    : null;
+}
+
+export function serializeInlineNode(node: PMNode): string {
+  if (node.type === "hardBreak") return "<br>";
+  if (node.type === "notionInlineAtom") return serializeInlineAtom(node);
+  const textNode = serializeInlineTextNode(node, false);
+  if (textNode) return textNode.source;
+  // Unknown inline node — best-effort textContent.
+  return node.text ? escapeInlineText(node.text) : "";
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1251,7 +1309,13 @@ function serializeTable(node: PMNode, ind: number): string[] {
     for (const cell of row.content || []) {
       const cellColor = isColor(cell.attrs?.color) ? cell.attrs?.color : null;
       const inline = serializeCellInline(cell);
-      const cellAttrStr = serializeAttrs([["color", cellColor]]);
+      const cellAttrStr = serializeAttrs([
+        ["color", cellColor],
+        [
+          "align",
+          isTableAlignment(cell.attrs?.textAlign) ? cell.attrs.textAlign : null,
+        ],
+      ]);
       out.push(indentStr(ind) + `<td${cellAttrStr}>${inline}</td>`);
     }
     out.push(indentStr(ind) + "</tr>");
@@ -1315,6 +1379,13 @@ function parseBlockSequence(
     const dedent = raw.slice(ind);
     const rel = ind - baseIndent;
 
+    const pipeTable = parseGfmPipeTable(lines, i, ind, rel);
+    if (pipeTable) {
+      out.push(pipeTable.nodes[0]);
+      i = pipeTable.end;
+      continue;
+    }
+
     // Lists group consecutive items.
     const listKind = listKindOf(dedent);
     if (listKind) {
@@ -1330,6 +1401,235 @@ function parseBlockSequence(
   }
 
   return { nodes: out, end: i };
+}
+
+function parseDetailsBody(
+  lines: string[],
+  start: number,
+  end: number,
+  parentIndent: number,
+): PMNode[] {
+  const childIndent = parentIndent + 1;
+  const nestedContainers: Array<{ tagKey: string; closeTag: string }> = [];
+  let fence: { length: number; promoteBy: number } | undefined;
+  const sourceLines = lines.slice(start, end);
+  const hasMatchingClose = (from: number, tagKey: string): boolean => {
+    const closeTag = CONTAINER_CLOSE[tagKey];
+    let depth = 1;
+    let fenceLength = 0;
+    for (let i = from + 1; i < sourceLines.length; i++) {
+      const candidate = sourceLines[i].slice(leadingTabs(sourceLines[i]));
+      const fenceMatch = candidate.match(/^(`{3,})(.*)$/);
+      if (fenceLength) {
+        if (
+          fenceMatch &&
+          !fenceMatch[2].trim() &&
+          fenceMatch[1].length >= fenceLength
+        ) {
+          fenceLength = 0;
+        }
+        continue;
+      }
+      if (fenceMatch) {
+        fenceLength = fenceMatch[1].length;
+        continue;
+      }
+      if (matchContainerOpen(candidate) === tagKey) depth++;
+      if (candidate === closeTag && --depth === 0) return true;
+    }
+    return false;
+  };
+  const bodyLines = sourceLines.map((line, lineIndex) => {
+    const indent = leadingTabs(line);
+    const dedented = line.slice(indent);
+    if (fence) {
+      const requiredIndent = childIndent + nestedContainers.length;
+      const promoteBy =
+        fence.promoteBy > 0
+          ? fence.promoteBy
+          : Math.max(0, requiredIndent - indent);
+      const promoted = `${"\t".repeat(promoteBy)}${line}`;
+      const close = dedented.match(/^(`{3,})\s*$/);
+      if (close && close[1].length >= fence.length) fence = undefined;
+      return promoted;
+    }
+    if (nestedContainers[nestedContainers.length - 1]?.closeTag === dedented) {
+      nestedContainers.pop();
+    }
+    const detailsSummary =
+      nestedContainers[nestedContainers.length - 1]?.tagKey === "<details" &&
+      /^<summary>[\s\S]*<\/summary>\s*$/.test(dedented);
+    const requiredIndent =
+      childIndent + nestedContainers.length - (detailsSummary ? 1 : 0);
+    const open = dedented.match(/^(`{3,})(.*)$/);
+    if (open) {
+      const promoteBy = Math.max(0, requiredIndent - indent);
+      fence = { length: open[1].length, promoteBy };
+      return `${"\t".repeat(promoteBy)}${line}`;
+    }
+    if (!line.trim()) return line;
+    const tagKey = matchContainerOpen(dedented);
+    if (
+      tagKey &&
+      tagKey !== "<table" &&
+      tagKey !== "<meeting-notes>" &&
+      hasMatchingClose(lineIndex, tagKey)
+    ) {
+      nestedContainers.push({ tagKey, closeTag: CONTAINER_CLOSE[tagKey] });
+    }
+    if (indent >= requiredIndent) return line;
+    return `${"\t".repeat(requiredIndent - indent)}${line}`;
+  });
+  return parseBlockSequence(bodyLines, 0, childIndent).nodes;
+}
+
+function endsWithUnescapedPipe(value: string): boolean {
+  if (!value.endsWith("|")) return false;
+  let backslashes = 0;
+  for (let i = value.length - 2; i >= 0 && value[i] === "\\"; i--) {
+    backslashes++;
+  }
+  return backslashes % 2 === 0;
+}
+
+function hasMatchingBacktickRun(
+  value: string,
+  start: number,
+  expectedLength: number,
+): boolean {
+  for (let i = start; i < value.length; i++) {
+    if (value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] !== "`") continue;
+    let runLength = 1;
+    while (value[i + runLength] === "`") runLength++;
+    if (runLength === expectedLength) return true;
+    i += runLength - 1;
+  }
+  return false;
+}
+
+export function splitGfmPipeRow(line: string): string[] | null {
+  const value = line.trim();
+  if (!value) return null;
+
+  const cells: string[] = [];
+  let cell = "";
+  let codeFenceLength = 0;
+  let sawSeparator = false;
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (char === "\\" && i + 1 < value.length) {
+      cell += char + value[++i];
+      continue;
+    }
+    if (char === "`") {
+      let runLength = 1;
+      while (value[i + runLength] === "`") runLength++;
+      if (
+        codeFenceLength === 0 &&
+        hasMatchingBacktickRun(value, i + runLength, runLength)
+      )
+        codeFenceLength = runLength;
+      else if (codeFenceLength === runLength) codeFenceLength = 0;
+      cell += "`".repeat(runLength);
+      i += runLength - 1;
+      continue;
+    }
+    if (char === "|" && codeFenceLength === 0) {
+      cells.push(cell.trim());
+      cell = "";
+      sawSeparator = true;
+      continue;
+    }
+    cell += char;
+  }
+  cells.push(cell.trim());
+
+  if (!sawSeparator) return null;
+  if (value.startsWith("|")) cells.shift();
+  if (endsWithUnescapedPipe(value)) cells.pop();
+  return cells;
+}
+
+function isGfmDelimiterCell(value: string): boolean {
+  return /^-{3,}$/.test(value.trim());
+}
+
+function isAlignedGfmDelimiterCell(value: string): boolean {
+  return /^:?-{3,}:?$/.test(value.trim()) && value.includes(":");
+}
+
+function isTableAlignment(
+  value: unknown,
+): value is "left" | "center" | "right" {
+  return value === "left" || value === "center" || value === "right";
+}
+
+function parseGfmPipeTable(
+  lines: string[],
+  start: number,
+  indent: number,
+  rel: number,
+): ParseResult | null {
+  if (start + 1 >= lines.length) return null;
+  if (leadingTabs(lines[start + 1]) !== indent) return null;
+
+  const header = splitGfmPipeRow(lines[start].slice(indent));
+  const delimiter = splitGfmPipeRow(lines[start + 1].slice(indent));
+  if (
+    !header ||
+    !delimiter ||
+    header.length === 0 ||
+    header.length !== delimiter.length ||
+    !delimiter.every(
+      (cell) => isGfmDelimiterCell(cell) || isAlignedGfmDelimiterCell(cell),
+    )
+  ) {
+    return null;
+  }
+
+  const rows = [header];
+  let end = start + 2;
+  while (end < lines.length) {
+    if (lines[end].trim() === "" || leadingTabs(lines[end]) !== indent) break;
+    if (/^ {0,3}#{1,6}(?:\s|$)/.test(lines[end].slice(indent))) break;
+    const row = splitGfmPipeRow(lines[end].slice(indent));
+    if (!row) break;
+    rows.push(row);
+    end++;
+  }
+
+  const columnCount = Math.max(header.length, ...rows.map((row) => row.length));
+  const alignments = delimiter.map((cell) => {
+    if (cell.startsWith(":") && cell.endsWith(":")) return "center";
+    if (cell.endsWith(":")) return "right";
+    if (cell.startsWith(":")) return "left";
+    return null;
+  });
+  const tableRows = rows.map((row, rowIndex) => ({
+    type: "tableRow",
+    attrs: { color: null },
+    content: Array.from({ length: columnCount }, (_, index) => ({
+      type: rowIndex === 0 ? "tableHeader" : "tableCell",
+      attrs: { color: null, textAlign: alignments[index] ?? null },
+      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
+    })),
+  }));
+  const attrs: Record<string, unknown> = {
+    headerRow: true,
+    headerColumn: false,
+    fitPageWidth: false,
+    colMeta: null,
+  };
+  if (rel > 0) attrs.indent = rel;
+  return {
+    nodes: [{ type: "table", attrs, content: tableRows }],
+    end,
+  };
 }
 
 type ListKind = "bullet" | "ordered" | "task";
@@ -1965,9 +2265,22 @@ function parseContainer(
   let i = start + 1;
   const childStart = i;
   let depth = 1;
+  let fence: { indent: number; length: number } | undefined;
   for (; i < lines.length; i++) {
     const li = leadingTabs(lines[i]);
     const ld = lines[i].slice(li);
+    if (fence) {
+      const close = ld.match(/^(`{3,})\s*$/);
+      if (close && close[1].length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const openFence = ld.match(/^(`{3,})(.*)$/);
+    if (openFence) {
+      fence = { indent: li, length: openFence[1].length };
+      continue;
+    }
     if (
       li === indent &&
       matchContainerOpen(ld) === tagKey &&
@@ -2006,7 +2319,6 @@ function parseContainer(
       summary = sm[1];
       bodyStart = childStart + 1;
     }
-    const childRes = parseBlockSequence(lines, bodyStart, indent + 1);
     const node: PMNode = {
       type: "notionToggle",
       attrs: {
@@ -2016,7 +2328,11 @@ function parseContainer(
         color: isColor(attrs.color) ? attrs.color : null,
         indent: 0,
       },
-      content: childRes.nodes,
+      // Actions accept Markdown, where <details> commonly contains ordinary
+      // unindented block content. Canonical NFM uses one extra tab, so promote
+      // only under-indented body lines before parsing; otherwise the container
+      // scanner consumes them through </details> without producing children.
+      content: parseDetailsBody(lines, bodyStart, closeIdx, indent),
     };
     return { nodes: [withIndentAttr(node)], end: closeIdx + 1 };
   }
@@ -2164,7 +2480,10 @@ function parseTable(
             (headerColumn && cells.length === 0);
           cells.push({
             type: isHeader ? "tableHeader" : "tableCell",
-            attrs: { color: isColor(ca.color) ? ca.color : null },
+            attrs: {
+              color: isColor(ca.color) ? ca.color : null,
+              textAlign: isTableAlignment(ca.align) ? ca.align : null,
+            },
             content: [
               { type: "paragraph", content: parseInline(cellMatch[2]) },
             ],
@@ -2260,6 +2579,130 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
     return docToNfm(nfmToDoc(nfm ?? ""));
   } finally {
     suppressTerminalFillerTrim = previous;
+  }
+}
+
+function countLocalMdxNodes(
+  node: PMNode,
+  predicate: (node: PMNode) => boolean,
+): number {
+  let count = node.type === "localMdxComponent" && predicate(node) ? 1 : 0;
+  for (const child of node.content ?? []) {
+    count += countLocalMdxNodes(child, predicate);
+  }
+  return count;
+}
+
+function countGfmPipeTables(
+  source: string,
+  delimiterPredicate: (cells: string[]) => boolean,
+): number {
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const fencedCodeLines = fencedCodeLineMask(lines);
+  let count = 0;
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (fencedCodeLines[i] || fencedCodeLines[i + 1]) continue;
+    const indent = leadingTabs(lines[i]);
+    if (leadingTabs(lines[i + 1]) !== indent) continue;
+    const header = splitGfmPipeRow(lines[i].slice(indent));
+    const delimiter = splitGfmPipeRow(lines[i + 1].slice(indent));
+    if (
+      header &&
+      delimiter &&
+      header.length > 0 &&
+      header.length === delimiter.length &&
+      delimiterPredicate(delimiter)
+    ) {
+      count++;
+      i++;
+    }
+  }
+  return count;
+}
+
+function fencedCodeLineMask(lines: string[]): boolean[] {
+  const mask = lines.map(() => false);
+  let fence: { indent: number; length: number } | undefined;
+  for (let index = 0; index < lines.length; index++) {
+    const indent = leadingTabs(lines[index]);
+    const dedented = lines[index].slice(indent);
+    if (fence) {
+      mask[index] = true;
+      const close = dedented.match(/^(`{3,})\s*$/);
+      if (indent >= fence.indent && close && close[1].length >= fence.length) {
+        fence = undefined;
+      }
+      continue;
+    }
+    const open = dedented.match(/^(`{3,})(.*)$/);
+    if (open) {
+      mask[index] = true;
+      fence = { indent, length: open[1].length };
+    }
+  }
+  return mask;
+}
+
+/**
+ * Describe what the shared codec did without making callers infer fidelity
+ * from a clean-looking string. The document body remains the source of truth;
+ * this report is intentionally compact enough for import and agent receipts.
+ */
+export function inspectNfmFidelity(
+  nfm: string | null | undefined,
+): NfmFidelityReport {
+  const source = nfm ?? "";
+  try {
+    const document = nfmToDoc(source);
+    const normalized = canonicalizeNfm(source);
+    const pipeTableCount = countGfmPipeTables(source, (cells) =>
+      cells.every(
+        (cell) => isGfmDelimiterCell(cell) || isAlignedGfmDelimiterCell(cell),
+      ),
+    );
+    const unsupportedMdxCount = countLocalMdxNodes(
+      document,
+      (node) => node.attrs?.unsupportedProps === true,
+    );
+
+    const conversions: NfmFidelityReport["conversions"] = [];
+    if (pipeTableCount > 0) {
+      conversions.push({
+        kind: "gfm-pipe-table-to-content-table",
+        count: pipeTableCount,
+      });
+    }
+    if (normalized !== source && conversions.length === 0) {
+      conversions.push({ kind: "canonicalized-nfm", count: 1 });
+    }
+
+    const unresolved: NfmFidelityReport["unresolved"] = [];
+    if (unsupportedMdxCount > 0) {
+      unresolved.push({
+        kind: "mdx-component-props-preserved-as-raw-source",
+        count: unsupportedMdxCount,
+      });
+    }
+
+    return {
+      status:
+        unresolved.length > 0
+          ? "unresolved"
+          : conversions.length > 0 || normalized !== source
+            ? "transformed"
+            : "preserved",
+      normalizedChanged: normalized !== source,
+      conversions,
+      unresolved,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      normalizedChanged: false,
+      conversions: [],
+      unresolved: [],
+      error: error instanceof Error ? error.message : "Unreadable content",
+    };
   }
 }
 

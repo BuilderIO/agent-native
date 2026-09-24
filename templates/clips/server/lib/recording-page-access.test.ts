@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canReceiveRecordingActivity,
   canOpenDirectRecordingPage,
   isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "./recording-page-access.js";
 
 describe("isRecordingExpired", () => {
@@ -22,6 +24,30 @@ describe("isRecordingExpired", () => {
       expect(isRecordingExpired(expiresAt, now)).toBe(false);
     },
   );
+});
+
+describe("isRecordingExpiredForViewer", () => {
+  const now = Date.parse("2026-07-15T12:00:00.000Z");
+
+  it("keeps an owner's expired recording available", () => {
+    expect(
+      isRecordingExpiredForViewer({
+        expiresAt: "2026-07-15T11:59:59.999Z",
+        viewerIsOwner: true,
+        now,
+      }),
+    ).toBe(false);
+  });
+
+  it("expires non-owner access after the configured time", () => {
+    expect(
+      isRecordingExpiredForViewer({
+        expiresAt: "2026-07-15T11:59:59.999Z",
+        viewerIsOwner: false,
+        now,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("canOpenDirectRecordingPage", () => {
@@ -78,5 +104,40 @@ describe("canOpenDirectRecordingPage", () => {
         hasExplicitShare: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("canReceiveRecordingActivity", () => {
+  const now = Date.parse("2026-07-15T12:00:00.000Z");
+  const recording = {
+    ownerEmail: "owner@example.com",
+    recipientEmail: "viewer@example.com",
+    hasPassword: false,
+    now,
+  };
+
+  it("rejects activity for expired recordings", () => {
+    expect(
+      canReceiveRecordingActivity({
+        ...recording,
+        expiresAt: "2026-07-15T11:59:59.999Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps password-protected activity with the owner", () => {
+    expect(
+      canReceiveRecordingActivity({
+        ...recording,
+        recipientEmail: "OWNER@example.com",
+        hasPassword: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects password-protected activity for non-owners", () => {
+    expect(
+      canReceiveRecordingActivity({ ...recording, hasPassword: true }),
+    ).toBe(false);
   });
 });

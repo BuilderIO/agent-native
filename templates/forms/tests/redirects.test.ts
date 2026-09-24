@@ -1,7 +1,7 @@
 import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
-import { clientLoader, loader } from "../app/routes/_index";
+import { clientLoader, loader } from "../app/routes/_app.home";
 
 function expectAskRedirect(routeLoader: typeof loader | typeof clientLoader) {
   let thrown: unknown;
@@ -19,7 +19,7 @@ function expectAskRedirect(routeLoader: typeof loader | typeof clientLoader) {
   expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
 }
 
-describe("Forms root route", () => {
+describe("Forms private home route", () => {
   it("marks the server redirect as cacheable HTML", () => {
     expectAskRedirect(loader);
   });

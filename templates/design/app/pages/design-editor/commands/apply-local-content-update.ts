@@ -1,4 +1,3 @@
-import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -6,8 +5,12 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { writeCollabText } from "@/pages/design-editor/collab-sync";
+import {
+  canWriteCollabText,
+  writeCollabText,
+} from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
@@ -17,9 +20,13 @@ import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/
 import type {
   ContentHistoryChange,
   ContentHistoryEntry,
+  YjsUndoSelectionSnapshot,
 } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
+import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 export interface ApplyLocalContentUpdateArgs {
   acknowledgeAuthoritativeClipboardMutation: (args: {
@@ -38,21 +45,29 @@ export interface ApplyLocalContentUpdateArgs {
   collabContentRef: RefObject<string | null>;
   id: string | undefined;
   isSynced: boolean;
-  lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   lastLocalContentRef: RefObject<string | null>;
   latestActiveContentRef: RefObject<string | null>;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
     baseUpdatedAt?: string | null,
+    identityMigrationSourceContent?: string,
   ) => void;
   queryClient: QueryClient;
   queueFileContentSave: (
     fileId: string,
     content: string,
-    options?: { syncCollab?: boolean; immediate?: boolean },
+    options: {
+      expectedVersionHash: string;
+      syncCollab?: boolean;
+      immediate?: boolean;
+      identityMigrationSourceContent?: string;
+    },
+  ) => unknown;
+  recordContentHistoryEntry: (
+    entry: ContentHistoryEntry,
+    selectedLayerIdsOverride?: string[],
   ) => void;
-  recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
   ) => void;
@@ -72,6 +87,15 @@ export interface ApplyLocalContentUpdateArgs {
   ydoc: Y.Doc | null;
 }
 
+export type ApplyLocalContentUpdateResult =
+  | {
+      status: "accepted";
+      content: string;
+      nodeIdMap: ReadonlyMap<string, string>;
+      saveCompletion?: Promise<FileContentSaveCompletion>;
+    }
+  | { status: "refused" };
+
 export function runApplyLocalContentUpdate(
   {
     acknowledgeAuthoritativeClipboardMutation,
@@ -83,7 +107,6 @@ export function runApplyLocalContentUpdate(
     collabContentRef,
     id,
     isSynced,
-    lastAckedFileContentHashRef,
     lastLocalContentRef,
     latestActiveContentRef,
     markPendingLocalFileContent,
@@ -102,7 +125,7 @@ export function runApplyLocalContentUpdate(
     viewModeRef,
     ydoc,
   }: ApplyLocalContentUpdateArgs,
-  nextContent: string,
+  inputContent: string,
   options: {
     refreshPreview?: boolean;
     /**
@@ -117,10 +140,52 @@ export function runApplyLocalContentUpdate(
     persist?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
+    sourceBaseContent?: string;
+    identityMigrationSourceContent?: string;
+    shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
+    awaitSave?: boolean;
+    /** Figma-parity undo selection restore for when this write lands on the
+     * non-Yjs local fallback stack (e.g. `!isSynced` yet) — see
+     * ContentHistoryChange.selectionBefore's doc comment. Ignored on the
+     * overview/global history path, which restores selection from its own
+     * parallel GeometryHistorySelection stack instead. */
+    selectionBefore?: YjsUndoSelectionSnapshot;
   } = {},
-) {
+): ApplyLocalContentUpdateResult {
+  if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
+  if (isShaderWriteInFlight(activeFile.id) && !options.shaderWriteCompletion) {
+    toast.error(t("designEditor.toasts.saveConflict"), {
+      id: `design-source-shader-conflict:${activeFile.id}`,
+    });
+    return { status: "refused" };
+  }
+  const previousContent =
+    typeof options.historyBeforeContent === "string"
+      ? options.historyBeforeContent
+      : collabContentFileIdRef.current === activeFile.id &&
+          typeof collabContentRef.current === "string"
+        ? collabContentRef.current
+        : (activeFile.content ?? "");
+  let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
+  try {
+    prepared = prepareAcceptedSourceContent(inputContent, {
+      fileId: activeFile.id,
+      previousContent,
+      fileType: activeFile.fileType,
+    });
+  } catch (error) {
+    toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
+      id: `design-source-integrity:${activeFile.id}`,
+    });
+    return { status: "refused" };
+  }
+  const nextContent = prepared.content;
+  const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
+  const identityMigrationSourceContent =
+    options.identityMigrationSourceContent ??
+    (needsIdentityMigration ? inputContent : undefined);
   trace("persist", "write-file", {
     file: activeFile?.filename ?? null,
     bytes: nextContent.length,
@@ -130,28 +195,9 @@ export function runApplyLocalContentUpdate(
         ? "read-only design"
         : null,
   });
-  if (!activeFile || !canEditDesignRef.current) return;
   const shouldRecordHistory =
     options.recordHistory !== false && !options.updatedAt;
-  const previousContent =
-    typeof options.historyBeforeContent === "string"
-      ? options.historyBeforeContent
-      : collabContentFileIdRef.current === activeFile.id &&
-          typeof collabContentRef.current === "string"
-        ? collabContentRef.current
-        : (activeFile.content ?? "");
-  try {
-    assertDesignHtmlEditIntegrity({
-      previousContent,
-      nextContent,
-      fileType: activeFile.fileType,
-    });
-  } catch (error) {
-    toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
-      id: `design-source-integrity:${activeFile.id}`,
-    });
-    return;
-  }
+
   // No implicit authority from `recordHistory`: save/query/Yjs echoes can
   // traverse this same function with history enabled. Only a publication
   // allocated synchronously at a user-action boundary may advance lineage.
@@ -160,11 +206,13 @@ export function runApplyLocalContentUpdate(
     nextContent,
     publication: options.clipboardMutation,
   });
+  const writeLiveDoc =
+    !needsIdentityMigration &&
+    canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&
     viewModeRef.current !== "overview" &&
-    ydoc &&
-    isSynced &&
+    writeLiveDoc &&
     undoManagerRef.current,
   );
   if (
@@ -179,9 +227,15 @@ export function runApplyLocalContentUpdate(
       after: nextContent,
     };
     if (viewModeRef.current === "overview") {
-      recordContentHistoryEntry(change);
+      recordContentHistoryEntry(
+        change,
+        options.selectionBefore?.selectedLayerIds,
+      );
     } else {
-      recordLocalContentHistoryEntry(change);
+      recordLocalContentHistoryEntry({
+        ...change,
+        selectionBefore: options.selectionBefore,
+      });
     }
   } else if (
     !suppressContentHistoryRef.current &&
@@ -199,21 +253,17 @@ export function runApplyLocalContentUpdate(
       fileId: activeFile.id,
       before: previousContent,
       after: nextContent,
+      selectionBefore: options.selectionBefore,
     });
   }
-  if (options.updatedAt) {
+  if (options.updatedAt && !needsIdentityMigration) {
     clearPendingLocalFileContent(activeFile.id);
-    // options.updatedAt means this content is already server-persisted
-    // (apply-source-edit's onApplied host-sync and friends) — record it
-    // as the server-acknowledged base so the next guarded update-file
-    // save carries the POST-shader hash, not a stale pre-shader one.
-    lastAckedFileContentHashRef.current[activeFile.id] =
-      sourceContentHash(nextContent);
   } else {
     markPendingLocalFileContent(
       activeFile.id,
       nextContent,
-      activeFile.updatedAt,
+      options.updatedAt ?? activeFile.updatedAt,
+      identityMigrationSourceContent,
     );
   }
   setCollabContent(nextContent);
@@ -286,9 +336,9 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
-  if (ydoc && isSynced) {
+  if (ydoc && writeLiveDoc) {
     const ytext = ydoc.getText("content");
-    if (ytext.toString() !== nextContent) {
+    if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
         // Untracked write (recordHistory:false callers such as the
         // code-layer id-stamping effect, or history-suppressed replays) —
@@ -304,12 +354,28 @@ export function runApplyLocalContentUpdate(
       );
     }
   }
-  if (options.persist === false) {
+  let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
+  if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(activeFile.id);
   } else {
-    queueFileContentSave(activeFile.id, nextContent, {
-      syncCollab: !(ydoc && isSynced),
-      immediate: options.immediateSave,
+    const completion = queueFileContentSave(activeFile.id, nextContent, {
+      expectedVersionHash: sourceContentHash(
+        needsIdentityMigration
+          ? inputContent
+          : (options.sourceBaseContent ?? previousContent),
+      ),
+      syncCollab: !writeLiveDoc,
+      immediate: needsIdentityMigration ? true : options.immediateSave,
+      identityMigrationSourceContent,
     });
+    if (completion instanceof Promise) saveCompletion = completion;
   }
+  return {
+    status: "accepted",
+    content: nextContent,
+    nodeIdMap: prepared.nodeIdMap,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
+  };
 }

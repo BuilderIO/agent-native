@@ -5,7 +5,7 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -13,18 +13,33 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import { isOverviewScreenFile } from "../../shared/design-files.js";
+import {
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
+  getResponsiveGroupRotatedBounds,
+  getResponsiveGroupWidth,
+  getScreenPreviewViewport,
+  visibleBreakpointWidths,
+} from "../../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
-import { mutateDesignData } from "./design-data-mutation.js";
+import { designSourceMutationLockKey } from "../source-workspace.js";
+import {
+  InvalidDesignDataError,
+  mutateDesignData,
+} from "./design-data-mutation.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
-const FRAME_GAP = 96;
+export const FRAME_GAP = 96;
 
 export interface ImportedDesignFile {
   filename: string;
   fileType: "html" | "css" | "jsx" | "asset";
   content: string;
+  /** Stable retry marker for a browser import request. */
+  operationSource?: string;
   source?: Record<string, unknown>;
   preferredFrame?: {
     title?: string;
@@ -41,6 +56,14 @@ export interface SaveImportedDesignFilesInput {
   sourceType: string;
   warnings?: string[];
   preserveExactContent?: boolean;
+  /**
+   * Operation-source prefix shared by every request of one import. Its files'
+   * preferredFrame x/y are relative to one origin, taken right of every screen
+   * when the first batch lands and stored as `importOriginX` in each frame's
+   * metadata, so later batches keep the arrangement even after the user edits
+   * or adds screens mid-import. Group files need `source.operationSource`.
+   */
+  placementGroup?: string;
 }
 
 export interface SavedImportedDesignFile {
@@ -50,12 +73,212 @@ export interface SavedImportedDesignFile {
   source?: Record<string, unknown>;
 }
 
+export interface ImportedOperationFile {
+  file: SavedImportedDesignFile;
+  operationSource: string;
+  /** False when the row landed but its canvas placement never committed. */
+  placed: boolean;
+}
+
+/** Files already saved under one operation-source prefix, e.g. an import batch. */
+export async function findImportedDesignFilesByOperationSourcePrefix(
+  designId: string,
+  prefix: string,
+  designData: string | null,
+): Promise<ImportedOperationFile[]> {
+  const rows = await getDb()
+    .select({
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      contentOperationSource: schema.designFiles.contentOperationSource,
+    })
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.designId, designId),
+        like(
+          schema.designFiles.contentOperationSource,
+          `${prefix.replace(/[\\%_]/g, "\\$&")}%`,
+        ),
+      ),
+    );
+  const data = parseDesignDataObject(designId, designData);
+  const screenMetadata = isRecord(data.screenMetadata)
+    ? data.screenMetadata
+    : {};
+  return rows.flatMap((row) => {
+    if (!row.contentOperationSource) return [];
+    const candidate = screenMetadata[row.id];
+    const metadata = isRecord(candidate) ? candidate : undefined;
+    return [
+      {
+        file: {
+          id: row.id,
+          filename: row.filename,
+          fileType: row.fileType,
+          source: metadata,
+        },
+        operationSource: row.contentOperationSource,
+        placed: metadata?.operationSource === row.contentOperationSource,
+      },
+    ];
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function parseDesignDataObject(
+  designId: string,
+  serialized: string | null,
+): Record<string, unknown> {
+  if (serialized === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new InvalidDesignDataError(designId);
+  }
+  if (!isRecord(parsed)) throw new InvalidDesignDataError(designId);
+  return parsed;
+}
+
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isOperationSourceUniqueViolation(error: unknown): boolean {
+  return (error instanceof Error ? error.message : String(error)).includes(
+    "design_files_design_operation_source_unique_idx",
+  );
+}
+
+function nextImportedFrameZ(currentCanvasFrames: unknown): number {
+  const currentFrames = parseCanvasFrameGeometryById(currentCanvasFrames);
+  const currentFrameEntries = Object.values(currentFrames);
+  const highestPersistedZ = Math.max(
+    -1,
+    ...currentFrameEntries
+      .map((frame) => frame.z)
+      .filter((z): z is number => typeof z === "number" && Number.isFinite(z)),
+  );
+  // canvasFrames is the durable screen-frame map. Board placement is stored
+  // separately, so every entry contributes to the screen stack.
+  // Screens without persisted z use their source order as the fallback. The
+  // count keeps a new import above those entries too, while persisted z wins
+  // for designs that already have an explicit stack.
+  return Math.max(currentFrameEntries.length, highestPersistedZ + 1);
+}
+
+function importedFramePaintedBounds(args: {
+  frame: CanvasFramePlacement;
+  metadata?: unknown;
+  breakpointWidths: readonly number[];
+}): { x: number; y: number; width: number; height: number } {
+  const frameWidth = positiveDimension(args.frame.width, DEFAULT_FRAME_WIDTH);
+  const frameHeight = positiveDimension(
+    args.frame.height,
+    DEFAULT_FRAME_HEIGHT,
+  );
+  const metadataRecord = isRecord(args.metadata) ? args.metadata : {};
+  const sourceWidth = positiveDimension(metadataRecord.width, frameWidth);
+  const sourceHeight = positiveDimension(metadataRecord.height, frameHeight);
+  const scale = getScreenPreviewViewport(
+    { width: sourceWidth, height: sourceHeight },
+    { width: frameWidth, height: frameHeight },
+  ).scale;
+  const visibleWidths = visibleBreakpointWidths(
+    args.breakpointWidths,
+    sourceWidth,
+  );
+  const groupWidth = getResponsiveGroupWidth({
+    primaryWidth: frameWidth,
+    scale,
+    visibleWidths,
+  });
+  const groupHeight = getResponsiveGroupHeight({
+    primaryHeight: frameHeight,
+    scale,
+    sourceWidth,
+    sourceHeight,
+    visibleWidths,
+    resolveBreakpointHeightPx: (widthPx) => {
+      const breakpointHeights = isRecord(metadataRecord.breakpointHeights)
+        ? metadataRecord.breakpointHeights
+        : {};
+      const height = breakpointHeights[String(widthPx)];
+      return typeof height === "number" && Number.isFinite(height) && height > 0
+        ? height
+        : undefined;
+    },
+  });
+  const x = args.frame.x ?? 0;
+  const y = args.frame.y ?? 0;
+  const rotation = args.frame.rotation ?? 0;
+  return rotation
+    ? getResponsiveGroupRotatedBounds({
+        x,
+        y,
+        primaryWidth: frameWidth,
+        primaryHeight: frameHeight,
+        groupWidth,
+        groupHeight,
+        rotation,
+      })
+    : { x, y, width: groupWidth, height: groupHeight };
+}
+
+function nextImportedFrameX(
+  currentCanvasFrames: unknown,
+  options: {
+    screenMetadataByFileId?: unknown;
+    breakpointWidths?: readonly number[];
+    overviewScreenFileIds?: ReadonlySet<string>;
+  } = {},
+): number {
+  const currentFrames = Object.entries(
+    parseCanvasFrameGeometryById(currentCanvasFrames),
+  );
+  const metadataMap = isRecord(options.screenMetadataByFileId)
+    ? options.screenMetadataByFileId
+    : {};
+  const breakpointWidths = options.breakpointWidths ?? [];
+  const screenFrames = options.overviewScreenFileIds
+    ? currentFrames.filter(([fileId]) =>
+        options.overviewScreenFileIds!.has(fileId),
+      )
+    : currentFrames;
+  const right = screenFrames.reduce((maxRight, [fileId, frame]) => {
+    const bounds = importedFramePaintedBounds({
+      frame,
+      metadata: metadataMap[fileId],
+      breakpointWidths,
+    });
+    return Number.isFinite(bounds.x) && Number.isFinite(bounds.width)
+      ? Math.max(maxRight, bounds.x + bounds.width)
+      : maxRight;
+  }, 0);
+  return screenFrames.length > 0 ? right + FRAME_GAP : 0;
+}
+
+function storedImportOriginX(
+  screenMetadata: Record<string, unknown>,
+  placementGroup: string,
+): number | undefined {
+  for (const metadata of Object.values(screenMetadata)) {
+    if (
+      isRecord(metadata) &&
+      typeof metadata.operationSource === "string" &&
+      metadata.operationSource.startsWith(placementGroup) &&
+      typeof metadata.importOriginX === "number" &&
+      Number.isFinite(metadata.importOriginX)
+    ) {
+      return metadata.importOriginX;
+    }
+  }
+  return undefined;
 }
 
 function stringFromState(value: unknown, key: string): string | undefined {
@@ -192,7 +415,9 @@ export async function saveImportedDesignFiles(
   const savedFiles: SavedImportedDesignFile[] = [];
   const seedRecords: Array<{ id: string; content: string }> = [];
   const placements: CanvasFramePlacement[] = [];
+  let placementsForPersistence: CanvasFramePlacement[] = placements;
   const metadataByFileId = new Map<string, Record<string, unknown>>();
+  const existingOverviewScreenFileIds = new Set<string>();
   let placedFrames:
     | Array<{
         fileId: string;
@@ -201,92 +426,184 @@ export async function saveImportedDesignFiles(
       }>
     | undefined;
 
-  // Preserve the old all-or-nothing behavior for already-invalid data as far
-  // as the shared mutation boundary permits: validate before inserting files,
-  // then re-run the real intent against the latest revision after file work.
-  await mutateDesignData({
-    designId,
-    mutate: (current) => current,
-    isApplied: () => true,
-  });
-
-  await db.transaction(async (tx) => {
-    const [design] = await tx
-      .select()
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
-    if (!design) throw new Error(`Design ${designId} was not found.`);
-
-    const existingFiles = await tx
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-    let nextFrameX = 0;
-
-    for (let index = 0; index < input.files.length; index += 1) {
-      const file = input.files[index]!;
-      const filename = uniqueFilename(
-        ensureExtension(sanitizeImportedFilename(file.filename), file.fileType),
-        usedFilenames,
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
       );
-      const fileId = nanoid();
-      // Exact native clones are immutable source evidence. Other imports are
-      // annotated before persistence so editor operations can address nodes.
-      const annotatedContent = input.preserveExactContent
-        ? file.content
-        : annotateScreenHtmlForPersist(file.content, file.fileType);
-      await tx.insert(schema.designFiles).values({
-        id: fileId,
-        designId,
-        filename,
-        fileType: file.fileType,
-        content: annotatedContent,
-        createdAt: now,
-        updatedAt: now,
-      });
-      seedRecords.push({ id: fileId, content: annotatedContent });
+      const [design] = await tx
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, designId))
+        .limit(1);
+      if (!design) throw new Error(`Design ${designId} was not found.`);
+      // Refuse before inserting files, so invalid data never gains orphans.
+      parseDesignDataObject(designId, design.data);
 
-      const width = positiveDimension(
-        file.preferredFrame?.width,
-        DEFAULT_FRAME_WIDTH,
+      const existingFiles = await tx
+        .select({
+          id: schema.designFiles.id,
+          filename: schema.designFiles.filename,
+          fileType: schema.designFiles.fileType,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId));
+      for (const file of existingFiles) {
+        if (isOverviewScreenFile(file)) {
+          existingOverviewScreenFileIds.add(file.id);
+        }
+      }
+      const usedFilenames = new Set(existingFiles.map((file) => file.filename));
+
+      const operationSources = input.files.flatMap((file) =>
+        file.operationSource ? [file.operationSource] : [],
       );
-      const height = positiveDimension(
-        file.preferredFrame?.height,
-        DEFAULT_FRAME_HEIGHT,
+      const retriedFiles = operationSources.length
+        ? await tx
+            .select({
+              id: schema.designFiles.id,
+              filename: schema.designFiles.filename,
+              content: schema.designFiles.content,
+              contentOperationSource: schema.designFiles.contentOperationSource,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                inArray(
+                  schema.designFiles.contentOperationSource,
+                  operationSources,
+                ),
+              ),
+            )
+        : [];
+      const retriedByOperationSource = new Map(
+        retriedFiles.map((file) => [file.contentOperationSource, file]),
       );
-      placements.push({
-        fileId,
-        filename,
-        x: file.preferredFrame?.x ?? nextFrameX,
-        y: file.preferredFrame?.y ?? 0,
-        width,
-        height,
-        z: index,
-      });
-      nextFrameX += width + FRAME_GAP;
-      const source = {
-        sourceType: input.sourceType,
-        previewState: "static",
-        title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
-        width,
-        height,
-        ...file.source,
-      };
-      metadataByFileId.set(fileId, source);
-      savedFiles.push({
-        id: fileId,
-        filename,
-        fileType: file.fileType,
-        source,
-      });
+
+      for (let index = 0; index < input.files.length; index += 1) {
+        const file = input.files[index]!;
+        const existing = file.operationSource
+          ? retriedByOperationSource.get(file.operationSource)
+          : undefined;
+        const filename =
+          existing?.filename ??
+          uniqueFilename(
+            ensureExtension(
+              sanitizeImportedFilename(file.filename),
+              file.fileType,
+            ),
+            usedFilenames,
+          );
+        const fileId = existing?.id ?? nanoid();
+        // Exact native clones are immutable source evidence. Other imports are
+        // annotated before persistence so editor operations can address nodes.
+        const annotatedContent = input.preserveExactContent
+          ? file.content
+          : annotateScreenHtmlForPersist(file.content, file.fileType);
+        if (!existing) {
+          await tx.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: file.fileType,
+            content: annotatedContent,
+            contentOperationSource: file.operationSource ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          seedRecords.push({ id: fileId, content: annotatedContent });
+        } else {
+          seedRecords.push({ id: fileId, content: existing.content });
+        }
+
+        const width = positiveDimension(
+          file.preferredFrame?.width,
+          DEFAULT_FRAME_WIDTH,
+        );
+        const height = positiveDimension(
+          file.preferredFrame?.height,
+          DEFAULT_FRAME_HEIGHT,
+        );
+        placements.push({
+          fileId,
+          filename,
+          ...(file.preferredFrame?.x !== undefined
+            ? { x: file.preferredFrame.x }
+            : {}),
+          y: file.preferredFrame?.y ?? 0,
+          width,
+          height,
+          z: index,
+        });
+        const source = {
+          sourceType: input.sourceType,
+          previewState: "static",
+          title: file.preferredFrame?.title ?? filename.replace(/\.[^.]+$/, ""),
+          width,
+          height,
+          ...file.source,
+          heightMode: "fixed",
+          heightPinned: true,
+        };
+        metadataByFileId.set(fileId, source);
+        savedFiles.push({
+          id: fileId,
+          filename,
+          fileType: file.fileType,
+          source,
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      input.files.some((file) => file.operationSource) &&
+      isOperationSourceUniqueViolation(error)
+    ) {
+      return saveImportedDesignFiles(input);
     }
-  });
+    throw error;
+  }
 
   await mutateDesignData({
     designId,
     mutate: (current, { updatedAt }) => {
+      const currentScreenMetadata = isRecord(current.screenMetadata)
+        ? current.screenMetadata
+        : {};
+      const breakpointWidths = getResponsiveBreakpointWidths(
+        current.breakpointSet,
+      );
+      let nextFrameX = nextImportedFrameX(current.canvasFrames, {
+        screenMetadataByFileId: currentScreenMetadata,
+        breakpointWidths,
+        overviewScreenFileIds: existingOverviewScreenFileIds,
+      });
+      const groupOriginX = input.placementGroup
+        ? (storedImportOriginX(currentScreenMetadata, input.placementGroup) ??
+          nextFrameX)
+        : 0;
+      if (input.placementGroup) {
+        for (const metadata of metadataByFileId.values()) {
+          metadata.importOriginX = groupOriginX;
+        }
+      }
+      const baseZ = nextImportedFrameZ(current.canvasFrames);
+      placementsForPersistence = placements.map((placement, index) => {
+        const x =
+          placement.x === undefined ? nextFrameX : groupOriginX + placement.x;
+        const bounds = importedFramePaintedBounds({
+          frame: { ...placement, x },
+          metadata: metadataByFileId.get(placement.fileId ?? ""),
+          breakpointWidths,
+        });
+        nextFrameX = Math.max(nextFrameX, bounds.x + bounds.width + FRAME_GAP);
+        return {
+          ...placement,
+          x,
+          z: baseZ + index,
+        };
+      });
       const previousMetadata = isRecord(current.screenMetadata)
         ? { ...current.screenMetadata }
         : {};
@@ -295,7 +612,7 @@ export async function saveImportedDesignFiles(
       }
       const mergedFrames = mergeCanvasFramePlacements({
         existing: current.canvasFrames,
-        placements,
+        placements: placementsForPersistence,
         resolveFileId: (placement) => placement.fileId,
       });
       placedFrames = mergedFrames.placedFrames;
@@ -316,7 +633,7 @@ export async function saveImportedDesignFiles(
       return savedFiles.every((file) => {
         const frame = currentFrames[file.id];
         const metadata = currentMetadata[file.id];
-        const placement = placements.find(
+        const placement = placementsForPersistence.find(
           (candidate) => candidate.fileId === file.id,
         );
         const expectedFrame = placement

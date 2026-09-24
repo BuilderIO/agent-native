@@ -1,14 +1,21 @@
-import { defineAction } from "@agent-native/core";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifications.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
+import { assertCanDraftAuthoredBy } from "../server/lib/library-access.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
+import { normalizeCallerAppId } from "../shared/api.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
-import { upsertVariantSlot } from "./variant-slots.js";
+import {
+  failMissingVariantRun,
+  readVariantState,
+  upsertVariantSlot,
+} from "./variant-slots.js";
 
 // Must stay comfortably above the managed generation budget: the default 300s
 // request window plus up to ~4 minutes of idempotent in-flight polling. Otherwise
@@ -61,6 +68,7 @@ async function syncImageVariantSlot(
     threadId,
     variantScopeId,
     prompt: run.prompt,
+    ownerEmail: run.ownerEmail,
     slotId,
     status,
     assetId: serialized?.id,
@@ -82,24 +90,34 @@ async function refreshImageRun(
   const outputAsset = assets[0] ?? null;
   if (outputAsset) {
     let nextRun = run;
+    let completionClaimed = false;
     if (run.status !== "completed") {
       const completedAt = nowIso();
-      await db
+      const [completedRun] = await db
         .update(schema.assetGenerationRuns)
         .set({ status: "completed", completedAt })
-        .where(eq(schema.assetGenerationRuns.id, run.id));
-      nextRun = { ...run, status: "completed", completedAt };
-      await notifyGenerationRunFinished(nextRun, "completed");
+        .where(
+          and(
+            eq(schema.assetGenerationRuns.id, run.id),
+            ne(schema.assetGenerationRuns.status, "completed"),
+          ),
+        )
+        .returning();
+      nextRun = completedRun ?? { ...run, status: "completed", completedAt };
+      completionClaimed = Boolean(completedRun);
+      if (completedRun) {
+        await notifyGenerationRunFinished(completedRun, "completed");
+      }
     }
     await syncImageVariantSlot(nextRun, "ready", { asset: outputAsset });
-    return { run: nextRun, assets };
+    return { run: nextRun, assets, completionClaimed };
   }
 
   if (run.status === "failed") {
     await syncImageVariantSlot(run, "failed", {
       error: run.error ?? "Image generation failed.",
     });
-    return { run, assets: [] };
+    return { run, assets: [], completionClaimed: false };
   }
 
   if (imageRunAgeMs(run) >= STALE_IMAGE_RUN_MS) {
@@ -122,32 +140,97 @@ async function refreshImageRun(
       error: INTERRUPTED_IMAGE_RUN_ERROR,
     });
     await notifyGenerationRunFinished(failedRun, "failed");
-    return { run: failedRun, assets: [] };
+    return { run: failedRun, assets: [], completionClaimed: false };
   }
 
-  return { run, assets: [] };
+  return { run, assets: [], completionClaimed: false };
 }
 
 export default defineAction({
   description:
-    "Refresh a generation run. Use this to poll async video runs, and to reconcile an interrupted or stale pending image slot by runId before retrying generation.",
+    "Refresh a generation run. Use this to poll async video runs, and to reconcile an interrupted, stale, or missing pending image slot by runId before retrying generation.",
   schema: z.object({
     runId: z.string(),
+    threadId: z.string().nullable().optional(),
   }),
-  run: async ({ runId }) => {
+  run: async ({ runId, threadId }, ctx?: ActionRunContext) => {
     const db = getDb();
     const [run] = await db
       .select()
       .from(schema.assetGenerationRuns)
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
-    if (!run) throw new Error("Generation run not found.");
-    await assertAccess("asset-library", run.libraryId, "editor");
+    if (!run) {
+      const scopeId = threadId ?? ctx?.threadId;
+      const state = await readVariantState(scopeId);
+      const slot = state?.slots.find(
+        (candidate) =>
+          candidate.runId === runId && candidate.status === "pending",
+      );
+      const timestamp = Date.parse(slot?.createdAt ?? slot?.updatedAt ?? "");
+      if (
+        state &&
+        slot &&
+        Number.isFinite(timestamp) &&
+        Date.now() - timestamp >= STALE_IMAGE_RUN_MS
+      ) {
+        // Legacy slots have no owner field, but their app state is request-scoped.
+        await assertCanDraftAuthoredBy(
+          state.libraryId,
+          slot.ownerEmail ?? ctx?.userEmail,
+          "A generation run",
+        );
+        const reconciled = await failMissingVariantRun({
+          runId,
+          libraryId: state.libraryId,
+          scopeId,
+          staleBefore: Date.now() - STALE_IMAGE_RUN_MS,
+          error: INTERRUPTED_IMAGE_RUN_ERROR,
+        });
+        if (reconciled) {
+          return {
+            run: null,
+            assets: [],
+            missingRun: true,
+            slotReconciled: true,
+          };
+        }
+      }
+      throw new Error("Generation run not found.");
+    }
+    // Reconciling mutates the run row (status, error, outputs), so a
+    // below-editor caller may only refresh a run they started.
+    const draftAccess = await assertCanDraftAuthoredBy(
+      run.libraryId,
+      run.ownerEmail,
+      "A generation run",
+    );
+    // Reconciliation is where an async candidate finally becomes readable, so
+    // it is the last place the caller can learn it still needs an editor.
+    const approval = draftAccess.canApprove
+      ? {}
+      : { draftPendingApproval: true };
     if ((run.mediaType ?? "image") !== "video") {
       const refreshed = await refreshImageRun(run);
+      if (refreshed.completionClaimed && refreshed.assets[0]) {
+        track(
+          "media_generated",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            output_id: refreshed.assets[0].id,
+            output_type: "asset",
+            media_type: "image",
+            library_id: run.libraryId,
+            source_app: normalizeCallerAppId(run.callerAppId),
+          },
+          ctx,
+        );
+      }
       return {
         run: serializeGenerationRun(refreshed.run),
         assets: refreshed.assets.map(serializeAsset),
+        ...approval,
       };
     }
     if (run.status === "completed" || run.status === "failed") {
@@ -158,15 +241,32 @@ export default defineAction({
       return {
         run: serializeGenerationRun(run),
         assets: assets.map(serializeAsset),
+        ...approval,
       };
     }
     const refreshed = await completeVideoGenerationRun(run);
+    if (refreshed.status === "completed" && refreshed.completionClaimed) {
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: refreshed.asset.id,
+          output_type: "asset",
+          media_type: "video",
+          library_id: run.libraryId,
+          source_app: normalizeCallerAppId(run.callerAppId),
+        },
+        ctx,
+      );
+    }
     return {
       run: serializeGenerationRun(refreshed.run),
       assets:
         refreshed.status === "completed"
           ? [serializeAsset(refreshed.asset)]
           : [],
+      ...approval,
     };
   },
 });

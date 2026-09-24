@@ -1,13 +1,14 @@
 /**
  * Store tests for the data-programs primitive. Uses a real in-memory
- * better-sqlite3 database (via `drizzle-orm/better-sqlite3`) wired in place
+ * PGlite database (via `drizzle-orm/pglite`) wired in place
  * of `../db/client.js` / `../db/create-get-db.js`, mirroring the pattern in
  * `../sharing/restricted-sharing.spec.ts` and `../extensions/store.spec.ts`.
  */
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 interface FrameworkClient {
   execute(arg: string | { sql: string; args: any[] }): Promise<{
@@ -16,21 +17,23 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let drizzleDb: ReturnType<typeof drizzle>;
 let sharedClient: FrameworkClient;
 
-function makeClient(db: Database.Database): FrameworkClient {
+function makeClient(
+  db: Awaited<ReturnType<typeof createTestPglite>>,
+): FrameworkClient {
   return {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = db.prepare(sql);
+      const stmt = await db.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
@@ -38,9 +41,7 @@ function makeClient(db: Database.Database): FrameworkClient {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -55,15 +56,15 @@ vi.mock("../sharing/registry.js", async () => {
   return actual;
 });
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  drizzleDb = drizzle(sqlite);
-  sharedClient = makeClient(sqlite);
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  drizzleDb = drizzle(pglite.db);
+  sharedClient = makeClient(pglite);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.resetModules();
-  sqlite.close();
+  await pglite.close();
 });
 
 async function loadStore() {
@@ -76,17 +77,21 @@ describe("data-programs/store", () => {
       const { ensureDataProgramTables } = await loadStore();
       await ensureDataProgramTables();
 
-      const tables = sqlite
-        .prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
-        .all() as Array<{ name: string }>;
+      const tables = (await pglite
+        .prepare(
+          `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`,
+        )
+        .all()) as Array<{ name: string }>;
       const names = tables.map((t) => t.name);
       expect(names).toContain("data_programs");
       expect(names).toContain("data_program_shares");
       expect(names).toContain("data_program_runs");
 
-      const runColumns = sqlite
-        .prepare(`PRAGMA table_info(data_program_runs)`)
-        .all() as Array<{ name: string }>;
+      const runColumns = (await pglite
+        .prepare(
+          `SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'data_program_runs'`,
+        )
+        .all()) as Array<{ name: string }>;
       expect(runColumns.map((c) => c.name)).toContain("truncated");
     });
 

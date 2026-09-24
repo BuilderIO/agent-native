@@ -32,3 +32,9 @@ export function shouldUseSourceFallback({
       pair.sourceMtimeMs > pair.distMtimeMs,
   );
 }
+
+/** @param {string} version */
+export function supportsNodeVersion(version) {
+  const [major, minor] = version.split(".").map(Number);
+  return major > 22 || (major === 22 && minor >= 22);
+}

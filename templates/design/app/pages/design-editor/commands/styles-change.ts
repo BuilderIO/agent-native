@@ -1,10 +1,14 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
 import type { InteractionState } from "@shared/interaction-states";
 import type { RefObject } from "react";
 
+import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
 import type { StyleChangeMeta } from "@/components/design/EditPanel";
 import type { ElementInfo } from "@/components/design/types";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
 import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/editor-state";
+
+import { styleWriteTarget } from "./style-write-target";
 
 export interface StylesChangeArgs {
   commitInteractionStateStyles: (
@@ -13,9 +17,18 @@ export interface StylesChangeArgs {
   ) => boolean;
   commitRelativeStyleDeltaToSelectedLayers: (
     property: string,
-    delta: number,
+    operation: number | ScrubRelativeExpression,
+    phase?: StyleChangeMeta["phase"],
   ) => boolean;
-  commitStylesToSelectedLayers: (styles: Record<string, string>) => boolean;
+  commitStylesToSelectedLayers: (
+    styles: Record<string, string>,
+    phase?: StyleChangeMeta["phase"],
+  ) => boolean;
+  commitCapturedStyleTargets: (
+    styles: Record<string, string>,
+    targets: CapturedStyleTarget[],
+    interactionState?: InteractionState,
+  ) => void;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,
@@ -44,6 +57,7 @@ export function runStylesChange(
     commitInteractionStateStyles,
     commitRelativeStyleDeltaToSelectedLayers,
     commitStylesToSelectedLayers,
+    commitCapturedStyleTargets,
     commitVisualStyles,
     handleClearBreakpointOverride,
     previewInteractionStateStyles,
@@ -55,6 +69,22 @@ export function runStylesChange(
   styles: Record<string, string>,
   meta?: StyleChangeMeta,
 ) {
+  // Gesture cancellation is paired with a preceding preview that restored the
+  // pointerdown values. It must not enter this command's preview or commit path.
+  if (meta?.phase === "cancel") {
+    commitStylesToSelectedLayers({}, "cancel");
+    return;
+  }
+  if (meta?.capturedStyleTargets && meta.phase !== "preview") {
+    commitCapturedStyleTargets(
+      Object.fromEntries(
+        Object.entries(styles).filter(([, value]) => Boolean(value)),
+      ),
+      meta.capturedStyleTargets,
+      meta.interactionState,
+    );
+    return;
+  }
   // Interaction-states phase 2 — see handleStyleChange's matching branch
   // (and commitInteractionStateStyles's doc comment) for the full
   // contract. Batched form: every property in this one commit lands in
@@ -87,6 +117,16 @@ export function runStylesChange(
   const selector = selectedElement?.selector ?? "body";
   const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
   if (entries.length === 0) return;
+  if (meta?.relativeExpression && entries.length === 1) {
+    const [property] = entries[0]!;
+    commitRelativeStyleDeltaToSelectedLayers(
+      property,
+      meta.relativeExpression,
+      meta.phase,
+    );
+    return;
+  }
+  const target = styleWriteTarget({ selector, selectedElement });
   // T10: mirror handleStyleChange's text-range routing here. Without
   // this, a multi-property style commit (e.g. EditPanel's typography
   // controls, which batch fontSize/lineHeight/etc into one call) while a
@@ -94,17 +134,14 @@ export function runStylesChange(
   // instead of just the selected range — handleStyleChange (the
   // single-property path) already special-cases this; handleStylesChange
   // just never got the same treatment.
-  if (
-    textEditingState.active &&
-    textEditingState.hasRange &&
-    textEditingState.selector === selector
-  ) {
+  if (textEditingState.hasRange && textEditingState.selector === selector) {
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
       entries.forEach(([property, value]) => {
         sendStyleChange(selector, property, value, {
           selectorCandidates: selectedCanvasSelectorCandidates,
           nodeId: selectedElement?.sourceId,
+          phase: meta?.phase,
         });
       });
       return;
@@ -124,7 +161,7 @@ export function runStylesChange(
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
       entries.forEach(([property, value]) => {
-        sendStyleChange(selector, property, value, {
+        sendStyleChange(target, property, value, {
           selectorCandidates: selectedCanvasSelectorCandidates,
           nodeId: selectedElement?.sourceId,
         });
@@ -143,13 +180,19 @@ export function runStylesChange(
     ?.relativeDelta;
   if (typeof relativeDelta === "number" && entries.length === 1) {
     const [singleProperty] = entries[0]!;
-    if (commitRelativeStyleDeltaToSelectedLayers(singleProperty, relativeDelta))
+    if (
+      commitRelativeStyleDeltaToSelectedLayers(
+        singleProperty,
+        relativeDelta,
+        meta?.phase,
+      )
+    )
       return;
   }
   if (
     selectedElement &&
-    commitStylesToSelectedLayers(Object.fromEntries(entries))
+    commitStylesToSelectedLayers(Object.fromEntries(entries), meta?.phase)
   )
     return;
-  commitVisualStyles(selector, Object.fromEntries(entries));
+  commitVisualStyles(target, Object.fromEntries(entries));
 }

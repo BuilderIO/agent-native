@@ -190,7 +190,7 @@ function MermaidDiagram({
       setState({});
       return;
     }
-    (async () => {
+    void (async () => {
       try {
         const svg = await renderExcalidrawSvg(trimmed, isDark);
         if (!cancelled) setState({ svg });

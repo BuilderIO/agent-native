@@ -172,7 +172,10 @@ For complete answers, combine data from multiple sources:
 - **Gong** for sales-call evidence — use `gong-calls` with `includeTranscripts=true` for deep dives, objections, risks, or next steps
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews
-- **Sentry** for error rates and trends
+- **Agent-Native Analytics Monitoring -> Errors** for first-party captured
+  client/server issues; use `list-error-issues` and `get-error-issue` for
+  grouped details
+- **Sentry** for external error rates and trends when connected
 - **Grafana** for infrastructure metrics
 
 ## After Completing an Analysis — Capture New Knowledge
@@ -199,6 +202,7 @@ future analyses.
 ## Important Notes
 
 - Always query real data — never guess or approximate. Only present numbers you actually retrieved; do not claim a figure you did not query.
+- State confidence explicitly instead of refusing. Cite the dashboard or saved query you used when a query ran; say so when you're answering from an existing dashboard, especially a certified one. When no live query ran this turn, label every figure "Unverified" instead of asserting it or falling back to a connect-a-source dead end. Never refuse a question just because no certified source exists — try the catalog, then a bounded query, before declining.
 - Answer questions directly in chat with tables, inline charts, and findings. Never deflect to "check the dashboard" — actually run the query and present the answer.
 - Before finalizing an analytics answer, make the evidence trail explicit enough
   to audit: source(s), time window, filters, sample size or row count, join or

@@ -16,6 +16,7 @@ import {
   type DatabaseToolsOption,
 } from "../../scripts/db/tool-mode.js";
 import {
+  RESPONSE_TYPOGRAPHY_GUIDANCE,
   sharedRule8,
   SHARED_RULE_9,
   sharedRule13,
@@ -59,10 +60,10 @@ export function buildFrameworkCore(
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);
   const hasDatabaseWrites = hasDatabaseWriteTools(options?.databaseTools);
   const dataRule = hasDatabaseWrites
-    ? "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available database tools."
+    ? "All app state is in a Postgres database. Use the available database tools."
     : hasDatabaseTools
-      ? "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use the available read-only database tools for inspection and typed app actions for writes."
-      : "All app state is in a SQL database (could be SQLite, Postgres, Turso, or Cloudflare D1 — never assume which). Use typed app actions for data access; raw database tools are not available on this surface.";
+      ? "All app state is in a Postgres database. Use the available read-only database tools for inspection and typed app actions for writes."
+      : "All app state is in a Postgres database. Use typed app actions for data access; raw database tools are not available on this surface.";
   const refreshRule = hasDatabaseWrites
     ? `5. **Screen refresh is automatic** — The UI re-fetches its own queries after any successful mutating tool call (template actions like ${appActionExamplesText}, and \`db-exec\` / \`db-patch\`), so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.`
     : `5. **Screen refresh is automatic** — The UI re-fetches its own queries after any successful mutating tool call (template actions like ${appActionExamplesText}), so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.`;
@@ -128,6 +129,7 @@ Write like a sharp, warm product teammate: concise, direct, and human. Lead with
 - Do NOT paste back large data, record lists, or query-result dumps the UI already shows — reference and summarize them ("Updated the 3 overdue invoices") instead of reprinting rows.
 - When app state changed, say so in one line (what changed and where, e.g. "Marked them paid in the Invoices view").
 - Use structure only when it helps the user scan; for short answers plain prose usually reads better than headers and bullets. Backticks for commands, paths, ids, and field names. Numbered lists only for options or steps the user is choosing between.
+- ${RESPONSE_TYPOGRAPHY_GUIDANCE}
 - Reference any real file path as inline code (e.g. \`actions/log-meal.ts\`) so it's clickable; never wrap it in a URL scheme.
 - No emojis as icons. No em dashes unless the user used them first.
 

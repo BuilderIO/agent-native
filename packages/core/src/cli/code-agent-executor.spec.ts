@@ -342,6 +342,53 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "process.stderr.write('Not logged in');",
+        "process.exit(1);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the workspace",
+    });
+
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "errored",
+      metadata: {
+        executionError: expect.stringContaining("Command failed"),
+      },
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "Claude Code run failed: Claude authentication check failed. Run `claude auth login` and try again.",
+        }),
+      ]),
+    );
+  });
+
   it("persists Codex JSON tool events for the shared transcript UI", async () => {
     const root = useTempCodeAgentsHome();
     const binDir = path.join(root, "bin");
@@ -1045,6 +1092,58 @@ describe("classifyCodeAgentCommandPermission", () => {
     expect(classifyCodeAgentCommandPermission("rm -rf dist")).toMatchObject({
       kind: "approval-required",
     });
+  });
+
+  // The shell strips quoting before the command word exists, so each of these
+  // runs exactly what the unquoted form runs. Matching the raw text alone let
+  // every one of them through as a plain `write`.
+  it.each([
+    ["git 'checkout' main", "forbidden"],
+    ['git "checkout" main', "forbidden"],
+    ["gi''t checkout main", "forbidden"],
+    ["git check\\out main", "forbidden"],
+    ['drizzle-kit "push"', "forbidden"],
+    ["rm -'r'f /data", "approval-required"],
+    ["su''do rm x", "approval-required"],
+    ["npm 'publish'", "approval-required"],
+  ] as const)("sees through shell quoting in %s", (command, kind) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
+  });
+
+  // Each of these executes a forbidden operation whose tokens never appear in
+  // the source string, so "no rule matched" proves nothing about what will run.
+  it.each([
+    "$'\\x67it' checkout main",
+    "$(printf git) $(printf checkout) main",
+    "`printf git` checkout main",
+  ])("asks rather than guessing for %s", (command) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  it("still blocks outright when the forbidden text is visible inside a substitution", () => {
+    expect(
+      classifyCodeAgentCommandPermission('echo "$(git checkout main)"'),
+    ).toMatchObject({ kind: "forbidden" });
+  });
+
+  // Single quotes make substitution literal, so nothing is hidden and the
+  // command is not escalated. (The read-only allowlist separately refuses any
+  // raw `$(`, which is why this lands on `write` rather than `read`.)
+  it("does not escalate substitution syntax that single quotes make literal", () => {
+    expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
+      { kind: "write" },
+    );
+  });
+
+  it("leaves ordinary quoted arguments classified as before", () => {
+    expect(
+      classifyCodeAgentCommandPermission('rg "some phrase" src'),
+    ).toMatchObject({ kind: "read" });
+    expect(
+      classifyCodeAgentCommandPermission("node -e 'console.log(1)'"),
+    ).toMatchObject({ kind: "write" });
   });
 });
 

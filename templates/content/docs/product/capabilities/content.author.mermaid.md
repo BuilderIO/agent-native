@@ -16,7 +16,7 @@ acceptance_summary: "`/Diagram (Mermaid)` creates a normal Code block with `lang
 proof_requirements:
   [
     "Mermaid is a Code language plus built-in renderer, not a Custom Block or a separate diagram datastore.",
-    "The renderer may prefer an Agent Native style but falls back to faithful Mermaid; errors preserve source and diagnostics.",
+    "The renderer may prefer an Agent-Native style but falls back to faithful Mermaid; errors preserve source and diagnostics.",
     "Public and exported documents never execute source and use a pinned static rendering or readable source fallback.",
   ]
 evidence: []
@@ -37,7 +37,7 @@ Noor uses `/Diagram (Mermaid)`, edits its ordinary Code source, and exports a di
 ## Product contract
 
 - Mermaid is a Code language plus built-in renderer, not a Custom Block or a separate diagram datastore.
-- The renderer may prefer an Agent Native style but falls back to faithful Mermaid; errors preserve source and diagnostics.
+- The renderer may prefer an Agent-Native style but falls back to faithful Mermaid; errors preserve source and diagnostics.
 - Public and exported documents never execute source and use a pinned static rendering or readable source fallback.
 
 ## Boundaries and non-goals

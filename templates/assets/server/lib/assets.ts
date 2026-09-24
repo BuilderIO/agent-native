@@ -48,9 +48,9 @@ export async function createAssetFromBuffer(input: {
   description?: string | null;
   altText?: string | null;
   prompt?: string | null;
-  model?: ImageModel | VideoModel | string | null;
-  aspectRatio?: AspectRatio | string | null;
-  imageSize?: ImageSize | string | null;
+  model?: ImageModel | VideoModel | (string & {}) | null;
+  aspectRatio?: AspectRatio | (string & {}) | null;
+  imageSize?: ImageSize | (string & {}) | null;
   durationSeconds?: number | null;
   generationRunId?: string | null;
   sourceUrl?: string | null;

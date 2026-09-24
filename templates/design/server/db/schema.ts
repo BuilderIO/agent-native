@@ -6,6 +6,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -26,6 +27,16 @@ export const designs = table("designs", {
 });
 
 export const designShares = createSharesTable("design_shares");
+
+export const designAccessRequests = table("design_access_requests", {
+  id: text("id").primaryKey(),
+  designId: text("design_id").notNull(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterName: text("requester_name").notNull(),
+  requestedAt: text("requested_at").notNull().default(now()),
+  notifiedAt: text("notified_at"),
+  notificationClaimedAt: text("notification_claimed_at"),
+});
 
 /**
  * Reusable starting points captured from a Design project. Template metadata
@@ -78,9 +89,7 @@ export const designSystems = table("design_systems", {
   data: text("data").notNull(),
   assets: text("assets"),
   customInstructions: text("custom_instructions").notNull().default(""),
-  isDefault: integer("is_default", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -109,6 +118,8 @@ export const designVersions = table("design_versions", {
   designId: text("design_id").notNull(),
   label: text("label"),
   snapshot: text("snapshot").notNull(),
+  chatContext: text("chat_context"),
+  fileCount: integer("file_count"),
   createdAt: text("created_at").default(now()),
 });
 
@@ -315,6 +326,23 @@ export const designReviewSnapshot = table("design_review_snapshot", {
     .notNull()
     .default("pending"),
   createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+/**
+ * Latest DOM-only visual-edit handoff for a design. This is intentionally
+ * separate from design data: it is a short-lived source prompt published by
+ * the browser so an external coding agent can pull it without the Design tab.
+ */
+export const designVisualEditPending = table("design_visual_edit_pending", {
+  designId: text("design_id").primaryKey(),
+  pendingEditCount: integer("pending_edit_count").notNull().default(0),
+  status: text("status", { enum: ["ready", "empty"] })
+    .notNull()
+    .default("empty"),
+  prompt: text("prompt").notNull().default(""),
+  revision: integer("revision").notNull().default(0),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });

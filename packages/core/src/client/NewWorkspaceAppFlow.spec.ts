@@ -42,9 +42,16 @@ vi.mock("./settings/useBuilderStatus.js", () => ({
     configured: false,
     connecting: builderConnectFlowState.connecting,
     error: null,
+    statusResolved: true,
     start: builderConnectFlowState.start,
   }),
 }));
+
+vi.mock("./settings/deferred-builder-connect-popover.js", async () => {
+  const { BuilderConnectPopover } =
+    await import("./settings/BuilderConnectPopover.js");
+  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
+});
 
 vi.mock("./composer/index.js", async () => {
   const React = await import("react");

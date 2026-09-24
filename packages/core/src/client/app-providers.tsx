@@ -17,7 +17,7 @@
  *     <AppProviders
  *       queryClient={queryClient}
  *       isPublicPath={isPublicBookingPath(location.pathname)}
- *       clientOnlyFallback={<DefaultSpinner />}
+ *       clientOnlyFallback={<AppShellSkeleton />}
  *     >
  *       ...
  *     </AppProviders>
@@ -27,7 +27,7 @@
  *   default), `<ClientOnly>` hydrates the shared SSR shell and
  *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
  *   page before private app chrome mounts. When `clientOnlyFallback` is
- *   omitted, `<DefaultSpinner />` is used.
+ *   omitted, `<AppShellSkeleton />` is used.
  *
  * Customisation props:
  *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
@@ -47,6 +47,10 @@
  *                              which is the shadcn recommendation and avoids
  *                              flash artefacts). Set to `false` when the template
  *                              intentionally animates theme changes (e.g. content).
+ *   disableWebMcp             — skips the automatic page-local WebMCP action
+ *                              registration. Defaults to `false`.
+ *   webMcpExcludeActionNames  — omits named server actions when a page provides
+ *                              a safer or more specific replacement.
  */
 
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
@@ -60,8 +64,11 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "../shared/document-title.js";
+import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
+import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
+import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
+import { AppShellSkeleton } from "./AppShellSkeleton.js";
 import { ClientOnly } from "./ClientOnly.js";
-import { DefaultSpinner } from "./DefaultSpinner.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
   AgentNativeI18nProvider,
@@ -77,6 +84,8 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
+import { useSession } from "./use-session.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -84,7 +93,7 @@ export interface AppProvidersProps {
 
   /**
    * Default theme passed to next-themes `ThemeProvider`.
-   * Defaults to `"system"`.  Dark-first templates (slides, macros, analytics)
+   * Defaults to `"system"`.  Dark-first templates (slides, analytics)
    * pass `"dark"`.
    */
   defaultTheme?: string;
@@ -119,6 +128,21 @@ export interface AppProvidersProps {
   disableThemeTransitions?: boolean;
 
   /**
+   * Skip the automatic page-local WebMCP action registration.
+   * Defaults to false so every AppProviders surface exposes its actions.
+   */
+  disableWebMcp?: boolean;
+
+  /**
+   * Omit named server actions from the automatic registration when a page
+   * provides a safer or more specific replacement.
+   */
+  webMcpExcludeActionNames?: readonly string[];
+
+  /** Render the environment badge in the shared app shell. */
+  showEnvironmentBadge?: boolean;
+
+  /**
    * Optional localization runtime configuration. When omitted, AppProviders
    * still mounts the i18n provider with an English fallback so templates can
    * call useT/useLocale before they add catalogs. Pass false to opt out.
@@ -134,7 +158,7 @@ export interface AppProvidersProps {
 
   /**
    * Fallback rendered by `<ClientOnly>` while JS hydrates on private paths.
-   * Defaults to `<DefaultSpinner />`.
+   * Defaults to `<AppShellSkeleton />`.
    */
   clientOnlyFallback?: React.ReactNode;
 
@@ -160,6 +184,33 @@ const DEFAULT_TOASTER = (
   />
 );
 
+function EarlyBetaRedirectScript() {
+  return (
+    <script
+      data-agent-native-beta-redirect="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrBetaRedirectScriptBody(
+          agentNativePath("/_agent-native/auth/session"),
+          frameworkRoutePrefix(),
+        ),
+      }}
+    />
+  );
+}
+
+function EarlySessionBootstrapScript() {
+  return (
+    <script
+      data-agent-native-session-bootstrap="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrSessionBootstrapScriptBody(
+          agentNativePath("/_agent-native/auth/session"),
+        ),
+      }}
+    />
+  );
+}
+
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();
   if (!isInRouter) return null;
@@ -169,6 +220,148 @@ function RoutedAppEnhancements() {
       <AgentNativeRouteWarmup />
       <RouteTransitionIndicator />
     </>
+  );
+}
+
+type WebMcpRegistration = ReturnType<
+  (typeof import("./webmcp.js"))["createAgentNativeServerActionWebMcpRegistration"]
+>;
+type WebMcpModule = typeof import("./webmcp.js");
+
+let webMcpModulePromise: Promise<WebMcpModule> | null = null;
+
+function loadWebMcpModule(): Promise<WebMcpModule> {
+  return (webMcpModulePromise ??= import("./webmcp.js"));
+}
+
+function AgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+
+  useEffect(() => {
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
+    // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
+    let disposed = false;
+    let registration: WebMcpRegistration | null = null;
+    void loadWebMcpModule()
+      .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+        if (disposed) return;
+        registration = createAgentNativeServerActionWebMcpRegistration({
+          excludeActionNames,
+        });
+        void registration.start().catch(() => {
+          // WebMCP is progressive enhancement. Session expiry or a transient
+          // manifest failure must not prevent the authenticated app from
+          // loading.
+        });
+      })
+      .catch(() => {
+        // A failed optional WebMCP chunk must not delay the app shell.
+      });
+    return () => {
+      disposed = true;
+      registration?.stop();
+    };
+  }, [excludeActionNamesKey]);
+  return null;
+}
+
+function SessionGatedAgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const { status } = useSession();
+  const registrationRef = useRef<WebMcpRegistration | null>(null);
+  const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+  useEffect(() => {
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
+    if (status === "unauthenticated" || status === "signing-out") {
+      // Confirmed sign-out is the only session change that stops a live
+      // registration; a transient revalidation (loading/unavailable) keeps
+      // the existing one alive until the session settles.
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
+      return;
+    }
+    if (
+      status !== "authenticated" ||
+      (registrationRef.current &&
+        registrationExcludeActionNamesKeyRef.current === excludeActionNamesKey)
+    ) {
+      return;
+    }
+    registrationRef.current?.stop();
+    registrationRef.current = null;
+    registrationExcludeActionNamesKeyRef.current = null;
+    let disposed = false;
+    const cancel = scheduleAfterPaint(() => {
+      void loadWebMcpModule()
+        .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+          if (disposed) return;
+          const registration = createAgentNativeServerActionWebMcpRegistration({
+            excludeActionNames,
+          });
+          void registration.start().catch(() => {
+            // WebMCP is progressive enhancement. Session expiry or a transient
+            // manifest failure must not prevent the authenticated app from
+            // loading.
+          });
+          registrationRef.current = registration;
+          registrationExcludeActionNamesKeyRef.current = excludeActionNamesKey;
+        })
+        .catch(() => {
+          // A failed optional WebMCP chunk must not delay the app shell.
+        });
+    });
+    return () => {
+      disposed = true;
+      cancel();
+    };
+    // Unmount stops exactly the registration this surface created, whether
+    // it started or is still scheduled.
+  }, [status, excludeActionNamesKey]);
+  useEffect(
+    () => () => {
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
+    },
+    [],
+  );
+  return null;
+}
+
+export function AgentNativeWebMcpActionRegistration({
+  requireSession = false,
+  excludeActionNames,
+}: {
+  requireSession?: boolean;
+  excludeActionNames?: readonly string[];
+} = {}) {
+  if (requireSession) {
+    return (
+      <SessionGatedAgentNativeWebMcpRegistration
+        excludeActionNames={excludeActionNames}
+      />
+    );
+  }
+  return (
+    <AgentNativeWebMcpRegistration excludeActionNames={excludeActionNames} />
   );
 }
 
@@ -184,7 +377,7 @@ function readDocumentTitleFallback(): string {
         document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
     )
     .find((title) => isHumanReadableDocumentTitle(title));
-  return normalizeDocumentTitle(metadataTitle, "Agent Native");
+  return normalizeDocumentTitle(metadataTitle, "Agent-Native");
 }
 
 function EmbeddedThemeSync() {
@@ -233,7 +426,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   useEffect(() => {
     let lastKnownTitle = normalizeDocumentTitle(
       initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
-      fallbackTitle ?? "Agent Native",
+      fallbackTitle ?? "Agent-Native",
     );
 
     const repairTitle = () => {
@@ -242,7 +435,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
         lastKnownTitle = currentTitle;
         return;
       }
-      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent Native");
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent-Native");
       if (currentTitle !== nextTitle) document.title = nextTitle;
     };
 
@@ -266,9 +459,13 @@ function ProvidersInner({
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
+  disableWebMcp,
+  webMcpExcludeActionNames,
+  sessionBypass,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
+  showEnvironmentBadge,
   children,
 }: {
   queryClient: QueryClient;
@@ -277,9 +474,13 @@ function ProvidersInner({
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
+  disableWebMcp: boolean;
+  webMcpExcludeActionNames?: readonly string[];
+  sessionBypass: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
+  showEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -301,11 +502,19 @@ function ProvidersInner({
       >
         <EmbeddedThemeSync />
         <TooltipProvider delayDuration={tooltipDelayDuration}>
+          {!disableWebMcp && (
+            <AgentNativeWebMcpActionRegistration
+              requireSession={!sessionBypass}
+              excludeActionNames={webMcpExcludeActionNames}
+            />
+          )}
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
-          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          {showEnvironmentBadge ? (
+            <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+          ) : null}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -313,11 +522,26 @@ function ProvidersInner({
   );
 }
 
+// Public/SEO surfaces must stay impersonal and request-light: they default to
+// the non-persisting i18n runtime, which never resolves the session and never
+// fires the localization preference read or app-state write (locale comes from
+// localStorage/browser language). A caller that explicitly sets
+// `persistPreference` keeps its choice; `i18n: false` opts out entirely.
+function publicPathI18n(
+  i18n: AppProvidersProps["i18n"],
+): AppProvidersProps["i18n"] {
+  if (i18n === false || i18n?.persistPreference !== undefined) return i18n;
+  return { ...(i18n ?? {}), persistPreference: false };
+}
+
 export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
   sessionBypass = false,
+  disableWebMcp = false,
+  webMcpExcludeActionNames,
+  showEnvironmentBadge = false,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,
@@ -327,7 +551,7 @@ export function AppProviders({
   documentTitleFallback,
   children,
 }: AppProvidersProps) {
-  const fallback = clientOnlyFallback ?? <DefaultSpinner />;
+  const fallback = clientOnlyFallback ?? <AppShellSkeleton />;
 
   if (isPublicPath) {
     return (
@@ -338,38 +562,56 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
-        i18n={i18n}
+        disableWebMcp={disableWebMcp}
+        webMcpExcludeActionNames={webMcpExcludeActionNames}
+        sessionBypass={sessionBypass}
+        i18n={publicPathI18n(i18n)}
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
+        showEnvironmentBadge={showEnvironmentBadge}
       >
         {children}
       </ProvidersInner>
     );
   }
 
+  // Keep the bootstrap outside ClientOnly so the HTML parser can run it before
+  // the authenticated client bundle starts.
   return (
-    <ClientOnly fallback={fallback}>
-      <ProvidersInner
-        queryClient={queryClient}
-        defaultTheme={defaultTheme}
-        themeAttribute={themeAttribute}
-        tooltipDelayDuration={tooltipDelayDuration}
-        toaster={toaster}
-        disableThemeTransitions={disableThemeTransitions}
-        i18n={i18n}
-        documentTitleFallback={documentTitleFallback}
-        showProductionEnvironmentBadge={!sessionBypass}
-      >
-        <RequireSession bypass={sessionBypass} fallback={fallback}>
-          {sessionBypass ? (
-            children
-          ) : (
-            <FirstRunOnboardingStartupGate>
-              {children}
-            </FirstRunOnboardingStartupGate>
-          )}
-        </RequireSession>
-      </ProvidersInner>
-    </ClientOnly>
+    <>
+      {!sessionBypass && (
+        <>
+          <EarlySessionBootstrapScript />
+          <EarlyBetaRedirectScript />
+        </>
+      )}
+      <ClientOnly fallback={fallback}>
+        <ProvidersInner
+          queryClient={queryClient}
+          defaultTheme={defaultTheme}
+          themeAttribute={themeAttribute}
+          tooltipDelayDuration={tooltipDelayDuration}
+          toaster={toaster}
+          disableThemeTransitions={disableThemeTransitions}
+          disableWebMcp={disableWebMcp}
+          webMcpExcludeActionNames={webMcpExcludeActionNames}
+          sessionBypass={sessionBypass}
+          i18n={i18n}
+          documentTitleFallback={documentTitleFallback}
+          showProductionEnvironmentBadge={!sessionBypass}
+          showEnvironmentBadge={showEnvironmentBadge}
+        >
+          <RequireSession bypass={sessionBypass} fallback={fallback}>
+            {sessionBypass ? (
+              children
+            ) : (
+              <FirstRunOnboardingStartupGate>
+                {children}
+              </FirstRunOnboardingStartupGate>
+            )}
+          </RequireSession>
+        </ProvidersInner>
+      </ClientOnly>
+    </>
   );
 }

@@ -1,4 +1,10 @@
 import {
+  isDesignSystemCodeIndexingAllowed,
+  isDesignSystemTierAtMax,
+  readDesignSystemTierLimitFailure,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
+import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -22,6 +28,7 @@ import {
   IconComponents,
   IconCheck,
   IconExternalLink,
+  IconLock,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -99,6 +106,34 @@ interface BuilderIndexInput {
 
 const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
 
+function isDesignSystemNameConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "errorCode" in error &&
+    error.errorCode === "design_system_name_conflict"
+  );
+}
+
+function designSystemIndexFailureMessage(
+  error: unknown,
+  fallbackMessage: string,
+  nameConflictMessage: string,
+): { message: string; upgradeUrl: string | null } {
+  const tierLimit = readDesignSystemTierLimitFailure(error, fallbackMessage);
+  if (tierLimit) {
+    return { message: tierLimit.message, upgradeUrl: tierLimit.upgradeUrl };
+  }
+  return {
+    message: isDesignSystemNameConflict(error)
+      ? nameConflictMessage
+      : error instanceof Error
+        ? error.message
+        : fallbackMessage,
+    upgradeUrl: null,
+  };
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -121,8 +156,17 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
   const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("other");
   const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
+
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
 
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -134,7 +178,7 @@ export default function DesignSystemSetup() {
 
   const { data: designsData } = useActionQuery<{
     designs: Array<{ id: string; title: string; designSystemId?: string }>;
-  }>("list-designs");
+  }>("list-designs", { includeAll: true });
 
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
@@ -215,10 +259,8 @@ export default function DesignSystemSetup() {
     [],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
@@ -227,6 +269,7 @@ export default function DesignSystemSetup() {
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
       setBuilderIndexInputSource("figma");
+      setTierLimitUpgradeUrl(null);
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -247,15 +290,41 @@ export default function DesignSystemSetup() {
           setBuilderIndexing(false);
         }
       } catch (err) {
-        setBuilderIndexError(
-          err instanceof Error
-            ? err.message
-            : t("designSystemSetup.errors.parseFig"),
+        const failure = designSystemIndexFailureMessage(
+          err,
+          t("designSystemSetup.errors.parseFig"),
+          t("designSystemSetup.errors.nameConflict"),
         );
+        if (failure.upgradeUrl) {
+          setValidationError(failure.message);
+          setTierLimitUpgradeUrl(failure.upgradeUrl);
+          setBuilderIndexError(null);
+        } else {
+          setBuilderIndexError(failure.message);
+          setValidationError(null);
+          setTierLimitUpgradeUrl(null);
+        }
         setBuilderIndexing(false);
       }
     },
     [companyInfo, t, startDecodePolling, stopDecodePolling],
+  );
+
+  const handleBuilderIndexUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(e.target.files?.[0]);
+      e.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void processBuilderIndexFile(e.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
   );
 
   useEffect(() => {
@@ -390,7 +459,7 @@ export default function DesignSystemSetup() {
         newFiles.push(file);
       });
 
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
@@ -406,16 +475,12 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
-  const handleDesignMdUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
-      const file = files[0];
-      e.target.value = "";
+  const processDesignMdFile = useCallback(
+    (file: File | undefined) => {
       if (!file) return;
       const uploadGeneration = ++designMdUploadGenerationRef.current;
       setDesignMdFiles([]);
-      if (!isDesignMdFile({ name: file.name })) {
+      if (!isMarkdownFile({ name: file.name })) {
         setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
         return;
       }
@@ -448,49 +513,102 @@ export default function DesignSystemSetup() {
     [t],
   );
 
-  const handleDocUpload = useCallback(
+  const handleDesignMdUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type || f.name.split(".").pop() || "",
-        size: f.size,
-      }));
-      setDocFiles((prev) => [...prev, ...newFiles]);
+      processDesignMdFile(e.target.files?.[0]);
       e.target.value = "";
     },
-    [],
+    [processDesignMdFile],
   );
+
+  const handleDesignMdDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDesignMdFile(e.dataTransfer.files?.[0]);
+    },
+    [processDesignMdFile],
+  );
+
+  const processDocFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type || f.name.split(".").pop() || "",
+      size: f.size,
+    }));
+    setDocFiles((prev) => [...prev, ...newFiles]);
+  }, []);
+
+  const handleDocUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files) processDocFiles(e.target.files);
+      e.target.value = "";
+    },
+    [processDocFiles],
+  );
+
+  const handleDocDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDocFiles(e.dataTransfer.files);
+    },
+    [processDocFiles],
+  );
+
+  const processImageFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setImageFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
   const handleImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setImageFiles((prev) => [...prev, ...newFiles]);
+      if (e.target.files) processImageFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processImageFiles],
   );
+
+  const handleImageDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processImageFiles(e.dataTransfer.files);
+    },
+    [processImageFiles],
+  );
+
+  const processAssetFiles = useCallback((files: FileList) => {
+    const newAssets: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setAssets((prev) => [...prev, ...newAssets]);
+  }, []);
 
   const handleAssetUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setAssets((prev) => [...prev, ...newAssets]);
+      if (e.target.files) processAssetFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processAssetFiles],
+  );
+
+  const handleAssetDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processAssetFiles(e.dataTransfer.files);
+    },
+    [processAssetFiles],
   );
 
   const handleFolderDrop = useCallback(
@@ -554,6 +672,7 @@ export default function DesignSystemSetup() {
 
     if (isGithubOnlySource) {
       setValidationError(null);
+      setTierLimitUpgradeUrl(null);
       try {
         const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
@@ -571,11 +690,13 @@ export default function DesignSystemSetup() {
         setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.githubIndexStarted"));
       } catch (error) {
-        setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.githubIndex"),
+        const failure = designSystemIndexFailureMessage(
+          error,
+          t("designSystemSetup.errors.githubIndex"),
+          t("designSystemSetup.errors.nameConflict"),
         );
+        setValidationError(failure.message);
+        setTierLimitUpgradeUrl(failure.upgradeUrl);
       }
       return;
     }
@@ -608,6 +729,7 @@ export default function DesignSystemSetup() {
 
     if (isDesignMdOnlySource) {
       setValidationError(null);
+      setTierLimitUpgradeUrl(null);
       try {
         const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
@@ -621,11 +743,13 @@ export default function DesignSystemSetup() {
         setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.designMdIndexStarted"));
       } catch (error) {
-        setValidationError(
-          error instanceof Error
-            ? error.message
-            : t("designSystemSetup.errors.designMdIndex"),
+        const failure = designSystemIndexFailureMessage(
+          error,
+          t("designSystemSetup.errors.designMdIndex"),
+          t("designSystemSetup.errors.nameConflict"),
         );
+        setValidationError(failure.message);
+        setTierLimitUpgradeUrl(failure.upgradeUrl);
       }
       return;
     }
@@ -766,7 +890,7 @@ export default function DesignSystemSetup() {
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for sources Builder indexed successfully. If \`index-design-system-with-builder\` fails or reports Builder DSI unavailable, do not finish with nothing created: call \`create-design-system\` with tokens and guidance derived from those same sources, and tell me Builder indexing was skipped and why. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -783,7 +907,7 @@ export default function DesignSystemSetup() {
       submit: true,
       newTab: true,
     });
-    navigate("/design-systems");
+    void navigate("/design-systems");
   }, [
     hasAnySources,
     companyInfo,
@@ -831,7 +955,7 @@ export default function DesignSystemSetup() {
     <Button
       size="sm"
       onClick={handleContinue}
-      disabled={!hasAnySources || isSubmitting}
+      disabled={!hasAnySources || isSubmitting || atMax}
       aria-busy={isSubmitting}
       className="cursor-pointer"
     >
@@ -845,6 +969,54 @@ export default function DesignSystemSetup() {
       )}
     </Button>,
   );
+
+  if (atMax) {
+    return (
+      <div className="min-h-full bg-background">
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+          <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-6">
+              <IconLock className="w-7 h-7 text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground mb-2">
+              {t("designSystems.tierLimitTitle")}
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="cursor-pointer">
+                <Link to="/design-systems">
+                  {t("designSystemSetup.backToDesignSystems")}
+                </Link>
+              </Button>
+              <Button asChild className="cursor-pointer">
+                <a
+                  href={
+                    tierLimit?.upgradeUrl ??
+                    "https://builder.io/account/subscription"
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <IconExternalLink className="w-4 h-4" />
+                  {t("designSystems.tierLimitUpgrade")}
+                </a>
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -864,7 +1036,18 @@ export default function DesignSystemSetup() {
               role="alert"
               className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
             >
-              {validationError}
+              <p>{validationError}</p>
+              {tierLimitUpgradeUrl && (
+                <a
+                  href={tierLimitUpgradeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 font-medium text-destructive underline-offset-2 hover:underline"
+                >
+                  <IconExternalLink className="w-3.5 h-3.5" />
+                  {t("designSystems.tierLimitUpgrade")}
+                </a>
+              )}
             </div>
           )}
 
@@ -913,6 +1096,10 @@ export default function DesignSystemSetup() {
                   title={t("designSystemSetup.sections.code.title")}
                   selected={sourcePanel === "other" && otherSource === "code"}
                   onClick={() => selectOtherSource("code")}
+                  locked={!codeIndexingAllowed}
+                  lockedMessage={t(
+                    "designSystemSetup.codeIndexingEnterpriseOnly",
+                  )}
                 />
                 <SourceChoice
                   icon={IconFileDescription}
@@ -962,6 +1149,8 @@ export default function DesignSystemSetup() {
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleBuilderIndexDrop}
                     disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
@@ -1256,6 +1445,8 @@ export default function DesignSystemSetup() {
               <button
                 type="button"
                 onClick={() => designMdInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDesignMdDrop}
                 className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-foreground/15 cursor-pointer"
               >
                 <div className="flex flex-col items-center gap-2">
@@ -1307,6 +1498,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => docInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDocDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1339,6 +1532,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => imageInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleImageDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1371,6 +1566,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => assetInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleAssetDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1560,28 +1757,40 @@ function SourceChoice({
   title,
   selected,
   onClick,
+  locked,
+  lockedMessage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   selected: boolean;
   onClick: () => void;
+  locked?: boolean;
+  lockedMessage?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={selected}
-      onClick={onClick}
+      aria-disabled={locked}
+      title={locked ? lockedMessage : undefined}
+      onClick={locked ? undefined : onClick}
       className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-start transition-[background-color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        selected
-          ? "border-primary/50 bg-primary/5 text-foreground"
-          : "border-border hover:bg-accent/50"
+        locked
+          ? "border-border opacity-60 cursor-not-allowed"
+          : selected
+            ? "border-primary/50 bg-primary/5 text-foreground"
+            : "border-border hover:bg-accent/50"
       }`}
     >
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">
         {title}
       </span>
-      {selected ? <IconCheck className="size-4 shrink-0 text-primary" /> : null}
+      {locked ? (
+        <IconLock className="size-4 shrink-0 text-muted-foreground" />
+      ) : selected ? (
+        <IconCheck className="size-4 shrink-0 text-primary" />
+      ) : null}
     </button>
   );
 }
@@ -1693,8 +1902,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function uploadedFileBasename(file: Pick<UploadedFile, "name">): string {
+  return file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+}
+
+function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
+  const name = uploadedFileBasename(file);
+  return name.endsWith(".md") || name.endsWith(".mdx");
+}
+
+// Only the exact name, because this classifies a bulk code-file drop: widening it
+// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
-  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";
 }
 

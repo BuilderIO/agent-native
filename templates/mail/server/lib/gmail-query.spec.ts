@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGmailEmailSearchQuery,
   filterInboxScopedThreadMessages,
+  filterLabelMessages,
   gmailLabelSearchClause,
 } from "./gmail-query.js";
 
@@ -105,8 +106,30 @@ describe("buildGmailEmailSearchQuery", () => {
 });
 
 describe("gmailLabelSearchClause", () => {
-  it("quotes Gmail labels that need quoting", () => {
-    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe('label:"Team/Foo-Bar"');
+  it("preserves nested Gmail label paths", () => {
+    expect(gmailLabelSearchClause("Team/Foo Bar")).toBe("label:Team/Foo-Bar");
+  });
+});
+
+describe("filterLabelMessages", () => {
+  it("keeps archived labeled mail while excluding unrelated and trashed mail", () => {
+    const archived = message({
+      id: "archived",
+      isArchived: true,
+      labelIds: ["github"],
+    });
+    const unrelated = message({ id: "unrelated", labelIds: ["inbox"] });
+    const trashed = message({
+      id: "trashed",
+      isTrashed: true,
+      labelIds: ["github"],
+    });
+
+    expect(
+      filterLabelMessages([archived, unrelated, trashed], "github").map(
+        (email) => email.id,
+      ),
+    ).toEqual(["archived"]);
   });
 });
 

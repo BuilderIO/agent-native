@@ -20,6 +20,14 @@ export function isRecordingExpired(
   return Number.isFinite(expires) && expires < now;
 }
 
+export function isRecordingExpiredForViewer(input: {
+  expiresAt: string | null | undefined;
+  viewerIsOwner: boolean;
+  now?: number;
+}): boolean {
+  return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
+}
+
 /**
  * Decide whether an authenticated request may use the editor/player route.
  * Public visibility is intentionally a share-link concern; a direct `/r/*`
@@ -37,4 +45,20 @@ export function canOpenDirectRecordingPage(input: {
   if (input.hasPassword) return false;
   if (input.visibility === "public") return input.hasExplicitShare;
   return true;
+}
+
+/** Comment activity follows the same expiry and password boundary as the player. */
+export function canReceiveRecordingActivity(input: {
+  ownerEmail: string;
+  recipientEmail: string;
+  hasPassword: boolean;
+  expiresAt?: string | null;
+  now?: number;
+}): boolean {
+  if (isRecordingExpired(input.expiresAt, input.now)) return false;
+  if (!input.hasPassword) return true;
+  return (
+    input.ownerEmail.trim().toLowerCase() ===
+    input.recipientEmail.trim().toLowerCase()
+  );
 }

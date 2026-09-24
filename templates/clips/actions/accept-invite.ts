@@ -9,7 +9,7 @@
  *   pnpm action accept-invite --token=<token>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgInvitations, orgMembers } from "@agent-native/core/org";
 import { putUserSetting } from "@agent-native/core/settings";

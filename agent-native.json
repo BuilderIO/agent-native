@@ -6,7 +6,7 @@
       "profile": "docs/no-bookkeeping",
       "roots": [
         {
-          "name": "Agent Native Docs",
+          "name": "Agent-Native Docs",
           "path": "packages/core/docs/content",
           "kind": "docs",
           "profile": "docs/no-bookkeeping",

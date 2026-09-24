@@ -1,4 +1,5 @@
-name: Deploy Agent Native production sites from GitHub
+name: Deploy Agent-Native production sites from GitHub
+run-name: Deploy Agent-Native production sites `${{ inputs.sites }}`
 
 # Manual production cutover lane. It builds the same repository projects from
 # an exact main commit, uploads their prebuilt output to Netlify, publishes it,
@@ -45,7 +46,7 @@ jobs:
     outputs:
       source_ref: ${{ steps.source.outputs.source_ref }}
     steps:
-      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: source
         env:
           REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
@@ -155,6 +156,8 @@ jobs:
 
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
+    permissions:
+      contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
     # Spelled out per dependency rather than with `needs.*.result`: the two
     # source jobs must still have succeeded exactly as before, while the
@@ -166,11 +169,12 @@ jobs:
       && needs.discover-sites.result == 'success'
       && needs.beta-e2e.result != 'failure' }}
     concurrency:
-      group: agent-native-production-site-${{ matrix.site }}
+      # The reusable child owns the canonical site queue. Keep this caller
+      # queue distinct so the caller can wait for the child without deadlocking.
+      group: agent-native-production-fleet-child-${{ matrix.site }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -183,3 +187,33 @@ jobs:
       deploy_mode: production
       smoke: ${{ inputs.smoke }}
     secrets: inherit
+
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

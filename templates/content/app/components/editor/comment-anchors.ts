@@ -43,10 +43,19 @@ interface DocText {
  * capture and resolution both operate in this same offset space so they stay
  * perfectly consistent (a quote captured here is found here).
  */
-export function buildDocText(doc: ProseMirrorNode): DocText {
+export function buildDocText(
+  doc: ProseMirrorNode,
+  blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
+): DocText {
   let text = "";
+  let hasTextblock = false;
   const segments: TextSegment[] = [];
   doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      if (hasTextblock) text += blockSeparator;
+      hasTextblock = true;
+    }
     if (node.isText && typeof node.text === "string" && node.text.length > 0) {
       segments.push({
         textStart: text.length,
@@ -54,6 +63,10 @@ export function buildDocText(doc: ProseMirrorNode): DocText {
         length: node.text.length,
       });
       text += node.text;
+    }
+    if (node.type.name === "hardBreak" && hardBreakSeparator) {
+      segments.push({ textStart: text.length, pmFrom: pos, length: 1 });
+      text += hardBreakSeparator;
     }
     return true;
   });
@@ -71,7 +84,51 @@ function offsetToPos(docText: DocText, offset: number): number | null {
   }
   // Past the end — clamp to the last text node's end.
   const last = segments[segments.length - 1];
+  if (offset < last.textStart + last.length) return null;
   return last.pmFrom + last.length;
+}
+
+/** Resolve one ordered zero-width context boundary without inventing a fallback. */
+export function resolveAnchorPoint(
+  doc: ProseMirrorNode,
+  anchor: {
+    prefix?: string;
+    suffix?: string;
+    startOffset?: number;
+  },
+  blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
+): number | null {
+  const docText = buildDocText(doc, blockSeparator, hardBreakSeparator);
+  const prefix = anchor.prefix ?? "";
+  const suffix = anchor.suffix ?? "";
+  if (!prefix && !suffix) return null;
+
+  const candidates: number[] = [];
+  for (let offset = 0; offset <= docText.text.length; offset += 1) {
+    const beforeMatches =
+      !prefix ||
+      docText.text.slice(Math.max(0, offset - prefix.length), offset) ===
+        prefix;
+    const afterMatches =
+      !suffix || docText.text.slice(offset, offset + suffix.length) === suffix;
+    if (beforeMatches && afterMatches) candidates.push(offset);
+  }
+  if (candidates.length === 0) return null;
+
+  let chosen = candidates[0]!;
+  if (candidates.length > 1) {
+    if (typeof anchor.startOffset !== "number") return null;
+    const ranked = candidates
+      .map((offset) => ({
+        offset,
+        distance: Math.abs(offset - anchor.startOffset!),
+      }))
+      .sort((left, right) => left.distance - right.distance);
+    if (ranked[0]!.distance === ranked[1]!.distance) return null;
+    chosen = ranked[0]!.offset;
+  }
+  return offsetToPos(docText, chosen);
 }
 
 /** Map a ProseMirror position to a text-space offset (best-effort). */
@@ -148,11 +205,13 @@ export function resolveAnchor(
     suffix?: string;
     startOffset?: number;
   },
+  blockSeparator = "",
+  hardBreakSeparator: "" | "\n" = "",
 ): ResolvedRange | null {
   const quote = anchor.quotedText;
   if (!quote) return null;
 
-  const docText = buildDocText(doc);
+  const docText = buildDocText(doc, blockSeparator, hardBreakSeparator);
   const hay = docText.text;
   if (!hay.includes(quote)) return null;
 

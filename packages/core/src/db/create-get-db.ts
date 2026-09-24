@@ -1,20 +1,13 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
-import { drizzle as drizzleD1 } from "drizzle-orm/d1";
-import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
-  getDialect,
-  getCloudflareD1Binding,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  isLocalSqliteUrl,
+  getActivePgliteTransactionClient,
+  getRuntimeDatabaseUrl,
   isPgliteUrl,
   isConnectionError,
   getPgliteClient,
   loadPgliteDrizzle,
-  prepareLocalSqliteUrl,
-  sqliteFilenameFromUrl,
+  pgliteDrizzleClient,
   pgPoolOptions,
   neonPoolOptions,
   guardNeonPool,
@@ -24,6 +17,7 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  assertHostedRuntimeDatabase,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -233,9 +227,22 @@ export function buildResilientNeonPool<
       if (prop === "query") return resilientQuery;
       if (prop === "connect") {
         return (...args: any[]) =>
-          (target as any)
-            .connect(...args)
-            .then((client: any) => guardNeonTransactionClient(client));
+          retryOnConnectionError(async () => {
+            let acquireTimedOut = false;
+            const client = await withDbTimeout<any>(
+              "connect",
+              () =>
+                (target as any).connect(...args).then((client: any) => {
+                  if (acquireTimedOut) client.release();
+                  return client;
+                }),
+              dbOpTimeoutMs(),
+              () => {
+                acquireTimedOut = true;
+              },
+            );
+            return guardNeonTransactionClient(client);
+          });
       }
       const val = (target as any)[prop];
       return typeof val === "function" ? val.bind(target) : val;
@@ -342,157 +349,6 @@ export function isNeonUrl(url: string): boolean {
   return /\.neon\.tech([:/?]|$)/.test(url);
 }
 
-let _libsqlWebDrizzle: Promise<{ drizzle: any }> | undefined;
-function getLibsqlWebDrizzle() {
-  if (!_libsqlWebDrizzle) {
-    _libsqlWebDrizzle = import("drizzle-orm/libsql/web").then((mod) => ({
-      drizzle: mod.drizzle,
-    }));
-  }
-  return _libsqlWebDrizzle;
-}
-
-let _betterSqliteDrizzle: Promise<{ drizzle: any; Database: any }> | undefined;
-function getBetterSqliteDrizzle() {
-  if (!_betterSqliteDrizzle) {
-    _betterSqliteDrizzle = Promise.all([
-      import("drizzle-orm/better-sqlite3"),
-      import("better-sqlite3"),
-    ]).then(([drizzleMod, sqliteMod]) => ({
-      drizzle: drizzleMod.drizzle,
-      Database: sqliteMod.default,
-    }));
-  }
-  return _betterSqliteDrizzle;
-}
-
-/**
- * Patch a drizzle-orm/better-sqlite3 instance so that db.transaction(async …)
- * works. The native better-sqlite3 Transaction wrapper is sync-only — passing
- * an async callback throws "Transaction function cannot return a promise".
- *
- * This wrapper bypasses the native path by issuing raw SQL control statements
- * on the single better-sqlite3 connection, which is safe because:
- *   - better-sqlite3 is single-connection (no concurrency inside one process)
- *   - the framework serialises all async work through one Database instance
- *
- * Nesting: if a transaction is already open (sqlite.inTransaction === true),
- * SAVEPOINT / RELEASE / ROLLBACK TO is used instead of BEGIN / COMMIT /
- * ROLLBACK, matching drizzle's own BetterSQLiteTransaction.transaction().
- *
- * The patched transaction also patches the tx object it passes to the callback
- * so that nested async calls (tx.transaction(async …)) work recursively.
- */
-/** @internal exported for the async-tx concurrency spec */
-export function patchBetterSqliteTransactions<
-  DB extends { transaction: (...args: any[]) => any; session: any },
->(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
-  let savepointSeq = 0;
-  // Concurrent TOP-LEVEL async transactions on the single better-sqlite3
-  // connection must not interleave: a second transaction starting while the
-  // first is open would see `inTransaction` and open a savepoint INSIDE the
-  // first transaction, which then commits out from under it ("no such
-  // savepoint"). Serialize top-level transactions through a promise chain;
-  // genuine same-task nesting (tx.transaction or db.transaction inside an
-  // open callback) is detected via AsyncLocalStorage and keeps the direct
-  // savepoint path so it cannot deadlock on the queue.
-  const txContext = new AsyncLocalStorage<boolean>();
-  let txChain: Promise<unknown> = Promise.resolve();
-
-  function makeAsyncTransaction(
-    originalTransaction: (...args: any[]) => any,
-  ): (...args: any[]) => Promise<unknown> {
-    async function runTransactionBody(
-      cb: (tx: unknown) => unknown,
-    ): Promise<unknown> {
-      // Extract the drizzle tx proxy synchronously — call the original with a
-      // stub that captures the tx arg then immediately throws a sentinel so
-      // better-sqlite3's native wrapper rolls back the stub and re-throws.
-      // The sentinel is caught here and never propagates further.
-      let capturedTx: unknown;
-      try {
-        originalTransaction((tx: unknown) => {
-          capturedTx = tx;
-          throw _EXTRACT_TX;
-        });
-      } catch (e) {
-        if (e !== _EXTRACT_TX) throw e;
-      }
-
-      // Recursively patch the nested tx so tx.transaction(async …) also works.
-      const tx = capturedTx as { transaction: (...a: any[]) => any };
-      if (tx && typeof tx.transaction === "function") {
-        tx.transaction = makeAsyncTransaction(tx.transaction.bind(tx));
-      }
-
-      const nested = sqlite.inTransaction;
-      if (nested) {
-        const sp = `sp_async_${++savepointSeq}`;
-        sqlite.exec(`SAVEPOINT ${sp}`);
-        let released = false;
-        try {
-          const result = await cb(tx);
-          sqlite.exec(`RELEASE SAVEPOINT ${sp}`);
-          released = true;
-          return result;
-        } catch (err) {
-          if (!released) {
-            try {
-              sqlite.exec(`ROLLBACK TO SAVEPOINT ${sp}`);
-              sqlite.exec(`RELEASE SAVEPOINT ${sp}`);
-            } catch {
-              /* ignore: connection may already be in an error state */
-            }
-          }
-          throw err;
-        }
-      }
-
-      // Top-level: BEGIN IMMEDIATE … COMMIT / ROLLBACK.
-      sqlite.exec("BEGIN IMMEDIATE");
-      let committed = false;
-      try {
-        const result = await cb(tx);
-        sqlite.exec("COMMIT");
-        committed = true;
-        return result;
-      } catch (err) {
-        if (!committed) {
-          try {
-            sqlite.exec("ROLLBACK");
-          } catch {
-            /* swallow: connection may already be unusable */
-          }
-        }
-        throw err;
-      }
-    }
-
-    return function asyncTransaction(
-      cb: (tx: unknown) => unknown,
-    ): Promise<unknown> {
-      if (txContext.getStore()) {
-        // Same-task nesting: run directly (savepoint path inside the open
-        // transaction). Queueing here would deadlock behind the outer tx.
-        return runTransactionBody(cb);
-      }
-      const run = () => txContext.run(true, () => runTransactionBody(cb));
-      const next = txChain.then(run, run);
-      txChain = next.then(
-        () => undefined,
-        () => undefined,
-      );
-      return next;
-    };
-  }
-
-  db.transaction = makeAsyncTransaction(db.transaction.bind(db));
-  return db;
-}
-
-/** Sentinel thrown inside the tx-extraction stub — never escapes the catch. */
-const _EXTRACT_TX = Symbol("extract-tx");
-
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
@@ -521,81 +377,64 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
-    const url = getDatabaseUrl("file:./data/app.db");
-    const dialect = getDialect();
-
-    // D1 only if dialect detected it (DATABASE_URL takes priority)
-    if (dialect === "d1") {
-      const d1 = getCloudflareD1Binding() as
-        | Parameters<typeof drizzleD1>[0]
-        | undefined;
-      if (d1) {
-        _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
-        _dbReady = Promise.resolve(_db);
-        return _dbReady;
-      }
+    // getDb() below calls this via `void startInit()`, so a throw here must
+    // surface through the rejected `_dbReady` it awaits later, not as a
+    // synchronous exception out of this function.
+    try {
+      assertHostedRuntimeDatabase();
+    } catch (err) {
+      _dbReady = Promise.reject(err);
+      // The real consumer attaches its handler later, through the lazy proxy's
+      // `then` trap, once the caller awaits the query chain — one or more
+      // microtasks from now. Without this, Node flags the promise as an
+      // unhandled rejection in the gap before that happens.
+      _dbReady.catch(() => {});
+      return _dbReady;
     }
+
+    const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
 
     if (isPgliteUrl(url)) {
       _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
         const client = await getPgliteClient(url);
-        _db = drizzle({ client, schema });
+        _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });
+        return _db;
       });
       return _dbReady;
     }
 
-    if (dialect === "postgres") {
-      if (isNeonUrl(url)) {
-        _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-          // Shared with the DbExec singleton, Better Auth, and every other
-          // `createGetDb` store: one connect per process instead of one per
-          // schema module. See `sharedDbPool` in client.ts.
-          resetOnPoolClose("neon", url);
-          const rawPool = sharedDbPool(
-            "neon",
-            url,
-            () => new Pool({ connectionString: url, ...neonPoolOptions() }),
-          );
-          guardNeonPool(rawPool, url);
-          // Wrap the pool with the resilience layer so Drizzle queries get the
-          // same withDbTimeout + retryOnConnectionError protection as the raw
-          // DbExec path in client.ts. Reads retry freely; writes only retry on
-          // acquire-timeout (pre-send) errors to avoid double-execution.
-          const pool = buildResilientNeonPool(rawPool);
-          _db = drizzle(pool, { schema });
-        });
-      } else {
-        _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-          // pgPoolOptions caps the pool to a small size on serverless so
-          // concurrent frozen instances don't exhaust Neon/Postgres'
-          // connection limit ("Max client connections reached"). Shared across
-          // consumers — see `sharedDbPool` in client.ts.
-          resetOnPoolClose("postgres-js", url);
-          const client = sharedDbPool("postgres-js", url, () =>
-            postgres(url, pgPoolOptions(url)),
-          );
-          _db = drizzle(buildResilientPostgresJsClient(client), { schema });
-        });
-      }
-    } else if (isLocalSqliteUrl(url)) {
-      _dbReady = Promise.all([
-        prepareLocalSqliteUrl(url.startsWith("file:") ? url : `file:${url}`),
-        getBetterSqliteDrizzle(),
-      ]).then(([sqliteUrl, { drizzle, Database }]) => {
-        const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
-        // Wait up to 10s for a concurrent writer instead of failing fast
-        // with SQLITE_BUSY — mirrors the raw DbExec SQLite path in client.ts.
-        sqlite.pragma("busy_timeout = 10000");
-        sqlite.pragma("journal_mode = WAL");
-        const db = drizzle(sqlite, { schema });
-        _db = patchBetterSqliteTransactions(db, sqlite);
+    if (isNeonUrl(url)) {
+      _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
+        // Shared with the DbExec singleton, Better Auth, and every other
+        // `createGetDb` store: one connect per process instead of one per
+        // schema module. See `sharedDbPool` in client.ts.
+        resetOnPoolClose("neon", url);
+        const rawPool = sharedDbPool(
+          "neon",
+          url,
+          () => new Pool({ connectionString: url, ...neonPoolOptions() }),
+        );
+        guardNeonPool(rawPool, url);
+        // Wrap the pool with the resilience layer so Drizzle queries get the
+        // same withDbTimeout + retryOnConnectionError protection as the raw
+        // DbExec path in client.ts. Reads retry freely; writes only retry on
+        // acquire-timeout (pre-send) errors to avoid double-execution.
+        const pool = buildResilientNeonPool(rawPool);
+        _db = drizzle(pool, { schema });
+        return _db;
       });
     } else {
-      _dbReady = getLibsqlWebDrizzle().then(({ drizzle }) => {
-        _db = drizzle({
-          connection: { url, authToken: getDatabaseAuthToken() },
-          schema,
-        });
+      _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
+        // pgPoolOptions caps the pool to a small size on serverless so
+        // concurrent frozen instances don't exhaust Neon/Postgres'
+        // connection limit ("Max client connections reached"). Shared across
+        // consumers — see `sharedDbPool` in client.ts.
+        resetOnPoolClose("postgres-js", url);
+        const client = sharedDbPool("postgres-js", url, () =>
+          postgres(url, pgPoolOptions(url)),
+        );
+        _db = drizzle(buildResilientPostgresJsClient(client), { schema });
+        return _db;
       });
     }
     return _dbReady;
@@ -617,8 +456,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       get(_target, prop) {
         // When awaited, replay the chain on the real db
         if (prop === "then" || prop === "catch" || prop === "finally") {
-          const promise = ready.then(() => {
-            let result: any = _db;
+          const promise = ready.then((readyDb) => {
+            let result: any = readyDb;
             for (const step of chain) {
               const val = result[step.prop];
               result =
@@ -626,7 +465,34 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             }
             return result;
           });
+          // `ready` can already be rejected (e.g. the hosted-runtime database
+          // guard) when this trap fires, and `[prop].bind(promise)` only
+          // returns a handler for the *caller* to invoke — it does not attach
+          // one itself. Without this, `promise` sits rejected and unhandled
+          // for the gap until the caller actually calls the bound function,
+          // which is enough for Node to report it as an unhandled rejection.
+          promise.catch(() => {});
           return (promise as any)[prop].bind(promise);
+        }
+        // drizzle-orm duck-types "is this an SQL entity" by reading these two
+        // properties directly off a value — synchronously, without awaiting
+        // (see `isSQLWrapper` in drizzle-orm/sql/sql.js). Because this proxy's
+        // target is a function, answering that probe with another proxy would
+        // make an un-awaited chain (e.g. a subquery chain embedded as a raw
+        // value instead of being awaited — the pattern that broke
+        // list-recordings.ts) masquerade as a resolved SQL entity. drizzle
+        // then calls `.getSQL()` on it, which duck-types as a wrapper again,
+        // forever — `RangeError: Maximum call stack size exceeded` deep
+        // inside drizzle internals instead of a message pointing at the
+        // actual bug. Fail loudly here instead, at the point of misuse.
+        if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+          throw new Error(
+            "getDb(): accessed an unresolved query chain synchronously " +
+              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
+              "value instead of being awaited first — e.g. a subquery passed " +
+              "straight into another expression. Await the chain before " +
+              "using its result.",
+          );
         }
         // Symbol.toStringTag, Symbol.iterator, etc. — return another proxy
         // Property access (e.g. db.query) — record and return another proxy
@@ -650,12 +516,25 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
    * once the DB driver finishes loading. Since callers always `await`
    * the final result, the proxy is transparent.
    */
-  function getDb(): LibSQLDatabase<T> {
+  function getDb(): PgDatabase<PgQueryResultHKT, T> {
+    const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+    const activePgliteClient = isPgliteUrl(url)
+      ? getActivePgliteTransactionClient(url)
+      : undefined;
+    if (activePgliteClient) {
+      const transactionDb = loadPgliteDrizzle().then(({ drizzle }) =>
+        drizzle({ client: activePgliteClient, schema }),
+      );
+      return createLazyProxy(transactionDb, []) as PgDatabase<
+        PgQueryResultHKT,
+        T
+      >;
+    }
     if (_db) return _db;
-    startInit();
+    void startInit();
     if (_db) return _db;
 
-    return createLazyProxy(_dbReady!, []) as LibSQLDatabase<T>;
+    return createLazyProxy(_dbReady!, []) as PgDatabase<PgQueryResultHKT, T>;
   }
 
   return getDb;

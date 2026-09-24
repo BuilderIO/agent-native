@@ -4,6 +4,11 @@ import {
   serializeFrontmatter,
 } from "@agent-native/core/resources/metadata";
 
+import {
+  AGENT_IMPORT_ERROR_CODES,
+  failAgentImport,
+} from "./agent-import-errors.js";
+
 export interface SimpleAgentProfileInput {
   name: string;
   description?: string;
@@ -160,7 +165,10 @@ function jsonProfile(source: string, fileName?: string): ImportedAgentProfile {
   try {
     parsed = JSON.parse(source);
   } catch {
-    throw new Error("This file looks like JSON, but it is not valid JSON.");
+    failAgentImport(
+      "This file looks like JSON, but it is not valid JSON.",
+      AGENT_IMPORT_ERROR_CODES.profileMalformed,
+    );
   }
 
   const record =
@@ -174,7 +182,10 @@ function jsonProfile(source: string, fileName?: string): ImportedAgentProfile {
       ? (record.agent as Record<string, unknown>)
       : record;
   if (!candidate) {
-    throw new Error("Import a single agent definition, not a JSON list.");
+    failAgentImport(
+      "Import a single agent definition, not a JSON list.",
+      AGENT_IMPORT_ERROR_CODES.profileMalformed,
+    );
   }
 
   const name =
@@ -214,7 +225,12 @@ export function normalizeImportedAgent(
   fileName?: string,
 ): ImportedAgentProfile {
   const trimmed = source.trim();
-  if (!trimmed) throw new Error("Paste an agent definition or choose a file.");
+  if (!trimmed) {
+    failAgentImport(
+      "Paste an agent definition or choose a file.",
+      AGENT_IMPORT_ERROR_CODES.inputInvalid,
+    );
+  }
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return jsonProfile(trimmed, fileName);
   }

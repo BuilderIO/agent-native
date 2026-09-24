@@ -7,7 +7,15 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
+import {
+  normalizeAgentActionScope,
+  tryNormalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatAttachment,
+  type MentionItemMedia,
+} from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
 import {
@@ -27,6 +35,8 @@ import {
 } from "./frame.js";
 import { sendMcpAppHostMessage } from "./mcp-app-host.js";
 
+export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+
 export type AgentChatRequestMode = "act" | "plan";
 
 export interface AgentChatMessage {
@@ -34,6 +44,8 @@ export interface AgentChatMessage {
   message: string;
   /** Hidden context appended to the message (not shown in chat UI) */
   context?: string;
+  /** App-defined scope requested for the actions exposed to this turn. */
+  actionScope?: AgentActionScope;
   /** true = auto-submit, false = prefill only, omit = use project setting */
   submit?: boolean;
   /** Optional project slug for structured context */
@@ -46,12 +58,14 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   /** Optional image data URLs or durable image URLs to include in the submitted chat message */
   images?: string[];
+  /** Optional attachments to show in the submitted chat message. */
+  attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
-   * - "code": routes to the code editing frame (Agent Native Desktop or Builder.io)
+   * - "code": routes to the code editing frame (Agent-Native Desktop or Builder.io)
    *
    * When type is "code" and no frame is connected, a dialog is shown.
    * `requiresCode: true` is treated as `type: "code"` for backward compatibility.
@@ -107,6 +121,19 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /**
+   * Names what this turn is FOR, e.g. `"crm:enrich-record"`. Recorded as the
+   * usage row's label and as the run's observability span name
+   * (`agent_run:<label>`), so a turn a feature sent on the user's behalf is
+   * distinguishable from a typed chat message. Omit for ordinary chat.
+   */
+  usageLabel?: string;
+  /**
+   * Approval keys of paused `needsApproval` calls this send approves. The
+   * server consumes only a matching durable grant, and the message is hidden
+   * as a protocol continuation rather than shown as a new prompt.
+   */
+  approvedToolCalls?: string[];
 }
 
 export interface AgentChatContextItem {
@@ -146,6 +173,8 @@ export interface AgentChatContextState {
 export interface AgentChatOpenThreadRequest {
   threadId: string;
   newThread?: boolean;
+  /** Draft to place in this exact thread after it becomes active. */
+  prefill?: string;
   /**
    * Open only while this thread is still active (or no thread is active).
    * This lets transient surfaces restore their own chat without stealing a
@@ -172,6 +201,7 @@ export type BufferedAgentChatOpenRequest = {
 export interface AgentComposerReference {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;
@@ -646,15 +676,6 @@ export function formatAgentChatContextItemsForPrompt(
     .join("\n\n");
 }
 
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
-}
-
 function normalizeStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const normalized = value
@@ -671,6 +692,42 @@ function normalizeMetadata(
     return undefined;
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeMentionItemMedia(
+  value: unknown,
+): AgentComposerReference["media"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type === "none") return { type: "none" };
+  const backgroundColor =
+    typeof candidate.backgroundColor === "string"
+      ? candidate.backgroundColor.trim()
+      : "";
+  if (candidate.type === "text") {
+    const text =
+      typeof candidate.text === "string" ? candidate.text.trim() : "";
+    if (!text) return undefined;
+    return {
+      type: "text",
+      text,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  if (candidate.type === "image") {
+    const src = typeof candidate.src === "string" ? candidate.src.trim() : "";
+    if (!src) return undefined;
+    const fit = candidate.fit === "cover" ? "cover" : "contain";
+    return {
+      type: "image",
+      src,
+      fit,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  return undefined;
 }
 
 function normalizeAgentComposerReferenceInternal(
@@ -710,6 +767,8 @@ function normalizeAgentComposerReferenceInternal(
   const slotLabel =
     typeof candidate.slotLabel === "string" ? candidate.slotLabel.trim() : "";
   if (slotLabel) normalized.slotLabel = slotLabel;
+  const media = normalizeMentionItemMedia(candidate.media);
+  if (media) normalized.media = media;
   const metadata = normalizeMetadata(candidate.metadata);
   if (metadata) normalized.metadata = metadata;
   const clearsSlots = normalizeStringArray(candidate.clearsSlots);
@@ -857,6 +916,7 @@ export function requestAgentChatThreadOpen(
     bufferOpenRequest("agent-chat:open-thread", {
       ...detail,
       threadId: detail.threadId.trim(),
+      ...(detail.prefill?.trim() ? { prefill: detail.prefill } : {}),
     }),
   );
 }
@@ -886,11 +946,11 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
-function dispatchAgentChatRunning(isRunning: boolean): void {
+function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("agentNative.chatRunning", {
-      detail: { isRunning },
+      detail: { isRunning, ...(tabId ? { tabId } : {}) },
     }),
   );
 }
@@ -917,6 +977,7 @@ export interface ParsedSubmitChat {
   /** Visible prompt text (non-empty). */
   message: string;
   context?: string;
+  actionScope?: AgentActionScope;
   /** Submit (true) or prefill only (false); defaults to true. */
   submit: boolean;
   openSidebar?: boolean;
@@ -934,10 +995,66 @@ export interface ParsedSubmitChat {
   background?: boolean;
   tabId?: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+  /** See {@link AgentChatMessage.usageLabel}. */
+  usageLabel?: string;
+  /** See {@link AgentChatMessage.approvedToolCalls}. */
+  approvedToolCalls?: string[];
+}
+
+const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
+
+// Keys are kept verbatim: the server matches them byte-for-byte against the
+// durable grant, so trimming one would make the approval silently miss.
+function parseSubmitChatApprovedToolCalls(
+  value: unknown,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys = value
+    .filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    )
+    .slice(0, MAX_SUBMIT_APPROVED_TOOL_CALLS);
+  return keys.length > 0 ? keys : undefined;
+}
+
+function parseSubmitChatAttachments(
+  value: unknown,
+): AgentChatAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value
+    .filter((item): item is Record<string, unknown> => {
+      return Boolean(item) && typeof item === "object";
+    })
+    .map((item) => {
+      const type = typeof item.type === "string" ? item.type : "file";
+      const name = typeof item.name === "string" ? item.name : "attachment";
+      const attachment: AgentChatAttachment = { type, name };
+      for (const key of [
+        "data",
+        "url",
+        "uploadProvider",
+        "securityNote",
+        "contentType",
+        "text",
+      ] as const) {
+        if (typeof item[key] === "string") attachment[key] = item[key];
+      }
+      for (const key of [
+        "displayOnly",
+        "referenceOnly",
+        "storageRequired",
+        "storageUploadFailed",
+      ] as const) {
+        if (typeof item[key] === "boolean") attachment[key] = item[key];
+      }
+      return attachment;
+    });
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 /** Decode a `message` event into a submit payload, or null if it isn't one / has no text. */
@@ -968,9 +1085,18 @@ export function parseSubmitChatMessage(
   );
   const images =
     imageSources.length > 0 ? [...new Set(imageSources)] : undefined;
+  const hasActionScope = Object.prototype.hasOwnProperty.call(
+    raw,
+    "actionScope",
+  );
+  const actionScope = hasActionScope
+    ? tryNormalizeAgentActionScope(raw.actionScope)
+    : undefined;
+  if (hasActionScope && !actionScope) return null;
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,
+    ...(actionScope ? { actionScope } : {}),
     submit: raw.submit !== false,
     openSidebar:
       typeof raw.openSidebar === "boolean" ? raw.openSidebar : undefined,
@@ -984,9 +1110,12 @@ export function parseSubmitChatMessage(
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
     images,
+    attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
+    usageLabel: nonEmptyString(raw.usageLabel),
+    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };
 }
 
@@ -1021,16 +1150,65 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 }
 
 /**
+ * Whether an approval continuation must stay with this app's own chat. The
+ * paused `needsApproval` run and its durable grant live there, and two outer
+ * chats cannot carry the keys: Builder's chat (`builder.submitChat` has no
+ * field for them and Builder holds none of this app's grants) and an MCP
+ * host's chat (every host transport — the direct follow-up API and the
+ * wrapper's `sendHostChat` — forwards only the message text). That holds for
+ * both MCP App embeds: with the chat bridge, and direct, where the parent is
+ * the MCP host itself. Anywhere else the normal relay carries the keys to the
+ * chat that owns the run.
+ */
+function keepsApprovalInAppChat(
+  opts: Pick<AgentChatMessage, "approvedToolCalls">,
+): boolean {
+  if (!opts.approvedToolCalls?.length) return false;
+  return (
+    isInBuilderFrame() ||
+    isMcpAppChatBridgeEnabled() ||
+    isDirectMcpAppEmbedSession()
+  );
+}
+
+/**
+ * Whether this send goes to the code-editing frame rather than the app's own
+ * chat. A code request goes to its frame unless it is an approval
+ * continuation that must stay in the app's chat (see
+ * {@link keepsApprovalInAppChat}).
+ */
+export function routesToCodeFrame(
+  opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
+): boolean {
+  if (opts.type !== "code" && opts.requiresCode !== true) return false;
+  return !keepsApprovalInAppChat(opts);
+}
+
+/**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
  */
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
-  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
-  const localChatTarget = opts.chatTarget === "local";
+  const actionScope =
+    opts.actionScope === undefined
+      ? undefined
+      : normalizeAgentActionScope(opts.actionScope);
+  const isCodeRequest = routesToCodeFrame(opts);
+  const localChatTarget =
+    opts.chatTarget === "local" || keepsApprovalInAppChat(opts);
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
+  if (opts.submit !== false && opts.message.trim()) {
+    trackEvent("app.first_action", {
+      action: "chat_submit",
+      surface: opts.preset ?? "chat",
+      request_mode: requestMode ?? "default",
+      chat_target: opts.chatTarget ?? "auto",
+      background: opts.background === true,
+    });
+  }
   if (isCodeRequest && isInBuilderFrame()) {
     sendToBuilderChat({
       message: opts.message,
@@ -1047,6 +1225,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: {
       ...opts,
+      ...(actionScope ? { actionScope } : {}),
       tabId,
       submitMessageId,
       ...(requestMode ? { mode: requestMode, requestMode } : {}),
@@ -1058,6 +1237,18 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
+    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
+    // label. Use the normal wrapper transport when either needs to reach the
+    // chat thread — a label silently downgraded to `chat` is exactly the run
+    // the caller named it to be able to find. (Approval continuations never
+    // get here: they stay in the app's own chat, see keepsApprovalInAppChat.)
+    if (opts.attachments?.length || opts.usageLabel || actionScope) {
+      window.parent.postMessage(
+        payload,
+        getFramePostMessageTargetOrigin() || "*",
+      );
+      return tabId;
+    }
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
@@ -1074,7 +1265,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
           }
         })
         .finally(() => {
-          dispatchAgentChatRunning(false);
+          dispatchAgentChatRunning(false, tabId);
         });
       return tabId;
     }
@@ -1165,8 +1356,7 @@ export function sendToAgentChatAndConfirm(
   // and cannot answer this window-local CustomEvent acknowledgement.
   if (
     opts.chatTarget !== "local" ||
-    opts.type === "code" ||
-    opts.requiresCode === true ||
+    routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
     return Promise.resolve({

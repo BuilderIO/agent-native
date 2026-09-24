@@ -2,10 +2,19 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { shouldUseSourceFallback } from "./launcher.js";
+import { shouldUseSourceFallback, supportsNodeVersion } from "./launcher.js";
+
+if (!supportsNodeVersion(process.versions.node)) {
+  console.error(
+    `agent-native requires Node.js 22.22.0 or newer, but you're on Node ${process.versions.node}.\n` +
+      "Upgrade Node (https://nodejs.org) and re-run. With nvm: `nvm install 22.22`.",
+  );
+  process.exit(1);
+}
 
 const binDir = dirname(fileURLToPath(import.meta.url));
 const distEntry = join(binDir, "../dist/cli/index.js");
@@ -62,14 +71,31 @@ if (!useSourceFallback) {
 
   await import(pathToFileURL(distEntry).href);
 } else {
-  const child = spawn("tsx", [sourceEntry, ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env: process.env,
-  });
+  // Resolve tsx from this package instead of trusting PATH: the fallback is
+  // also reached through `node packages/core/bin/agent-native.js`, which runs
+  // without node_modules/.bin on PATH.
+  let tsxCli;
+  try {
+    tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
+  } catch (error) {
+    console.error(
+      `agent-native CLI source fallback could not resolve tsx (${error.message}). Run \`pnpm --filter @agent-native/core build\` and try again.`,
+    );
+    process.exit(1);
+  }
+
+  const child = spawn(
+    process.execPath,
+    [tsxCli, sourceEntry, ...process.argv.slice(2)],
+    {
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
 
   child.on("error", (error) => {
     console.error(
-      `agent-native CLI build output is missing and the source fallback failed: ${error.message}`,
+      `agent-native CLI source fallback failed: ${error.message}. Run \`pnpm --filter @agent-native/core build\` and try again.`,
     );
     process.exit(1);
   });

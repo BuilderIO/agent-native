@@ -98,6 +98,34 @@ const { values, missing } = await readClientAppStateMany([
 
 `requestSource`는 보통 `TAB_ID`로 설정됩니다. 이는 모든 템플릿이 `app/lib/tab-id.ts`에서 내보내는 평범한 상수로, 탭이 살아있는 동안 동일하게 유지되고 탭마다 다른 짧은 무작위 문자열입니다. 쓰기 쪽에서 `requestSource: TAB_ID`를 짝지어 읽기 쪽에서 `useDbSync({ ignoreSource: TAB_ID })`를 사용하면, 탭이 자신의 쓰기는 다시 가져오지 않으면서도 다른 모든 것에는 여전히 반응하게 됩니다. 전체 과정은 [Context Awareness](/docs/context-awareness#jitter-prevention)를 참조하세요.
 
+## 격리된 백그라운드 Agent 세션 {#isolated-background-agent-sessions}
+
+호출마다 새롭고 안정적인 스레드가 필요하며 보이거나 숨겨진 탭, 사이드바 상태,
+실행 트레이 항목을 추가하지 않아야 할 때 `startBackgroundAgentSession()`을
+사용하세요. 일반 인증 Agent 채팅 경로를 사용하므로 영속성, 도구, 재시도,
+호스팅된 내구 실행은 계속 공유 Run Manager가 관리합니다.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+핸들은 `operationId`, `threadId`, `turnId`를 즉시 제공합니다. `accepted`는
+실행 접수를 기다리고, `completion`은 응답 스트림을 따르며, `status()`는
+내구 실행 상태를 별도로 읽습니다. `cancel()`은 턴을 중지합니다. 응답 확인을
+잃은 뒤 재시도할 때는 원래 `operationId`와 `threadId`를 모두 전달하세요.
+
 ## sendToAgentChat: 백그라운드 전송 {#background-send}
 
 UI 작업이 사이드바를 열거나 포커스를 옮기지 않고 실제 에이전트 작업을 시작해야

@@ -13,9 +13,69 @@
  * sibling audit action's equivalent DB-free coverage split.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import {
+const { mockAccessFilter, mockGetDb } = vi.hoisted(() => {
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
+  chain.select = vi.fn(() => chain);
+  chain.from = vi.fn(() => chain);
+  chain.innerJoin = vi.fn(() => chain);
+  chain.where = vi.fn(() => chain);
+  chain.limit = vi.fn().mockResolvedValue([
+    {
+      id: "file_1",
+      designId: "public_design",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html></html>",
+    },
+  ]);
+  return {
+    mockAccessFilter: vi.fn(() => ({ kind: "access-filter" })),
+    mockGetDb: vi.fn(() => chain),
+  };
+});
+
+vi.mock("@agent-native/core/collab", () => ({
+  getText: vi.fn(),
+  hasCollabState: vi.fn().mockResolvedValue(false),
+}));
+vi.mock("@agent-native/core/file-upload", () => ({ uploadFile: vi.fn() }));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: vi.fn().mockReturnValue("viewer@example.test"),
+}));
+vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: mockAccessFilter,
+  registerShareableResource: vi.fn(),
+}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: mockGetDb,
+  schema: {
+    designFiles: {
+      id: "id",
+      designId: "design_id",
+      filename: "filename",
+      fileType: "file_type",
+      content: "content",
+    },
+    designs: { id: "design_id", title: "title" },
+    designShares: {},
+  },
+}));
+vi.mock("../server/lib/design-to-figma-svg.js", () => ({
+  isAllowedFigmaSvgRenderRequest: vi.fn(),
+}));
+vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    importPlaywright: vi
+      .fn()
+      .mockRejectedValue(new Error("no chromium binary")),
+  };
+});
+
+import action, {
   chromiumUnavailableReason,
   contrastRatio,
   isMissingBrowserError,
@@ -24,6 +84,25 @@ import {
   requiredContrastRatio,
   resolveViewports,
 } from "./take-design-screenshot.js";
+
+describe("public design screenshot access", () => {
+  it("includes public link visibility when reading a specific design file", async () => {
+    mockAccessFilter.mockClear();
+    const result = await action.run(
+      { designId: "public_design" } as never,
+      {} as never,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      "viewer",
+      { includePublic: true },
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // resolveViewports

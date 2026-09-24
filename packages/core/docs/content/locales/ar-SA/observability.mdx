@@ -136,6 +136,12 @@ export default function ObservabilityPage() {
 
 تفسير النتيجة: 0-20 = صحي، 20-40 = احتكاك، 40-60 = غير راض، 60+ = جلسة معطلة.
 
+### التعليقات في PostHog {#posthog-feedback}
+
+كل تعليق — الإبهام أو الفئة أو النص الحر — يُرسل حدث `$ai_feedback`. أما عرض التعليقات في تحليلات LLM لدى PostHog فيقرأ حدث `survey sent` بدلاً من ذلك، لذا اضبط `POSTHOG_AI_FEEDBACK_SURVEY_ID` على الاستطلاع الذي ينشئه PostHog من تبويب **Feedback** في أي تتبّع. هذا المعرّف وحده هو كل ما يلزم من إعداد، وبدونه لا يُرسل أي حدث استطلاع.
+
+يجيب تصويت الإبهام عن السؤال الأول في الاستطلاع برقم الخيار في PostHog (`1` لأعلى، `2` لأسفل)، بينما يجيب النص الحر بعد الإبهام لأسفل عن سؤال المتابعة، فلا يقع النص أبدًا في موضع التقييم. ويحمل الاثنان معرّف إرسال واحدًا لكل رسالة مُقيَّمة، وهو ما يجعل PostHog يدمجهما في إجابة واحدة، ويظل الإبهام لأسفل غير مكتمل حتى تصل متابعته.
+
 ## التقييمات الآلية {#evals}
 
 يتم تشغيل خمسة مسجلين محددين بعد كل تشغيل للعميل:
@@ -153,11 +159,14 @@ export default function ObservabilityPage() {
 تمكين التقييم المستند إلى LLM لعينات من خلال إعداد `evalSampleRate`:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -249,17 +258,21 @@ PUT /_agent-native/observability/experiments/:id
 
 ## التكوين {#config}
 
-يتم تخزين كافة الإعدادات في مفتاح `observability-config`:
+يتم الضبط من مكوّن إضافي للخادم باستخدام `defineAppConfig()`. لكل حقل أيضًا اسم مستعار لمتغير بيئة النشر — راجع مرجع التكوين المُعلَن.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -294,26 +307,13 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 ## التصدير إلى منصات خارجية {#export}
 
-أرسل آثارًا إلى Langfuse، أو Datadog، أو Grafana، أو أي واجهة خلفية متوافقة مع OTel:
+أرسل التتبعات إلى Langfuse أو Datadog أو Grafana أو أي واجهة خلفية متوافقة مع OTel عن طريق تسجيل موفّر OpenTelemetry في تطبيقك — راجع [امتدادات OpenTelemetry](#otel) أدناه.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-يصدر إطار العمل امتدادات اصطلاحات دلالية `gen_ai.*` متوافقة مع مواصفات OpenTelemetry GenAI.
+لا يشحن النواة أي مُصدِّر ولا تحتفظ بأي نقطة نهاية تصدير أو رمز مميز، لذا فإن بيانات اعتماد الواجهة الخلفية توجد في إعداد الموفّر لديك (وفي الخزنة)، وليس في تكوين إطار العمل.
 
 ## امتدادات القياس عن بعد المفتوحة {#otel}
 
-بشكل منفصل عن تكوين `exporters` أعلاه (الذي يشحن التتبعات الداخلية إلى نقطة نهاية OTLP)، يمكن لحلقة الوكيل أيضًا إصدار **امتدادات OpenTelemetry المباشرة** لكل تشغيل واستدعاء نموذج واستدعاء أداة — بحيث يرى المضيف الذي يقوم بالفعل بتشغيل مجمع OTel نشاط الوكيل جنبًا إلى جنب مع بقية آثاره الموزعة.
+تصدر حلقة الوكيل **امتدادات OpenTelemetry المباشرة** لكل تشغيل واستدعاء نموذج واستدعاء أداة — بحيث يرى المضيف الذي يقوم بالفعل بتشغيل مجمع OTel نشاط الوكيل جنبًا إلى جنب مع بقية آثاره الموزعة.
 
 هذه الطبقة **اختيارية ولا يمكن تشغيلها افتراضيًا**:
 

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -20,6 +21,7 @@ import {
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -29,6 +31,7 @@ let handle: WorkspaceDevHandle | undefined;
 
 afterEach(() => {
   handle?.shutdown();
+  vi.restoreAllMocks();
   handle = undefined;
   sentryMock.captureException.mockClear();
   if (tmpDir) {
@@ -38,6 +41,65 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+  ])("advertises a usable URL for gateway host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
+  it("prints the workspace root and usable app URLs", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(output).toContain(`[workspace] Root: ${tmpDir}`);
+    expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+  });
+
+  it("prints the actual URL when the requested gateway port is occupied", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      let output = "";
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: { ...testEnv(), WORKSPACE_PORT: String(address.port) },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+      const { url, port } = await handle.ready;
+
+      expect(port).toBe(address.port + 1);
+      expect(output).toContain(
+        `[workspace] Gateway port ${address.port} was in use; listening on ${port} instead`,
+      );
+      expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
@@ -266,6 +328,8 @@ describe("workspace dev startup", () => {
 
     const env = fake.calls()[0]?.options?.env;
     expect(env?.WORKSPACE_GATEWAY_URL).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(env?.AGENT_NATIVE_DEV_SUPERVISOR).toBe("1");
+    expect(env?.APP_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_WORKSPACE_GATEWAY_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
       env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,
@@ -318,6 +382,98 @@ describe("workspace dev startup", () => {
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
     });
+  });
+
+  it("passes configured home paths through the local dev manifest", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "portal", { homePath: "/inbox" });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const portalEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
+    expect(
+      JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
+        (app: any) => app.id === "portal",
+      ),
+    ).toMatchObject({ homePath: "/inbox" });
+  });
+
+  it("infers a root home path when a local app has no home route", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "root-app", { rootRoute: true });
+    makeApp(tmpDir, "standard", { homeRoute: true, rootRoute: true });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const dispatchEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "dispatch")?.options?.env;
+    const apps = JSON.parse(
+      dispatchEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
+  });
+
+  it("keeps healthy apps discoverable when a sibling config or route tree is broken", async () => {
+    tmpDir = makeWorkspace([
+      "dispatch",
+      "healthy",
+      "config-broken",
+      "routes-broken",
+    ]);
+    const configDir = path.join(
+      tmpDir,
+      "apps",
+      "config-broken",
+      "server",
+      "plugins",
+    );
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, "config.ts"),
+      'import "missing-workspace-app-dependency";\n',
+    );
+    const brokenRoutes = path.join(
+      tmpDir,
+      "apps",
+      "routes-broken",
+      "app",
+      "routes",
+    );
+    fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+    fs.writeFileSync(brokenRoutes, "not a directory");
+
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+
+    expect(handle.apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
   });
 
   it("uses polling watchers in Builder-style remote dev environments", async () => {
@@ -457,16 +613,18 @@ describe("workspace dev startup", () => {
       openBrowser: false,
     });
     const { url } = await handle.ready;
-    makeApp(tmpDir, "todo");
+    makeApp(tmpDir, "todo", { homePath: "/inbox" });
 
     const apps = (await (
       await fetch(`${url}/_workspace/apps`)
     ).json()) as Array<{
       id: string;
       running: boolean;
+      homePath: string;
     }>;
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "todo"]);
     expect(apps.find((app) => app.id === "todo")?.running).toBe(false);
+    expect(apps.find((app) => app.id === "todo")?.homePath).toBe("/inbox");
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
@@ -674,6 +832,7 @@ describe("workspace dev startup", () => {
   it("turns a never-ready child process into a visible retrying failure", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
     handle = await runWorkspaceDev({
       root: tmpDir,
       env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "50" },
@@ -686,6 +845,17 @@ describe("workspace dev startup", () => {
       headers: { accept: "text/html" },
     });
     expect(await first.text()).toContain("Starting Dispatch");
+    const appCall = fake.calls().at(-1);
+    expect(appCall?.options).toMatchObject({
+      detached: process.platform !== "win32",
+    });
+    expect(appCall?.options?.shell).toBeUndefined();
+    if (process.platform !== "win32") {
+      Object.defineProperty(appCall?.child, "pid", {
+        configurable: true,
+        value: 489,
+      });
+    }
 
     await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
 
@@ -698,7 +868,14 @@ describe("workspace dev startup", () => {
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");
-    expect(fake.calls().at(-1)?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    if (process.platform === "win32") {
+      expect(appCall?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
+    }
+    expect(handle.apps[0].restartTimer).toBeDefined();
+    handle.shutdown();
+    expect(handle.apps[0].restartTimer).toBeUndefined();
   });
 });
 
@@ -811,9 +988,12 @@ function makeApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
+    homePath?: string;
     installVite?: boolean;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
   } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
@@ -832,6 +1012,40 @@ function makeApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
+  }
   if (opts.installVite !== false) createViteBin(appDir);
 }
 
@@ -858,7 +1072,11 @@ function fakeSpawn(): {
   calls: () => Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }>;
   startedApps: () => string[];
@@ -866,14 +1084,22 @@ function fakeSpawn(): {
   const calls: Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }> = [];
   const spawnProcess = vi.fn(
     (
       command: string,
       args: string[],
-      options?: { env?: NodeJS.ProcessEnv },
+      options?: {
+        detached?: boolean;
+        env?: NodeJS.ProcessEnv;
+        shell?: boolean | string;
+      },
     ) => {
       const child = new EventEmitter() as ChildProcess;
       child.stdout = new EventEmitter() as ChildProcess["stdout"];

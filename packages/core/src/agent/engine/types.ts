@@ -40,6 +40,12 @@ export class EngineError extends Error {
   readonly contextOverflow?: boolean;
   /** Sizes and counts of the failed request; see {@link EngineRequestShape}. */
   readonly requestShape?: EngineRequestShape;
+  /**
+   * Provider-requested backoff (ms) from a `Retry-After` header, when the
+   * engine's classifier found one. Optional so engines that never populate it
+   * keep compiling unchanged.
+   */
+  readonly retryAfterMs?: number;
   constructor(
     message: string,
     opts?: {
@@ -50,6 +56,7 @@ export class EngineError extends Error {
       requestId?: string;
       contextOverflow?: boolean;
       requestShape?: EngineRequestShape;
+      retryAfterMs?: number;
     },
   ) {
     super(message);
@@ -61,6 +68,7 @@ export class EngineError extends Error {
     this.requestId = opts?.requestId;
     this.contextOverflow = opts?.contextOverflow;
     this.requestShape = opts?.requestShape;
+    this.retryAfterMs = opts?.retryAfterMs;
   }
 }
 
@@ -192,6 +200,21 @@ export type EngineEvent =
       error: string;
     }
   | {
+      /**
+       * Token usage for one model call.
+       *
+       * `inputTokens` is the WHOLE prompt and INCLUDES `cacheReadTokens` and
+       * `cacheWriteTokens` — the cache fields say how that total splits, they
+       * do not add to it. Providers disagree here (OpenAI's `prompt_tokens`
+       * includes cached tokens, Anthropic's `input_tokens` excludes them), so
+       * every engine converts to this one convention before emitting. The AI
+       * SDK settled on the same shape: `inputTokens.total` with `noCache` /
+       * `cacheRead` / `cacheWrite` underneath it.
+       *
+       * Emitting the exclusive form instead is not a rounding difference: it
+       * makes `calculateCost` bill the cached tokens twice, once at the full
+       * input rate and again at the cache rate.
+       */
       type: "usage";
       inputTokens: number;
       outputTokens: number;
@@ -199,6 +222,7 @@ export type EngineEvent =
       cacheWriteTokens?: number;
       totalTokens?: number;
       reasoningTokens?: number;
+      builderCreditsUsed?: number;
     }
   | {
       /** Final assistant content for the turn. Engines MUST emit this
@@ -261,6 +285,13 @@ export type EngineEvent =
        * capture, which an opaque gateway 500 otherwise leaves unanswerable.
        */
       requestShape?: EngineRequestShape;
+      /**
+       * Provider-requested backoff (ms) from a `Retry-After` header, when the
+       * engine classified one. production-agent's retry loop uses this
+       * instead of its fixed backoff so the actual sleep and the budget
+       * estimate that approved the retry agree on the same number.
+       */
+      retryAfterMs?: number;
     };
 
 /**
@@ -353,6 +384,8 @@ export interface AgentEngine {
   readonly defaultModel: string;
   /** Models this engine supports */
   readonly supportedModels: readonly string[];
+  /** Whether explicit user-selected model IDs may be outside the curated catalog. */
+  readonly acceptsCustomModels?: boolean;
   /** Whether the configured endpoint accepts provider-defined model ids. */
   readonly preserveCustomModels?: boolean;
   /** Capability flags used to gate provider-specific features */

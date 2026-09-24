@@ -30,6 +30,8 @@ describe("shouldRetirePendingLocalFileContent", () => {
   });
 
   it("keeps the overlay when a stale response reverts the content", () => {
+    // Refetch alone cannot retire a rejected snapshot — save-file-content
+    // must clear the matching overlay on skippedStaleMirror / 409.
     expect(
       shouldRetirePendingLocalFileContent(pending, {
         content: "<body></body>",

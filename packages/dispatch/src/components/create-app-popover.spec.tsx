@@ -36,9 +36,18 @@ vi.mock("@agent-native/core/client/settings/useBuilderStatus", () => ({
     configured: false,
     connecting: builderConnectFlowState.connecting,
     error: null,
+    statusResolved: true,
     start: builderConnectFlowState.start,
   }),
 }));
+
+vi.mock("@agent-native/core/client/settings", async (importOriginal) => {
+  const settings =
+    await importOriginal<typeof import("@agent-native/core/client/settings")>();
+  const { BuilderConnectPopover } =
+    await import("../../../core/src/client/settings/BuilderConnectPopover.js");
+  return { ...settings, BuilderConnectPopover };
+});
 
 vi.mock("@agent-native/core/client/composer", async () => {
   const ReactModule = await import("react");

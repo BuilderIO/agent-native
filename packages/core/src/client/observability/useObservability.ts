@@ -1,6 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import type {
+  InstructionUpdate,
+  OutputReviewListRow,
+} from "../../observability/types.js";
 import { agentNativePath } from "../api-path.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const BASE = agentNativePath("/_agent-native/observability");
 
@@ -60,6 +67,42 @@ export function useTraces(sinceDays = 7, limit = 100) {
       ),
     refetchInterval: 30_000,
   });
+}
+
+export function useOutputReviews(sinceDays = 7, limit = 100) {
+  const params = useMemo(
+    () => ({
+      sinceMs: Date.now() - sinceDays * 86_400_000,
+      limit,
+    }),
+    [sinceDays, limit],
+  );
+  return useActionQuery<OutputReviewListRow[]>(
+    "list-observability-reviews",
+    params,
+    { refetchInterval: 30_000 },
+  );
+}
+
+export function useOutputReviewApp(runId: string | null) {
+  return useActionQuery<AgentMcpAppPayload | null>(
+    "get-observability-review-app",
+    { runId: runId ?? "" },
+    { enabled: runId !== null, gcTime: 0 },
+  );
+}
+
+export function useSaveInstructionUpdate() {
+  return useActionMutation<
+    InstructionUpdate,
+    {
+      runId: string;
+      threadId?: string | null;
+      target: "agent" | "developer" | "skill";
+      instruction: string;
+      feedback?: string;
+    }
+  >("save-observability-instruction-update");
 }
 
 export interface TraceSpan {
@@ -164,10 +207,10 @@ export function useSubmitFeedback() {
       return res.json() as Promise<{ id: string }>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["observability", "feedback"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["observability", "feedback-stats"],
       });
     },

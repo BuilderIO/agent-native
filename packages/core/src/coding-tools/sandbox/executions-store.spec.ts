@@ -1,32 +1,32 @@
-import Database from "better-sqlite3";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind the raw getDbExec client so the claim/lease/
+import { createTestPglite } from "../../a2a/test-pglite.js";
+
+// Real in-memory PGlite behind the raw getDbExec client so the claim/lease/
 // finalize guards are exercised with genuine UPDATE ... WHERE semantics
 // (rowsAffected) instead of mocks. A fresh DB per test plus the store's
 // test-only init reset keeps CREATE TABLE idempotent across cases.
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
   isServerlessRuntime: () => false,
 }));
@@ -59,9 +59,13 @@ function baseInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   resetSandboxExecutionsStoreForTests();
+});
+
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("sandbox executions store", () => {
@@ -86,7 +90,7 @@ describe("sandbox executions store", () => {
     );
     expect(row.allowedActionNames).toEqual(["run-code", "read-things"]);
 
-    sqlite
+    await pglite
       .prepare(
         "UPDATE sandbox_executions SET allowed_action_names = ? WHERE id = ?",
       )
@@ -263,7 +267,7 @@ describe("sandbox executions store", () => {
     const finished = await createSandboxExecution(baseInput());
 
     // Backdate the stale queued row.
-    sqlite
+    await pglite
       .prepare(`UPDATE sandbox_executions SET updated_at = ? WHERE id = ?`)
       .run(now - 120_000, staleQueued.id);
     await claimSandboxExecution(expiredRunning.id, "t1", 1_000, now - 60_000);

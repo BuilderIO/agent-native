@@ -85,6 +85,7 @@ export function useCreateBooking() {
     mutationFn: async (data: {
       name: string;
       email: string;
+      additionalGuestEmails?: string[];
       notes?: string;
       captchaToken?: string;
       fieldResponses?: Record<string, string | boolean>;
@@ -105,7 +106,9 @@ export function useCreateBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-bookings"],
+      });
     },
   });
 }
@@ -121,7 +124,9 @@ export function useDeleteBooking() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-bookings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-bookings"],
+      });
     },
   });
 }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
+  headerActions: null as unknown,
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -22,10 +23,11 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
+  fullAppBuilding: false,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: () => mocks.fullAppBuilding,
 }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
@@ -86,7 +88,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     if (key === "home.untitledDesign") return "Untitled Design";
-    if (key === "home.skipToEditor") return "Skip to editor";
+    if (key === "home.searchNoResultsTitle") {
+      return "No designs match your search";
+    }
+    if (key === "home.searchNoResultsDescription") {
+      return "Try a different search.";
+    }
+    if (key === "promptDialog.skipPrompt") return "Skip prompt";
     if (key === "home.failedToCreateDesign") {
       return "Failed to create design";
     }
@@ -95,12 +103,27 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app-shell", () => ({
-  useSetHeaderActions: () => {},
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
   useSetPageTitle: () => {},
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
+}));
+
+vi.mock("@agent-native/creative-context/client", () => ({
+  CreativeContextShareSheet: () => null,
+  parseCreativeContexts: () => [],
+  useCreativeContextLab: () => false,
+  useCreativeContexts: () => ({ data: undefined, isLoading: false }),
+  useCreativeContextState: () => ({
+    state: { contextMode: "auto", selectedContextId: null },
+    setState: vi.fn(),
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 vi.mock("react-router", () => ({
@@ -118,6 +141,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
+  preloadPromptComposer: vi.fn(),
   default: (props: Record<string, any>) => {
     mocks.promptProps = props;
     return null;
@@ -131,22 +155,26 @@ vi.mock("@/hooks/use-design-systems", () => ({
         id: "default-system",
         title: "Default system",
         isDefault: true,
+        data: "{}",
       },
       {
         id: "linked-system",
         title: "Linked system",
         isDefault: false,
+        data: "{}",
       },
       {
         id: "override-system",
         title: "Override system",
         isDefault: false,
+        data: "{}",
       },
     ],
     defaultSystem: {
       id: "default-system",
       title: "Default system",
       isDefault: true,
+      data: "{}",
     },
     isLoading: false,
   }),
@@ -165,6 +193,8 @@ vi.mock("@/lib/pending-generation", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let headerContainer: HTMLDivElement | null = null;
+let headerRoot: Root | null = null;
 
 beforeEach(async () => {
   (
@@ -179,8 +209,11 @@ beforeEach(async () => {
     adaptationPending: false,
     templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
   });
+  mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
+  mocks.headerActions = null;
+  mocks.fullAppBuilding = false;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -190,12 +223,39 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    headerRoot?.unmount();
+    root.unmount();
+  });
+  headerRoot = null;
+  headerContainer?.remove();
+  headerContainer = null;
   container.remove();
   document.body.replaceChildren();
 });
 
 describe("Index skip to editor", () => {
+  it("keeps starter prompts in the collaborative intake flow", async () => {
+    mocks.createDesign.mockResolvedValue(undefined);
+
+    const starterPrompt = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.starterDashboard",
+    );
+    expect(starterPrompt).toBeDefined();
+
+    await act(async () => {
+      starterPrompt?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+      "design-1",
+      expect.objectContaining({
+        skipQuestions: undefined,
+      }),
+    );
+  });
+
   it("persists one empty shell before navigating without starting generation", async () => {
     let resolveCreate: (() => void) | undefined;
     mocks.createDesign.mockReturnValue(
@@ -204,7 +264,7 @@ describe("Index skip to editor", () => {
       }),
     );
 
-    expect(mocks.promptProps?.skipLabel).toBe("Skip to editor");
+    expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
       skipPromise = mocks.promptProps?.onSkip();
@@ -229,6 +289,70 @@ describe("Index skip to editor", () => {
 
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-1");
+  });
+
+  it("opens the prompt before creating a new design", async () => {
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    expect(card).toBeDefined();
+
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
+    expect(mocks.promptProps?.open).toBe(true);
+    expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+  });
+
+  it("starts each new design with a fresh prompt draft scope", async () => {
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    expect(card).toBeDefined();
+
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.promptProps?.draftScope).toBe("design:new:1");
+
+    await act(async () => {
+      mocks.promptProps?.onOpenChange(false);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.promptProps?.draftScope).toBe("design:new:2");
+  });
+
+  it("still asks up front when the design-or-app choice exists", async () => {
+    await act(async () => root.unmount());
+    mocks.fullAppBuilding = true;
+    mocks.promptProps = null;
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<Index />);
+    });
+
+    const card = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "home.newDesign",
+    );
+    await act(async () => {
+      card?.click();
+      await Promise.resolve();
+    });
+
+    // An app is a different creation call, so the row cannot exist yet.
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((mocks.promptProps as { open?: boolean } | null)?.open).toBe(true);
   });
 
   it("does not navigate on failure and allows a successful retry", async () => {
@@ -311,5 +435,42 @@ describe("Index skip to editor", () => {
     await act(async () => {
       await skipPromise;
     });
+  });
+});
+
+describe("Index search empty state", () => {
+  it("distinguishes no search matches from a first-time empty state", async () => {
+    expect(container.textContent).toContain("home.createFirstDesign");
+    expect(container.textContent).toContain("home.pickStartingPoint");
+
+    headerContainer = document.createElement("div");
+    document.body.append(headerContainer);
+    headerRoot = createRoot(headerContainer);
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+      'input[aria-label="home.searchPlaceholder"]',
+    );
+    expect(searchInput).not.toBeNull();
+
+    await act(async () => {
+      if (!searchInput) throw new Error("Search input not found");
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(searchInput, "no matching design");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      headerRoot?.render(mocks.headerActions as ReactNode);
+    });
+
+    expect(container.textContent).toContain("No designs match your search");
+    expect(container.textContent).toContain("Try a different search.");
+    expect(container.textContent).not.toContain("home.createFirstDesign");
+    expect(container.textContent).not.toContain("home.pickStartingPoint");
+    expect(container.textContent).not.toContain("home.starterDashboard");
   });
 });

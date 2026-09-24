@@ -4,8 +4,13 @@ const rawAppTitle = "{{APP_TITLE}}";
 const appTitle = rawAppTitle === "{" + "{APP_TITLE}}" ? "Chat" : rawAppTitle;
 
 export default createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: appTitle,
+    screenshotPath: "/auth-marketing/chat.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/chat",
     tagline:
       "Start from a chat-first agent-native app and add actions, screens, and workflows as you grow.",
     features: [

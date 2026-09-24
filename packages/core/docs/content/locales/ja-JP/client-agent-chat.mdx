@@ -233,7 +233,7 @@ MCP アプリ埋め込み内からこれを実行する場合や、サイドバ�
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-アプリの設定ページやセットアップ カードがエージェント サイドバーの設定タブを開くべきときは、`openAgentSettings()` を使用します。特定のセクションを開くには、`"llm"`、`"secrets"`、`"automations"`、`"voice"`、`"limits"` などのセクション id を渡します。
+アプリの設定ページやセットアップ カードが正規の `/settings` ページを開く必要があるときは、`openAgentSettings()` を使用します。特定のセクションを開くには、`"llm"`、`"secrets"`、`"automations"`、`"voice"`、`"limits"` などのセクション id を渡します。
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";

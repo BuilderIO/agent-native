@@ -1,7 +1,9 @@
-import { defineAction } from "@agent-native/core";
+import { createHash } from "node:crypto";
+
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +16,7 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -26,7 +29,160 @@ export class PermanentDeleteScopeChangedError extends Error {
 type PermanentDeleteScope = {
   documentIds: string[];
   ownedDatabaseIds: string[];
+  trashRootId?: string;
 };
+
+export async function fingerprintPermanentDeleteScope(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  return (
+    await inspectPermanentDeleteRelationships(db, documentIds, ownerEmail)
+  ).fingerprint;
+}
+
+export async function inspectPermanentDeleteRelationships(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  const sortedDocumentIds = [...documentIds].sort();
+  const databases = sortedDocumentIds.length
+    ? await db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+          systemRole: schema.contentDatabases.systemRole,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, sortedDocumentIds),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        )
+    : [];
+  const databaseIds = databases.map(({ id }) => id);
+  const [documents, childRelationships, memberships, sources] =
+    await Promise.all([
+      db
+        .select({
+          id: schema.documents.id,
+          sourceMode: schema.documents.sourceMode,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, sortedDocumentIds),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        ),
+      sortedDocumentIds.length
+        ? db
+            .select({
+              id: schema.documents.id,
+              title: schema.documents.title,
+              ownerEmail: schema.documents.ownerEmail,
+              parentId: schema.documents.parentId,
+              trashRootId: schema.documents.trashRootId,
+              trashedAt: schema.documents.trashedAt,
+            })
+            .from(schema.documents)
+            .where(and(inArray(schema.documents.parentId, sortedDocumentIds)))
+        : Promise.resolve([]),
+      db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          databaseId: schema.contentDatabaseItems.databaseId,
+          documentId: schema.contentDatabaseItems.documentId,
+          ownerEmail: schema.contentDatabaseItems.ownerEmail,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            or(
+              inArray(
+                schema.contentDatabaseItems.documentId,
+                sortedDocumentIds,
+              ),
+              databaseIds.length
+                ? inArray(schema.contentDatabaseItems.databaseId, databaseIds)
+                : undefined,
+            ),
+          ),
+        ),
+      databaseIds.length
+        ? db
+            .select({
+              id: schema.contentDatabaseSources.id,
+              databaseId: schema.contentDatabaseSources.databaseId,
+              syncState: schema.contentDatabaseSources.syncState,
+            })
+            .from(schema.contentDatabaseSources)
+            .where(
+              and(
+                inArray(schema.contentDatabaseSources.databaseId, databaseIds),
+                eq(schema.contentDatabaseSources.ownerEmail, ownerEmail),
+              ),
+            )
+        : Promise.resolve([]),
+    ]);
+  const externalMemberIds = memberships
+    .map((membership) => membership.documentId)
+    .filter((id) => !sortedDocumentIds.includes(id));
+  const membershipSurvivors = externalMemberIds.length
+    ? await db
+        .select({
+          id: schema.documents.id,
+          title: schema.documents.title,
+          ownerEmail: schema.documents.ownerEmail,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(and(inArray(schema.documents.id, externalMemberIds)))
+    : [];
+  const byId = <T extends { id: string }>(rows: T[]) =>
+    [...rows].sort((left, right) => left.id.localeCompare(right.id));
+  const normalizedOwner = ownerEmail.toLowerCase();
+  const inaccessibleRelationship =
+    childRelationships.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    ) ||
+    memberships.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    ) ||
+    membershipSurvivors.length !== new Set(externalMemberIds).size ||
+    membershipSurvivors.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    );
+  const fingerprint = createHash("sha256")
+    .update(
+      JSON.stringify({
+        documents: byId(documents),
+        childRelationships: byId(childRelationships),
+        databases: byId(databases),
+        memberships: byId(memberships),
+        membershipSurvivors: byId(membershipSurvivors),
+        sources: byId(sources),
+      }),
+    )
+    .digest("hex");
+  return {
+    fingerprint,
+    inaccessibleRelationship,
+    survivingChildren: childRelationships.filter(
+      (row) =>
+        row.ownerEmail.toLowerCase() === normalizedOwner &&
+        !documentIds.includes(row.id),
+    ),
+    membershipSurvivors: membershipSurvivors.filter(
+      (row) => row.ownerEmail.toLowerCase() === normalizedOwner,
+    ),
+    memberships,
+    databases,
+  };
+}
 
 function hasSameIds(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
@@ -340,6 +496,7 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
   lockedDatabaseIds?: ReadonlySet<string>,
+  origin?: string,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
@@ -432,7 +589,14 @@ export async function trashDocumentSubtree(
   for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
-      .set({ trashedAt, trashRootId: id, updatedAt: trashedAt })
+      .set({
+        trashedAt,
+        trashRootId: id,
+        trashedBy: getRequestUserEmail() ?? null,
+        trashOrigin: origin ?? null,
+        trashParentId: sql`${schema.documents.parentId}`,
+        updatedAt: trashedAt,
+      })
       .where(
         and(
           inArray(schema.documents.id, batch),
@@ -845,16 +1009,24 @@ export async function deleteTrashedDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  frozen?: ReadonlyArray<{
+    documentId: string;
+    expectedTrashedAt: string;
+    expectedParentId: string | null;
+  }>,
+  expectedScopeFingerprint?: string,
 ): Promise<string[]> {
   const collectScope = async () => {
     const [root] = await db
-      .select({ id: schema.documents.id })
+      .select({
+        id: schema.documents.id,
+        trashRootId: schema.documents.trashRootId,
+      })
       .from(schema.documents)
       .where(
         and(
           eq(schema.documents.id, id),
           eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, id),
           isNotNull(schema.documents.trashedAt),
         ),
       )
@@ -865,18 +1037,55 @@ export async function deleteTrashedDocumentSubtree(
       );
     }
 
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.trashRootId, id),
-            isNotNull(schema.documents.trashedAt),
-          ),
-        )
-    ).map((document) => document.id);
+    const group = await db
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+        parentId: schema.documents.parentId,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, root.trashRootId ?? root.id),
+          isNotNull(schema.documents.trashedAt),
+        ),
+      );
+    const byParent = new Map<string, typeof group>();
+    for (const document of group) {
+      if (!document.parentId) continue;
+      const children = byParent.get(document.parentId) ?? [];
+      children.push(document);
+      byParent.set(document.parentId, children);
+    }
+    const documents: typeof group = [];
+    const pending = [id];
+    while (pending.length) {
+      const documentId = pending.pop()!;
+      const document = group.find((item) => item.id === documentId);
+      if (!document) continue;
+      documents.push(document);
+      pending.push(...(byParent.get(documentId) ?? []).map((item) => item.id));
+    }
+    const documentIds = documents.map((document) => document.id);
+    if (
+      frozen &&
+      (!hasSameIds(
+        documentIds,
+        frozen.map((item) => item.documentId),
+      ) ||
+        frozen.some((item) => {
+          const current = documents.find(
+            (document) => document.id === item.documentId,
+          );
+          return (
+            current?.trashedAt !== item.expectedTrashedAt ||
+            current?.parentId !== item.expectedParentId
+          );
+        }))
+    ) {
+      throw new PermanentDeleteScopeChangedError();
+    }
     const ownedDatabaseIds = await selectOwnedDatabaseIds(
       db,
       documentIds,
@@ -893,17 +1102,38 @@ export async function deleteTrashedDocumentSubtree(
       (document) => !documentIdSet.has(document.id) && !document.trashedAt,
     );
     if (activeOutsideScope) {
+      if (expectedScopeFingerprint) {
+        throw new PermanentDeleteScopeChangedError();
+      }
       throw new Error(
         "Database contains an active row outside this Trash item",
       );
     }
-    return { documentIds, ownedDatabaseIds };
+    return {
+      documentIds,
+      ownedDatabaseIds,
+      trashRootId: root.trashRootId ?? root.id,
+    };
   };
 
-  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
+  const {
+    documentIds,
+    ownedDatabaseIds,
+    trashRootId = id,
+  } = await lockPermanentDeleteScope(db, collectScope);
+
+  const relationships = await inspectPermanentDeleteRelationships(
     db,
-    collectScope,
+    documentIds,
+    ownerEmail,
   );
+  if (
+    relationships.inaccessibleRelationship ||
+    (expectedScopeFingerprint &&
+      relationships.fingerprint !== expectedScopeFingerprint)
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
 
   await db
     .update(schema.documents)
@@ -914,7 +1144,7 @@ export async function deleteTrashedDocumentSubtree(
         inArray(schema.documents.parentId, documentIds),
         or(
           isNull(schema.documents.trashRootId),
-          ne(schema.documents.trashRootId, id),
+          ne(schema.documents.trashRootId, trashRootId),
         ),
       ),
     );
@@ -935,9 +1165,15 @@ export default defineAction({
     databaseDocumentId: z
       .string()
       .optional()
-      .describe("Database page the deletion was initiated from"),
+      .describe("Collection page the deletion was initiated from"),
+    activeDocumentId: z
+      .string()
+      .optional()
+      .describe(
+        "Currently open document, used only to return an explicit navigation outcome.",
+      ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -953,7 +1189,11 @@ export default defineAction({
           ),
         );
       if (contextDatabase) {
-        await assertAccess("document", contextDatabase.documentId, "editor");
+        await assertDocumentMutationAccess(
+          contextDatabase.documentId,
+          "editor",
+          "id",
+        );
         const [membership] = await db
           .select({ id: schema.contentDatabaseItems.id })
           .from(schema.contentDatabaseItems)
@@ -984,7 +1224,7 @@ export default defineAction({
       }
     }
 
-    const access = await assertAccess("document", id, "admin");
+    const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
@@ -1006,11 +1246,22 @@ export default defineAction({
         existing.ownerEmail as string,
         undefined,
         lockedDatabaseIds,
+        ctx?.caller,
       );
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { success: true, deleted: deleted.length };
+    return {
+      success: true,
+      deleted: deleted.length,
+      activeTargetDeleted: args.activeDocumentId
+        ? deleted.includes(args.activeDocumentId)
+        : false,
+      navigationPath:
+        args.activeDocumentId && deleted.includes(args.activeDocumentId)
+          ? "/home"
+          : null,
+    };
   },
 });

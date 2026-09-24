@@ -7,6 +7,8 @@
  *   pnpm action resource-write --path <path> --content <content> [--scope personal|shared] [--mime <mime-type>] [--visibility workspace|agent_scratch]
  */
 
+import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
+import { canManageOrg } from "../../org/permissions.js";
 import {
   canWriteLocalWorkspaceResourcePath,
   resourcePut,
@@ -21,6 +23,17 @@ import {
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
+
+async function assertCanWriteSharedResource(): Promise<void> {
+  const orgId = getRequestOrgId();
+  if (!orgId) return;
+
+  const email = getRequestUserEmail()?.trim() ?? getAmbientUserEmail()?.trim();
+  const role = email ? await getOrgRoleForEmail(orgId, email) : null;
+  if (!email || !canManageOrg(role)) {
+    fail("Only organization owners and admins can edit organization files");
+  }
+}
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   ".md": "text/markdown",
@@ -132,6 +145,7 @@ Options:
   );
   let owner: string;
   if (scope === "shared") {
+    await assertCanWriteSharedResource();
     owner = sharedResourceOwner(getRequestOrgId());
   } else if (scope === "workspace") {
     owner = WORKSPACE_OWNER;

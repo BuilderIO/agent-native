@@ -1,24 +1,31 @@
 ---
 title: "Forms"
-description: "Agent-native form builder — describe the form you want in chat, fine-tune it visually, publish a public link, and watch responses roll in."
+description: "An agent-powered form builder that replaces Typeform and Google Forms with one app you own. Describe the form you want in chat, publish a protected link, and watch responses get routed, exported, and summarized automatically."
 ---
 
 # Forms
 
-Forms is a form builder for anyone who needs to collect information — signups, feedback, registrations, surveys — without writing code. Describe the form you want to the agent, fine-tune it visually when you want direct control, and publish a link anyone can fill out.
+Forms is a form builder for anyone who needs to collect information without writing code. Use it for signups, feedback, registrations, or surveys. Describe the form you want to the agent, fine-tune it visually when you want more direct control, and publish a link that anyone can fill out.
 
-<WireframeBlock id="doc-block-forms1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;width:min(700px,92%);min-height:420px'><div style='text-align:center'><h1 style='margin:0'>Ask Forms</h1><p class='wf-muted' style='margin:10px 0 0'>Describe the form you want. Fine-tune it visually once it exists.</p></div><div class='wf-card' style='width:100%;min-height:140px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Create a beta signup form with role, team size, and priority use case</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><div style='flex:1'></div><button class='primary'>↑</button></div></div><div style='display:flex;gap:8px;flex-wrap:wrap;justify-content:center'><span class='wf-pill'>Post responses to Slack</span><span class='wf-pill'>Summarize this week's submissions</span><span class='wf-pill'>Make this form shorter</span></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Cards columns={1}>
 
-Every new session opens on **Ask Forms**, a chat where you describe what you want. The agent creates the form, and you move into the visual editor whenever you want to adjust fields, validation, or publishing settings by hand — both paths edit the same SQL-backed form definition, so nothing gets out of sync.
+### [Try it out now →](https://forms.agent-native.com)
 
-<Diagram id="doc-block-forms2" title="Build, publish, collect" summary={"The agent and the visual editor edit one SQL-backed form definition. The public fill page is unauthenticated, and submissions route server-side to your destinations."}>
+See Forms live and publish a real form.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief tour of the forms application."
+  caption="A brief tour of the forms application."
+  autoplay={true}
+  loop={true}
+/>
+
+Every new session opens on **Ask Forms**, a chat where you describe what you want. The agent creates the form for you. You can then move into the visual editor any time you want to adjust fields, validation, or publishing settings by hand. Both ways of editing update the same form, so nothing gets out of sync.
+
+<Diagram id="doc-block-forms2" title="Build, publish, collect" summary={"The agent and the visual editor edit the same form. Anyone can open the public fill page without signing in, and new submissions are sent to your destinations automatically."}>
 
 ```html
 <div class="diagram-flow">
@@ -83,38 +90,46 @@ Every new session opens on **Ask Forms**, a chat where you describe what you wan
 
 </Diagram>
 
+## What it replaces
+
+<Comparison>
+
+### Before
+
+- Typeform, Google Forms, or a form built by hand for collecting responses
+- Copying new submissions into Slack or a spreadsheet by hand
+- A separate tool just to summarize what came back
+- Setting up a Zapier automation to get responses into Sheets or a webhook
+
+### After
+
+- One form that the agent and the visual editor both update
+- New responses are sent to Slack, Discord, Sheets, or a webhook the moment they arrive
+- Ask for a summary and get a chart, a table, or both, without a separate tool
+- Conditional fields, spam protection, and anonymous mode are all built into the same builder
+
+</Comparison>
+
+## Forms in a multi-app workspace
+
+If you run Forms alongside other apps in [Dispatch](/docs/template-dispatch), a form is no longer just a page you open by hand. The Forms agent can pass along questions that belong to another app, and other apps can send responses into your form directly, the same way the framework's own feedback button does. See [Forms in a Multi-App Workspace](/docs/template-forms-integrations) for how this works.
+
 ## What you can do with it
 
-- **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." See [field types and JSON schema](/docs/template-forms-building-publishing#field-types).
-- **Fine-tune visually.** Edit labels, placeholders, required state, options, and field order from the builder UI when you want direct control.
-- **Publish and protect a public form.** Share a public link, and turn on captcha protection or fully anonymous responses when you need them — see [Building and publishing a form](/docs/template-forms-building-publishing).
-- **Review responses and ask for insights.** "Summarize this week's submissions," "chart submissions by day" — see [Responses, insights, and destinations](/docs/template-forms-responses).
-- **Route submissions automatically.** Send new responses to Slack, Discord, Google Sheets, or a webhook the moment they arrive.
-
-## Getting started
-
-Live demo: [forms.agent-native.com](https://forms.agent-native.com).
-
-1. **Ask for the form you want.** Ask Forms is the landing chat — describe the audience and what should happen after submission.
-2. **Refine in the editor.** Adjust labels, validation, choices, and order in the visual builder when direct editing is faster.
-3. **Publish and share.** Use the public form URL for respondents, then watch results arrive in the Responses view.
-4. **Connect destinations.** Route new submissions to Slack, Discord, Google Sheets, webhooks, or your own extension point.
-
-### Useful prompts
-
-- "Create a beta signup form with role, team size, and priority use case."
-- "Add a required NPS question and a free-text follow-up."
-- "Create an anonymous customer feedback form and give me the public link."
-- "Post every new response to the product Slack channel."
-- "What's the setup for my beta signup form?"
-- "Summarize this week's submissions and group them by customer segment."
-- "Make this form shorter without losing the fields we need for routing."
+- **Build forms conversationally.** Try prompts like "Create a contact form," "add an NPS score question," or "make the email field required." See [the available field types](/docs/template-forms-features#field-types).
+- **Fine-tune visually.** Edit labels, placeholders, required fields, options, and field order right in the form builder when you want more direct control.
+- **Publish and protect a public form.** Share a public link, and turn on spam protection or fully anonymous responses when you need them. See [Features](/docs/template-forms-features).
+- **Review responses and ask for insights.** Try prompts like "Summarize this week's submissions" or "Chart submissions by day." See [Features](/docs/template-forms-features#response-insights).
+- **Route submissions automatically.** Paste in a Slack, Discord, Google Sheets, or generic webhook URL, and new responses are sent there the moment they arrive.
 
 ## What's next
 
-- [**Building and publishing a form**](/docs/template-forms-building-publishing) — field types, conditional logic, and public-form protections
-- [**Responses, insights, and destinations**](/docs/template-forms-responses) — analyzing, exporting, and routing submissions
-- [**Forms — data model and actions**](/docs/template-forms-developers) — the SQL schema and action reference, for developers
+- [**Features**](/docs/template-forms-features) — field types, conditional logic, publishing, protections, responses, insights, and routing, with setup steps for each
+- [**Talk to the Agent**](/docs/template-forms-agent) — prompts by task and how the agent sees your screen
+- [**Forms in a Multi-App Workspace**](/docs/template-forms-integrations) — delegation and the public submit endpoint other apps use
+- [**Developer Guide**](/docs/template-forms-developers) — the SQL schema, action reference, and routes, for developers
 - [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
 - [**Actions**](/docs/actions-overview) — the action system powering the builder
 - [**Messaging**](/docs/messaging) — Slack and other submission destinations
+- [**Sharing**](/docs/sharing) — the share-grant model form shares build on

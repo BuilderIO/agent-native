@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { createRunCodeEntry } from "./run-code.js";
+import { buildDataProgramPrelude } from "../data-programs/contract.js";
+import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
 
 const tool = {
   description: "test action",
@@ -705,5 +706,57 @@ describe("run-code bridge", () => {
     expect(result).toContain('"stoppedReason":"max-pages"');
     expect(calls).toHaveLength(2);
     expect(calls[1]?.query).toMatchObject({ page: 2 });
+  });
+
+  it("uses the hardened Run evaluator with host functions and no Node APIs", async () => {
+    let ran = false;
+    const actions: Record<string, ActionEntry> = {
+      "read-users": {
+        tool,
+        readOnly: true,
+        run: async () => {
+          ran = true;
+          return { users: 2 };
+        },
+      },
+      "approval-reader": {
+        tool,
+        readOnly: true,
+        needsApproval: true,
+        run: async () => ({ users: 99 }),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions, { evaluator: "run" });
+
+    const result = await entry.run({
+      code: `
+        console.log(typeof process);
+        console.log(JSON.stringify(await appAction("read-users")));
+        try { await appAction("approval-reader"); }
+        catch (error) { console.error(error.message); }
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain("undefined");
+    expect(result).toContain('"users":2');
+    expect(result).toContain(
+      'Tool "approval-reader" requires approval and cannot be called from sandbox code',
+    );
+    expect(ran).toBe(true);
+  });
+
+  it("keeps the data-program emit contract in Run mode", async () => {
+    const result = await executeSandboxCode({
+      code: `${buildDataProgramPrelude({ region: "us" })}\nemit([{ value: 1 }]);`,
+      timeoutMs: 30_000,
+      getActions: () => ({}),
+      evaluator: "run",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      '__DATA_PROGRAM_RESULT__{"rows":[{"value":1}]}',
+    );
   });
 });

@@ -21,6 +21,7 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 
 /** Path of the framework deep-link route, relative to the route prefix. */
 export const OPEN_ROUTE_SUBPATH = "/open";
@@ -63,7 +64,9 @@ function buildQuery(input: DeepLinkInput): string {
  */
 export function buildDeepLink(input: DeepLinkInput): string {
   return withCollapsedAgentSidebarParam(
-    `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`,
+    publicFrameworkPath(
+      `/_agent-native${OPEN_ROUTE_SUBPATH}?${buildQuery(input)}`,
+    ),
   );
 }
 
@@ -109,7 +112,7 @@ export function toDesktopOpenUrl(urlOrPath: string): string {
 }
 
 /**
- * Wrap an Agent Native web URL in the VS Code extension URI so external agents
+ * Wrap an Agent-Native web URL in the VS Code extension URI so external agents
  * can hand users a link that opens the app inside a VS Code webview.
  */
 export function toVsCodeOpenUrl(urlOrPath: string): string {

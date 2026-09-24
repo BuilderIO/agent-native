@@ -1,0 +1,63 @@
+---
+title: "Datenschutz und Datenrechte"
+description: "Framework-Standards und Pflichten der Betreiber für Datenanfragen nach DSGVO und CCPA."
+---
+
+# Datenschutz und Datenrechte
+
+Agent-Native enthält standardmäßig eine Oberfläche für Datenschutzanfragen in den Kontoeinstellungen. Angemeldete Personen können eine Kopie ihrer personenbezogenen Daten oder deren Löschung anfordern.
+
+Dies ist eine technische Grundlage, keine Rechtsberatung und keine Compliance-Zertifizierung. Die betreibende Organisation muss ihre rechtliche Rolle bestimmen und die für ihren Einsatz passenden Hinweise und Prozesse veröffentlichen.
+
+## Was Nutzer tun können
+
+Öffne **Einstellungen > Konto > Datenschutz und Daten**, um:
+
+- eine Kopie personenbezogener Daten für eine Zugriffs- oder Übertragbarkeitsprüfung anzufordern,
+- die Löschung personenbezogener Daten zur Prüfung des Löschbegehrens anzufordern,
+- Kontodaten über die vorhandenen Profil- und E-Mail-Steuerelemente zu korrigieren.
+
+Anfragen werden dauerhaft, idempotent und revisionssicher gespeichert. Die Anfrageaktion speichert nur Typ, Status und Zeitstempel. Sie liefert keinen Datenexport zurück, akzeptiert keine E-Mail-Adresse oder Nutzer-ID einer anderen Person und löscht Daten nicht sofort.
+
+## Was Agenten nicht tun können
+
+Datenschutzanfragen werden über die Kontoeinstellungen gesendet. Die Aktion `request-privacy-right` ist authentifiziert, in Agent-Tools und der MCP/A2A-Erkennung verborgen, für die Tool-Bridge gesperrt und nur für den Frontend-Aufrufer autorisiert.
+
+Die Kernaktion `offboard-member` hat dieselbe UI-only-Grenze. Das Entfernen eines Mitglieds ist eine Organisationsoperation, die eigene Datensätze überträgt und Zugriff widerruft; es ist keine Kontolöschung. Die Organisationslöschung bleibt außerdem hinter der bestehenden Bestätigung des Eigentümers.
+
+Menschliche Bestätigungsdialoge sind keine Sicherheitsgrenze. Für eigene Aktionen zum Löschen von Daten, Widerrufen von Identitäten, Ändern von Mitgliedschaften oder Ändern der Authentifizierung muss eine explizite UI-only-Grenze verwendet und die Identität aus dem verifizierten Anfragekontext abgeleitet werden.
+
+## Erfüllung durch den Betreiber
+
+Das Framework speichert die Anfrage. Der Betreiber muss:
+
+1. die Identität prüfen und Organisation sowie rechtlichen Umfang bestimmen,
+2. die kontrollierten Daten sammeln und über einen privaten, zugriffsgeschützten Kanal bereitstellen,
+3. Anwendungszeilen und private Dateien löschen oder anonymisieren, Sitzungen und Zugangsdaten bei Bedarf widerrufen und verbundene Anbieter und Auftragsverarbeiter koordinieren,
+4. Aufbewahrungsregeln für Backups, Sicherheits- und Auditprotokolle, Betrugsprävention und dokumentierte Ausnahmen anwenden,
+5. Abschluss, Teilerfüllung oder den Blockierungsgrund protokollieren und die anfragende Person informieren.
+
+Eine Anfrage ist nicht erledigt, nur weil eine Organisationszeile oder eine Einstellung entfernt wurde. Gehostete Anbieter, Uploads, verbundene Dienste, Caches, Backups und unveränderliche Auditdaten können eigene Lösch- und Aufbewahrungspfade haben.
+
+## Datenschutzstandard
+
+Neue teilbare Ressourcen sind standardmäßig privat. Browseranalysen lassen DOM- und Netzwerk-Autocapture standardmäßig aus; Sitzungswiedergabe ist bei Konfiguration optional und nur für angemeldete Personen vorgesehen. Diese Defaults ersetzen weder Datenschutzerklärung, Rechtsgrundlage, Aufbewahrungsrichtlinie noch Einwilligungs- und Opt-out-Kontrollen.
+
+Wenn ein Einsatz personenbezogene Informationen verkauft oder teilt, muss er die passenden CCPA-Opt-out- und Global-Privacy-Control-Prozesse bereitstellen. Das Framework richtet kein Verkaufs- oder Teilungsprogramm ein.
+
+## Checkliste für den Einsatz
+
+- Datenschutzerklärung mit Datenkategorien, Zwecken, Empfängern, Aufbewahrung, Rechten und Kontaktweg veröffentlichen.
+- Rechtsgrundlagen, Einwilligung, sensible Daten und Altersanforderungen dokumentieren.
+- Verantwortliche Person und Ablauf für Zugriffs-, Berichtigungs-, Lösch-, Übertragbarkeits-, Widerspruchs- und Opt-out-Anfragen festlegen.
+- Tabellen, private Dateien, Analytik, verbundene Dienste, E-Mail, Caches, Logs, Backups und Unterauftragsverarbeiter erfassen.
+- Verifizierung, Fristen, Aufbewahrungsausnahmen, Löschbelege und Einsprüche definieren.
+- Aktionen mit hohen Folgen auf die UI beschränken und Aufrufe aus Agent, MCP, A2A, CLI, HTTP und Tool-Bridge testen.
+
+## Referenzen
+
+- [DSGVO-Text](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng/)
+- [Europäische Kommission: Anfragen von Einzelpersonen](https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/dealing-requests-individuals_en)
+- [California Attorney General: CCPA](https://www.oag.ca.gov/privacy/ccpa)
+- [CCPA-Regelungen](https://www.oag.ca.gov/privacy/ccpa/regs)
+- [Datenschutzerklärung von Hosted Agent-Native](/privacy)

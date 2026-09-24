@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_local-file-documents.js", async (importOriginal) => {
@@ -15,7 +15,7 @@ vi.mock("./_local-file-documents.js", async (importOriginal) => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `space-aware-writers-${process.pid}-${Date.now()}.sqlite`,
+  `space-aware-writers-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -26,6 +26,7 @@ let createContentDatabase: typeof import("./create-content-database.js").default
 let addDatabaseItem: typeof import("./add-database-item.js").default;
 let getContentDatabase: typeof import("./get-content-database.js").default;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
+let personalContentSpaceId: typeof import("./_content-spaces.js").personalContentSpaceId;
 
 const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
@@ -33,7 +34,7 @@ const VIEWER = "viewer@example.com";
 const OUTSIDER = "outsider@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -42,21 +43,22 @@ beforeAll(async () => {
     .default;
   addDatabaseItem = (await import("./add-database-item.js")).default;
   getContentDatabase = (await import("./get-content-database.js")).default;
-  ({ organizationContentSpaceId } = await import("./_content-spaces.js"));
+  ({ organizationContentSpaceId, personalContentSpaceId } =
+    await import("./_content-spaces.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at INTEGER
   )`);
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function addOrganizationMember(args: {
@@ -65,11 +67,11 @@ async function addOrganizationMember(args: {
   role?: string;
 }) {
   await getDbExec().execute({
-    sql: "INSERT OR IGNORE INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
     args: [args.orgId, "Shared workspace", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: [
       `${args.orgId}:${args.email}`,
       args.orgId,
@@ -101,6 +103,14 @@ async function filesMemberships(documentId: string) {
 }
 
 describe("space-aware document writers", () => {
+  it("rejects an empty caller-provided database document ID", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        createContentDatabase.run({ newDocumentId: "" }),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("defaults root pages to personal Files and keeps nested pages in the parent space", async () => {
     const parent = await runWithRequestContext({ userEmail: OWNER }, () =>
       createDocument.run({ title: "Parent" }),
@@ -110,10 +120,16 @@ describe("space-aware document writers", () => {
     );
 
     const rows = await getDb()
-      .select({ id: schema.documents.id, spaceId: schema.documents.spaceId })
+      .select({
+        id: schema.documents.id,
+        spaceId: schema.documents.spaceId,
+        createdBy: schema.documents.createdBy,
+        updatedBy: schema.documents.updatedBy,
+      })
       .from(schema.documents)
       .where(eq(schema.documents.id, child.id));
     expect(rows[0]?.spaceId).toBeTruthy();
+    expect(rows[0]).toMatchObject({ createdBy: OWNER, updatedBy: OWNER });
     await expect(filesMemberships(parent.id)).resolves.toHaveLength(1);
     await expect(filesMemberships(child.id)).resolves.toEqual([
       expect.objectContaining({ spaceId: rows[0]?.spaceId }),
@@ -152,13 +168,172 @@ describe("space-aware document writers", () => {
     });
     await expect(filesMemberships(created.id)).resolves.toHaveLength(1);
 
+    const [filesDatabase] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+        ),
+      );
+    const viaFilesTarget = await runWithRequestContext(
+      { userEmail: MEMBER, orgId },
+      () =>
+        createDocument.run({
+          title: "Member page via Files target",
+          parentId: filesDatabase.documentId,
+        }),
+    );
+    const [viaFilesTargetRow] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, viaFilesTarget.id));
+    expect(viaFilesTargetRow).toMatchObject({
+      spaceId,
+      parentId: null,
+      ownerEmail: MEMBER,
+      orgId,
+      visibility: "org",
+    });
+
+    const viaAgreeingTargets = await runWithRequestContext(
+      { userEmail: MEMBER, orgId },
+      () =>
+        createDocument.run({
+          title: "Member page via agreeing targets",
+          parentId: filesDatabase.documentId,
+          spaceId,
+        }),
+    );
+    expect(viaAgreeingTargets).toMatchObject({ spaceId, parentId: null });
+
+    await expect(
+      runWithRequestContext({ userEmail: MEMBER, orgId }, () =>
+        createDocument.run({
+          id: "rejected-conflicting-files-target",
+          title: "Conflicting Files target",
+          parentId: filesDatabase.documentId,
+          spaceId: personalContentSpaceId(MEMBER),
+        }),
+      ),
+    ).rejects.toThrow("same Content space");
+    await getDb().insert(schema.documentShares).values({
+      id: "guest-files-editor-share",
+      resourceId: filesDatabase.documentId,
+      principalType: "user",
+      principalId: VIEWER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const guestAttempt = async (parentId: string, id: string) => {
+      try {
+        await runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
+          createDocument.run({ title: id, id, parentId }),
+        );
+        return null;
+      } catch (error) {
+        return {
+          name: error instanceof Error ? error.name : typeof error,
+          message: (error instanceof Error
+            ? error.message
+            : String(error)
+          ).replace(parentId, "<parentId>"),
+        };
+      }
+    };
+    const guestRealFilesError = await guestAttempt(
+      filesDatabase.documentId,
+      "rejected-guest-files-target",
+    );
+    const guestFakeFilesError = await guestAttempt(
+      "content_document_files_guest-not-real",
+      "rejected-guest-fake-files-target",
+    );
+    expect(guestRealFilesError).not.toBeNull();
+    expect(guestRealFilesError).toEqual(guestFakeFilesError);
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
+        createDocument.run({
+          id: "rejected-guest-child",
+          title: "Guest child page",
+          parentId: created.id,
+        }),
+      ),
+    ).rejects.toThrow("Requires editor role");
+    await expect(
+      runWithRequestContext({ userEmail: MEMBER, orgId }, () =>
+        createDocument.run({
+          id: "rejected-fake-files-target",
+          title: "Fake Files target",
+          parentId: "content_document_files_not-real",
+        }),
+      ),
+    ).rejects.toThrow();
+
+    const outsiderPersonal = await runWithRequestContext(
+      { userEmail: OUTSIDER },
+      () => createDocument.run({ title: "Outsider personal setup" }),
+    );
+    const outsiderAttempt = async (parentId: string, id: string) => {
+      try {
+        await runWithRequestContext({ userEmail: OUTSIDER }, () =>
+          createDocument.run({
+            id,
+            title: id,
+            parentId,
+            spaceId: outsiderPersonal.spaceId,
+          }),
+        );
+        return null;
+      } catch (error) {
+        return {
+          name: error instanceof Error ? error.name : typeof error,
+          message: (error instanceof Error
+            ? error.message
+            : String(error)
+          ).replace(parentId, "<parentId>"),
+        };
+      }
+    };
+    const outsiderRealFilesError = await outsiderAttempt(
+      filesDatabase.documentId,
+      "rejected-outsider-real-files",
+    );
+    const outsiderFakeFilesError = await outsiderAttempt(
+      "content_document_files_not-real",
+      "rejected-outsider-fake-files",
+    );
+    expect(outsiderRealFilesError).not.toBeNull();
+    expect(outsiderRealFilesError).toEqual(outsiderFakeFilesError);
+
+    const rejectedIds = [
+      "rejected-conflicting-files-target",
+      "rejected-guest-files-target",
+      "rejected-guest-fake-files-target",
+      "rejected-guest-child",
+      "rejected-fake-files-target",
+      "rejected-outsider-real-files",
+      "rejected-outsider-fake-files",
+    ];
+    const rejectedDocuments = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, rejectedIds));
+    expect(rejectedDocuments).toEqual([]);
+
     const createdDatabase = await runWithRequestContext(
       { userEmail: MEMBER, orgId },
       () =>
         createContentDatabase.run({
+          newDocumentId: "member-database-document",
           title: "Member database",
           spaceId,
         }),
+    );
+    expect(createdDatabase.database.documentId).toBe(
+      "member-database-document",
     );
     const [database] = await getDb()
       .select()
@@ -183,7 +358,7 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),
       ),
-    ).rejects.toThrow("Not authorized");
+    ).rejects.toThrow("Content space not found");
   });
 
   it("creates canonical Files memberships when the target organization differs from the active organization", async () => {

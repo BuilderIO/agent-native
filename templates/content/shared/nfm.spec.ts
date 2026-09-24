@@ -4,6 +4,7 @@ import {
   canonicalizeNfm,
   collapseExactRepeatedNfm,
   docToNfm,
+  inspectNfmFidelity,
   nfmToDoc,
 } from "./nfm";
 
@@ -316,6 +317,144 @@ describe("nfm converter — structural parsing", () => {
     expect(table.content?.[0].content?.[0].type).toBe("tableHeader");
     expect(table.content?.[1].content?.[0].type).toBe("tableCell");
     expect(table.content?.[1].content?.[0].attrs?.color).toBe("red");
+  });
+
+  it("promotes a GFM pipe table without losing adjacent MDX or Mermaid", () => {
+    const source = L(
+      '<Aside type="note">',
+      "Critical rollout note.",
+      "</Aside>",
+      "",
+      "## Responsibilities",
+      "",
+      "| Component | Responsibility |",
+      "| --- | --- |",
+      "| Publish app | Composer and progress |",
+      "| Publish MCP | Authorization boundary |",
+      "",
+      "```mermaid",
+      "flowchart TD",
+      "  App --> Agent",
+      "  Agent --> MCP",
+      "```",
+      "",
+      "After diagram.",
+    );
+
+    const doc = nfmToDoc(source);
+    expect(doc.content.map((node) => node.type)).toEqual([
+      "localMdxComponent",
+      "heading",
+      "table",
+      "codeBlock",
+      "paragraph",
+    ]);
+    expect(doc.content[0].attrs?.__raw).toBe(
+      '<Aside type="note">\nCritical rollout note.\n</Aside>',
+    );
+    expect(doc.content[2].content?.map((row) => row.type)).toEqual([
+      "tableRow",
+      "tableRow",
+      "tableRow",
+    ]);
+    expect(doc.content[2].content?.[0].content?.[0].type).toBe("tableHeader");
+    expect(doc.content[2].content?.[1].content?.[0].type).toBe("tableCell");
+    expect(doc.content[3].attrs?.language).toBe("mermaid");
+
+    const normalized = docToNfm(doc);
+    expect(normalized).toContain('<Aside type="note">');
+    expect(normalized).toContain('<table header-row="true">');
+    expect(normalized).toContain("```mermaid\nflowchart TD");
+    expect(normalized.endsWith("After diagram.")).toBe(true);
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "transformed",
+      normalizedChanged: true,
+      conversions: [{ kind: "gfm-pipe-table-to-content-table", count: 1 }],
+      unresolved: [],
+    });
+  });
+
+  it("keeps escaped and code-span pipes inside their table cells", () => {
+    const doc = nfmToDoc(
+      "| Name | Example |\n| --- | --- |\n| A \\| B | `left | right` |",
+    );
+    const cells = doc.content[0].content?.[1].content;
+    expect(cells).toHaveLength(2);
+    expect(docToNfm(doc)).toContain("A \\| B");
+    expect(docToNfm(doc)).toContain("`left | right`");
+  });
+
+  it("treats an unmatched backtick as literal table text", () => {
+    const doc = nfmToDoc(
+      "| Label | Value |\n| --- | --- |\n| unmatched `tick | retained |",
+    );
+
+    expect(doc.content[0].type).toBe("table");
+    expect(docToNfm(doc)).toContain("unmatched \\`tick");
+  });
+
+  it("stops a pipe table before a Markdown heading", () => {
+    const doc = nfmToDoc(
+      "| A | B |\n| --- | --- |\n| 1 | 2 |\n## Next | section",
+    );
+
+    expect(doc.content.map((node) => node.type)).toEqual(["table", "heading"]);
+    expect(docToNfm(doc)).toContain("## Next \\| section");
+  });
+
+  it("promotes aligned pipe tables to editable cells without dropping alignment", () => {
+    const source = "| Left | Right |\n| :--- | --- |\n| A | B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[0].content?.[0].attrs?.textAlign).toBe(
+      "left",
+    );
+    expect(docToNfm(doc)).toContain('<td align="left">Left</td>');
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "transformed",
+      unresolved: [],
+    });
+  });
+
+  it("promotes aligned ragged tables without losing extra cells", () => {
+    const source =
+      "| Name | Price |\n| :--- | ---: |\n| A | $1 | extra |\n| B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(
+      doc.content[0].content?.every((row) => row.content?.length === 3),
+    ).toBe(true);
+    expect(docToNfm(doc)).toContain("extra");
+    expect(docToNfm(doc)).toContain('align="right"');
+  });
+
+  it("pads a ragged pipe table with editable blank cells", () => {
+    const source = "| A | B |\n| --- | --- |\n| only one |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[1].content).toHaveLength(2);
+    expect(inspectNfmFidelity(source)).toMatchObject({
+      status: "transformed",
+      unresolved: [],
+    });
+  });
+
+  it("does not report pipe-table syntax inside fenced code as a conversion", () => {
+    const source = [
+      "```md",
+      "| A | B |",
+      "| --- | --- |",
+      "| one | two |",
+      "```",
+    ].join("\n");
+
+    expect(nfmToDoc(source).content[0].type).toBe("codeBlock");
+    expect(inspectNfmFidelity(source)).toEqual({
+      status: "preserved",
+      normalizedChanged: false,
+      conversions: [],
+      unresolved: [],
+    });
   });
 });
 
@@ -1057,6 +1196,277 @@ describe("bug fixes — reliability sweep", () => {
       const nfm = L('<callout icon="x">', "Hello after", "World after");
       const once = canonicalizeNfm(nfm);
       expect(canonicalizeNfm(once)).toBe(once);
+    });
+  });
+
+  describe("details bodies authored as ordinary Markdown", () => {
+    it("preserves supported unindented block children inside a native toggle", () => {
+      const source = L(
+        "<details>",
+        "<summary>Planned revisions</summary>",
+        "Paragraph with `inline code`.",
+        "## Heading",
+        "- bullet",
+        "> quote",
+        "```ts",
+        "\tconst answer = 42;",
+        "```",
+        "![diagram](https://example.com/diagram.png)",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "heading",
+        "bulletList",
+        "blockquote",
+        "codeBlock",
+        "image",
+      ]);
+      expect(toggle?.content?.[4]?.content?.[0]?.text).toBe(
+        "\tconst answer = 42;",
+      );
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Planned revisions</summary>",
+          "\tParagraph with `inline code`.",
+          "\t## Heading",
+          "\t- bullet",
+          "\t> quote",
+          "\t```ts",
+          "\t\tconst answer = 42;",
+          "\t```",
+          "\t![diagram](https://example.com/diagram.png)",
+          "</details>",
+        ),
+      );
+    });
+
+    it("keeps already-canonical and mixed-indentation details content nested", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "Unindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+
+      const expected = L(
+        "<details>",
+        "<summary>Mixed</summary>",
+        "\tCanonical child",
+        "\tUnindented child",
+        "\t- canonical list",
+        "</details>",
+      );
+      expect(canonicalizeNfm(source)).toBe(expected);
+      expect(canonicalizeNfm(expected)).toBe(expected);
+    });
+
+    it.each([
+      {
+        name: "callout",
+        open: '<callout icon="💡">',
+        close: "</callout>",
+        childType: "notionCallout",
+      },
+      {
+        name: "synced block",
+        open: '<synced_block url="https://www.notion.so/s">',
+        close: "</synced_block>",
+        childType: "notionSyncedBlock",
+      },
+    ])(
+      "preserves an ordinary nested $name body",
+      ({ open, close, childType }) => {
+        const source = L(
+          "<details>",
+          "<summary>Nested container</summary>",
+          open,
+          "Inside nested container",
+          close,
+          "</details>",
+        );
+
+        const toggle = nfmToDoc(source).content[0];
+        expect(toggle?.content?.[0]).toMatchObject({
+          type: childType,
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Inside nested container" }],
+            },
+          ],
+        });
+        const canonical = canonicalizeNfm(source);
+        expect(canonical).toContain(
+          L(`\t${open}`, "\t\tInside nested container", `\t${close}`),
+        );
+        expect(canonicalizeNfm(canonical)).toBe(canonical);
+      },
+    );
+
+    it("preserves ordinary nested columns and their column children", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested columns</summary>",
+        "<columns>",
+        "<column>",
+        "Inside column",
+        "</column>",
+        "</columns>",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "notionColumns",
+        content: [
+          {
+            type: "notionColumn",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Inside column" }],
+              },
+            ],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          "\t<columns>",
+          "\t\t<column>",
+          "\t\t\tInside column",
+          "\t\t</column>",
+          "\t</columns>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not absorb later toggle content into an unclosed nested container", () => {
+      const source = L(
+        "<details>",
+        "<summary>Malformed nested container</summary>",
+        '<callout icon="💡">',
+        "Still a sibling",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.content?.map((node) => node.type)).toEqual([
+        "paragraph",
+        "paragraph",
+      ]);
+      expect(toggle?.content?.[1]?.content?.[0]?.text).toBe("Still a sibling");
+    });
+
+    it("does not close a nested container from inside fenced code", () => {
+      const source = L(
+        "<details>",
+        "<summary>Nested fenced example</summary>",
+        '<callout icon="💡">',
+        "```html",
+        "</callout>",
+        "```",
+        "After fenced example",
+        "</callout>",
+        "</details>",
+      );
+
+      const callout = nfmToDoc(source).content[0]?.content?.[0];
+      expect(callout).toMatchObject({
+        type: "notionCallout",
+        content: [
+          {
+            type: "codeBlock",
+            content: [{ type: "text", text: "</callout>" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "After fenced example" }],
+          },
+        ],
+      });
+      const canonical = canonicalizeNfm(source);
+      expect(canonical).toContain(
+        L(
+          '\t<callout icon="💡">',
+          "\t\t```html",
+          "\t\t</callout>",
+          "\t\t```",
+          "\t\tAfter fenced example",
+          "\t</callout>",
+        ),
+      );
+      expect(canonicalizeNfm(canonical)).toBe(canonical);
+    });
+
+    it("does not treat a details close tag inside fenced code as the container close", () => {
+      const source = L(
+        "<details>",
+        "<summary>HTML example</summary>",
+        "```html",
+        "</details>",
+        "```",
+        "</details>",
+      );
+
+      const toggle = nfmToDoc(source).content[0];
+      expect(toggle?.type).toBe("notionToggle");
+      expect(toggle?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "</details>" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>HTML example</summary>",
+          "\t```html",
+          "\t</details>",
+          "\t```",
+          "</details>",
+        ),
+      );
+    });
+
+    it("normalizes an unindented closing fence after a canonical opening fence", () => {
+      const source = L(
+        "<details>",
+        "<summary>Mixed fence</summary>",
+        "\t```ts",
+        "const answer = 42;",
+        "```",
+        "</details>",
+        "After toggle",
+      );
+
+      const doc = nfmToDoc(source);
+      expect(doc.content.map((node) => node.type)).toEqual([
+        "notionToggle",
+        "paragraph",
+      ]);
+      expect(doc.content[0]?.content?.[0]).toMatchObject({
+        type: "codeBlock",
+        content: [{ type: "text", text: "const answer = 42;" }],
+      });
+      expect(canonicalizeNfm(source)).toBe(
+        L(
+          "<details>",
+          "<summary>Mixed fence</summary>",
+          "\t```ts",
+          "\tconst answer = 42;",
+          "\t```",
+          "</details>",
+          "After toggle",
+        ),
+      );
     });
   });
 

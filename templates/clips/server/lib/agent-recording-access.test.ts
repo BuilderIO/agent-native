@@ -24,7 +24,9 @@ vi.mock("drizzle-orm", () => ({
     text: strings
       .reduce(
         (result, string, index) =>
-          `${result}${string}${values[index] === undefined ? "" : values[index]}`,
+          `${result}${string}${
+            typeof values[index] === "string" ? values[index] : ""
+          }`,
         "",
       )
       .toLowerCase(),

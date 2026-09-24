@@ -10,7 +10,7 @@ corepack pnpm --dir packages/desktop-app exec electron-builder --mac --dir --con
 corepack pnpm --dir packages/desktop-app smoke:packaged-code-runner
 ```
 
-The smoke command copies the packaged `Agent Native.app` into a fresh temporary
+The smoke command copies the packaged `Agent-Native.app` into a fresh temporary
 root, removes `AGENT_NATIVE_FRAMEWORK_ROOT`, limits `PATH` to system binaries
 and a hermetic fake Codex executable, and invokes the runner from
 `app.asar/out/main/code-agent-runner-entry.js` through the packaged Electron
@@ -315,7 +315,7 @@ The fixture-fed command itself worked, but that is not live-provider evidence.
 Therefore v1 deliberately exposes Claude connection and plan with telemetry
 state `unsupported` and the explanation that non-interactive sessions do not
 report live plan usage. No status-line sidecar or persisted Claude usage
-snapshot ships from this spike. Agent Native does not read Keychain, OAuth
+snapshot ships from this spike. Agent-Native does not read Keychain, OAuth
 files, private transcripts, or undocumented usage endpoints.
 
 Steve explicitly accepted this Claude v1 degradation on 2026-07-19 after the

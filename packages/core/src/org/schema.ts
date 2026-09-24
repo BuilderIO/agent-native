@@ -1,7 +1,8 @@
 import {
   table,
   text,
-  integer,
+  bigint,
+  boolean,
   ownableColumns,
   createSharesTable,
 } from "../db/schema.js";
@@ -9,12 +10,20 @@ import {
 export const organizations = table("organizations", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  // guard:allow-identity-column — immutable organization creation provenance
   createdBy: text("created_by").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
   allowedDomain: text("allowed_domain"),
   a2aSecret: text("a2a_secret"),
   workspaceUrl: text("workspace_url"),
   requiredAuthProvider: text("required_auth_provider"),
+  /** Stable Dispatch identity used to match this org across app databases. */
+  identityAuthority: text("identity_authority"),
+  identityId: text("identity_id"),
+  /** Set after the identity authority has accepted the initial member roster. */
+  federationRosterInitializedAt: bigint("federation_roster_initialized_at", {
+    mode: "number",
+  }),
 });
 
 export const orgMembers = table("org_members", {
@@ -22,7 +31,11 @@ export const orgMembers = table("org_members", {
   orgId: text("org_id").notNull(),
   email: text("email").notNull(),
   role: text("role").notNull(),
-  joinedAt: integer("joined_at").notNull(),
+  joinedAt: bigint("joined_at", { mode: "number" }).notNull(),
+  /** Restrictive marker retained if authority revocation beats local deletion. */
+  federationRemovalPendingAt: bigint("federation_removal_pending_at", {
+    mode: "number",
+  }),
 });
 
 /**
@@ -37,7 +50,33 @@ export const appMemberRoles = table("app_member_roles", {
   email: text("email").notNull(),
   role: text("role").notNull(),
   updatedBy: text("updated_by").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const appPermissionOverrides = table("app_permission_overrides", {
+  orgId: text("org_id").notNull(),
+  appId: text("app_id").notNull(),
+  permission: text("permission").notNull(),
+  rolesJson: text("roles_json").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+/**
+ * Durable SCIM-to-framework membership ownership marker. This row intentionally
+ * stores only Better Auth's immutable user id, never an email identity. A
+ * `createdMembership=false` row means SCIM must leave an existing human-managed
+ * membership in place when the directory deactivates the user.
+ */
+export const orgScimMemberships = table("org_scim_memberships", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  // guard:allow-identity-column - immutable Better Auth user id
+  userId: text("user_id").notNull(),
+  /** The framework member row SCIM created, if any. */
+  memberId: text("member_id"),
+  createdMembership: boolean("created_membership").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const orgInvitations = table("org_invitations", {
@@ -45,9 +84,10 @@ export const orgInvitations = table("org_invitations", {
   orgId: text("org_id").notNull(),
   email: text("email").notNull(),
   invitedBy: text("invited_by").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
   status: text("status").notNull(),
   role: text("role"),
+  appRolesJson: text("app_roles_json"),
 });
 
 /** Workspace app access is framework-owned so every mounted app can enforce it. */
@@ -62,11 +102,12 @@ export const workspaceApps = table("workspace_apps", {
   })
     .notNull()
     .default("org"),
+  orgEnabled: boolean("org_enabled").notNull().default(true),
   name: text("name").notNull(),
   description: text("description"),
   path: text("path").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const workspaceAppShares = createSharesTable("workspace_app_shares");

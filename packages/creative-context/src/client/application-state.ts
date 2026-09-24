@@ -121,8 +121,9 @@ export async function setSelectedCreativeContext(
   });
 }
 
-export function useCreativeContextState() {
+export function useCreativeContextState(options?: { enabled?: boolean }) {
   const appStateVersion = useChangeVersion("app-state");
+  const enabled = options?.enabled ?? true;
   const [state, setState] = useState<CreativeContextApplicationState>(
     DEFAULT_CREATIVE_CONTEXT_STATE,
   );
@@ -130,6 +131,13 @@ export function useCreativeContextState() {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setState(DEFAULT_CREATIVE_CONTEXT_STATE);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     const controller = new AbortController();
     setIsLoading(true);
     readCreativeContextState({ signal: controller.signal })
@@ -145,7 +153,7 @@ export function useCreativeContextState() {
         if (!controller.signal.aborted) setIsLoading(false);
       });
     return () => controller.abort();
-  }, [appStateVersion]);
+  }, [appStateVersion, enabled]);
 
   const save = useCallback(async (next: CreativeContextApplicationState) => {
     const saved = await setCreativeContextState(next);

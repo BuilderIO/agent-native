@@ -9,25 +9,46 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   CreativeContextSettingsLink,
   createCreativeContextAgentTab,
+  useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { DESIGN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.settingsDesign }];
+  return [{ title: enUSMessages.routeTitles.settingsDesign }];
 }
 
 export default function SettingsRoute() {
-  const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
-  });
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: creativeContextEnabled
+      ? [createCreativeContextAgentTab]
+      : [],
+  });
+  const labs = useMemo(
+    () => [
+      ...DESIGN_LABS.map((lab) => ({
+        ...lab,
+        displayName: t("settings.labTweaks"),
+        description: t("settings.labTweaksDescription"),
+      })),
+      {
+        ...CREATIVE_CONTEXT_LIBRARY_LAB,
+        displayName: t("creativeContext.share.title"),
+        description: t("creativeContext.description"),
+      },
+    ],
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -46,10 +67,13 @@ export default function SettingsRoute() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         extraTabs={agentSettingsTabs}
+        labs={labs}
+        labsIntro={t("settings.labsIntro")}
+        labsLabel={t("settings.labs")}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
-            <CreativeContextSettingsLink />
+            {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
 
             <SettingsGroup>
               <SettingsRow

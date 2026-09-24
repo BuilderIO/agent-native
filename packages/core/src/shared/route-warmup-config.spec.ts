@@ -12,9 +12,9 @@ describe("route warmup config normalization", () => {
     expect(isAgentNativeRouteWarmupStrategy("hover")).toBe(false);
   });
 
-  it("normalizes invalid strategy strings to the safe default", () => {
+  it("normalizes invalid strategy strings to the viewport default", () => {
     expect(normalizeAgentNativeRouteWarmupConfig("hover" as any).strategy).toBe(
-      "intent",
+      "viewport",
     );
     expect(
       normalizeAgentNativeRouteWarmupConfig({
@@ -23,9 +23,9 @@ describe("route warmup config normalization", () => {
         maxConcurrent: -1,
       }),
     ).toMatchObject({
-      strategy: "intent",
+      strategy: "viewport",
       selector: 'a[data-an-prefetch="render"][href]',
-      maxConcurrent: 4,
+      maxConcurrent: 8,
     });
   });
 

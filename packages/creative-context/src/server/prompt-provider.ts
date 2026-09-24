@@ -7,6 +7,8 @@ import {
   compilePublishedBrandContext,
   type PublishedBrandContextInput,
 } from "./brand-context.js";
+import { getCreativeContext } from "./context.js";
+import { isCreativeContextLabAvailable } from "./labs.js";
 
 const PROVIDER_ID = "creative-context";
 let unregisterProvider: (() => void) | null = null;
@@ -46,8 +48,17 @@ export function registerCreativeContextPromptProvider(): () => void {
   if (unregisterProvider) return unregisterProvider;
   const unregister = registerPromptContextProvider({
     id: PROVIDER_ID,
-    async load() {
-      const state = await readAppState("creative-context").catch(() => null);
+    failOnError: true,
+    async load(context) {
+      if (
+        !(await isCreativeContextLabAvailable(
+          context.owner,
+          getCreativeContext().labKey,
+        ))
+      ) {
+        return null;
+      }
+      const state = await readAppState("creative-context");
       if (state?.contextMode === "off") return null;
       const { profile, dna } = await getBrandProfile({});
       if (!profile || !dna || dna.status !== "published") return null;

@@ -98,7 +98,13 @@ describe("mobile Clips action client", () => {
     );
 
     const [url, init] = fetchMock.mock.calls[0]!;
-    const parsed = new URL(String(url));
+    const parsed = new URL(
+      typeof url === "string"
+        ? url
+        : url instanceof URL
+          ? url.toString()
+          : url.url,
+    );
     expect(parsed.pathname).toBe("/_agent-native/actions/list-recordings");
     expect(parsed.searchParams.get("view")).toBe("library");
     expect(parsed.searchParams.getAll("tags[]")).toEqual(["product", "demo"]);
@@ -176,7 +182,12 @@ describe("mobile Clips upload recovery", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
         requests.push({ url, init });
         if (url.endsWith("/status")) {
           return new Response(

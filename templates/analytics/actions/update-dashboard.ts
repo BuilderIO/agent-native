@@ -1,9 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
@@ -18,6 +20,7 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
@@ -36,6 +39,14 @@ import {
  */
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function printable(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "";
 }
 
 function resolveDateDefault(raw: string | undefined): string {
@@ -278,6 +289,8 @@ export function validateDashboardConfig(
   if (!config || typeof config !== "object") {
     return "config must be an object";
   }
+  const normalized = normalizeDashboardConfig(config);
+  if (normalized !== config) config.panels = normalized.panels;
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
@@ -361,13 +374,13 @@ export function validateDashboardConfig(
       }
     }
     if (!isSection && !isExtension && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${printable(p.source)}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
     }
     if (p.source === "program") {
       try {
         serializeProgramDescriptorInput(p.sql);
       } catch (e: any) {
-        return `panel[${i}] "${p.title || p.id}" program descriptor is invalid: ${e?.message ?? e}`;
+        return `panel[${i}] "${printable(p.title || p.id)}" program descriptor is invalid: ${e instanceof Error ? e.message : printable(e)}`;
       }
     }
     if (isExtension) {
@@ -441,10 +454,10 @@ export async function validatePanelSql(
         try {
           const desc = JSON.parse(interpolate(raw, vars));
           if (!desc?.event || typeof desc.event !== "string") {
-            return `panel[${i}] "${p.title || p.id}" Amplitude descriptor requires an 'event' field`;
+            return `panel[${i}] "${printable(p.title || p.id)}" Amplitude descriptor requires an 'event' field`;
           }
         } catch (e: any) {
-          return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is not valid JSON: ${e?.message}`;
+          return `panel[${i}] "${printable(p.title || p.id)}" Amplitude descriptor is not valid JSON: ${e instanceof Error ? e.message : printable(e)}`;
         }
       }
       continue;
@@ -471,9 +484,9 @@ export async function validatePanelSql(
             return e.message;
           }
           if (e instanceof FirstPartyAnalyticsUnsupportedSqlError) {
-            return `panel[${i}] "${p.title || p.id}" cannot run on this scope's active data backend (BigQuery) because its SQL uses ${e.construct}. Rewrite it with BigQuery-compatible SQL, or move the scope back to the PostgreSQL backend.`;
+            return `panel[${i}] "${printable(p.title || p.id)}" cannot run on this scope's active data backend (BigQuery) because its SQL uses ${e.construct}. Rewrite it with BigQuery-compatible SQL, or move the scope back to the PostgreSQL backend.`;
           }
-          return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
+          return `panel[${i}] "${printable(p.title || p.id)}" first-party analytics SQL is invalid: ${e instanceof Error ? e.message : printable(e)}`;
         }
       }
       continue;
@@ -484,7 +497,7 @@ export async function validatePanelSql(
         try {
           parseDemoDescriptor(interpolate(raw, vars));
         } catch (e: any) {
-          return `panel[${i}] "${p.title || p.id}" demo descriptor is invalid: ${e?.message ?? e}`;
+          return `panel[${i}] "${printable(p.title || p.id)}" demo descriptor is invalid: ${e instanceof Error ? e.message : printable(e)}`;
         }
       }
       continue;
@@ -559,7 +572,7 @@ export async function validatePanelSql(
     const err = errors[i];
     if (err) {
       const task = bigQueryPanels[i];
-      return `panel[${task.index}] "${task.panel.title || task.panel.id}" SQL is invalid: ${err}`;
+      return `panel[${task.index}] "${printable(task.panel.title || task.panel.id)}" SQL is invalid: ${printable(err)}`;
     }
   }
   return null;
@@ -614,6 +627,25 @@ function dashboardResult(
         ? ""
         : " Full config omitted; call get-sql-dashboard with includeConfig=true only if full SQL/config is needed."),
   };
+}
+
+function trackDashboardSaved(
+  dashboardId: string,
+  config: Record<string, unknown>,
+  actionContext?: ActionRunContext,
+) {
+  track(
+    "dashboard_saved",
+    {
+      app_name: "analytics",
+      template_name: "analytics",
+      output_id: dashboardId,
+      output_type: "dashboard",
+      dashboard_id: dashboardId,
+      panel_count: countPanels(config),
+    },
+    actionContext,
+  );
 }
 
 function opCanChangePanelSql(op: JsonOp): boolean {
@@ -714,6 +746,7 @@ export default defineAction({
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
       const panelCount = countPanels(args.config);
+      trackDashboardSaved(dashboardId, args.config, actionContext);
       return dashboardResult(
         dashboardId,
         args.config,
@@ -746,6 +779,7 @@ export default defineAction({
         root,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
       );
+      trackDashboardSaved(dashboardId, root, actionContext);
       return dashboardResult(
         dashboardId,
         root,
@@ -794,6 +828,7 @@ export default defineAction({
     );
 
     const panelCount = countPanels(root);
+    trackDashboardSaved(dashboardId, root, actionContext);
     return dashboardResult(
       dashboardId,
       root,

@@ -62,7 +62,7 @@ function InlineDatabaseUnavailable() {
       data-plan-interactive
       className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground"
     >
-      Database unavailable
+      Collection unavailable
     </div>
   );
 }

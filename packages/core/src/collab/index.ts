@@ -12,7 +12,9 @@ export {
 
 // YDoc manager
 export {
+  CollabBaseVersionConflictError,
   getDoc,
+  withPreparedYDocMutation,
   applyUpdate,
   applyText,
   getText,
@@ -25,6 +27,7 @@ export {
   applyPatchOps,
   getJson,
   seedFromJson,
+  type PreparedYDocMutationLease,
 } from "./ydoc-manager.js";
 
 // XmlFragment operations

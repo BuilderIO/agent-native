@@ -24,9 +24,13 @@
  * before returning it, and its result carries no updatedAt stamp — the
  * "without updatedAt" cases below cover that shape.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { getPersistedContentHostSyncOptions } from "./design-editor/editor-state";
+import {
+  createPersistedContentHostSyncHandler,
+  getPersistedContentHostSyncOptions,
+  type PersistedContentHostSyncWriter,
+} from "./design-editor/editor-state";
 
 describe("getPersistedContentHostSyncOptions — shader apply host-sync routing", () => {
   it("routes an active-file apply through the in-place full-document replace", () => {
@@ -83,14 +87,22 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
     ).toBe(false);
   });
 
-  it("marks the content as server-persisted: persist false, updatedAt passed through verbatim", () => {
+  it("keeps generic persisted host sync out of the shader-lock exception", () => {
     const withStamp = getPersistedContentHostSyncOptions({
       fileId: "screen-1",
       activeFileId: "screen-1",
       updatedAt: "2026-07-07T12:34:56.789Z",
     });
     expect(withStamp.persist).toBe(false);
+    expect(withStamp.shaderWriteCompletion).toBeUndefined();
     expect(withStamp.updatedAt).toBe("2026-07-07T12:34:56.789Z");
+
+    const shaderCompletion = getPersistedContentHostSyncOptions({
+      fileId: "screen-1",
+      activeFileId: "screen-1",
+      shaderWriteCompletion: true,
+    });
+    expect(shaderCompletion.shaderWriteCompletion).toBe(true);
 
     // apply-shader-fill returns no updatedAt when the deterministic editor
     // reported no change — the options must not invent one (an invented stamp
@@ -100,6 +112,33 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
       activeFileId: "screen-1",
     });
     expect(withoutStamp.persist).toBe(false);
+    expect(withoutStamp.shaderWriteCompletion).toBeUndefined();
     expect(withoutStamp.updatedAt).toBeUndefined();
+  });
+
+  it("uses the original target with the current writer after a Screen switch", () => {
+    const originalWriter = vi.fn();
+    const currentWriter = vi.fn();
+    const activeFileIdRef = { current: "screen-a" as string | null };
+    const applyFileContentUpdateRef = {
+      current: originalWriter as PersistedContentHostSyncWriter,
+    };
+    const onApplied = createPersistedContentHostSyncHandler({
+      activeFileIdRef,
+      applyFileContentUpdateRef,
+      shaderWriteCompletion: true,
+    });
+
+    activeFileIdRef.current = "screen-b";
+    applyFileContentUpdateRef.current = currentWriter;
+    onApplied("screen-a", "settled source", "T2");
+
+    expect(originalWriter).not.toHaveBeenCalled();
+    expect(currentWriter).toHaveBeenCalledWith("screen-a", "settled source", {
+      forcePreviewFullDocument: false,
+      persist: false,
+      shaderWriteCompletion: true,
+      updatedAt: "T2",
+    });
   });
 });

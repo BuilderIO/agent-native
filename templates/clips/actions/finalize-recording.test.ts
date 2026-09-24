@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
     hasAudio: true,
     hasCamera: false,
     title: "Test recording",
+    uploadAttemptId: null as string | null,
     uploadGenerationId: null as string | null,
   },
   uploadState: null as Record<string, unknown> | null,
@@ -26,10 +27,19 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
 );
 const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "already-set" as const,
+    changed: false,
+    thumbnailUrl: null,
+  })),
+);
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec_1" }]),
@@ -71,11 +81,14 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
-  isPostgres: () => false,
 }));
 
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
@@ -110,6 +123,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
+      uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
       videoUrl: "recordings.videoUrl",
       trashedAt: "recordings.trashedAt",
@@ -124,6 +138,11 @@ vi.mock("../server/lib/debug.js", () => ({
   debugLog: vi.fn(),
 }));
 
+vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+}));
+
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: vi.fn(async () => ({
     queued: false,
@@ -134,6 +153,10 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
+}));
+
+vi.mock("../server/lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingReady: vi.fn(async () => undefined),
 }));
 
 vi.mock("../server/lib/faststart.js", () => ({
@@ -209,6 +232,7 @@ describe("finalize-recording chunk completeness", () => {
     mockState.chunkRows = [];
     mockState.selectRows = [];
     mockState.existingRecording.status = "uploading";
+    mockState.existingRecording.uploadAttemptId = null;
     mockState.existingRecording.uploadGenerationId = null;
     mockReadAppState.mockImplementation(async (key: string) => {
       if (key === "recording-upload-rec_1") return mockState.uploadState;
@@ -341,15 +365,43 @@ describe("finalize-recording media serve verification", () => {
     mockDeleteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
     mockMarkSeekableRepairPending.mockResolvedValue(undefined);
+    mockEnsureRecordingThumbnail.mockClear();
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec_1",
+      status: "already-set",
+      changed: false,
+      thumbnailUrl: null,
+    });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
     }));
+    mockState.existingRecording.uploadAttemptId = null;
     mockUploadFile.mockResolvedValue({
       url: "https://cdn.builder.io/api/v1/file/assets%2Forg%2Frec_1",
     });
     mockFetchS3ObjectByUrl.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("returns an explicit abort signal when cancellation wins the ready race", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = { ...mockState.uploadState, aborted: true };
+    mockState.selectRows[1] = [{ status: "failed" }];
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "failed",
+        aborted: true,
+      }),
+    );
   });
 
   it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
@@ -389,6 +441,20 @@ describe("finalize-recording media serve verification", () => {
       allowLegacyObjectKey: true,
     });
     expect(fetch).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({
+        app_name: "clips",
+        output_id: "rec_1",
+        output_type: "clip",
+        recording_attempt_id: "rec_1",
+        duration_s: 1,
+        video_format: "webm",
+        has_audio: true,
+        has_camera: false,
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("falls back to the public URL when signed S3 credentials cannot read", async () => {
@@ -557,6 +623,12 @@ describe("finalize-recording media serve verification", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", videoSizeBytes: 2 }),
     );
+    expect(mockUpdateSet).toHaveBeenCalledWith({ thumbnailStatus: "pending" });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
   });
 
   it("keeps verification pending when storage omits a determinate byte count", async () => {
@@ -686,6 +758,63 @@ describe("finalize-recording media serve verification", () => {
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
     }
+  });
+
+  it("tracks a terminal media verification failure with the stable recording join", async () => {
+    mockState.existingRecording.status = "processing";
+    mockState.existingRecording.uploadAttemptId = "attempt-1";
+    mockState.uploadState = {
+      pendingMediaVerification: true,
+      mediaVerificationAttempt: 9,
+      videoUrl: "https://cdn.example.com/rec_1",
+      videoSizeBytes: 11,
+      sourceSizeBytes: 11,
+      videoFormat: "webm",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+      mimeType: "video/webm",
+    };
+    mockState.selectRows = [[{ ...mockState.existingRecording }]];
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-upload-rec_1") return mockState.uploadState;
+      if (key === "recording-media-verification-rec_1") {
+        return {
+          recordingId: "rec_1",
+          status: "pending",
+          completedAttempts: 9,
+          nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+          leaseUntil: null,
+          updatedAt: new Date(Date.now() - 2_000).toISOString(),
+        };
+      }
+      return null;
+    });
+    mockCompareAndSetAppState.mockResolvedValue(true);
+    mockUpdateReturning.mockResolvedValueOnce([
+      { id: "rec_1", uploadAttemptId: "attempt-1" },
+    ]);
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mediaVerificationRetryAttempt: 10,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "failed" }));
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.objectContaining({
+        stage: "media_verification",
+        failure_code: "media_verification_failed",
+        output_id: "rec_1",
+        recording_attempt_id: "rec_1",
+        upload_attempt_id: "attempt-1",
+      }),
+      { userId: "owner@example.com" },
+    );
   });
 
   it("skips verification for app-relative dev media URLs", async () => {

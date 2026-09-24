@@ -6,6 +6,7 @@
  *   - comments (flat list — UI groups into threads)
  *   - reactions
  *   - chapters (parsed from recording.chaptersJson)
+ *   - tags
  *   - CTAs
  *   - counted-view total
  *
@@ -29,11 +30,12 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -41,11 +43,13 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
   normalizeBuilderCreditsStatus,
 } from "../shared/builder-credits.js";
+import { displayCommentMentions } from "../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -97,9 +101,10 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, tags, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript chunk; pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. Browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    transcriptOffset: z.coerce.number().int().min(0).optional(),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -121,7 +126,12 @@ export default defineAction({
     const db = getDb();
     const rec: any = access.resource;
 
-    if (isRecordingExpired(rec.expiresAt)) {
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: rec.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 
@@ -204,6 +214,7 @@ export default defineAction({
         asc(schema.recordingComments.videoTimestampMs),
         asc(schema.recordingComments.createdAt),
       );
+    const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
       .select()
@@ -216,6 +227,17 @@ export default defineAction({
       .from(schema.recordingCtas)
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
+
+    // DISTINCT because `recording_tags` carries no unique (recording_id, tag)
+    // constraint: `tag-recording` checks-then-inserts, so two editors adding
+    // the same tag at once can leave duplicate rows. The player should not
+    // render the same tag twice on account of that.
+    const tagRows = await db
+      .selectDistinct({ tag: schema.recordingTags.tag })
+      .from(schema.recordingTags)
+      .where(eq(schema.recordingTags.recordingId, args.recordingId))
+      .orderBy(asc(schema.recordingTags.tag));
+    const tags = tagRows.map((row) => row.tag);
 
     const [browserDiagnosticsRow] = await db
       .select()
@@ -289,6 +311,7 @@ export default defineAction({
         ? boundTranscriptForAgent({
             fullText: transcript?.fullText,
             segments: transcriptSegments,
+            fullTextOffset: args.transcriptOffset,
           })
         : null;
 
@@ -328,8 +351,16 @@ export default defineAction({
         title: rec.title,
         description: rec.description,
         thumbnailUrl: resolvePlayerThumbnailUrl(rec),
-        animatedThumbnailUrl: rec.animatedThumbnailUrl,
-        filmstripUrl: rec.filmstripUrl ?? null,
+        animatedThumbnailUrl: rec.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(rec, { animated: true })
+          : null,
+        // The filmstrip is a sheet of unredacted frames, and unlike the
+        // video it is fetched straight from storage rather than through a
+        // route that can refuse. Held from anyone who cannot finish the burn,
+        // the same test every other media path uses.
+        filmstripUrl: isHeldForRedaction(rec.editsJson, access.role)
+          ? null
+          : (rec.filmstripUrl ?? null),
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
         filmstripColumns: rec.filmstripColumns ?? 0,
         filmstripRows: rec.filmstripRows ?? 0,
@@ -342,6 +373,10 @@ export default defineAction({
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
+        // The version of the stored bytes. A redaction burn re-uploads under
+        // the same URL, so without this the browser can keep playing the copy
+        // it already has — the one with the boxes still only drawn on.
+        mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),
@@ -365,9 +400,11 @@ export default defineAction({
         animatedThumbnailEnabled: Boolean(rec.animatedThumbnailEnabled),
         visibility: rec.visibility,
         ownerEmail: rec.ownerEmail,
+        folderId: rec.folderId,
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,
+        trashedAt: rec.trashedAt,
       },
       transcript: transcript
         ? {
@@ -379,6 +416,8 @@ export default defineAction({
             ...(agentTranscript
               ? {
                   fullTextLength: agentTranscript.fullTextLength,
+                  fullTextOffset: agentTranscript.fullTextOffset,
+                  nextFullTextOffset: agentTranscript.nextFullTextOffset,
                   segmentCount: agentTranscript.segmentCount,
                   previewTruncated: agentTranscript.previewTruncated,
                   note: agentTranscript.note,
@@ -411,7 +450,7 @@ export default defineAction({
           }
         : null,
       builderCredits,
-      comments: comments.map((c) => ({
+      comments: hydratedComments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,
         threadId: c.threadId,
@@ -419,6 +458,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),
@@ -434,6 +474,7 @@ export default defineAction({
         createdAt: r.createdAt,
       })),
       chapters,
+      tags,
       ctas: ctas.map((c) => ({
         id: c.id,
         label: c.label,

@@ -16,7 +16,7 @@ function writePackage(packageDir: string, manifest: Record<string, unknown>) {
   fs.writeFileSync(path.join(packageDir, "index.js"), "module.exports = {};\n");
 }
 
-describe("Agent Native package version resolution", () => {
+describe("Agent-Native package version resolution", () => {
   it("resolves transitive packages from the package that declares them", () => {
     const appDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-package-versions-"),

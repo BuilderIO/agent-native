@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import { z } from "zod";
 

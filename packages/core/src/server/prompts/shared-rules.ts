@@ -40,6 +40,9 @@ export interface SharedRuleOptions {
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
 }
 
+export const RESPONSE_TYPOGRAPHY_GUIDANCE =
+  "Keep body typography quiet: do not use bold or italics as routine emphasis, scan anchors, or decoration. Use them only when the user explicitly requests styled Markdown or when faithfully preserving formatting supplied by the user or a source.";
+
 const DEFAULT_PROVIDER_ACTIONS = [
   "provider-search",
   "provider-records",

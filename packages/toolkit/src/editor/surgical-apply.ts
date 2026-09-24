@@ -18,6 +18,7 @@
 
 import { createNodeFromContent } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Transform, type Step } from "@tiptap/pm/transform";
 import type { Editor } from "@tiptap/react";
 
 /**
@@ -39,6 +40,295 @@ export interface TopLevelDiff {
   fromPos: number;
   /** Document position where the differing run ends in the OLD doc. */
   toPos: number;
+}
+
+export interface TopLevelHunk {
+  baseFromIndex: number;
+  baseToIndex: number;
+  changedFromIndex: number;
+  changedToIndex: number;
+}
+
+export type BaseAwareReconcileResult =
+  | { status: "noop" }
+  | { status: "applied"; mergedDoc: ProseMirrorNode }
+  | { status: "conflict"; localDraft: ProseMirrorNode }
+  | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
+
+export type BaseAwareReconcilePlan =
+  | Exclude<BaseAwareReconcileResult, { status: "applied" }>
+  | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
+
+export interface BaseAwareReconcileOptions {
+  /** Keep live hunks when both live and server changed the same base range. */
+  overlapPolicy?: "conflict" | "prefer-live";
+}
+
+function nodesEqual(left: ProseMirrorNode, right: ProseMirrorNode): boolean {
+  return left.eq(right);
+}
+
+/**
+ * Return every changed top-level run in base coordinates. The bounded LCS is
+ * intentionally conservative: large or duplicate-heavy ambiguous documents
+ * fail closed instead of guessing which identical block an edit targeted.
+ */
+export function diffTopLevelHunks(
+  baseDoc: ProseMirrorNode,
+  changedDoc: ProseMirrorNode,
+): TopLevelHunk[] | null {
+  const base = Array.from({ length: baseDoc.childCount }, (_, i) =>
+    baseDoc.child(i),
+  );
+  const changed = Array.from({ length: changedDoc.childCount }, (_, i) =>
+    changedDoc.child(i),
+  );
+  if (base.length * changed.length > 250_000) return null;
+
+  const width = changed.length + 1;
+  const lcs = new Uint32Array((base.length + 1) * width);
+  for (let i = base.length - 1; i >= 0; i--) {
+    for (let j = changed.length - 1; j >= 0; j--) {
+      lcs[i * width + j] = nodesEqual(base[i], changed[j])
+        ? 1 + lcs[(i + 1) * width + j + 1]
+        : Math.max(lcs[(i + 1) * width + j], lcs[i * width + j + 1]);
+    }
+  }
+
+  const matches: Array<[number, number]> = [];
+  let i = 0;
+  let j = 0;
+  while (i < base.length && j < changed.length) {
+    if (nodesEqual(base[i], changed[j])) {
+      matches.push([i++, j++]);
+      continue;
+    }
+    const skipBase = lcs[(i + 1) * width + j];
+    const skipChanged = lcs[i * width + j + 1];
+    if (skipBase === skipChanged) {
+      const insertion =
+        j + 1 < changed.length && nodesEqual(base[i], changed[j + 1]);
+      const deletion =
+        i + 1 < base.length && nodesEqual(base[i + 1], changed[j]);
+      if (insertion !== deletion) {
+        if (insertion) j++;
+        else i++;
+        continue;
+      }
+      // A plain substitution leaves the same suffix LCS after advancing both
+      // sides. Treat that as one changed run; only competing cross-matches are
+      // ambiguous enough to fail closed.
+      const skipBoth = lcs[(i + 1) * width + j + 1];
+      if (skipBoth === skipBase) {
+        i++;
+        j++;
+        continue;
+      }
+      return null;
+    }
+    if (skipBase > skipChanged) i++;
+    else j++;
+  }
+
+  const hunks: TopLevelHunk[] = [];
+  let baseCursor = 0;
+  let changedCursor = 0;
+  for (const [baseMatch, changedMatch] of [
+    ...matches,
+    [base.length, changed.length] as [number, number],
+  ]) {
+    if (baseCursor !== baseMatch || changedCursor !== changedMatch) {
+      hunks.push({
+        baseFromIndex: baseCursor,
+        baseToIndex: baseMatch,
+        changedFromIndex: changedCursor,
+        changedToIndex: changedMatch,
+      });
+    }
+    baseCursor = baseMatch + 1;
+    changedCursor = changedMatch + 1;
+  }
+  return hunks;
+}
+
+function hunksOverlap(left: TopLevelHunk, right: TopLevelHunk): boolean {
+  const leftInsert = left.baseFromIndex === left.baseToIndex;
+  const rightInsert = right.baseFromIndex === right.baseToIndex;
+  if (leftInsert && rightInsert) {
+    return left.baseFromIndex === right.baseFromIndex;
+  }
+  if (leftInsert) {
+    return (
+      left.baseFromIndex >= right.baseFromIndex &&
+      left.baseFromIndex <= right.baseToIndex
+    );
+  }
+  if (rightInsert) {
+    return (
+      right.baseFromIndex >= left.baseFromIndex &&
+      right.baseFromIndex <= left.baseToIndex
+    );
+  }
+  return (
+    left.baseFromIndex < right.baseToIndex &&
+    right.baseFromIndex < left.baseToIndex
+  );
+}
+
+function mappedLocalIndex(
+  baseIndex: number,
+  localHunks: readonly TopLevelHunk[],
+): number {
+  let mapped = baseIndex;
+  for (const hunk of localHunks) {
+    if (hunk.baseToIndex > baseIndex) break;
+    mapped +=
+      hunk.changedToIndex -
+      hunk.changedFromIndex -
+      (hunk.baseToIndex - hunk.baseFromIndex);
+  }
+  return mapped;
+}
+
+function hasUnambiguousReplacementPositions(
+  baseDoc: ProseMirrorNode,
+  changedDoc: ProseMirrorNode,
+): boolean {
+  if (baseDoc.childCount !== changedDoc.childCount) return false;
+  for (let i = 0; i < baseDoc.childCount; i++) {
+    for (let j = 0; j < baseDoc.childCount; j++) {
+      if (i === j) continue;
+      if (
+        baseDoc.child(i).eq(baseDoc.child(j)) ||
+        changedDoc.child(i).eq(changedDoc.child(j)) ||
+        baseDoc.child(i).eq(changedDoc.child(j))
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function splitReplacementHunks(hunks: TopLevelHunk[]): TopLevelHunk[] {
+  return hunks.flatMap((hunk) => {
+    const count = hunk.baseToIndex - hunk.baseFromIndex;
+    if (count === 0 || count !== hunk.changedToIndex - hunk.changedFromIndex) {
+      return [hunk];
+    }
+    return Array.from({ length: count }, (_, offset) => ({
+      baseFromIndex: hunk.baseFromIndex + offset,
+      baseToIndex: hunk.baseFromIndex + offset + 1,
+      changedFromIndex: hunk.changedFromIndex + offset,
+      changedToIndex: hunk.changedFromIndex + offset + 1,
+    }));
+  });
+}
+
+/** Plan authoritative server changes without mutating a live editor or Y.Doc. */
+export function planDocReconcile(
+  liveDoc: ProseMirrorNode,
+  baseDoc: ProseMirrorNode,
+  serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
+): BaseAwareReconcilePlan {
+  if (
+    baseDoc.type.schema !== liveDoc.type.schema ||
+    serverDoc.type.schema !== liveDoc.type.schema ||
+    baseDoc.type !== liveDoc.type ||
+    serverDoc.type !== liveDoc.type
+  ) {
+    return { status: "failed", reason: "schema" };
+  }
+  const localDiff = diffTopLevelHunks(baseDoc, liveDoc);
+  const serverDiff = diffTopLevelHunks(baseDoc, serverDoc);
+  if (!localDiff || !serverDiff) {
+    return { status: "failed", reason: "ambiguous" };
+  }
+  let localHunks = localDiff;
+  let serverHunks = serverDiff;
+  if (serverHunks.length === 0) return { status: "noop" };
+  // A peer can deliver an accepted replacement before its SQL revision arrives.
+  // Split adjacent substitutions only when exact identities rule out moves and
+  // repeated-block alignment; equal block counts alone do not prove positions.
+  if (
+    hasUnambiguousReplacementPositions(baseDoc, liveDoc) &&
+    hasUnambiguousReplacementPositions(baseDoc, serverDoc)
+  ) {
+    localHunks = splitReplacementHunks(localHunks);
+    serverHunks = splitReplacementHunks(serverHunks).filter(
+      (server) =>
+        !localHunks.some(
+          (local) =>
+            local.baseFromIndex === server.baseFromIndex &&
+            local.baseToIndex === server.baseToIndex &&
+            liveDoc.content
+              .cut(
+                positionOfChild(liveDoc, local.changedFromIndex),
+                positionOfChild(liveDoc, local.changedToIndex),
+              )
+              .eq(
+                serverDoc.content.cut(
+                  positionOfChild(serverDoc, server.changedFromIndex),
+                  positionOfChild(serverDoc, server.changedToIndex),
+                ),
+              ),
+        ),
+    );
+  }
+  if (serverHunks.length === 0) return { status: "noop" };
+  const overlapsLocal = (server: TopLevelHunk) =>
+    localHunks.some((local) => hunksOverlap(local, server));
+  if (
+    options.overlapPolicy !== "prefer-live" &&
+    serverHunks.some(overlapsLocal)
+  ) {
+    return { status: "conflict", localDraft: liveDoc };
+  }
+  if (options.overlapPolicy === "prefer-live") {
+    serverHunks = serverHunks.filter((server) => !overlapsLocal(server));
+    if (serverHunks.length === 0) return { status: "noop" };
+  }
+
+  try {
+    const tr = new Transform(liveDoc);
+    for (const hunk of [...serverHunks].reverse()) {
+      const fromIndex = mappedLocalIndex(hunk.baseFromIndex, localHunks);
+      const toIndex = mappedLocalIndex(hunk.baseToIndex, localHunks);
+      tr.replaceWith(
+        positionOfChild(tr.doc, fromIndex),
+        positionOfChild(tr.doc, toIndex),
+        serverDoc.content.cut(
+          positionOfChild(serverDoc, hunk.changedFromIndex),
+          positionOfChild(serverDoc, hunk.changedToIndex),
+        ),
+      );
+    }
+    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps };
+  } catch {
+    return { status: "failed", reason: "transaction" };
+  }
+}
+
+/** Apply authoritative server changes onto a locally edited document. */
+export function reconcileDocAgainstBase(
+  editor: Editor,
+  baseDoc: ProseMirrorNode,
+  serverDoc: ProseMirrorNode,
+  options: BaseAwareReconcileOptions = {},
+): BaseAwareReconcileResult {
+  const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, options);
+  if (plan.status !== "applied") return plan;
+  try {
+    const tr = editor.state.tr;
+    for (const step of plan.steps) tr.step(step);
+    tr.setMeta("addToHistory", false);
+    tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    editor.view.dispatch(tr);
+    return { status: "applied", mergedDoc: editor.state.doc };
+  } catch {
+    return { status: "failed", reason: "transaction" };
+  }
 }
 
 /**

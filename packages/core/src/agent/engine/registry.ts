@@ -11,30 +11,49 @@
 import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
+import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
+import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
 } from "../../server/builder-oauth.js";
+import { hasChatGPTSubscriptionCredential } from "../../server/chatgpt-subscription-oauth.js";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
+  isTrustedSelfHostedRuntime,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveBuilderGatewayCredentialsDetailed,
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestContext,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
+  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  CHATGPT_SUBSCRIPTION_LAB_KEY,
+} from "../chatgpt-subscription-contract.js";
+import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
+import {
+  OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
+  isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
-import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
+import {
+  isLocalNetworkOllamaEndpoint,
+  validateProviderBaseUrl,
+} from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -65,6 +84,8 @@ export interface AgentEngineEntry {
   defaultModel: string;
   /** All supported models (shown in model picker) */
   supportedModels: readonly string[];
+  /** Whether explicit user-selected model IDs may be outside the curated catalog. */
+  acceptsCustomModels?: boolean;
   /** Environment variables required for this engine to work */
   requiredEnvVars: string[];
   /** Alternative credential shapes; detection treats these and `requiredEnvVars` as OR. */
@@ -75,6 +96,8 @@ export interface AgentEngineEntry {
 
 const _registry = new Map<string, AgentEngineEntry>();
 const _packageAvailabilityCache = new Map<string, boolean>();
+const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
+  "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
 
 /**
  * Register a custom agent engine. Called at server startup (e.g., from a
@@ -82,8 +105,14 @@ const _packageAvailabilityCache = new Map<string, boolean>();
  */
 export function registerAgentEngine(entry: AgentEngineEntry): void {
   if (_registry.has(entry.name)) {
-    // Allow re-registration in tests / hot-reload — just overwrite
+    // Allow re-registration in tests / hot-reload — just overwrite.
+    // Delete first: `Map.set` on an existing key keeps its original insertion
+    // slot, so a re-registered engine would silently retain the priority it
+    // had in a previous test's registry. Detection walks this map in order, so
+    // that leaves a stale entry ahead of Builder and probes a provider key on
+    // the path that is supposed to resolve without reading one.
     if (process.env.NODE_ENV === "test") {
+      _registry.delete(entry.name);
       _registry.set(entry.name, entry);
       return;
     }
@@ -93,6 +122,19 @@ export function registerAgentEngine(entry: AgentEngineEntry): void {
     return;
   }
   _registry.set(entry.name, entry);
+}
+
+/**
+ * Remove a registered engine.
+ *
+ * Exists for `registerBuiltinEngines()`, which has to reconcile rather than
+ * only add: `agent.builtInEngines` can be set by a config plugin that loads
+ * after something already touched the registry, and leaving the unselected
+ * built-ins behind would mean the deployment silently keeps engines it opted
+ * out of.
+ */
+export function unregisterAgentEngine(name: string): void {
+  _registry.delete(name);
 }
 
 /** Get a registered engine entry by name, or undefined if not found */
@@ -127,9 +169,11 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
  * bundle and are therefore NOT resolvable via `require.resolve` — even though
  * the dynamic `import()` the engine uses to load them still works.
  *
- * Deliberately narrow. The Nitro Vercel/Netlify presets (which agent-native's
- * own `deploy` command emits) inline optional peers and always set these env
- * markers, so they are a reliable signal. Other serverless runtimes — a
+ * Deliberately narrow. Deploy builds provide package-specific evidence because
+ * these runtime markers may be absent once a Function executes. When that
+ * marker is absent, the Nitro Vercel/Netlify presets (which agent-native's own
+ * `deploy` command emits) inline optional peers and these env markers remain a
+ * fallback signal. Other serverless runtimes — a
  * container on Cloud Run / Google Cloud Functions (`K_SERVICE` /
  * `FUNCTION_TARGET`), or a plain AWS Lambda — commonly ship a real
  * `node_modules` where `require.resolve` is authoritative; there a resolve miss
@@ -139,9 +183,13 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
  */
 function isBundledServerlessRuntime(): boolean {
   const env = process.env;
+  if (isLocalNetlifyRuntime()) return false;
   // Nitro's Vercel/Netlify presets inline optional peers into the function
   // bundle; these platforms always set these markers.
-  if (env.VERCEL || env.NETLIFY) return true;
+  if (env.VERCEL || env.NETLIFY || env.NETLIFY_FUNCTION_NAME) return true;
+  // Netlify documents SITE_ID as a runtime marker, while NETLIFY is primarily
+  // a build-time variable and may be absent once the Function executes.
+  if (env.SITE_ID) return true; // guard:allow-env-credential - Netlify runtime host marker, not a credential.
   // Otherwise require direct evidence that this module is running from inside a
   // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
   // inlined `_libs`). This is the real signal that `require.resolve` cannot be
@@ -157,6 +205,37 @@ function isBundledServerlessRuntime(): boolean {
   }
 }
 
+function isLocalNetlifyRuntime(): boolean {
+  const env = process.env;
+  return (
+    /^(1|true)$/i.test(env.NETLIFY_LOCAL ?? "") ||
+    /^(1|true)$/i.test(env.NETLIFY_DEV ?? "")
+  );
+}
+
+function resolveBuildBundledEnginePackages(): Set<string> | undefined {
+  const marker = getAppConfig().agent.buildEnginePackages;
+  if (marker === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(marker);
+  } catch {
+    throw new Error(
+      `[agent-engine] ${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR} is not valid JSON.`,
+    );
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((packageName) => typeof packageName !== "string")
+  ) {
+    throw new Error(
+      `[agent-engine] ${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR} must be a JSON array of package names.`,
+    );
+  }
+  return new Set(parsed);
+}
+
 function canResolvePackage(packageName: string): boolean {
   const cached = _packageAvailabilityCache.get(packageName);
   if (cached !== undefined) return cached;
@@ -168,12 +247,21 @@ function canResolvePackage(packageName: string): boolean {
     // Bundled serverless runtimes (e.g. Nitro on Vercel/Netlify) inline optional
     // provider packages into the function bundle, so require.resolve cannot find
     // them even though the dynamic `import()` the engine actually uses to load
-    // them works. Treat them as available there and let the engine's own import
-    // be the real gate — it already fails with a clear "pnpm add …" message when
-    // the package is genuinely missing. Without this, every engine-usability
-    // gate rejects the AI-SDK engines at runtime and the agent silently falls
-    // back to the native Anthropic engine.
-    available = isBundledServerlessRuntime();
+    // them works. New deploys use the build marker below as package-specific
+    // evidence; older deploys retain the narrow platform/path fallback. Without
+    // either signal, every engine-usability gate rejects the AI-SDK engines at
+    // runtime and the agent silently falls back to the native Anthropic engine.
+    const bundledPackages = isLocalNetlifyRuntime()
+      ? undefined
+      : resolveBuildBundledEnginePackages();
+    if (bundledPackages) {
+      // New deploys provide package-specific build evidence. Older deploys do
+      // not have the marker, so retain their platform/path fallback until they
+      // are naturally replaced by a build carrying it.
+      available = bundledPackages.has(packageName);
+    } else if (isBundledServerlessRuntime()) {
+      available = true;
+    }
   }
   _packageAvailabilityCache.set(packageName, available);
   return available;
@@ -250,25 +338,28 @@ function findLatestSupportedVersionMatch(
 
 export interface NormalizeModelOptions {
   /**
-   * Force unrecognized (custom) model IDs to be kept verbatim, as if
-   * `engine.preserveCustomModels` were set on a live engine instance.
+   * Force unrecognized (custom) model IDs to be kept verbatim, as if the
+   * corresponding capability were set on a live engine instance.
    *
    * The settings actions call `normalizeModelForEngine` with a static registry
-   * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
-   * is only set on the engine INSTANCE created with an OpenAI-compatible
-   * `baseUrl`. They resolve the capability with
-   * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
-   * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
-   * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
-   * or invalid model still normalizes to a supported one.
+   * ENTRY, which cannot carry runtime endpoint state. Gateway callers pass
+   * `preserveCustomModels`; BYOK provider entries pass `acceptsCustomModels`,
+   * so a newly released model is not rewritten to the provider default on
+   * save/read.
    */
   preserveCustomModels?: boolean;
+  /** Preserve an explicitly selected model ID even when it is not catalogued. */
+  acceptsCustomModels?: boolean;
 }
 
 export function normalizeModelForEngine(
   engine: Pick<
     AgentEngine,
-    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+    | "name"
+    | "defaultModel"
+    | "supportedModels"
+    | "acceptsCustomModels"
+    | "preserveCustomModels"
   >,
   model: string | null | undefined,
   options: NormalizeModelOptions = {},
@@ -280,7 +371,12 @@ export function normalizeModelForEngine(
   // version-shaped gateway model that happens to share a family with a
   // built-in model (e.g. `gpt-5.4` on an OpenAI-compatible endpoint) is not
   // rewritten to a catalog entry.
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
+  if (
+    engine.preserveCustomModels ||
+    engine.acceptsCustomModels ||
+    options.preserveCustomModels ||
+    options.acceptsCustomModels
+  ) {
     return candidate;
   }
 
@@ -298,7 +394,11 @@ export function normalizeModelForEngine(
 
 type ModelResolvableEngine = Pick<
   AgentEngine,
-  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  | "name"
+  | "defaultModel"
+  | "supportedModels"
+  | "acceptsCustomModels"
+  | "preserveCustomModels"
 >;
 
 /**
@@ -315,8 +415,10 @@ function resolveModelHintForEngine(
   const candidate = typeof hint === "string" ? hint.trim() : "";
   if (!candidate || candidate === "auto") return undefined;
   // An engine with no catalog, or one that passes custom ids through verbatim
-  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
-  // hint at all rather than forwarding an unverifiable id to a provider.
+  // (an OpenAI-compatible gateway), cannot prove membership - so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider. A
+  // BYOK engine may preserve its own explicit selection, but caller hints are
+  // still accepted only when the ID is in the curated catalog below.
   if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
     return undefined;
   }
@@ -360,32 +462,28 @@ export function resolveDelegatedRunModel(
   return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
 }
 
-/**
- * Whether models saved or read for this engine ENTRY should be preserved
- * verbatim instead of normalized against the built-in catalog.
- *
- * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
- * that flag is only set on an AI SDK engine INSTANCE when the provider is
- * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
- * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
- * built-in catalogs.
- * The static registry entry the settings actions pass to
- * `normalizeModelForEngine` cannot carry that runtime flag, so this async
- * helper reproduces the same decision from the request's stored/deploy config.
- * Ollama always returns true because its local model inventory is user-defined;
- * first-party OpenAI (no gateway) returns false so an unknown/invalid model
- * still normalizes to a supported one.
- */
+/** Whether this engine's configured endpoint accepts arbitrary model IDs. */
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
-  if (entry.name === "ai-sdk:ollama") return true;
+  if (entry.name === "ai-sdk:ollama" || entry.name === "ai-sdk:openrouter") {
+    return true;
+  }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
+    return isCustomOpenAiBaseUrl(
+      (await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR))?.baseUrl,
+    );
   } catch {
     return false;
   }
+}
+
+/** Whether explicit settings may select a model outside the curated catalog. */
+export async function resolveEngineAcceptsCustomModels(
+  entry: Pick<AgentEngineEntry, "acceptsCustomModels">,
+): Promise<boolean> {
+  return entry.acceptsCustomModels === true;
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
@@ -635,12 +733,48 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const firstEntry = _registry.values().next().value;
+  if (
+    !getAppConfig().agent.preferBringYourOwnKey &&
+    firstEntry?.name === "builder" &&
+    isAgentEnginePackageInstalled(firstEntry) &&
+    firstEntry.requiredEnvVars.length > 0 &&
+    (await hasUsableBuilderConnection(identity))
+  ) {
+    return firstEntry;
+  }
+
+  // Deliberately lazy: a connected Builder account resolves from the first
+  // registry entry without reading a provider key at all, so warming eagerly
+  // would put four scope reads in front of the fast path on a continuously
+  // polled endpoint. Once any non-Builder engine is probed, though, every
+  // remaining candidate is about to be read, and `resolveSecret` walks
+  // user/org/workspace/solo per key. One batched read per scope covers the
+  // whole set, and `readAppSecrets` memoizes absent keys too, so the
+  // no-provider-configured case collapses rather than staying at full cost.
+  let secretsPrefetched = false;
+  const prefetchCandidateSecrets = async (): Promise<void> => {
+    if (secretsPrefetched) return;
+    secretsPrefetched = true;
+    await prefetchSecrets([
+      ...new Set(
+        [..._registry.values()]
+          .filter(
+            (entry) =>
+              entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+          )
+          .flatMap((entry) => entry.requiredEnvVars),
+      ),
+    ]);
+  };
+
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
       return hasUsableBuilderConnection(identity);
     }
+    await prefetchCandidateSecrets();
     for (const key of entry.requiredEnvVars) {
       // A throw here means the credential store could not be read. Let it
       // propagate: swallowing it reports "no provider connected" to a user
@@ -651,7 +785,6 @@ export async function detectEngineFromUserSecrets(
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
-
   if (preferByo) {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
@@ -728,26 +861,51 @@ function engineCreateConfig(
   };
 }
 
+interface ResolvedProviderBaseUrl {
+  baseUrl: string;
+  allowedPrivateOrigin?: string;
+}
+
 async function resolveProviderBaseUrl(
   envVar: string,
-): Promise<string | undefined> {
+): Promise<ResolvedProviderBaseUrl | undefined> {
+  const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
   const raw = await resolveSecret(envVar);
+  const deployValue = canUseDeployCredentialFallbackForRequest(envVar)
+    ? readDeployCredentialEnv(envVar)
+    : undefined;
 
-  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
-    const deployValue = readDeployCredentialEnv(envVar);
+  if (!raw) {
     if (!deployValue) return undefined;
-    return validateProviderBaseUrl(deployValue, {
+    const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
+      isOllama,
     });
+    return {
+      baseUrl,
+      allowedPrivateOrigin: (await isBlockedExtensionUrlWithDns(baseUrl))
+        ? new URL(baseUrl).origin
+        : undefined,
+    };
   }
 
-  return raw
-    ? validateProviderBaseUrl(raw, {
-        allowLocalOllama:
-          envVar === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV === "development",
-      })
-    : undefined;
+  // Deployment configuration is operator-owned. `resolveSecret` may return
+  // that fallback directly, so preserve the same private-network allowance
+  // without extending it to user-, org-, or workspace-scoped endpoint values.
+  const isDeployValue = deployValue !== undefined && raw === deployValue;
+  const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+  const baseUrl = await validateProviderBaseUrl(raw, {
+    allowPrivate: isDeployValue,
+    allowLocalOllama,
+    isOllama,
+  });
+  const allowedPrivateOrigin =
+    (isDeployValue ||
+      (allowLocalOllama && isLocalNetworkOllamaEndpoint(baseUrl))) &&
+    (await isBlockedExtensionUrlWithDns(baseUrl))
+      ? new URL(baseUrl).origin
+      : undefined;
+  return { baseUrl, allowedPrivateOrigin };
 }
 
 /**
@@ -760,12 +918,17 @@ async function builderOAuthLaneUsable(
 ): Promise<boolean | null> {
   const ownerEmail =
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
-  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail))) return null;
+  const orgId =
+    identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
+  const requestOrgId = orgId ?? null;
+  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail, requestOrgId)))
+    return null;
   try {
     return Boolean(
       await resolveBuilderOAuthRequestAccess({
         ownerEmail,
         requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: requestOrgId,
       }),
     );
   } catch {
@@ -811,6 +974,24 @@ async function resolveUsableProviderSecret(
   if (!value) return null;
   const authFailure = await getProviderCredentialAuthFailure({ key, value });
   return authFailure ? null : value;
+}
+
+function identityUserEmail(
+  identity?: BuilderCredentialLookupIdentity,
+): string | undefined {
+  const explicit = identity?.userEmail?.trim();
+  if (explicit) return explicit;
+  return getRequestUserEmail()?.trim() || undefined;
+}
+
+async function chatGPTSubscriptionUsableForRequest(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  const email = identityUserEmail(identity);
+  if (!email) return false;
+  const labs = await getUserLabs(email);
+  if (labs[CHATGPT_SUBSCRIPTION_LAB_KEY] !== true) return false;
+  return hasChatGPTSubscriptionCredential(email);
 }
 
 /**
@@ -859,6 +1040,18 @@ async function engineCreateConfigForEntry(
   credentialIdentity?: BuilderCredentialLookupIdentity,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    const email = identityUserEmail(credentialIdentity);
+    if (
+      !email ||
+      !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
+    ) {
+      throw new Error(
+        "Enable the ChatGPT subscription lab and connect a ChatGPT subscription before using this engine.",
+      );
+    }
+    safeExtra.userEmail = email;
+  }
   let matchingApiKey = apiKey;
   if (
     matchingApiKey === undefined &&
@@ -921,21 +1114,58 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
-    if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
-        allowLocalOllama:
-          entry.name === "ai-sdk:ollama" &&
-          process.env.NODE_ENV === "development",
-      });
-    }
-    if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveProviderBaseUrl(
-        entry.name === "ai-sdk:ollama"
+  const aiSdkProvider = entry.name.startsWith("ai-sdk:")
+    ? entry.name.slice("ai-sdk:".length)
+    : undefined;
+  if (aiSdkProvider) {
+    const isOllama = aiSdkProvider === "ollama";
+    const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+    let resolvedEndpoint: ResolvedProviderBaseUrl | undefined;
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL !== "string") {
+      const envVar =
+        aiSdkProvider === "ollama"
           ? OLLAMA_BASE_URL_ENV_VAR
-          : OPENAI_BASE_URL_ENV_VAR,
+          : aiSdkProvider === "openai"
+            ? OPENAI_BASE_URL_ENV_VAR
+            : undefined;
+      if (envVar) resolvedEndpoint = await resolveProviderBaseUrl(envVar);
+      if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
+    }
+
+    if (safeExtra.baseUrl == null && typeof safeExtra.baseURL === "string") {
+      safeExtra.baseUrl = safeExtra.baseURL;
+    }
+
+    if (typeof safeExtra.baseUrl === "string") {
+      const baseUrl = safeExtra.baseUrl;
+      const validatedBaseUrl =
+        resolvedEndpoint?.baseUrl ??
+        (await validateProviderBaseUrl(baseUrl, {
+          allowLocalOllama,
+          isOllama,
+        }));
+      safeExtra.baseUrl = validatedBaseUrl;
+      const allowedPrivateOrigin =
+        resolvedEndpoint?.allowedPrivateOrigin ??
+        (allowLocalOllama &&
+        isLocalNetworkOllamaEndpoint(validatedBaseUrl) &&
+        (await isBlockedExtensionUrlWithDns(validatedBaseUrl))
+          ? new URL(validatedBaseUrl).origin
+          : undefined);
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        validatedBaseUrl,
+        allowedPrivateOrigin ? [allowedPrivateOrigin] : [],
       );
-      if (baseUrl) safeExtra.baseUrl = baseUrl;
+    } else if (isOllama) {
+      const allowedPrivateOrigins =
+        isTrustedSelfHostedRuntime() &&
+        isLocalNetworkOllamaEndpoint(OLLAMA_DEFAULT_BASE_URL)
+          ? [new URL(OLLAMA_DEFAULT_BASE_URL).origin]
+          : [];
+      safeExtra.requestFetch = createProviderEndpointFetch(
+        OLLAMA_DEFAULT_BASE_URL,
+        allowedPrivateOrigins,
+      );
     }
   }
   if (
@@ -1011,6 +1241,9 @@ export async function isStoredEngineUsableForRequest(
   entry: AgentEngineEntry,
   options: { credentialIdentity?: BuilderCredentialLookupIdentity } = {},
 ): Promise<boolean> {
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
@@ -1040,6 +1273,9 @@ export async function isResolvedEngineUsableForRequest(
   // Custom engines may have their own credential contract outside the core
   // registry metadata, so do not block them speculatively.
   if (!entry) return true;
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    return chatGPTSubscriptionUsableForRequest(options.credentialIdentity);
+  }
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 
@@ -1235,16 +1471,25 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(
-        await engineCreateConfigForEntry(
-          entry,
-          apiKey,
-          undefined,
-          "automatic",
-          apiKeyEnvVar,
+      // Synthetic checks cannot use deploy-wide credentials, but may validate
+      // the dedicated user-scoped credential they install for the request.
+      const canUseConfiguredEngine =
+        getRequestContext()?.isSyntheticTraffic !== true ||
+        (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
           credentialIdentity,
-        ),
-      );
+        }));
+      if (canUseConfiguredEngine) {
+        return entry.create(
+          await engineCreateConfigForEntry(
+            entry,
+            apiKey,
+            undefined,
+            "automatic",
+            apiKeyEnvVar,
+            credentialIdentity,
+          ),
+        );
+      }
     }
   }
 

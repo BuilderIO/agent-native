@@ -1,0 +1,77 @@
+name: Setup pnpm
+description: >-
+  Install pnpm and Node with the shared pnpm store cache, then run the standard
+  frozen-lockfile install. Wraps the pnpm/action-setup + actions/setup-node +
+  install trio duplicated across ~20 CI jobs so the action pins, Node version,
+  and cache strategy only need to change in one place. Requires
+  actions/checkout to have already run.
+
+  Deliberately does NOT cache node_modules: the installed tree is 3.5 GB here,
+  so restoring it is slower than the 14-55s `pnpm install` it would replace.
+  The pnpm store cache from setup-node is the one that pays for itself.
+
+inputs:
+  node-version:
+    description: Node version to install.
+    required: false
+    default: "22"
+  install:
+    description: >-
+      `full` runs `pnpm install --frozen-lockfile`. `no-scripts` adds
+      `--ignore-scripts` for jobs that only need root devDependencies and no
+      package build chain.
+    required: false
+    default: full
+  restore-dist-cache:
+    description: >-
+      Restore packages/*/dist and tsbuildinfo before installing. Must happen
+      before the install so the postinstall build chain finds the cached dist
+      instead of rebuilding it; that ordering is the reason this lives here
+      rather than in the calling workflow.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # A typo must not silently degrade into "no install" — the job would fail
+    # much later with a confusing missing-binary error.
+    - name: Validate inputs
+      shell: bash
+      run: |
+        case "${{ inputs.install }}" in
+          full|no-scripts) ;;
+          *)
+            echo "::error::setup-pnpm: install must be full or no-scripts (got '${{ inputs.install }}')"
+            exit 1
+            ;;
+        esac
+
+    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    # Keyed on package source, package metadata, prebuild script, and lockfile
+    # hash. Restores are exact-only so typecheck never reads declarations from
+    # another revision. Inlined rather than delegated to a second composite
+    # action because a composite action cannot `uses:` another composite action.
+    - name: Restore dist + tsBuildInfo cache
+      if: inputs.restore-dist-cache == 'true'
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          packages/*/dist
+          packages/*/node_modules/.cache/tsbuildinfo
+        key: dist-${{ hashFiles('packages/*/src/**', 'packages/*/package.json', 'scripts/prebuild-workspace-packages.ts', 'pnpm-lock.yaml') }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ "${{ inputs.install }}" = "no-scripts" ]; then
+          pnpm install --frozen-lockfile --ignore-scripts
+        else
+          pnpm install --frozen-lockfile
+        fi

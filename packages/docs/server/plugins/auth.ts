@@ -26,10 +26,34 @@ function shouldCreateDocsSession(event: H3Event): boolean {
   return shouldCreateDocsSessionForPath(pathname);
 }
 
+function getDocsRequestPathname(event: H3Event): string {
+  const mountedPathname = (event as any).context?._mountedPathname;
+  return typeof mountedPathname === "string" && mountedPathname
+    ? mountedPathname
+    : getRequestURL(event).pathname;
+}
+
+export function isDocsWebMcpPath(
+  pathname: string,
+  basePath = getAppBasePath(),
+): boolean {
+  const pathWithoutBase =
+    basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
+      ? pathname.slice(basePath.length) || "/"
+      : pathname;
+  return (
+    pathWithoutBase === "/_agent-native/webmcp/manifest" ||
+    pathWithoutBase.startsWith("/_agent-native/webmcp/actions/") ||
+    pathWithoutBase === "/mcp/tool" ||
+    pathWithoutBase.startsWith("/mcp/tool/")
+  );
+}
+
 export const docsAuthOptions: AuthOptions = {
   workspaceAppAudience: "public",
   getSession: async (event) => {
     const cookieName = "an_docs_session";
+    if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
     let sessionId = getCookie(event, cookieName);
 
     if (!sessionId) {

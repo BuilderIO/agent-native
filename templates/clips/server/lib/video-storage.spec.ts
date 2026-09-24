@@ -5,7 +5,7 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveHasBuilderPrivateKey: async () => false,
+  hasBuilderApiCredentialCustody: async () => false,
   runWithRequestContext: async (
     _context: unknown,
     fn: () => Promise<unknown>,
@@ -22,9 +22,9 @@ describe("video storage policy", () => {
     vi.unstubAllEnvs();
   });
 
-  it("allows SQL recording chunk scratch only for local database mode", () => {
+  it("allows SQL recording chunk scratch only for local PGlite mode", () => {
     vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     expect(requiresConfiguredVideoStorage()).toBe(false);
     expect(allowsSqlRecordingChunkScratch()).toBe(true);
 
@@ -35,7 +35,7 @@ describe("video storage policy", () => {
 
   it("disables SQL recording chunk scratch in production", () => {
     vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
     expect(requiresConfiguredVideoStorage()).toBe(true);
     expect(allowsSqlRecordingChunkScratch()).toBe(false);
   });

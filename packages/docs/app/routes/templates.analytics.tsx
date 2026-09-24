@@ -1,58 +1,47 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconChartBar,
-  IconCheck,
-  IconCode,
-  IconDatabaseSearch,
-  IconLayoutDashboard,
-  IconMessage,
-  IconPlugConnected,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Analytics — Open Source Alternative to Amplitude & FullStory",
+        title: "Free AI Analytics Tool | Agent-Native Analytics",
       },
       {
         name: "description",
         content:
-          "Build AI-powered analytics dashboards you own. Open source alternative to Amplitude and FullStory. Multiple data connectors, SQL query explorer, reusable dashboards, data dictionary, and natural language chart generation.",
+          "Ask questions about your data, inspect SQL, and build dashboards with your AI agent. Analytics is a free and open-source analytics tool with session replay.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Analytics — Open Source Alternative to Amplitude & FullStory",
+        content: "Free AI Analytics Tool | Agent-Native Analytics",
       },
       {
         property: "og:description",
         content:
-          "Build AI-powered analytics dashboards you own. Multiple data connectors, SQL query explorer, and natural language chart generation.",
+          "Ask questions about your data, inspect SQL, and build dashboards with your AI agent. Analytics is a free and open-source analytics tool with session replay.",
       },
       {
         name: "keywords",
         content:
-          "AI analytics, open source analytics, Amplitude alternative, FullStory alternative, Mixpanel alternative, Looker alternative, AI dashboard builder, AI data visualization, agent-native analytics, AI-powered BI tool, open source business intelligence, AI chart generator, natural language SQL, BigQuery dashboard",
+          "AI analytics tool, open source analytics, Amplitude alternative, FullStory alternative, Mixpanel alternative, AI dashboard builder, natural language SQL, session replay, agent-native analytics",
       },
     ],
     "Analytics",
@@ -60,395 +49,239 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "analytics")!;
 
-const primaryLinkClassName = "primary-button";
+// Same no-imagery pattern Slides and Clips used: plain ContentCards, no
+// `image`/`imageLabel`, so the section reads as one system with the
+// key-features grid below it instead of leaving placeholder boxes.
+const USE_CASES = [
+  {
+    id: "track-product-growth",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+  },
+  {
+    id: "report-on-business-performance",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+  },
+  {
+    id: "investigate-user-issues",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "natural-language-queries",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "reusable-dashboards",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "sql-query-explorer",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "data-source-connections",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  { id: "data-dictionary", titleKey: "feature5Title", bodyKey: "feature5Body" },
+  { id: "session-replay", titleKey: "feature6Title", bodyKey: "feature6Body" },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-analytics", question: "question1", answer: "answer1" },
+  { id: "sql-knowledge-required", question: "question2", answer: "answer2" },
+  { id: "supported-data-sources", question: "question3", answer: "answer3" },
+  {
+    id: "custom-metric-definitions",
+    question: "question4",
+    answer: "answer4",
+  },
+  {
+    id: "sharing-and-scheduling",
+    question: "question5",
+    answer: "answer5",
+  },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function AnalyticsTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      icon: IconMessage,
-      title: t("templateLanding.analytics.s012"),
-      body: t("templateLanding.analytics.s013"),
-    },
-    {
-      icon: IconLayoutDashboard,
-      title: t("templateLanding.analytics.s014"),
-      body: t("templateLanding.analytics.s015"),
-    },
-    {
-      icon: IconDatabaseSearch,
-      title: "SQL Query Explorer",
-      body: t("templateLanding.analytics.s016"),
-    },
-    {
-      icon: IconCode,
-      title: t("templateLanding.analytics.s017"),
-      body: t("templateLanding.analytics.s018"),
-    },
-  ];
-  const connectors = [
-    {
-      icon: IconChartBar,
-      title: t("templateLanding.analytics.s021"),
-      body: "HubSpot, Stripe, Apollo — deals, subscriptions, MRR, and enrichment.",
-    },
-    {
-      icon: IconCode,
-      title: t("templateLanding.analytics.s022"),
-      body: t("templateLanding.analytics.s023"),
-    },
-    {
-      icon: IconDatabaseSearch,
-      title: t("templateLanding.analytics.s024"),
-      body: "Google Cloud, Grafana — services, metrics, logs, and alerts.",
-    },
-    {
-      icon: IconMessage,
-      title: t("templateLanding.analytics.s025"),
-      body: "Slack, Gong, Twitter — channel history, call transcripts, and social metrics.",
-    },
-    {
-      icon: IconSearch,
-      title: t("templateLanding.analytics.s026"),
-      body: "Notion, DataForSEO — content calendars, keywords, and top search terms.",
-    },
-    {
-      icon: IconPlugConnected,
-      title: t("templateLanding.analytics.s027"),
-      body: "Common Room, Pylon — member engagement and support tickets.",
-    },
-  ];
-  const faqItems = Array.from({ length: 5 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `analytics-question-${itemNumber}`,
-      question: t(`templateLanding.analytics.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.analytics.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={
-          <>
-            <span className="text-[var(--fg)] lg:whitespace-nowrap">
-              {t("templateLanding.analytics.s007Primary")}{" "}
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Slides. Existing hero
+          screenshot kept since there's no newer Analytics asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[520px]">
+              {t("templateLanding.analytics.heroTitle")}
             </span>
-            <span className="text-[var(--fg-secondary)] lg:block">
-              {t("templateLanding.analytics.s007Secondary")}
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.analytics.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="analytics" />
             </span>
-          </>
-        }
-        description={
-          <p className="m-0">{t("templateLanding.analytics.s008")}</p>
-        }
-        headingAction={
-          <a
-            href="https://analytics.agent-native.com"
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://analytics.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.analytics.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.analytics.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b8a7e1575ce40028933a4dbd3d12eb5"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.analytics.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[640px] w-full object-cover object-top"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Analytics? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.analytics.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.analytics.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.analytics.${useCase.titleKey}`)}
+                body={t(`templateLanding.analytics.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grids, so every app reads as one
+          system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.analytics.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.analytics.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.analytics.${feature.titleKey}`)}
+                body={t(`templateLanding.analytics.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Slides has no "see it in action" section either, so add the
+          same pt-20 rhythm directly here instead of landing the FAQ flush
+          against the feature grid above it. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="analytics-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.analytics.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.analytics.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.analytics.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.analytics.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
+            href={firstPartyAppUrl("https://analytics.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "analytics",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b8a7e1575ce40028933a4dbd3d12eb5"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.analytics.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
-          {[
-            { number: "10+", label: t("templateLanding.analytics.s002") },
-            { number: "7", label: t("templateLanding.analytics.s003") },
-            { number: "SQL", label: t("templateLanding.analytics.s004") },
-            { number: "AI", label: t("templateLanding.analytics.s005") },
-          ].map((stat) => (
-            <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
-                {stat.number}
-              </div>
-              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
-                {stat.label}
-              </div>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.analytics.s010")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.analytics.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map(({ icon: Icon, title, body }) => (
-          <div
-            key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
-          >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.analytics.s019")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.analytics.s020")}
-            </p>
-          </>
-        }
-      >
-        {connectors.map(({ icon: Icon, title, body }) => (
-          <div
-            key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0"
-          >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.analytics.s028")}
-            </h2>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.analytics.s029")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s030", "s031", "s032", "s033"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.analytics.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
-              <div className="mb-4 text-[var(--fg-secondary)]">
-                {"// Example metric definition"}
-              </div>
-              <div className="grid min-w-[24rem] gap-3 text-[var(--fg)]">
-                <div>
-                  <span style={{ color: template.color }}>name:</span>{" "}
-                  {t("templateLanding.analytics.s034")}
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>query:</span> SELECT
-                  COUNT(DISTINCT user_id)...
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>frequency:</span>{" "}
-                  {t("templateLanding.analytics.s035")}
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>lag:</span>{" "}
-                  {t("templateLanding.analytics.s036")}
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>gotchas:</span>{" "}
-                  {t("templateLanding.analytics.s037")}
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>trust:</span>{" "}
-                  {t("templateLanding.analytics.s038")}
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            {t("templateLanding.analytics.s039")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.analytics.s039")}
-          featureHeader={t("templateLanding.analytics.s039")}
-          columns={[
-            { id: "product-analytics", header: "Amplitude / Mixpanel" },
-            { id: "chat-csv", header: "ChatGPT + CSV" },
-            {
-              id: "agent-native",
-              emphasized: true,
-              agentNative: { color: template.color, name: template.name },
-            },
-          ]}
-          rows={[
-            {
-              id: "dashboard-ui",
-              label: t("templateLanding.analytics.s040"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s041"),
-                "chat-csv": t("templateLanding.analytics.s042"),
-                "agent-native": t("templateLanding.analytics.s043"),
-              },
-            },
-            {
-              id: "natural-language",
-              label: t("templateLanding.analytics.s005"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s044"),
-                "chat-csv": t("templateLanding.analytics.s045"),
-                "agent-native": t("templateLanding.analytics.s046"),
-              },
-            },
-            {
-              id: "data-connectors",
-              label: t("templateLanding.analytics.s002"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s047"),
-                "chat-csv": t("templateLanding.analytics.s048"),
-                "agent-native": t("templateLanding.analytics.s049"),
-              },
-            },
-            {
-              id: "data-dictionary",
-              label: t("templateLanding.analytics.s050"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s051"),
-                "chat-csv": "None",
-                "agent-native": t("templateLanding.analytics.s052"),
-              },
-            },
-            {
-              id: "customization",
-              label: t("templateLanding.analytics.s053"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s054"),
-                "chat-csv": t("templateLanding.analytics.s055"),
-                "agent-native": t("templateLanding.analytics.s056"),
-              },
-            },
-            {
-              id: "pricing",
-              label: t("templateLanding.analytics.s057"),
-              cells: {
-                "product-analytics": t("templateLanding.analytics.s058"),
-                "chat-csv": t("templateLanding.analytics.s059"),
-                "agent-native": t("templateLanding.analytics.s060"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <TemplateFinalCta
-        eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.analytics.s061")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.analytics.s062")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="analytics-faq"
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.analytics.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

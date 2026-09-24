@@ -28,6 +28,8 @@ export interface AgentTerminalProps {
   theme?: Record<string, string>;
   /** Font size. Default: 12 */
   fontSize?: number;
+  /** Focus the terminal on mount and when it becomes active. Default: true */
+  autoFocus?: boolean;
   /** CSS class for the container */
   className?: string;
   /** Inline styles for the container */
@@ -66,8 +68,19 @@ function injectXtermCss() {
     .xterm .composition-view { display: none; position: absolute; white-space: nowrap; z-index: 1; }
     .xterm .composition-view.active { display: block; }
     .xterm .xterm-viewport {
-      background-color: var(--agent-terminal-background); overflow-y: scroll;
+      background-color: var(--agent-terminal-background); overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
       cursor: default; position: absolute; right: 0; left: 0; top: 0; bottom: 0;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar { width: 8px; height: 8px; }
+    .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+      background: hsl(var(--muted-foreground) / 0.22);
+      border-radius: 999px;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+      background: hsl(var(--muted-foreground) / 0.36);
     }
     .xterm .xterm-screen { position: relative; }
     .xterm .xterm-screen canvas { position: absolute; left: 0; top: 0; }
@@ -135,6 +148,7 @@ export function AgentTerminal({
   hideInFrame = true,
   theme,
   fontSize = 12,
+  autoFocus = true,
   className,
   style,
   onConnectionChange,
@@ -149,6 +163,9 @@ export function AgentTerminal({
   const pendingSubmitRequestRef = useRef<AgentTerminalSubmitRequest | null>(
     null,
   );
+  const autoFocusRef = useRef(autoFocus);
+  autoFocusRef.current = autoFocus;
+  const focusTerminalRef = useRef<(() => void) | null>(null);
   const onPromptSubmittedRef = useRef(onPromptSubmitted);
   onPromptSubmittedRef.current = onPromptSubmitted;
   const [connected, setConnected] = useState(false);
@@ -171,6 +188,20 @@ export function AgentTerminal({
   useEffect(() => {
     onConnectionChange?.(connected);
   }, [connected, onConnectionChange]);
+
+  useEffect(() => {
+    if (autoFocus) {
+      focusTerminalRef.current?.();
+      return;
+    }
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      termRef.current?.contains(activeElement)
+    ) {
+      activeElement.blur();
+    }
+  }, [autoFocus]);
 
   // Main terminal setup
   useEffect(() => {
@@ -215,6 +246,9 @@ export function AgentTerminal({
       term.loadAddon(fitAddon);
       term.loadAddon(webLinksAddon);
       term.open(container);
+      const focusTerminal = () => term.focus();
+      focusTerminalRef.current = focusTerminal;
+      if (autoFocusRef.current) focusTerminal();
 
       let fitPending = false;
       function fitAndResize() {
@@ -264,7 +298,16 @@ export function AgentTerminal({
           handleVisibilityOrFocus,
         );
         resizeObserver.disconnect();
+        if (focusTerminalRef.current === focusTerminal) {
+          focusTerminalRef.current = null;
+        }
         term.dispose();
+      }
+
+      function disposeIfCancelled() {
+        if (!disposed) return false;
+        disposeTerminal();
+        return true;
       }
 
       // Discover WebSocket URL
@@ -275,7 +318,9 @@ export function AgentTerminal({
           const res = await fetch(
             agentNativePath("/_agent-native/agent-terminal-info"),
           );
+          if (disposeIfCancelled()) return;
           const info: TerminalInfo = await res.json();
+          if (disposeIfCancelled()) return;
           if (!info.available) {
             setError(info.error || "Agent terminal not available");
             disposeTerminal();
@@ -288,6 +333,7 @@ export function AgentTerminal({
             resolvedCommand = info.command;
           }
         } catch (err) {
+          if (disposeIfCancelled()) return;
           setError("Failed to discover terminal server");
           disposeTerminal();
           return;
@@ -295,15 +341,11 @@ export function AgentTerminal({
       }
 
       // Build WebSocket URL with query params
-      const qs = new URLSearchParams();
-      if (resolvedCommand) qs.set("command", resolvedCommand);
-      if (flags) qs.set("flags", flags);
-      const qsStr = qs.toString();
-      const fullWsUrl = qsStr ? `${wsUrl}?${qsStr}` : wsUrl;
-
-      term.write(
-        `\x1b[2m[terminal] Starting ${resolvedCommand || "CLI"}...\x1b[0m\r\n`,
-      );
+      const fullWsUrl = new URL(wsUrl);
+      if (resolvedCommand) {
+        fullWsUrl.searchParams.set("command", resolvedCommand);
+      }
+      if (flags) fullWsUrl.searchParams.set("flags", flags);
 
       // Connect WebSocket
       let agentRunning = false;
@@ -362,6 +404,7 @@ export function AgentTerminal({
         socket.onopen = () => {
           setConnected(true);
           setError(null);
+          if (autoFocusRef.current) focusTerminal();
           socket.send(
             JSON.stringify({
               type: "resize",
@@ -414,9 +457,6 @@ export function AgentTerminal({
         socket.onclose = () => {
           setConnected(false);
           if (connectionId === thisId && !disposed) {
-            term.write(
-              "\r\n\x1b[31m[terminal] Connection closed. Reconnecting in 3s...\x1b[0m\r\n",
-            );
             setTimeout(() => {
               if (connectionId === thisId && !disposed) {
                 connect(url);
@@ -452,7 +492,7 @@ export function AgentTerminal({
       submitPromptRef.current = submitPrompt;
       const initialRequest = pendingSubmitRequestRef.current;
       if (initialRequest) submitPrompt(initialRequest);
-      connect(fullWsUrl);
+      connect(fullWsUrl.toString());
 
       // Store cleanup references
       return () => {
@@ -469,7 +509,12 @@ export function AgentTerminal({
     }
 
     let cleanup: (() => void) | undefined;
-    init().then((fn) => {
+    void init().then((fn) => {
+      if (disposed) {
+        fn?.();
+        cleanupMessageHandler?.();
+        return;
+      }
       cleanup = fn;
     });
 

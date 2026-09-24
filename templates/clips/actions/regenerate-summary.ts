@@ -7,7 +7,7 @@
  *   pnpm action regenerate-summary --recordingId=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -16,6 +16,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
+import {
+  queueAiRequest,
+  withAiRequestStatusInstructions,
+} from "./lib/ai-request-status.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
@@ -107,31 +111,43 @@ export default defineAction({
       `outside-narrator framing like "the speaker", "the presenter", "the video", ` +
       `"this recording", or "this clip".`;
 
+    const requestedAt = new Date().toISOString();
     const request = {
       kind: "regenerate-summary" as const,
       recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
+      requestedAt,
       currentTitle: rec.title,
       currentDescription: rec.description,
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText: transcript?.fullText ?? "",
       includeFullVideoInAi,
       openInChat: args.openInChat === true,
-      message: withFullVideoAiInstructions(
-        baseMessage,
-        args.recordingId,
-        includeFullVideoInAi,
-      ),
+      message: withAiRequestStatusInstructions({
+        message: withFullVideoAiInstructions(
+          baseMessage,
+          args.recordingId,
+          includeFullVideoInAi,
+        ),
+        recordingId: args.recordingId,
+        kind: "regenerate-summary",
+        requestedAt,
+      }),
     };
 
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await queueAiRequest({
+      recordingId: args.recordingId,
+      kind: "regenerate-summary",
+      requestedAt,
+      request,
+    });
 
     console.log(
       `Delegation queued: regenerate-summary for ${args.recordingId}`,
     );
     return {
       queued: true,
+      kind: "regenerate-summary",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

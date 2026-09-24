@@ -10,7 +10,7 @@
  * `@agent-native/core/oauth-tokens` instead.
  */
 
-import { table, text, integer } from "../db/schema.js";
+import { table, text, bigint } from "../db/schema.js";
 
 export const appSecrets = table("app_secrets", {
   id: text("id").primaryKey(),
@@ -28,8 +28,8 @@ export const appSecrets = table("app_secrets", {
   description: text("description"),
   /** JSON array of allowed URL origins. Null = allow all. */
   urlAllowlist: text("url_allowlist"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 /**

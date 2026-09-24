@@ -94,6 +94,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
+  preloadPromptComposer: vi.fn(),
   default: (props: Record<string, any>) => {
     mocks.promptProps = props;
     return null;
@@ -154,5 +155,18 @@ describe("Templates deep links", () => {
       cards[1]?.querySelector('[data-template-preview="Built-in target"]'),
     ).toBeTruthy();
     expect(cards[1]?.textContent).toContain("templatesPage.builtIn");
+  });
+
+  it("links an empty template library back to designs", async () => {
+    mocks.templates = mocks.templates.filter((template) => template.isBuiltIn);
+    await act(async () => {
+      root.render(<Templates />);
+    });
+
+    const openDesign = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "visualEdit.openDesign",
+    );
+    await act(async () => openDesign?.click());
+    expect(mocks.navigate).toHaveBeenCalledWith("/home");
   });
 });

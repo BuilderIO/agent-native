@@ -104,6 +104,25 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.computedStyles.opacity).toBe("1");
   });
 
+  it("keeps authored sizing only when every selected element agrees", () => {
+    const a = makeElement({
+      authoredSizeStyles: { width: "240px", height: "auto" },
+    });
+    const b = makeElement({
+      authoredSizeStyles: { width: "240px", height: "auto" },
+    });
+    expect(mixedElementFromSelection([a, b])?.authoredSizeStyles).toEqual({
+      width: "240px",
+      height: "auto",
+    });
+    expect(
+      mixedElementFromSelection([
+        a,
+        makeElement({ authoredSizeStyles: { width: "320px" } }),
+      ])?.authoredSizeStyles,
+    ).toBeUndefined();
+  });
+
   it("treats a property present on only one element as Mixed, not a shared default", () => {
     // `fontSize` only exists on the text element's computedStyles; the
     // rectangle never captured it. The missing side must NOT silently read

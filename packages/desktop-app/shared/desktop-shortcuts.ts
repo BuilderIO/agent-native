@@ -49,6 +49,20 @@ export function isDesktopChatToggleShortcut(input: {
   );
 }
 
+export function isDesktopSettingsShortcut(input: {
+  key?: string;
+  code?: string;
+  shift?: boolean;
+  alt?: boolean;
+}): boolean {
+  const key = input.key?.toLowerCase();
+  return (
+    !input.shift &&
+    !input.alt &&
+    (key === "," || (!key && input.code === "Comma"))
+  );
+}
+
 const MODIFIER_ALIASES: Record<string, string> = {
   alt: "Alt",
   cmd: "Command",

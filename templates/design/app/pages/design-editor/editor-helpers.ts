@@ -21,26 +21,76 @@ export function runtimeMultiplicityForElementProvenance(
   info: ElementInfo | null | undefined,
 ): number {
   const provenance = info?.provenance;
-  if (!provenance?.sourceFile || !provenance.line || !provenance.column) {
+  const runtimeComponent = info?.runtimeComponent;
+  const hasInvocationProvenance = Boolean(
+    runtimeComponent?.sourceFile &&
+    runtimeComponent.line &&
+    runtimeComponent.column,
+  );
+  const sourceFile = hasInvocationProvenance
+    ? runtimeComponent?.sourceFile
+    : provenance?.sourceFile;
+  const line = hasInvocationProvenance
+    ? runtimeComponent?.line
+    : provenance?.line;
+  const column = hasInvocationProvenance
+    ? runtimeComponent?.column
+    : provenance?.column;
+  const componentName = hasInvocationProvenance
+    ? runtimeComponent?.name
+    : provenance?.component;
+  if (!sourceFile || !line || !column) {
     return 1;
   }
   let count = 0;
+  const invocationKeys = hasInvocationProvenance
+    ? new Set<string>()
+    : undefined;
   for (const snapshot of Object.values(snapshots)) {
     const projection = buildCodeLayerProjection(snapshot.html);
     for (const node of projection.nodes) {
       const attrs = node.dataAttributes;
       if (
-        attrs["data-source-file"] === provenance.sourceFile &&
-        Number(attrs["data-source-line"]) === provenance.line &&
-        Number(attrs["data-source-column"]) === provenance.column &&
-        (!provenance.component ||
-          attrs["data-component-name"] === provenance.component)
+        hasInvocationProvenance &&
+        runtimeComponent?.componentId &&
+        attrs["data-agent-native-runtime-component-id"] !==
+          runtimeComponent.componentId
       ) {
-        count += 1;
+        continue;
+      }
+      const sourceFileAttribute = hasInvocationProvenance
+        ? "data-source-owner-file"
+        : "data-source-file";
+      const lineAttribute = hasInvocationProvenance
+        ? "data-source-owner-line"
+        : "data-source-line";
+      const columnAttribute = hasInvocationProvenance
+        ? "data-source-owner-column"
+        : "data-source-column";
+      if (
+        attrs[sourceFileAttribute] === sourceFile &&
+        Number(attrs[lineAttribute]) === line &&
+        Number(attrs[columnAttribute]) === column &&
+        (!componentName || attrs["data-component-name"] === componentName)
+      ) {
+        if (invocationKeys) {
+          invocationKeys.add(
+            JSON.stringify([
+              runtimeComponent?.componentId ?? "",
+              attrs[sourceFileAttribute],
+              attrs[lineAttribute],
+              attrs[columnAttribute],
+              attrs["data-source-owner-key"] ?? "",
+              attrs["data-component-name"] ?? "",
+            ]),
+          );
+        } else {
+          count += 1;
+        }
       }
     }
   }
-  return Math.max(1, count);
+  return Math.max(1, invocationKeys?.size ?? count);
 }
 
 export function buildSignInHrefForDesignIntent(
@@ -54,7 +104,9 @@ export function buildSignInHrefForDesignIntent(
 
 export function buildSignInHrefForComment(): string {
   if (typeof window === "undefined") return buildSignInReturnHref();
-  return buildSignInReturnHref({ returnTo: window.location.pathname });
+  return buildSignInReturnHref({
+    returnTo: `${window.location.pathname}${window.location.search}`,
+  });
 }
 
 /**
@@ -67,6 +119,11 @@ export function isSupersededSelectionEcho(
   incoming: ElementInfo,
   current: ElementInfo | null,
 ): boolean {
+  // The bridge emits an intent-less selection when an Alt-drag creates its
+  // optimistic runtime clone. That is an authoritative selection, not a
+  // delayed echo from the previous source element; the runtime identity is
+  // the marker that lets it cross this boundary without adding history.
+  if (incoming.runtimeSourceId?.trim()) return false;
   if (!current) return false;
   const incomingId = incoming.sourceId?.trim();
   const currentId = current.sourceId?.trim();
@@ -144,6 +201,7 @@ export function withMeasuredGeometry(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
       )
     : null;
+  if (screenId && !owning) return info;
   const frames = owning
     ? [owning]
     : Array.from(
@@ -161,20 +219,41 @@ export function withMeasuredGeometry(
     if (!node) continue;
     const box = node.getBoundingClientRect();
     if (box.width <= 0 && box.height <= 0) continue;
+    const parentBox = node.parentElement?.getBoundingClientRect();
+    const scrollX = frame.contentWindow?.scrollX ?? 0;
+    const scrollY = frame.contentWindow?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
     return {
       ...info,
       boundingRect: {
-        x: box.x,
-        y: box.y,
+        x: box.x + scrollX,
+        y: box.y + scrollY,
         width: box.width,
         height: box.height,
       },
+      parentBoundingRect: parentBox
+        ? {
+            x: parentBox.x + scrollX,
+            y: parentBox.y + scrollY,
+            width: parentBox.width,
+            height: parentBox.height,
+          }
+        : info.parentBoundingRect,
       computedStyles: computed
         ? {
+            color: computed.color,
+            fontFamily: computed.fontFamily,
+            fontSize: computed.fontSize,
+            fontStyle: computed.fontStyle,
+            fontWeight: computed.fontWeight,
+            letterSpacing: computed.letterSpacing,
+            lineHeight: computed.lineHeight,
+            textAlign: computed.textAlign,
+            textDecorationLine: computed.textDecorationLine,
+            textTransform: computed.textTransform,
+            ...info.computedStyles,
             width: computed.width,
             height: computed.height,
-            ...info.computedStyles,
           }
         : info.computedStyles,
     };

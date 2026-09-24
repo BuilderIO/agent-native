@@ -1,6 +1,20 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { isSyntheticTrafficValue } from "@agent-native/core/shared";
 
 import { getIdToken } from "./auth";
+
+function isSyntheticBrowserTraffic(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    isSyntheticTrafficValue(
+      (
+        window as Window & {
+          __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: unknown;
+        }
+      ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__,
+    )
+  );
+}
 
 /**
  * Track when a metric is viewed in a dashboard.
@@ -15,6 +29,7 @@ export async function trackMetricViewed(
   dashboardId: string,
   queryUsed?: string,
 ): Promise<void> {
+  if (isSyntheticBrowserTraffic()) return;
   try {
     const token = await getIdToken();
     const userId = token ? await getUserIdFromToken(token) : null;
@@ -91,7 +106,7 @@ export function useTrackMetrics(metrics: string[], dashboardId: string): void {
   React.useEffect(() => {
     metrics.forEach((metricName) => {
       if (metricName && metricName.trim()) {
-        trackMetricViewed(metricName, dashboardId);
+        void trackMetricViewed(metricName, dashboardId);
       }
     });
   }, [metrics.join(","), dashboardId]);

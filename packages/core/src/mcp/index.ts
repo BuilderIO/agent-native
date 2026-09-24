@@ -42,6 +42,10 @@ export {
 export type { ResolvedApp, ResolvedWorkspace } from "./workspace-resolve.js";
 export {
   fetchOrgApps,
+  fetchOrgAppsResult,
   resolveOrgDirectoryOrigin,
+  type FetchOrgAppsOptions,
   type OrgApp,
+  type OrgDirectoryFetchResult,
+  type OrgDirectoryUnavailableReason,
 } from "./org-directory.js";

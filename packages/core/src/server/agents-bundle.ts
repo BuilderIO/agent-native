@@ -598,7 +598,8 @@ function generateSkillsPromptBlockForEntries(
     mode === "runtime"
       ? `To read a skill in the in-app runtime agent, before starting a task it applies to:
   \`docs-search --slug "<slug>"\` — each skill's slug is the [bracketed] token ending its line
-  \`docs-search --query "<topic>"\` to discover matching docs/skills`
+  \`docs-search --query "<topic>"\` to discover matching docs/skills
+Read each relevant page once per turn and reuse it for subsequent steps. Do not repeat an equivalent lookup unless you need a different page or question.`
       : `To read a skill in dev mode (when you have bash access):
   \`bash(command="cat <skill-dir>/SKILL.md")\`
   \`bash(command="ls <skill-dir>/")\` to see all files in the folder`;

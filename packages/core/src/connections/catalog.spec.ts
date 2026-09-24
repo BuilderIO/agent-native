@@ -21,13 +21,18 @@ describe("workspace connection provider catalog", () => {
       "figma",
       "notion",
       "gmail",
+      "google_calendar",
       "google_drive",
+      "google_docs",
+      "google_sheets",
+      "google_slides",
       "hubspot",
       "salesforce",
       "jira",
       "sentry",
       "granola",
       "clips",
+      "anthropic-managed-agents",
       "generic",
     ]);
   });
@@ -44,7 +49,34 @@ describe("workspace connection provider catalog", () => {
     });
     expect(
       getWorkspaceConnectionProvider("google_drive")?.oauth?.scopes,
-    ).toEqual(["https://www.googleapis.com/auth/drive.file"]);
+    ).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ]),
+    );
+    expect(getWorkspaceConnectionProvider("gmail")?.oauth?.scopes).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/contacts.readonly",
+        "https://www.googleapis.com/auth/contacts.other.readonly",
+      ]),
+    );
+    expect(
+      getWorkspaceConnectionProvider("google_calendar")?.oauth?.scopes,
+    ).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/calendar.events",
+      ]),
+    );
     expect(getWorkspaceConnectionProvider("github")?.oauth).toMatchObject({
       provider: "github",
       authorizationUrl: "https://github.com/login/oauth/authorize",
@@ -122,7 +154,7 @@ describe("workspace connection provider catalog", () => {
         templateUse: "brain",
         capability: "code",
       }).map((provider) => provider.id),
-    ).toEqual(["github", "jira"]);
+    ).toEqual(["github", "jira", "anthropic-managed-agents"]);
 
     expect(
       listWorkspaceConnectionProvidersForTemplate("factory").map(

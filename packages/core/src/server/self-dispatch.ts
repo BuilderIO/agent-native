@@ -1,6 +1,10 @@
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 /**
  * Shared self-dispatch helper for the framework's serverless background-work
  * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
@@ -27,6 +31,8 @@ import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
+import { getRequestContext } from "./request-context.js";
 
 /**
  * On serverless, returning from the dispatching handler before the outbound
@@ -52,16 +58,47 @@ function readHeader(event: any, name: string): string | undefined {
 }
 
 /**
- * Resolve the base URL to fire a self-dispatch request at. Prefer the URL for
- * this exact deploy before stable app URLs: a preview or in-flight deploy must
- * not send a token minted by its function fleet to a different deploy that
- * happens to serve the same public hostname. Fall back to the inbound request
- * headers and finally localhost in dev.
+ * Resolve the base URL to fire a self-dispatch request at. An explicit
+ * `AGENT_NATIVE_SELF_DISPATCH_URL` wins; otherwise this is
+ * `resolveDeploymentBaseUrl`.
+ *
+ * Only for requests this deployment sends to itself. A URL an outside party
+ * will call must come from `resolveDeploymentBaseUrl`, because the declared
+ * value is typically loopback.
+ */
+export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // A deployment that names where its own processor lives wins outright.
+  // Reaching itself through its public hostname means a round trip through the
+  // provider's edge, which was measured answering 404 to that hairpin for a
+  // deployment's whole life while serving every external request. Loopback
+  // (`http://127.0.0.1:${PORT}`) needs no edge.
+  // config-ok: read raw, like the platform deploy URLs below — it names where
+  // this process answers, which a checked-in app config cannot know (see the
+  // `app.url` docblock).
+  const declared = process.env.AGENT_NATIVE_SELF_DISPATCH_URL?.trim();
+  if (declared) {
+    const parsed = URL.canParse(declared) ? new URL(declared) : null;
+    if (parsed?.protocol !== "http:" && parsed?.protocol !== "https:") {
+      throw new Error(
+        `AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http(s) URL, got "${declared}".`,
+      );
+    }
+    return withConfiguredAppBasePath(declared);
+  }
+  return resolveDeploymentBaseUrl(event);
+}
+
+/**
+ * Resolve this deployment's own address. Prefer the URL for this exact deploy
+ * before stable app URLs: a preview or in-flight deploy must not send a token
+ * minted by its function fleet to a different deploy that happens to serve the
+ * same public hostname. Fall back to the inbound request headers and finally
+ * localhost in dev.
  *
  * Throws in production / shared deployments when no env var is set — a silent
  * fallback to a bad host there would drop background work invisibly.
  */
-export function resolveSelfDispatchBaseUrl(event?: any): string {
+export function resolveDeploymentBaseUrl(event?: any): string {
   // The first three are platform facts — Netlify sets them per deploy, and
   // they are what makes this resolve to *this* deployment rather than the
   // canonical one. `app.url` is the last rung, not the first, for that reason.
@@ -81,9 +118,16 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
     );
   }
 
-  const proto = readHeader(event, "x-forwarded-proto") || "http";
   const host =
     readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+  const hostName = (
+    host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0]
+  ).toLowerCase();
+  const isLoopback =
+    hostName === "localhost" || hostName === "127.0.0.1" || hostName === "::1";
+  const proto = isLoopback
+    ? "http"
+    : readHeader(event, "x-forwarded-proto") || "http";
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 
@@ -141,10 +185,8 @@ async function dispatchResponseError(
  * may take minutes); it is only raced against a short settle timer so the
  * request reliably leaves a serverless box before it freezes.
  *
- * When `A2A_SECRET` is unset in local SQLite development, the request is sent
- * unsigned — the processor accepts unsigned dispatches in dev and relies on
- * the SQL atomic claim for double-processing protection. Shared and production
- * dispatches fail before sending an unauthenticated request.
+ * Dispatches require an HMAC signature before sending an unauthenticated request.
+ * Local PGlite development may use the trusted loopback path when no secret is set.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -174,15 +216,18 @@ export async function fireInternalDispatch(
   // routes land on the right app; for a host-root function url we must dispatch
   // to `https://host/.netlify/functions/<name>` instead. Strip the base path
   // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
-  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${publicFrameworkPath(options.path)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  if (getRequestContext()?.isSyntheticTraffic === true) {
+    headers[SYNTHETIC_TRAFFIC_HEADER] = SYNTHETIC_TRAFFIC_BETA_E2E;
+  }
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    // Only local SQLite development has the loopback/unsigned exception. A
+    // Only local PGlite development has the loopback/unsigned exception. A
     // shared database or production deployment must never turn a signing
     // failure into an unauthenticated processor request.
     if (

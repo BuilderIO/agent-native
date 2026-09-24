@@ -1,11 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/**
- * Design has no component template: an instance is any node carrying
- * `data-agent-native-component="Name"`, and same-named instances are
- * independent copies (see the DESIGN NOTE in swap-component-instance.ts), so
- * Figma parity is not the bar for the last describe block.
- */
+import { e2eBaseURL } from "./base-url";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -21,6 +16,27 @@ const FIXTURE = `<!doctype html>
       <p data-agent-native-node-id="card-text" data-agent-native-layer-name="Card Text"
          style="margin:0;padding:12px">Card body</p>
     </div>
+  </body>
+</html>`;
+
+const LINKED_COMPONENT_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Linked components</title></head>
+  <body style="margin:0;min-height:900px;background:#0f1115;color:#fff">
+    <button data-agent-native-node-id="btn-a" data-agent-native-layer-name="Primary main"
+            data-agent-native-component="PrimaryButton" data-agent-native-component-id="cmp-primary"
+            style="position:absolute;left:20px;top:60px;width:160px;height:44px;background:#3b82f6">Buy now</button>
+    <button data-agent-native-node-id="btn-a-instance" data-agent-native-layer-name="Primary instance"
+            data-agent-native-component="PrimaryButton" data-agent-native-component-ref="cmp-primary"
+            data-agent-native-component-source-node-id="btn-a"
+            style="position:absolute;left:220px;top:60px;width:160px;height:44px;background:#3b82f6">Buy now</button>
+    <button data-agent-native-node-id="btn-b" data-agent-native-layer-name="Secondary main"
+            data-agent-native-component="SecondaryButton" data-agent-native-component-id="cmp-secondary"
+            style="position:absolute;left:20px;top:140px;width:160px;height:44px;background:#22c55e">Sign up</button>
+    <button data-agent-native-node-id="btn-b-instance" data-agent-native-layer-name="Secondary instance"
+            data-agent-native-component="SecondaryButton" data-agent-native-component-ref="cmp-secondary"
+            data-agent-native-component-source-node-id="btn-b"
+            style="position:absolute;left:220px;top:140px;width:160px;height:44px;background:#22c55e">Sign up</button>
   </body>
 </html>`;
 
@@ -42,7 +58,7 @@ async function postAction(
   return res.json();
 }
 
-async function newDesign(page: Page): Promise<string> {
+async function newDesign(page: Page, content = FIXTURE): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "components",
     projectType: "prototype",
@@ -52,7 +68,7 @@ async function newDesign(page: Page): Promise<string> {
   await postAction(page, "create-file", {
     designId: id,
     filename: "index.html",
-    content: FIXTURE,
+    content,
     fileType: "html",
   });
   return id;
@@ -80,7 +96,7 @@ test.beforeAll(async ({}, testInfo) => {
   baseURL =
     (testInfo.project.use as { baseURL?: string }).baseURL ??
     process.env.E2E_BASE_URL ??
-    "http://127.0.0.1:9333";
+    e2eBaseURL();
 });
 
 test.describe("promoting to a component", () => {
@@ -153,32 +169,22 @@ test.describe("promoting to a component", () => {
 
 test.describe("detaching an instance", () => {
   test("detach strips the component linkage", async ({ page }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
+    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
     await postAction(page, "detach-component-instance", {
       designId: id,
-      nodeId: "btn-a",
+      nodeId: "btn-a-instance",
     });
     expect(
-      openTag(await indexHtml(page, id), "btn-a"),
+      openTag(await indexHtml(page, id), "btn-a-instance"),
       `Figma's Detach instance severs the linkage — the annotation must go.`,
-    ).not.toContain('data-agent-native-component="PrimaryButton"');
+    ).not.toContain("data-agent-native-component");
   });
 
   test("detach preserves the rendered content", async ({ page }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
+    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
     await postAction(page, "detach-component-instance", {
       designId: id,
-      nodeId: "btn-a",
+      nodeId: "btn-a-instance",
     });
     const html = await indexHtml(page, id);
     expect(
@@ -186,7 +192,7 @@ test.describe("detaching an instance", () => {
       `Figma: detaching keeps the visual result identical, it only breaks the ` +
         `link. The node's markup already IS the expanded content here.`,
     ).toContain("Buy now");
-    expect(openTag(html, "btn-a")).toContain("background:#3b82f6");
+    expect(openTag(html, "btn-a-instance")).toContain("background:#3b82f6");
   });
 });
 
@@ -194,32 +200,23 @@ test.describe("swapping an instance", () => {
   test("swap replaces the instance with the target component's markup", async ({
     page,
   }) => {
-    const id = await newDesign(page);
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-a",
-      name: "PrimaryButton",
-    });
-    await postAction(page, "create-component", {
-      designId: id,
-      nodeId: "btn-b",
-      name: "SecondaryButton",
-    });
+    const id = await newDesign(page, LINKED_COMPONENT_FIXTURE);
     await postAction(page, "swap-component-instance", {
       designId: id,
-      nodeId: "btn-a",
+      nodeId: "btn-a-instance",
       targetComponentName: "SecondaryButton",
     });
-    const tag = openTag(await indexHtml(page, id), "btn-a");
+    const tag = openTag(await indexHtml(page, id), "btn-a-instance");
     expect(
       tag,
       `Figma's Swap instance repoints the instance at the other component.`,
     ).toContain('data-agent-native-component="SecondaryButton"');
+    expect(tag).toContain('data-agent-native-component-ref="cmp-secondary"');
   });
 });
 
-test.describe("Design's own component model (not Figma parity)", () => {
-  test("same-named instances are independent copies, not linked to a main", async ({
+test.describe("separate component mains", () => {
+  test("same-named component mains remain independent identities", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -245,10 +242,8 @@ test.describe("Design's own component model (not Figma parity)", () => {
     const html = await indexHtml(page, id);
     expect(
       openTag(html, "btn-b"),
-      `Design has no component template: "every instance of the same name is ` +
-        `an independently-duplicated copy of HTML" (swap-component-instance.ts). ` +
-        `Editing one must NOT propagate — this is a deliberate divergence from ` +
-        `Figma, where a main-component edit updates every instance.`,
+      `same display names do not link separate canonical component mains; edits ` +
+        `propagate only through an explicit component reference`,
     ).not.toContain("rgb(255, 0, 0)");
     expect(openTag(html, "btn-a")).toContain("rgb(255, 0, 0)");
   });

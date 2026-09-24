@@ -12,11 +12,13 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("list_apps");
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");
+    expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
+    expect(dispatchActions).toHaveProperty("list-workspace-connections");
     expect(dispatchActions).toHaveProperty("read-slack-thread-context");
     expect(dispatchActions).toHaveProperty("list-dispatch-usage-metrics");
     expect(dispatchActions).toHaveProperty(
@@ -58,6 +60,12 @@ describe("dispatch action registry", () => {
     );
   });
 
+  it("teaches MCP hosts to route through their existing Dispatch connection", () => {
+    expect(dispatchActions.ask_app.tool.description).toContain(
+      "do not require a separate app MCP connection",
+    );
+  });
+
   it("exposes shared usage metrics as an authenticated read", () => {
     const action = dispatchActions["list-dispatch-usage-metrics"];
 
@@ -72,5 +80,6 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
+    expect(action.tool.description).toContain("app adoption metrics");
   });
 });

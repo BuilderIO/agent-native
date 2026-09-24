@@ -5,11 +5,15 @@ import {
   isElectron,
   getAppUrl,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  hasWorkspaceProviderOAuthCredentials,
   resolveGoogleSignInCredentials,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -24,6 +28,7 @@ import {
   safeReturnPath,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -108,6 +113,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -150,6 +156,7 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
@@ -234,7 +241,14 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -319,9 +333,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
+      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -329,7 +344,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
           scope: GOOGLE_IDENTITY_SCOPES.join(" "),
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
@@ -352,6 +367,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -400,6 +421,15 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
@@ -409,8 +439,8 @@ export const handleGoogleCallback = defineEventHandler(
             ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
-              authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
@@ -454,6 +484,16 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: isAddAccount,
+        },
+        { userId: owner ?? email },
+      );
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
         !isAddAccount ||
@@ -519,7 +559,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       );
     }
     try {
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/callback",
+        {
+          allowRootCallback: true,
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -563,10 +610,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
         session.orgId,
       );
@@ -593,6 +641,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -645,6 +699,16 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         ownerEmail,
         session?.orgId ?? stateOrgId,
       );
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: true,
+        },
+        { userId: ownerEmail },
+      );
       const { sessionToken } =
         (desktop && flowId) || mobile
           ? await createOAuthSession(event, ownerEmail, {
@@ -687,7 +751,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email, session?.orgId);
+    const status = await getAuthStatus(session?.email, session?.orgId);
+    const configured = await runWithRequestContext(
+      { userEmail: session?.email, orgId: session?.orgId },
+      () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
+    );
+    return { ...status, configured };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -708,7 +777,9 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       return { error: "email is required" };
     }
     const owned = await getAuthStatus(session.email, session.orgId);
-    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    const isOwned = owned.accounts.some(
+      (a) => a.email === targetEmail && !a.shared,
+    );
     if (!isOwned) {
       setResponseStatus(event, 403);
       return { error: "Cannot disconnect an account you don't own" };

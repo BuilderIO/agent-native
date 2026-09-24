@@ -36,6 +36,7 @@ import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
+import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -44,11 +45,15 @@ import { resolveTranscriptPresentation } from "../../../shared/transcript-status
 import { getDb, schema } from "../../db/index.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -60,6 +65,7 @@ import {
 } from "../../lib/recordings.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -278,10 +284,23 @@ export default defineEventHandler(async (event) => {
   );
 
   // Expiry check
-  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  const recordingExpired = isRecordingExpiredForViewer({
+    expiresAt: rec.expiresAt,
+    viewerIsOwner,
+  });
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
+  }
+
+  // Same hold as the media route, so the page explains instead of loading a
+  // player that cannot fetch anything.
+  if (isHeldForRedaction(rec.editsJson, viewerAccess?.role ?? null)) {
+    setResponseStatus(event, 409);
+    return {
+      error: REDACTION_HOLD_MESSAGE,
+      redactionPending: true,
+    };
   }
 
   // Password check
@@ -329,6 +348,16 @@ export default defineEventHandler(async (event) => {
           asc(schema.recordingComments.createdAt),
         )
     : [];
+  const hydratedComments = await hydrateCommentAuthorNames(comments);
+  const commentMentions = new Map(
+    hydratedComments.map((comment) => [
+      comment.id,
+      displayCommentMentions(comment.mentionsJson),
+    ]),
+  );
+  for (const comment of hydratedComments) {
+    Reflect.deleteProperty(comment, "mentionsJson");
+  }
 
   const reactions = rec.enableReactions
     ? await db
@@ -391,6 +420,13 @@ export default defineEventHandler(async (event) => {
     accessToken: protectedMediaToken,
     appPath,
   });
+  const playbackAnimatedThumbnailUrl = rec.animatedThumbnailUrl
+    ? resolvePlayerThumbnailUrl(rec, {
+        accessToken: protectedMediaToken,
+        animated: true,
+        appPath,
+      })
+    : null;
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -441,10 +477,10 @@ export default defineEventHandler(async (event) => {
   // Mirrors the gate in `get-recording-player-data` exactly: the share page
   // auto-redirects on this flag, so a false positive bounces the viewer
   // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page — the org-member fallback above is a display role,
+  // open the direct page - the org-member fallback above is a display role,
   // not access the player action would grant.
   const canOpenDashboard =
-    Boolean(session?.email) && viewerAccess && !recordingExpired
+    Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
           role: viewerAccess.role as RecordingPageAccessRole,
           visibility: rec.visibility as RecordingVisibility,
@@ -466,7 +502,7 @@ export default defineEventHandler(async (event) => {
       title: rec.title,
       description: rec.description,
       thumbnailUrl: playbackThumbnailUrl,
-      animatedThumbnailUrl: rec.animatedThumbnailUrl,
+      animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
       editsJson: rec.editsJson,
@@ -509,7 +545,7 @@ export default defineEventHandler(async (event) => {
           segments: transcriptSegments,
         }
       : null,
-    comments: comments.map((c) => ({
+    comments: hydratedComments.map((c) => ({
       id: c.id,
       recordingId: c.recordingId,
       threadId: c.threadId,
@@ -517,6 +553,7 @@ export default defineEventHandler(async (event) => {
       authorEmail: c.authorEmail,
       authorName: c.authorName,
       content: c.content,
+      mentions: commentMentions.get(c.id) ?? [],
       videoTimestampMs: c.videoTimestampMs,
       emojiReactionsJson: c.emojiReactionsJson,
       resolved: Boolean(c.resolved),

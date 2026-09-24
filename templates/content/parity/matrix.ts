@@ -2,29 +2,93 @@ import type { ParityRow } from "./matrix.types";
 
 export const parityMatrix: ParityRow[] = [
   {
+    id: "sidebar.personal-recent-visits",
+    surface: "sidebar",
+    label:
+      "Read personal Recent entries, record foreground visits, and remove an entry from Recent",
+    uiEntrypoints: [
+      "app/components/sidebar/PersonalSidebarSections.tsx",
+      "app/hooks/use-content-recent.ts",
+    ],
+    durableEffect:
+      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels and the requester's pinned state under current access. Removing an entry forgets only that visit.",
+    uiImplementation:
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action; the Recent row menu removes an entry through the shared Action and pins through update-document.",
+    status: "action-backed",
+    actions: [
+      "get-content-recent",
+      "record-content-visit",
+      "remove-content-recent",
+    ],
+    exception:
+      "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-recent.test.ts",
+      "shared/content-personal-navigation.test.ts",
+    ],
+  },
+  {
+    id: "sidebar.bounded-workspace-navigation",
+    surface: "sidebar",
+    label:
+      "Page through database-backed workspace roots and children and reveal the active path",
+    uiEntrypoints: [
+      "app/components/sidebar/DocumentSidebar.tsx",
+      "app/components/editor/database/sidebar.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "Database-backed Files navigation requests at most 20 immediate children per page and uses a bounded active-item context read; local-file mode still uses the document inventory.",
+    status: "action-backed",
+    actions: ["get-content-navigation-context", "query-content-database-items"],
+    exception:
+      "Both reads are hidden with agentTool: false because they are lean UI projections, not agent capability limits; agents use list-documents, get-document, search-documents, and navigate.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: "Bound local-file sidebar inventory",
+    coverageRefs: [
+      "actions/content-navigation-bounds.test.ts",
+      "actions/query-content-database-items.navigation.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
-    label: "Create, delete, move, favorite, list, search, and open pages",
+    label:
+      "Create, rename, duplicate, delete, move, favorite, list, search, and open pages",
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/components/sidebar/DocumentTreeItem.tsx",
+      "app/components/sidebar/SidebarRowActions.tsx",
+      "app/components/sidebar/MovePageDialog.tsx",
+      "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
     status: "action-backed",
     actions: [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
+      "duplicate-page",
       "get-document",
+      "get-document-activity",
       "list-trashed-documents",
       "list-documents",
       "move-document",
       "permanently-delete-document",
       "restore-document",
+      "rollback-created-slash-document",
       "search-documents",
       "update-document",
     ],
@@ -35,9 +99,51 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/database-setup.db.test.ts",
+      "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/rollback-created-slash-document.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "trash.search-preview-and-purge",
+    surface: "sidebar",
+    label:
+      "Search root and nested Trash, preview Page bodies, restore or delete loaded items, and empty an explicit space scope with durable progress",
+    uiEntrypoints: [
+      "app/routes/_app.trash.tsx",
+      "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/EmptyTrashDialog.tsx",
+      "app/hooks/use-content-trash.ts",
+    ],
+    durableEffect:
+      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
+    uiImplementation:
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter.",
+    status: "action-backed",
+    actions: [
+      "execute-content-trash-purge",
+      "get-content-trash-purge-plan",
+      "get-content-trash-operation",
+      "get-trashed-document",
+      "list-content-trash",
+      "permanently-delete-document",
+      "plan-content-trash-purge",
+      "restore-document",
+    ],
+    exception:
+      "The read-only preview currently renders the Page body only, not full typed Properties, comments, or History.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-content-trash.db.test.ts",
+      "actions/content-trash-purge.db.test.ts",
+      "app/components/editor/trash-preview-content.test.ts",
+      "app/hooks/content-action-refresh.trash.test.ts",
+    ],
   },
   {
     id: "workspace.spaces-and-files-catalog",
@@ -100,7 +206,7 @@ export const parityMatrix: ParityRow[] = [
     surface: "workspace",
     label:
       "Resolve the app root to the caller's last authorized page or a private welcome page",
-    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    uiEntrypoints: ["app/routes/_app.home.tsx", "app/lib/content-landing.ts"],
     durableEffect:
       "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
     uiImplementation:
@@ -168,6 +274,49 @@ export const parityMatrix: ParityRow[] = [
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.suggested-edits",
+    surface: "editor",
+    label: "Propose reviewable suggested edits (track changes)",
+    uiEntrypoints: [
+      "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/ReviewDiscussionTools.tsx",
+      "app/components/editor/CommentsSidebar.tsx",
+    ],
+    durableEffect:
+      "Pending suggestions are stored as authored proposal records; the canonical page body stays unchanged until a reviewer accepts.",
+    uiImplementation:
+      "The editor's suggesting mode creates proposals through the core create-resource-suggestion action with tracked-change operations; agents propose typed find/replace suggestions through suggest-document-edit.",
+    status: "action-backed",
+    actions: ["suggest-document-edit"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/suggest-document-edit.db.test.ts"],
+  },
+  {
+    id: "editor.blocks-field-word-count",
+    surface: "editor",
+    label: "Inspect per-field word counts",
+    uiEntrypoints: ["app/components/editor/DocumentInfoPanel.tsx"],
+    durableEffect:
+      "Authorized Blocks-field word counts read the current field without combining sibling fields.",
+    uiImplementation:
+      "Page Info projects live per-field counts; agents request the same exact field through a read-only action.",
+    status: "action-backed",
+    actions: ["get-blocks-field-word-count"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-blocks-field-word-count.test.ts",
+      "app/components/editor/DocumentInfoPanel.test.ts",
+    ],
   },
   {
     id: "editor.client-formatting-and-insertions",
@@ -297,18 +446,18 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.table-query-page",
     surface: "database",
-    label: "Query one constrained page while retaining database metadata",
+    label: "Query one constrained table page while retaining database metadata",
     uiEntrypoints: [
       "app/components/editor/database/DatabaseView.tsx",
       "app/hooks/use-content-database.ts",
     ],
     durableEffect: null,
     uiImplementation:
-      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible; the sidebar uses the same action's separate bounded navigation projection.",
     status: "action-backed",
     actions: ["query-content-database-items"],
     exception:
-      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for database reads and list-documents, get-document, search-documents, and navigate for workspace navigation.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -358,7 +507,9 @@ export const parityMatrix: ParityRow[] = [
       "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
+      "update-database-items",
       "migrate-content-database-rows",
+      "manage-content-database-migration",
       "move-database-item",
       "set-document-property",
     ],
@@ -389,7 +540,11 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
     status: "action-backed",
-    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    actions: [
+      "get-preview-document-draft",
+      "resolve-preview-document-draft",
+      "update-preview-document-draft",
+    ],
     exception:
       "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
     reliabilityRisk: "none",
@@ -430,6 +585,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "actions/database-setup-mcp.db.test.ts",
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
       "actions/resync-content-database-source.db.test.ts",
@@ -740,6 +896,39 @@ export const parityMatrix: ParityRow[] = [
     routePatterns: ["/api/notion/auth-url", "/api/notion/callback"],
   },
   {
+    id: "comments.ai-intents",
+    surface: "comments",
+    label:
+      "Ask AI to reply, propose a suggestion, or apply an edit and resolve feedback",
+    uiEntrypoints: [
+      "app/components/editor/CommentsSidebar.tsx",
+      "app/components/editor/comment-ai.tsx",
+    ],
+    durableEffect:
+      "Intent-bound requests retain their feedback and document revisions, dispatch one scoped agent run, and persist the resulting reply, suggestion, or verified edit receipt.",
+    uiImplementation:
+      "Comment thread controls start a request through the shared action surface; the scoped agent can call only the context action and the operation bound to the selected intent.",
+    status: "action-backed",
+    actions: [
+      "apply-comment-ai-request",
+      "create-comment-ai-suggestion",
+      "get-comment-ai-context",
+      "list-comment-ai-requests",
+      "reply-to-comment-ai-request",
+      "start-comment-ai-request",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/comment-ai-flow.test.ts",
+      "app/components/editor/comment-ai.test.tsx",
+      "server/lib/comment-ai-progress.test.ts",
+    ],
+  },
+  {
     id: "comments.threads",
     surface: "comments",
     label: "List, add, reply, resolve, reopen, and delete comment threads",
@@ -777,7 +966,13 @@ export const parityMatrix: ParityRow[] = [
     uiImplementation:
       "Version panel reads and restores through document version actions.",
     status: "action-backed",
-    actions: ["list-document-versions", "restore-document-version"],
+    actions: [
+      "list-document-versions",
+      "list-document-history",
+      "list-document-history-checkpoints",
+      "get-document-history-checkpoint",
+      "restore-document-version",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

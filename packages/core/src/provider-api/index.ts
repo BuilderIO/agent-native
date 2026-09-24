@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { AgentConnectionRequiredError } from "../action.js";
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
   describeCredentialScopeGap,
@@ -756,7 +757,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Clay is a GTM provider API capability, not a messaging channel.",
-      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent Native access does not require that plugin session.",
+      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent-Native access does not require that plugin session.",
       "Search results use a stateful forward-only iterator: repeat POST /search/filters-mode/{search_id}/run while has_more is true.",
       "The Tables API is query-only, requires an Enterprise plan, and needs a known table id; the Public API does not list, create, or update tables.",
       "Routine runs are asynchronous. Start a run, then poll the documented results endpoint or use a verified completion webhook.",
@@ -988,6 +989,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "gmail",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/gmail/api/reference/rest"],
@@ -1142,6 +1144,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_calendar",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/calendar/api/v3/reference"],
@@ -2166,9 +2169,12 @@ export async function resolveProviderApiOAuthAccessToken(
         accountId: args.accountId,
       });
   if (!credential) {
-    throw new Error(
-      `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
-    );
+    return throwWorkspaceConnectionRequired({
+      runtime,
+      provider: oauthAuth.workspaceProvider ?? oauthAuth.oauthProvider,
+      connectionId: args.connectionId,
+      message: `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
+    });
   }
   return {
     accessToken: credential.value,
@@ -4074,6 +4080,18 @@ async function resolveAnyCredential(options: {
     options.keys,
     options.ctx,
   ).catch(() => null);
+  if (
+    options.workspaceProvider &&
+    !options.runtime.resolveCredential &&
+    !scopeGap
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: options.connectionId,
+      message: `${options.provider} requires an available workspace connection.`,
+    });
+  }
   throw new Error(
     `${options.provider} credential not configured. Tried: ${options.keys.join(
       ", ",
@@ -4095,6 +4113,18 @@ async function resolveRequiredCredential(options: {
     // coercion-ok: only enriches an error we throw either way — losing the scope
     // hint still surfaces the real "not configured" failure, never a success.
     .catch(() => null);
+  if (
+    options.workspaceProvider &&
+    !options.runtime.resolveCredential &&
+    !scopeGap
+  ) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: options.connectionId,
+      message: `${options.provider} requires an available workspace connection.`,
+    });
+  }
   throw new Error(
     `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
   );
@@ -4136,6 +4166,47 @@ const googleServiceTokenCache = new Map<
   string,
   { token: string; expiresAt: number }
 >();
+
+const DEFAULT_GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
+const ALLOWED_GOOGLE_TOKEN_URI_HOSTS = new Set([
+  "oauth2.googleapis.com",
+  "accounts.google.com",
+  "www.googleapis.com",
+]);
+
+/**
+ * Service-account JSON may carry an attacker-controlled `token_uri`. Only
+ * allow HTTPS Google OAuth hosts (and reject anything the shared SSRF guard
+ * blocks) before using the URI as JWT `aud` or as a fetch target.
+ */
+async function resolveGoogleServiceAccountTokenUri(
+  tokenUri: string | undefined,
+): Promise<string> {
+  const aud = tokenUri?.trim() || DEFAULT_GOOGLE_TOKEN_URI;
+  let parsed: URL;
+  try {
+    parsed = new URL(aud);
+  } catch {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    !ALLOWED_GOOGLE_TOKEN_URI_HOSTS.has(host) ||
+    (await isBlockedExtensionUrlWithDns(aud))
+  ) {
+    throw new Error(
+      "Invalid or untrusted token_uri in service account credentials",
+    );
+  }
+  return aud;
+}
 
 async function getGoogleServiceAccountToken(
   scopes: readonly string[],
@@ -4180,7 +4251,7 @@ async function getGoogleServiceAccountToken(
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const aud = creds.token_uri || "https://oauth2.googleapis.com/token";
+  const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
   const jwt = await signRs256Jwt(
     {
       iss: creds.client_email,
@@ -4268,9 +4339,41 @@ async function resolveConnectionBoundOAuthBearerToken(options: {
   const credential =
     await resolveOptionalConnectionBoundOAuthBearerToken(options);
   if (credential) return credential;
-  throw new Error(
-    `${options.auth.tokenLabel} requires an available workspace connection.`,
-  );
+  return throwWorkspaceConnectionRequired({
+    runtime: options.runtime,
+    provider: options.workspaceProvider,
+    connectionId: options.connectionId,
+    message: `${options.auth.tokenLabel} requires an available workspace connection.`,
+  });
+}
+
+async function throwWorkspaceConnectionRequired(options: {
+  runtime: ProviderApiRuntimeOptions;
+  provider: string;
+  connectionId?: string | null;
+  message: string;
+}): Promise<never> {
+  let reason: "connect" | "grant" | "reauthorize" = "connect";
+  const resolved = await resolveWorkspaceConnectionForApp({
+    appId: options.runtime.appId,
+    provider: options.provider,
+    connectionId: options.connectionId?.trim() || undefined,
+    includeDisabled: true,
+    requireConnected: false,
+  });
+  if (resolved.connection && resolved.appAccess?.available === false) {
+    reason = "grant";
+  } else if (
+    resolved.connection &&
+    resolved.connection.status !== "connected"
+  ) {
+    reason = "reauthorize";
+  }
+  throw new AgentConnectionRequiredError(options.message, {
+    provider: options.provider,
+    reason,
+    appId: options.runtime.appId,
+  });
 }
 
 async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
@@ -4301,7 +4404,14 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     throw error;
   }
   if (!resolved.available || !resolved.connection) {
-    if (requestedConnectionId) throw new Error(resolved.reason);
+    if (requestedConnectionId) {
+      return throwWorkspaceConnectionRequired({
+        runtime: options.runtime,
+        provider: options.workspaceProvider,
+        connectionId: requestedConnectionId,
+        message: resolved.reason,
+      });
+    }
     return null;
   }
   const connectionAccountId = resolved.connection.accountId?.trim();
@@ -5576,6 +5686,13 @@ async function handleSaveToFile(
     );
   }
 
+  const scratchPath = isScratchWorkspacePath(filePath);
+  if (!ok && !scratchPath) {
+    throw new Error(
+      `Refusing to save a failed provider response to durable workspace file "${filePath}" (status ${status}). Use a scratch/... path for diagnostics.`,
+    );
+  }
+
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
   const meta = await writeWorkspaceFile(
     scope,
@@ -5598,9 +5715,7 @@ async function handleSaveToFile(
     preview: preview.length < responseText.length ? `${preview}…` : preview,
     // A durable (non-scratch) file renders a download card the moment it's
     // created — no separate show-workspace-file call needed to get a link.
-    ...(isScratchWorkspacePath(filePath)
-      ? {}
-      : { file: toWorkspaceFileCard(meta) }),
+    ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

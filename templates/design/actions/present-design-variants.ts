@@ -6,6 +6,7 @@ import {
 import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -13,15 +14,19 @@ import { z } from "zod";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
-import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
   getResponsiveGroupWidth,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
@@ -114,7 +119,7 @@ function designDeepLink(designId: string): string {
     app: "design",
     view: "editor",
     params: { designId, editorView: "overview" },
-    to: `/design/${encodeURIComponent(designId)}?view=overview`,
+    to: `/design/${encodeURIComponent(designId)}?editorView=overview`,
   });
 }
 
@@ -199,8 +204,6 @@ interface VariantScreen {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
-
-const MAX_FILENAME_INSERT_ATTEMPTS = 5;
 
 /**
  * True only when `rawSet` proves none of its screens has ever been removed by
@@ -491,9 +494,16 @@ async function deleteVariantSetsByIds(
   });
 
   if (removedFileIds.length > 0) {
-    await db
-      .delete(schema.designFiles)
-      .where(inArray(schema.designFiles.id, removedFileIds));
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await tx
+        .delete(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.id, removedFileIds),
+          ),
+        );
+    });
 
     // Closes the small window between the metadata prune above and the
     // physical row delete: mirrors delete-file.ts's before/delete/after
@@ -712,7 +722,7 @@ function fallbackVariantContent(
 body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
-.shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
+.shell { box-sizing: border-box; width: 100%; max-width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
 .panel { border: 1px solid var(--line); background: var(--panel); border-radius: ${density === "dense" ? "14" : "22"}px; box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(${density === "glass" ? "26" : "10"}px); }
 .sidebar { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -744,6 +754,7 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
 .shortcut { margin-top:auto; border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; gap:10px; color:#cbd5e1; font-size:12px; }
 ${tablet ? ".right { display: none; }" : ""}
 ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nav div { padding: 10px; } .main { padding: 18px; } .top { display: grid; } .top .badge { width: fit-content; } h1 { font-size: 26px; } .right { display: none; } .column:nth-child(n+3) { display: none; }" : ""}
+@media (max-width: 900px) { body { width: 100%; max-width: ${screenWidth}px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr; padding: 18px; gap: 14px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .top { display: grid; } .top .badge { width: fit-content; } .board { grid-template-columns: 1fr; } .right { display: none; } .column:nth-child(n+3) { display: none; } }
 </style>
 </head>
 <body>
@@ -820,6 +831,10 @@ function placeVariantScreens(
     let rowHeight = 0;
 
     for (const [offset, screen] of row.entries()) {
+      const visibleWidths = visibleBreakpointWidths(
+        breakpointWidths,
+        screen.width,
+      );
       placements.push({
         fileId: screen.id,
         filename: screen.filename,
@@ -829,18 +844,24 @@ function placeVariantScreens(
         height: screen.height,
         z: rowStart + offset,
       });
+      // These frames use their natural device dimensions, so previews are
+      // drawn at scale 1.
       x +=
         getResponsiveGroupWidth({
           primaryWidth: screen.width,
-          // Frames are placed at their natural device width, so the breakpoint
-          // previews beside them are drawn unscaled.
           scale: 1,
-          visibleWidths: visibleBreakpointWidths(
-            breakpointWidths,
-            screen.width,
-          ),
+          visibleWidths,
         }) + VARIANT_GAP;
-      rowHeight = Math.max(rowHeight, screen.height);
+      rowHeight = Math.max(
+        rowHeight,
+        getResponsiveGroupHeight({
+          primaryHeight: screen.height,
+          scale: 1,
+          sourceWidth: screen.width,
+          sourceHeight: screen.height,
+          visibleWidths,
+        }),
+      );
     }
 
     rowY += rowHeight + VARIANT_GAP;
@@ -853,16 +874,10 @@ function placeVariantScreens(
  * settles: the design's own set when it has one, otherwise the set this action
  * is about to install. */
 function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
-  const breakpoints = hasBreakpointSet(currentBreakpointSet)
-    ? ((currentBreakpointSet as { breakpoints: Array<{ widthPx?: unknown }> })
-        .breakpoints ?? [])
-    : DEFAULT_RESPONSIVE_BREAKPOINTS;
-  return breakpoints
-    .map((breakpoint) => breakpoint.widthPx)
-    .filter(
-      (widthPx): widthPx is number =>
-        typeof widthPx === "number" && Number.isFinite(widthPx) && widthPx > 0,
-    );
+  if (!hasBreakpointSet(currentBreakpointSet)) {
+    return DEFAULT_RESPONSIVE_BREAKPOINTS.map(({ widthPx }) => widthPx);
+  }
+  return getResponsiveBreakpointWidths(currentBreakpointSet);
 }
 
 export default defineAction({
@@ -927,8 +942,12 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
+  run: async (
+    { designId, prompt, variants, deleteSupersededSetIds },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
@@ -978,45 +997,45 @@ export default defineAction({
 
     const db = getDb();
     const now = new Date().toISOString();
-    const existingFiles = await db
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const variantSetId = nanoid();
-    const screens: VariantScreen[] = [];
+    let screenFileIds: string[] = [];
+    const screenContents = new Map<string, string>();
+    const screens = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        const existingFiles = await tx
+          .select()
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, designId));
+        const usedFilenames = new Set(
+          existingFiles.map((file) => file.filename),
+        );
+        screenFileIds = getOverviewScreenFileIds(existingFiles);
+        const createdScreens: VariantScreen[] = [];
 
-    for (let index = 0; index < variants.length; index += 1) {
-      const variant = variants[index]!;
-      const label = variant.label.trim() || optionName(index);
-      const slug = slugify(label, `option-${index + 1}`);
-      let filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-      let fileId = nanoid();
-      const providedContent = variant.content?.trim();
-      const initialSize = inferVariantSize(variant, prompt);
-      const rawContent =
-        providedContent ||
-        fallbackVariantContent(variant, index, prompt, initialSize);
-      const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content: rawContent })
-        : initialSize;
-      // Stamp missing data-agent-native-node-id attributes before persisting
-      // so each variant screen is fully addressable by id-keyed editor
-      // operations as soon as it lands on the overview board.
-      const content = annotateScreenHtmlForPersist(rawContent, "html");
+        for (let index = 0; index < variants.length; index += 1) {
+          const variant = variants[index]!;
+          const label = variant.label.trim() || optionName(index);
+          const slug = slugify(label, `option-${index + 1}`);
+          const filename = uniqueFilename(
+            `variant-${slug}.html`,
+            usedFilenames,
+          );
+          const fileId = nanoid();
+          const providedContent = variant.content?.trim();
+          const initialSize = inferVariantSize(variant, prompt);
+          const rawContent =
+            providedContent ||
+            fallbackVariantContent(variant, index, prompt, initialSize);
+          const { width, height } = providedContent
+            ? inferVariantSize({ ...variant, content: rawContent })
+            : initialSize;
+          // Stamp missing data-agent-native-node-id attributes before
+          // persisting so each variant screen is fully addressable by
+          // id-keyed editor operations as soon as it lands on the board.
+          const content = annotateScreenHtmlForPersist(rawContent, "html");
 
-      // `usedFilenames` is a snapshot taken once at the top of run(), so a
-      // concurrent present-design-variants call (an agent retry after a
-      // timeout is the common trigger) can independently compute the same
-      // (designId, filename) pair and win the insert first. The
-      // `design_files_design_filename_unique_idx` unique index (see
-      // server/plugins/db.ts) turns the loser's insert into a constraint
-      // error instead of a silently duplicated screen; recover by refreshing
-      // the real filename list from the DB, picking a fresh unique name, and
-      // retrying — bounded so a persistent non-race failure still surfaces.
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          await db.insert(schema.designFiles).values({
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename,
@@ -1025,34 +1044,26 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
-          break;
-        } catch (err) {
-          if (
-            !isUniqueConstraintViolation(err) ||
-            attempt >= MAX_FILENAME_INSERT_ATTEMPTS
-          ) {
-            throw err;
-          }
-          const freshFiles = await db
-            .select({ filename: schema.designFiles.filename })
-            .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId));
-          for (const file of freshFiles) usedFilenames.add(file.filename);
-          filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-          fileId = nanoid();
-        }
-      }
-      await seedFromText(fileId, content);
+          usedFilenames.add(filename);
+          screenContents.set(fileId, content);
 
-      screens.push({
-        id: fileId,
-        variantId: variant.id,
-        label,
-        filename,
-        width,
-        height,
-      });
-    }
+          createdScreens.push({
+            id: fileId,
+            variantId: variant.id,
+            label,
+            filename,
+            width,
+            height,
+          });
+        }
+        return createdScreens;
+      },
+    );
+    await Promise.all(
+      screens.map((screen) =>
+        seedFromText(screen.id, screenContents.get(screen.id)!),
+      ),
+    );
 
     // Presenting options should not silently reconfigure the design. When it
     // does, the overview paints an extra preview beside EVERY primary frame
@@ -1078,6 +1089,13 @@ export default defineAction({
             // marching further down each time.
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
+              responsiveLayout: {
+                screenFileIds,
+                screenMetadataByFileId: current.screenMetadata,
+                breakpointWidths: effectiveBreakpointWidths(
+                  current.breakpointSet,
+                ),
+              },
             }),
           ),
           resolveFileId: (placement) => placement.fileId,
@@ -1172,7 +1190,7 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
     // The pick opens a continuation turn that inherits nothing from this one,
     // and that turn is what expands the kept placeholder into the real screen.
@@ -1216,7 +1234,7 @@ export default defineAction({
           allowOther: false,
           includeExplore: false,
           includeDecide: false,
-          submitOnSelect: true,
+          submitOnSelect: false,
           options: screens.map((screen, index) => {
             const otherScreens = screens
               .filter((other) => other.id !== screen.id)
@@ -1238,13 +1256,25 @@ export default defineAction({
     });
     await deleteAppState("design-variants").catch(() => false);
 
+    track(
+      "variants_generated",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        variant_count: screens.length,
+      },
+      context,
+    );
+
     return {
       designId,
       prompt: prompt ?? "Pick a direction",
       variantSetId,
       count: screens.length,
       screens,
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
       deletedSupersededSetIds: variantSetCleanup.removedSetIds,

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getAgentHarnessSession: vi.fn(),
   updateAgentHarnessSession: vi.fn(),
   markAgentHarnessSessionStopped: vi.fn(),
+  isAgentHarnessSessionConflictError: (error: unknown) =>
+    error instanceof Error && error.name === "AgentHarnessSessionConflictError",
 }));
 
 vi.mock("../run-manager.js", () => ({
@@ -18,6 +20,7 @@ vi.mock("../run-manager.js", () => ({
 vi.mock("./store.js", () => ({
   saveAgentHarnessSession: mocks.saveAgentHarnessSession,
   getAgentHarnessSession: mocks.getAgentHarnessSession,
+  isAgentHarnessSessionConflictError: mocks.isAgentHarnessSessionConflictError,
   updateAgentHarnessSession: mocks.updateAgentHarnessSession,
   markAgentHarnessSessionStopped: mocks.markAgentHarnessSessionStopped,
 }));
@@ -150,6 +153,71 @@ describe("startAgentHarnessRun", () => {
     );
   });
 
+  it("persists a resumable checkpoint instead of marking a boundary stopped", async () => {
+    const session = fakeSession(
+      "native-checkpoint",
+      [{ type: "text-delta", text: "partial" }],
+      { token: "checkpoint" },
+    );
+    const adapter = fakeAdapter(session);
+    let capturedRunFn: (
+      send: (event: AgentChatEvent) => void,
+      signal: AbortSignal,
+      control: {
+        turnSignal: AbortSignal;
+        chunkSignal: AbortSignal;
+        chunkBoundaryReason: () => string | null;
+        beginChunk: () => AbortSignal;
+      },
+    ) => Promise<void>;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-checkpoint",
+      threadId: "thread-checkpoint",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-checkpoint" },
+    });
+
+    const turn = new AbortController();
+    const chunk = new AbortController();
+    chunk.abort("run_timeout");
+    const control = {
+      turnSignal: turn.signal,
+      chunkSignal: chunk.signal,
+      chunkBoundaryReason: () => "run_timeout",
+      beginChunk: () => turn.signal,
+    };
+    await capturedRunFn!(() => {}, chunk.signal, control);
+
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(mocks.markAgentHarnessSessionStopped).not.toHaveBeenCalled();
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledWith(
+      "stored-checkpoint",
+      expect.objectContaining({
+        status: "idle",
+        resumeState: { token: "checkpoint" },
+        pendingApproval: null,
+      }),
+    );
+    expect(mocks.startRun.mock.calls[0]?.[4]).toEqual(
+      expect.objectContaining({ recoverChunkBoundaries: true }),
+    );
+  });
+
   it("cleans up and marks the session errored when streaming fails", async () => {
     const session = fakeSession("native-error", [
       { type: "error", error: "provider disconnected" },
@@ -192,6 +260,102 @@ describe("startAgentHarnessRun", () => {
       "stored-error",
       expect.objectContaining({ status: "errored", pendingApproval: null }),
     );
+  });
+
+  it("preserves a lifecycle winner when an approval write loses its CAS race", async () => {
+    const session = fakeSession("native-race", [
+      {
+        type: "approval-request",
+        id: "approval-race",
+        message: "Allow the tool?",
+      },
+    ]);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.getAgentHarnessSession.mockResolvedValue({
+      status: "idle",
+      pendingApproval: null,
+    });
+    mocks.updateAgentHarnessSession.mockRejectedValueOnce(
+      Object.assign(new Error("Harness session changed concurrently"), {
+        name: "AgentHarnessSessionConflictError",
+      }),
+    );
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-race",
+      threadId: "thread-race",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-race" },
+    });
+
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(mocks.markAgentHarnessSessionStopped).not.toHaveBeenCalled();
+    expect(mocks.updateAgentHarnessSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes a newly created session when its initial save loses the CAS race", async () => {
+    const session = fakeSession("native-initial-race", []);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.saveAgentHarnessSession.mockRejectedValueOnce(
+      Object.assign(new Error("Harness session changed concurrently"), {
+        name: "AgentHarnessSessionConflictError",
+      }),
+    );
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-initial-race",
+      threadId: "thread-initial-race",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-initial-race" },
+    });
+
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(session.destroy).not.toHaveBeenCalled();
+    expect(mocks.getAgentHarnessSession).not.toHaveBeenCalled();
   });
 });
 

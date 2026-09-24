@@ -12,6 +12,11 @@ import type {
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
+import {
+  assertRegisteredActionAccess,
+  type ActionAccessConfig,
+} from "./authorization/action-access-runtime.js";
+import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -30,6 +35,8 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   selected actions are attributed as `"tool"`.
  * - `"automation"` — an event-triggered automation dispatched from a stored
  *   workspace trigger with trusted trigger lineage.
+ * - `"webmcp"` — a browser agent invoking an automatically projected action
+ *   through the authenticated page-local WebMCP bridge.
  */
 export type ActionCaller =
   | "tool"
@@ -37,6 +44,7 @@ export type ActionCaller =
   | "frontend"
   | "cli"
   | "mcp"
+  | "webmcp"
   | "a2a"
   | "automation";
 
@@ -82,6 +90,10 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** Hosting app/template id used for app-owned resource boundaries. */
   appId?: string;
+  /** Server-resolved app roles for this turn, for model context only. */
+  appRoles?: string[];
+  /** Server-resolved app permission grants for this turn, for model context only. */
+  appPermissions?: string[];
   /** How this action was invoked. */
   caller: ActionCaller;
   /** Present only for trigger-dispatched automation calls. */
@@ -155,8 +167,10 @@ export type ActionAuthorize<TArgs> = (
 ) => void | boolean | Promise<void | boolean>;
 
 export interface AgentActionStopOptions {
-  /** Optional stable code surfaced in run metadata and tests. */
+  /** Optional stable code safe to surface in run metadata and action transports. */
   errorCode?: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
   /** Optional short tool-result text. Defaults to the user-facing message. */
   toolResult?: string;
 }
@@ -204,6 +218,40 @@ export function isActionContractError(
   );
 }
 
+/** Transport metadata for a {@link fail} message. */
+export interface FailOptions {
+  /** Stable machine-readable code. Default: `"action_failed"`. */
+  errorCode?: string;
+  /** HTTP status for the action route. Default: `400`. */
+  statusCode?: number;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Abort an action with a message the caller is meant to read.
+ *
+ * Raises an `ActionContractError`, which is the only reason the message
+ * survives the action HTTP route: an ordinary `throw new Error(...)` is
+ * indistinguishable from a driver or upstream blowup there, so it is replaced
+ * by a generic 500 `"Internal server error"` and reported to error tracking.
+ * Raising through `fail()` is what declares the text safe to echo.
+ *
+ * Default `statusCode` is 400 so a browser query does not retry a refusal
+ * three more times. Pass an explicit status for a different deterministic
+ * cause (`404`, `409`) or a genuinely transient one (`503`, which is retried).
+ *
+ * The CLI runner (`pnpm script`) catches it and exits 1. In-server callers
+ * (agent tools, A2A) get it back as a tool-call error — no process.exit.
+ */
+export function fail(message: string, options: FailOptions = {}): never {
+  throw new ActionContractError(message, {
+    errorCode: options.errorCode ?? "action_failed",
+    statusCode: options.statusCode ?? 400,
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.
@@ -211,12 +259,14 @@ export function isActionContractError(
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
     this.name = "AgentActionStopError";
     this.errorCode = options.errorCode;
+    this.details = options.details;
     this.toolResult = options.toolResult;
   }
 }
@@ -231,6 +281,54 @@ export function isAgentActionStopError(
       typeof err === "object" &&
       "agentNativeStop" in err &&
       (err as { agentNativeStop?: unknown }).agentNativeStop === true,
+    )
+  );
+}
+
+export interface AgentConnectionRequiredOptions {
+  provider: string;
+  reason?: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
+  source?: { id: string; kind?: string; label?: string };
+  toolResult?: string;
+}
+
+/**
+ * Pauses an agent turn until the host resolves a provider through its trusted
+ * connection catalog. Connection URLs, credentials, and OAuth scopes are not
+ * accepted here by design.
+ */
+export class AgentConnectionRequiredError extends AgentActionStopError {
+  readonly agentConnectionRequired = true;
+  readonly provider: string;
+  readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
+  readonly appId?: string;
+  readonly source?: AgentConnectionRequiredOptions["source"];
+
+  constructor(message: string, options: AgentConnectionRequiredOptions) {
+    super(message, {
+      errorCode: "connection_required",
+      toolResult: options.toolResult,
+    });
+    this.name = "AgentConnectionRequiredError";
+    this.provider = options.provider;
+    this.reason = options.reason ?? "connect";
+    this.appId = options.appId;
+    this.source = options.source;
+  }
+}
+
+export function isAgentConnectionRequiredError(
+  error: unknown,
+): error is AgentConnectionRequiredError {
+  return (
+    error instanceof AgentConnectionRequiredError ||
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      "agentConnectionRequired" in error &&
+      (error as { agentConnectionRequired?: unknown })
+        .agentConnectionRequired === true,
     )
   );
 }
@@ -395,6 +493,8 @@ export interface ActionMcpAppResourceConfig {
 }
 
 export interface ActionMcpAppConfig {
+  /** Preserve the sanitized object result alongside concise text, even without an inline app. Use for durable mutation receipts. */
+  structuredContent?: boolean;
   /**
    * Optional MCP Apps UI resource for hosts that render inline app iframes.
    * Required when the action should open an interactive app view. Omit when
@@ -452,6 +552,8 @@ interface DefineActionWithSchema<
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
+  /** Optional human-facing tool title used by WebMCP and MCP hosts. */
+  title?: string;
   description: string;
   /** Standard Schema-compatible schema (Zod, Valibot, ArkType). Provides runtime
    *  validation and full TypeScript type inference for `run()` args. The schema is
@@ -501,6 +603,9 @@ interface DefineActionWithSchema<
    *  `Content-Length` before parsing. Use for public, no-auth POST actions;
    *  unset = no route-level cap. */
   maxBodyBytes?: number;
+  /** Require a server-minted browser capability and hide this action from
+   * every agent surface. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -511,6 +616,52 @@ interface DefineActionWithSchema<
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
    *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
+  /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
+   *  A2A action surface, which shares the same policy).
+   *
+   *  **Defaults to `agentTool`, not to `true`**: an action hidden from the
+   *  agent is hidden from outside agents too, so one flag stays one decision.
+   *  Declaring `mcpTool` overrides that inheritance in both directions.
+   *
+   *  - `false` — hard veto. The action is absent from `tools/list` AND from
+   *    `tools/call` on every MCP tier, including the rare `--full-catalog`
+   *    opt-in, while the in-app agent still calls it normally. Use it for
+   *    actions that only make sense with an in-app screen, a live session, or
+   *    the framework's own UI on the other end.
+   *  - `true` — the action-owned form of `mcp.connectorCatalog` membership:
+   *    this action is served on the curated external catalog. Declaring it on
+   *    any action activates the connector tier for the app, which is what lets
+   *    a template delete its hand-maintained `connectorCatalog` name list.
+   *    Paired with `agentTool: false` it makes the action MCP-only — external
+   *    agents get it, the app's own agent does not.
+   *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
+   *    whether it is advertised up front or found through `tool-search`.
+   *
+   *  Membership is not permission: an external caller still passes the OAuth
+   *  scope, `externalAgents` policy, and `publicAgent` checks. Resolved by
+   *  `isActionExposedToExternalAgents` below, which every external surface
+   *  reads instead of testing these two fields itself — including the rule
+   *  that an action ending the in-app agent's turn is in-app only by default,
+   *  because the user's answer flows back through the in-app chat that an
+   *  external caller is not on. */
+  mcpTool?: boolean;
+  /** Whether this action's schema is held back from the agent's FIRST-REQUEST
+   *  tool list and loaded on demand through `tool-search` instead. The
+   *  action-owned form of the plugin's `initialToolNames` array, so the app's
+   *  starter surface is declared beside each action rather than in a list that
+   *  drifts as actions are renamed.
+   *
+   *  - `false` — always in the initial set. As soon as ANY action declares
+   *    this, the derived default flips from "every one of the app's own
+   *    actions" to "the ones that opted in", which is what makes deleting
+   *    `initialToolNames` a real trim rather than a rename.
+   *  - `true` — never in the DERIVED set. An explicit `initialToolNames` entry
+   *    still wins, so a stale list is never silently overridden.
+   *  - `undefined` (default) — unchanged behavior.
+   *
+   *  This is about first-turn context cost, not access: a deferred action is
+   *  still callable the moment `tool-search` returns it. */
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
@@ -537,6 +688,11 @@ interface DefineActionWithSchema<
    *  Only set this for mutating actions that are internally concurrency-safe
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
+  /** If true, a successful call hands control to the user and the turn stops
+   *  there. Without it the loop asks the model for another step, and a
+   *  completion guard sees a turn that legitimately paused as one that failed
+   *  to finish. Set it on anything that puts a question or form on screen. */
+  endsTurn?: boolean;
   /** Set false to exempt a read-only tool from the agent loop's duplicate
    *  read-only call guard (per-turn result cache + "Skipped duplicate..."
    *  repeat detection). Default true (deduped). Use this for volatile/polling
@@ -557,6 +713,13 @@ interface DefineActionWithSchema<
    *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
+  /**
+   * Capability scopes that may invoke this action through the page-local
+   * WebMCP route without an account session. The route still supplies the
+   * verified capability to request context, so the action's own access checks
+   * remain authoritative.
+   */
+  capabilityScopes?: readonly string[];
   /** Explicit public-agent exposure metadata. Public web routes never imply
    *  public MCP/A2A/OpenAPI tool exposure. Actions must opt in here and public
    *  protocol mounts must still filter for safe, route-appropriate tools. */
@@ -602,6 +765,8 @@ interface DefineActionWithSchema<
         args: StandardSchemaV1.InferOutput<TSchema>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /**
    * Authorization gate that runs before `run()` on **every** caller — agent
    * tool, HTTP, frontend, MCP, A2A, and CLI. It wraps `run` itself rather than
@@ -626,6 +791,8 @@ interface DefineActionWithSchema<
    * ```
    */
   authorize?: ActionAuthorize<StandardSchemaV1.InferOutput<TSchema>>;
+  /** Shared app, organization, permission, and resource access contract. */
+  access?: ActionAccessConfig;
   /**
    * Audit-log configuration. **Default-on for mutating actions** — you only
    * need this to tune capture: declare the mutated `target` (so the change
@@ -646,6 +813,8 @@ interface DefineActionWithParams<
     | undefined,
   TReturn = any,
 > {
+  /** Optional human-facing tool title used by WebMCP and MCP hosts. */
+  title?: string;
   description: string;
   /** Flat map of parameter names to their schema. Automatically wrapped in
    *  `{ type: "object", properties: ... }` for the Claude API. */
@@ -676,10 +845,22 @@ interface DefineActionWithParams<
   /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
    *  See the schema overload above. */
   maxBodyBytes?: number;
+  /** Require the server-minted browser capability and hide this action from
+   * every agent surface. See the schema overload above. */
+  uiOnly?: boolean;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
   agentTool?: boolean;
+  /** Whether this action is exposed to external agents over MCP / direct A2A.
+   *  Defaults to `agentTool`. `false` is a hard veto on every MCP tier; `true`
+   *  declares curated connector-catalog membership, and with `agentTool:
+   *  false` makes the action MCP-only. See the schema overload above. */
+  mcpTool?: boolean;
+  /** Whether this action's schema is held back from the agent's first-request
+   *  tool list and loaded through `tool-search` instead. The action-owned form
+   *  of the plugin's `initialToolNames`. See the schema overload above. */
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -695,6 +876,9 @@ interface DefineActionWithParams<
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
+  /** If true, a successful call hands control to the user and the turn stops
+   *  there. See the schema overload above. */
+  endsTurn?: boolean;
   /** Set false to exempt a read-only tool from the duplicate read-only call
    *  guard. Default true. See the schema overload above. */
   dedupe?: boolean;
@@ -702,6 +886,8 @@ interface DefineActionWithParams<
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
   toolCallable?: boolean;
+  /** Capability scopes allowed on the page-local WebMCP route. */
+  capabilityScopes?: readonly string[];
   /** Explicit public-agent exposure metadata. See schema overload above. */
   publicAgent?: PublicAgentActionConfig;
   /** Optional deep-link builder. See schema overload above. */
@@ -722,9 +908,13 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  allowPersistentApproval?: boolean;
   /** Pre-run authorization gate applied to every caller. See the schema
    *  overload above for full semantics. */
   authorize?: ActionAuthorize<InferParams<TParams>>;
+  /** Shared app, organization, permission, and resource access contract. */
+  access?: ActionAccessConfig;
   /** Audit-log configuration (default-on for mutations). See the schema
    *  overload above and the `audit-log` skill. */
   audit?: ActionAuditConfig;
@@ -761,14 +951,19 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
+  readonly uiOnly?: boolean;
   readonly agentTool?: boolean;
+  readonly mcpTool?: boolean;
+  readonly deferLoading?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
+  readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
+  readonly capabilityScopes?: readonly string[];
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
@@ -791,10 +986,14 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Allow a saved user preference to satisfy `needsApproval`. Defaults true. */
+  readonly allowPersistentApproval?: boolean;
   /** Resolved audit-log configuration. Present only when the caller passed
    *  `audit`. The audit capture wrapper is baked into `run`; this field is for
    *  introspection. */
   readonly audit?: ActionAuditConfig;
+  /** Declarative access contract enforced before the action body runs. */
+  readonly access?: ActionAccessConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -810,7 +1009,7 @@ export interface ActionDefinition<TInput, TReturn> {
  * ArkType) for runtime validation and full type inference:
  *
  * ```ts
- * import { defineAction } from "@agent-native/core";
+ * import { defineAction } from "@agent-native/core/action";
  * import { z } from "zod";
  *
  * export default defineAction({
@@ -890,16 +1089,28 @@ export function defineAction(options: any) {
   // shape the caller sent. Putting it outside would have every guard reading
   // attacker-shaped input while typed as though it were validated.
   const guardedRun =
-    typeof options.authorize === "function"
-      ? wrapRunWithAuthorize(options.run, options.authorize)
+    typeof options.authorize === "function" || options.access
+      ? wrapRunWithAccess(options.run, options.access, options.authorize)
       : options.run;
+  const uiOnlyGuardedRun =
+    options.uiOnly === true
+      ? async (args: any, ctx?: ActionRunContext) => {
+          if (ctx?.caller !== "frontend") {
+            fail("This action can only be called from the signed-in app UI.", {
+              errorCode: "ui_only_action",
+              statusCode: 403,
+            });
+          }
+          return guardedRun(args, ctx);
+        }
+      : guardedRun;
 
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
   const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, guardedRun, toolParameters)
-    : guardedRun;
+    ? wrapWithValidation(options.schema, uiOnlyGuardedRun, toolParameters)
+    : uiOnlyGuardedRun;
 
   // Then wrap with OUTPUT validation when an outputSchema is provided. This
   // composes AROUND the input-validated run so the order is: validate input →
@@ -942,6 +1153,8 @@ export function defineAction(options: any) {
       : inferredReadOnly
         ? true
         : undefined;
+  const uiOnly: boolean | undefined =
+    typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   // Audit: wrap the validated run so every mutating call records an audit
   // event (who/what/when/from-where, and for the agent which run). Default-on
@@ -952,6 +1165,7 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
+  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
 
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
@@ -968,10 +1182,25 @@ export function defineAction(options: any) {
   // from the agent tool surfaces; undefined is preserved (treated as exposed).
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
+  // mcpTool / deferLoading: like `agentTool`, `undefined` is a distinct third
+  // state and must survive to the entry. Both flags mean something different
+  // when declared than when omitted — an explicit `mcpTool: true` puts the
+  // action on the curated external catalog, and an explicit
+  // `deferLoading: false` narrows the derived first-request set — so
+  // collapsing undefined to the default here would erase the declaration the
+  // surfaces read.
+  const mcpTool: boolean | undefined =
+    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const deferLoading: boolean | undefined =
+    typeof options.deferLoading === "boolean"
+      ? options.deferLoading
+      : undefined;
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const endsTurn: boolean | undefined =
+    typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -991,7 +1220,11 @@ export function defineAction(options: any) {
       return undefined;
     }
     // compactCatalog-only: no resource required; just keep the flag.
-    if (options.mcpApp.compactCatalog === true && !options.mcpApp.resource) {
+    if (
+      (options.mcpApp.compactCatalog === true ||
+        options.mcpApp.structuredContent === true) &&
+      !options.mcpApp.resource
+    ) {
       return options.mcpApp as ActionMcpAppConfig;
     }
     // Full resource: validate html is present.
@@ -1010,10 +1243,13 @@ export function defineAction(options: any) {
 
   return {
     tool: {
+      ...(typeof options.title === "string" && options.title.trim()
+        ? { title: options.title.trim() }
+        : {}),
       description: options.description,
       parameters: toolParameters,
     },
-    run: finalRun,
+    run: trackedRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -1022,7 +1258,10 @@ export function defineAction(options: any) {
     ...(typeof options.maxBodyBytes === "number"
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
+    ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
+    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
@@ -1040,8 +1279,13 @@ export function defineAction(options: any) {
       ? { planMode: options.planMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
+    ...(Array.isArray(options.capabilityScopes) &&
+    options.capabilityScopes.length > 0
+      ? { capabilityScopes: options.capabilityScopes }
+      : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
@@ -1065,37 +1309,92 @@ export function defineAction(options: any) {
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
       : {}),
+    ...(typeof options.allowPersistentApproval === "boolean"
+      ? { allowPersistentApproval: options.allowPersistentApproval }
+      : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
+    ...(options.access ? { access: options.access } : {}),
   };
 }
 
 /**
- * Wrap an action's run with its `authorize` gate.
+ * Whether an action is exposed to EXTERNAL agents — MCP and the direct A2A
+ * action surface. The one resolver every surface asks; nothing downstream
+ * re-derives this from the two raw fields.
  *
- * The gate is applied here, around `run`, rather than exposed as a flag on the
- * action entry: `run` is the one thing all six dispatch sites (agent loop, HTTP
- * route, frontend, MCP, A2A, CLI) go through, so there is no caller that can
- * reach the body without passing the check. `needsApproval` took the flag route
- * and is consequently honoured only inside the agent loop.
+ * `mcpTool` DEFAULTS TO `agentTool` rather than to a flat `true`, so hiding an
+ * action from the agent hides it from outside agents too and one flag stays
+ * one decision. Declaring `mcpTool` overrides that inheritance in both
+ * directions:
  *
- * Composed so the full order is: validate input → authorize → run → validate
- * output → audit. The audit wrapper is outermost, so a denial is still recorded
- * as an attempt — which is precisely what an audit trail is for.
+ *   agentTool: false                → hidden from every agent surface
+ *   agentTool: false, mcpTool: true → MCP-only: external agents get it, the
+ *                                     app's own agent does not
+ *   mcpTool: false                  → in-app only, whatever `agentTool` says
+ *   endsTurn: true                  → in-app only, unless `mcpTool: true` is explicit
  *
- * A guard that throws denies with its own message. A guard that returns `false`
- * denies generically. Anything else — including `undefined` — allows.
+ * The MCP-only combination needs the plugin to route those actions around the
+ * `filterAgentTools` gate — see `mcpOnlyActions` in `agent-chat-plugin.ts`.
  */
-function wrapRunWithAuthorize(
+export function isActionExposedToExternalAgents(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+  endsTurn?: boolean;
+  uiOnly?: boolean;
+}): boolean {
+  if (entry.uiOnly === true) return false;
+  // An action that ends the in-app agent's turn is in-app only by default,
+  // because the user's answer flows back through the in-app chat that an
+  // external caller is not on — only an explicit `mcpTool: true` opts back in.
+  if (entry.endsTurn === true) {
+    return entry.mcpTool === true;
+  }
+  return typeof entry.mcpTool === "boolean"
+    ? entry.mcpTool
+    : entry.agentTool !== false;
+}
+
+/**
+ * Whether an action is hidden from EVERY agent surface — the in-app agent and
+ * external agents alike.
+ *
+ * The runtime backstops (`executeAgentToolCall`, `searchToolRegistry`) use
+ * this rather than `agentTool === false`: each caller already passes a
+ * surface-scoped registry, so the backstop's job is to catch an entry that no
+ * surface should ever run, not to re-litigate which surface this is. Testing
+ * `agentTool` alone made those two refuse the MCP-only actions their own
+ * caller had deliberately handed them.
+ */
+export function isActionHiddenFromEveryAgentSurface(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+  uiOnly?: boolean;
+}): boolean {
+  return (
+    entry.uiOnly === true ||
+    (entry.agentTool === false && entry.mcpTool !== true)
+  );
+}
+
+function wrapRunWithAccess(
   run: (args: any, ctx?: ActionRunContext) => any,
-  authorize: ActionAuthorize<any>,
+  access: ActionAccessConfig | undefined,
+  authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
-  return async function authorizedRun(args: any, ctx?: ActionRunContext) {
-    const verdict = await authorize(args, ctx);
-    if (verdict === false) {
-      const err = new Error("Not authorized") as Error & { statusCode: number };
-      err.name = "ForbiddenError";
-      err.statusCode = 403;
-      throw err;
+  return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (access) {
+      await assertRegisteredActionAccess(access, args, ctx);
+    }
+    if (authorize) {
+      const verdict = await authorize(args, ctx);
+      if (verdict === false) {
+        const err = new Error("Not authorized") as Error & {
+          statusCode: number;
+        };
+        err.name = "ForbiddenError";
+        err.statusCode = 403;
+        throw err;
+      }
     }
     return run(args, ctx);
   };
@@ -1729,6 +2028,102 @@ export function describeToolParameterSignature(
 }
 
 /**
+ * Records a value already validated against a schema, keyed by the
+ * `ActionRunContext` object about to be passed to `run()` — not by the
+ * validated value itself. A Standard Schema may legitimately validate down to
+ * a primitive (a `WeakMap`/`WeakSet` can't key on those, and two equal
+ * primitives from unrelated calls would collide anyway), while `ctx` is
+ * always a fresh object built once per call. Scoped by schema too, so a value
+ * validated for one action's schema can never skip a *different* action's
+ * validation. It exists because a second pass through a non-idempotent schema
+ * (a `.preprocess`/`.transform` that isn't stable under re-parsing) could hand
+ * `run()` a different value than the one a `needsApproval` predicate decided
+ * against — re-validating would silently reopen that gap.
+ */
+const preValidatedForContext = new WeakMap<
+  object,
+  { schema: StandardSchemaV1; value: unknown }
+>();
+
+/**
+ * Validate + coerce raw args against a Standard Schema, returning the same
+ * parsed value `run()` would receive. Shared by `wrapWithValidation` and any
+ * caller — such as a `needsApproval` predicate — that must decide against the
+ * normalized value the action will actually execute with (defaults applied,
+ * "false" coerced to `false`, …) rather than the raw wire shape a predicate
+ * evaluated on unparsed JSON would misread. Throws the same "Invalid action
+ * parameters" error `run()` would on invalid input. Pass the exact
+ * `ActionRunContext` object that will be handed to that same action's
+ * `run()` as `ctx` and it skips its internal re-validation (see
+ * `preValidatedForContext`) instead of parsing the value a second time.
+ */
+export async function validateActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+  ctx?: object,
+): Promise<any> {
+  args = coerceGatewayStringifiedArgs(args, toolParameters);
+  const result = await schema["~standard"].validate(args);
+  if (result.issues) {
+    // Split issues into "missing required field" vs other validation errors
+    // so the error message reads naturally rather than as "fieldName: Required".
+    const missing: string[] = [];
+    const other: string[] = [];
+    for (const issue of result.issues) {
+      const pathStr = issue.path
+        ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
+        : "";
+      const msg = String(issue.message ?? "");
+      // Zod emits "Required" for missing fields; other libraries may use
+      // similar wording. Treat any variant as "missing".
+      if (
+        pathStr &&
+        (msg === "Required" ||
+          /invalid.*undefined/i.test(msg) ||
+          /expected.*received undefined/i.test(msg))
+      ) {
+        missing.push(pathStr);
+      } else {
+        other.push(pathStr ? `${pathStr}: ${msg}` : msg);
+      }
+    }
+
+    const parts: string[] = [];
+    if (missing.length > 0) {
+      parts.push(
+        `Missing required parameter${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
+      );
+    }
+    if (other.length > 0) {
+      parts.push(other.join("; "));
+    }
+
+    // Echo the args that were actually passed so the caller (usually an
+    // agent) can see exactly what it sent and fix its next call.
+    let received: string;
+    try {
+      received = JSON.stringify(args);
+      if (received.length > 500) received = received.slice(0, 500) + "…";
+    } catch {
+      received = String(args);
+    }
+
+    const signature = describeToolParameterSignature(toolParameters);
+    const expected = signature
+      ? ` Expected: ${signature} (where * = required, ? = optional).`
+      : "";
+
+    throw new Error(
+      `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+    );
+  }
+  const value = (result as StandardSchemaV1.SuccessResult<any>).value;
+  if (ctx) preValidatedForContext.set(ctx, { schema, value });
+  return value;
+}
+
+/**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
  * so the agent can see its own mistake and correct it on the next turn.
@@ -1739,62 +2134,20 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    args = coerceGatewayStringifiedArgs(args, toolParameters);
-    const result = await schema["~standard"].validate(args);
-    if (result.issues) {
-      // Split issues into "missing required field" vs other validation errors
-      // so the error message reads naturally rather than as "fieldName: Required".
-      const missing: string[] = [];
-      const other: string[] = [];
-      for (const issue of result.issues) {
-        const pathStr = issue.path
-          ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
-          : "";
-        const msg = String(issue.message ?? "");
-        // Zod emits "Required" for missing fields; other libraries may use
-        // similar wording. Treat any variant as "missing".
-        if (
-          pathStr &&
-          (msg === "Required" ||
-            /invalid.*undefined/i.test(msg) ||
-            /expected.*received undefined/i.test(msg))
-        ) {
-          missing.push(pathStr);
-        } else {
-          other.push(pathStr ? `${pathStr}: ${msg}` : msg);
-        }
-      }
-
-      const parts: string[] = [];
-      if (missing.length > 0) {
-        parts.push(
-          `Missing required parameter${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}`,
-        );
-      }
-      if (other.length > 0) {
-        parts.push(other.join("; "));
-      }
-
-      // Echo the args that were actually passed so the caller (usually an
-      // agent) can see exactly what it sent and fix its next call.
-      let received: string;
-      try {
-        received = JSON.stringify(args);
-        if (received.length > 500) received = received.slice(0, 500) + "…";
-      } catch {
-        received = String(args);
-      }
-
-      const signature = describeToolParameterSignature(toolParameters);
-      const expected = signature
-        ? ` Expected: ${signature} (where * = required, ? = optional).`
-        : "";
-
-      throw new Error(
-        `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
-      );
+    const cached =
+      ctx && typeof ctx === "object"
+        ? preValidatedForContext.get(ctx)
+        : undefined;
+    // Object.is, not ===, so a schema that legitimately validates down to
+    // NaN is still recognized (NaN !== NaN, but Object.is(NaN, NaN) is true)
+    // and doesn't fall through to a second, potentially non-idempotent pass.
+    // Object.is, not ===, so a schema that legitimately validates down to
+    // NaN is still recognized (NaN !== NaN, but Object.is(NaN, NaN) is true)
+    // and doesn't fall through to a second, potentially non-idempotent pass.
+    if (cached && cached.schema === schema && Object.is(cached.value, args)) {
+      return run(args, ctx);
     }
-    return run((result as StandardSchemaV1.SuccessResult<any>).value, ctx);
+    return run(await validateActionArgs(schema, args, toolParameters), ctx);
   };
 }
 

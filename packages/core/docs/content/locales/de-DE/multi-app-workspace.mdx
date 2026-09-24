@@ -7,6 +7,10 @@ description: "Hosten Sie viele agentennative Apps in einem Monorepo mit gemeinsa
 
 > **Welches Arbeitsbereichsdokument?** Diese Seite behandelt die **Bereitstellungsform** – ein Monorepo, viele Apps, gemeinsame Authentifizierung und eine einheitliche Bereitstellung. Informationen zur Anpassungsebene des Agenten (Agent-Ressourcen: `AGENTS.md`, Speicher, skills, benutzerdefinierte Agenten) finden Sie unter [Agent-Ressourcen](/docs/agent-resources); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
 
+## Standalone oder Workspace? {#standalone-or-workspace}
+
+Wählen Sie einen Workspace, wenn ein Unternehmen mehrere interne Apps mit gemeinsamer Bereitstellungskonfiguration und Organisationskontext betreibt. Eine Standalone-App eignet sich für ein einzelnes unabhängiges Tool oder einen Prototyp. Sie ist ein unterstütztes Bereitstellungsmodell, bietet aber keine gemeinsamen Workspace-Pakete oder Root-Konfiguration. Siehe [Verwaltete Bereitstellungen](/docs/administered-deployments).
+
 Wenn die Vibe-Codierung eines internen Tools einen Nachmittag in Anspruch nimmt, hören Sie nicht bei einem auf. Am Ende hat ein Team einen CRM, einen Support-Posteingang, ein Dashboard, eine Betriebskonsole – zehn kleine Apps, die jeweils unabhängig voneinander aufgebaut sind. Das ist großartig, bis Sie an allen etwas ändern müssen.
 
 Zu diesem Zeitpunkt hat jede App ihr eigenes `AGENTS.md`, ihr eigenes Authentifizierungs-Plugin, ihre eigene kopierte und eingefügte Layoutkomponente, ihr eigenes fest codiertes Slack-Token und ihre eigene Vorstellung davon, was eine „Organisation“ ist. Eine Änderung der Compliance-Regeln bedeutet zehn PRs. Das Rotieren eines API-Schlüssels bedeutet zehn Neubereitstellungen. Eine Markenaktualisierung bedeutet, dass zehn verschiedene Header nicht mehr synchron sind. Was es einfach gemacht hat, sie zu erstellen, macht es jetzt schwierig, sie zu verwalten.
@@ -38,7 +42,7 @@ Die gleiche Grenze gilt, wenn Ihre App eine andere Erstanbieter-App verwenden m�
 Arbeitsbereich ist die Standardform eines agentennativen Projekts. Gerüst eins mit:
 
 ```bash
-npx @agent-native/core@latest create my-company-platform
+npx --yes @agent-native/core@latest create my-company-platform
 ```
 
 CLI zeigt eine Mehrfachauswahlauswahl für jede Erstanbietervorlage. Wählen Sie so viele aus, wie Sie möchten – zum Beispiel Mail + Kalender + Formulare – und alle werden in denselben Arbeitsbereich integriert und teilen Authentifizierungs- und Datenbankstandards.
@@ -134,7 +138,7 @@ Das ist es. Die neue App verfügt über dieselben Anmelde- und Arbeitsbereichsan
 
 ## Was Sie wo überschreiben {#layering}
 
-Agent-native Apps innerhalb eines Arbeitsbereichs lösen übergreifendes Verhalten an drei Stellen in dieser Reihenfolge:
+Agent-Native Apps innerhalb eines Arbeitsbereichs lösen übergreifendes Verhalten an drei Stellen in dieser Reihenfolge:
 
 1. **App local** – Dateien innerhalb von `apps/<name>/` (höchste Priorität)
 2. **Freigegebener Arbeitsbereich** – Dateien innerhalb von `packages/shared/` (der gemeinsam genutzten Mittelschicht)
@@ -397,11 +401,13 @@ Diese Einstellungen wirken sich nur auf die schreibgeschützte Seitennavigation 
 
 ### Unabhängige Bereitstellung pro App
 
-Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.company.com`)? Jede App im Arbeitsbereich ist immer noch ein unabhängiges Deployable – `cd apps/mail && npx @agent-native/core@latest build` verhält sich genau wie ein eigenständiges Gerüst. Der App-übergreifende A2A durchläuft dann den standardmäßigen JWT-signierten Pfad mit einem gemeinsam genutzten `A2A_SECRET`. Der domänenübergreifende SSO zwischen separat bereitgestellten Apps wird von der Identitätsföderation mit Dispatch als Hub abgewickelt – siehe [Cross-App SSO](/docs/cross-app-sso); Durch die einheitliche Single-Origin-Bereitstellung ist dies nicht erforderlich.
+Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.company.com`)? Jede App im Arbeitsbereich ist immer noch ein unabhängiges Deployable – `cd apps/mail && pnpm build` verhält sich genau wie ein eigenständiges Gerüst. Der App-übergreifende A2A durchläuft dann den standardmäßigen JWT-signierten Pfad mit einem gemeinsam genutzten `A2A_SECRET`. Der domänenübergreifende SSO zwischen separat bereitgestellten Apps wird von der Identitätsföderation mit Dispatch als Hub abgewickelt – siehe [Cross-App SSO](/docs/cross-app-sso); Durch die einheitliche Single-Origin-Bereitstellung ist dies nicht erforderlich.
 
 ### Gemeinsame Datenbank, gemeinsame Anmeldeinformationen
 
 Was auch immer Sie auswählen, verweisen Sie jede App auf den gleichen `DATABASE_URL` für einen App-übergreifenden Status: ein Satz Benutzerkonten, ein Satz Organisationen, ein Satz gemeinsamer Einstellungen. Wenn jede App über eine eigene Datenbank verfügt, funktioniert das Arbeitsbereichsmuster weiterhin – Sie verlieren nur die Geschichte des gemeinsamen Status.
+
+Der Verbindungsbedarf summiert sich über alle Prozesse, die dieselbe Datenbank verwenden. Wenn fünf dauerhaft laufende Node.js-App-Prozesse jeweils einen gemeinsamen Pool für dieselbe `DATABASE_URL` nutzen, können sie beim Standardwert von 20 Verbindungen pro Pool bis zu 100 Verbindungen belegen (`5 × 1 Pool × 20`). Bei serverlosen Workspaces schätzen Sie die Zahl warmer Funktionsinstanzen pro App anhand der laufzeitspezifischen Pool-Standardwerte. Unter [Serverdatenbank](/docs/server-database) finden Sie `AGENT_NATIVE_DB_POOL_MAX` und die vollständigen Hinweise zur Verbindungsplanung.
 
 Das freigegebene Paket selbst wird niemals eigenständig bereitgestellt. Es handelt sich um eine `workspace:*`-Abhängigkeit, die mit dem `node_modules/` jeder App symbolisch mit pnpm verknüpft ist, sodass jede App zur Erstellungszeit transparent alles bündelt, was sie benötigt.
 

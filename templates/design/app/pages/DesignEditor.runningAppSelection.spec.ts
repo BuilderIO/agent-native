@@ -206,6 +206,28 @@ describe("liveNudgeReorderHandoff", () => {
     expect(handoff!.placement).toBe(intent.placement);
   });
 
+  it("resolves the anchor in the same file-scoped runtime namespace", () => {
+    const source = { kind: "inline-html" as const, fileId: "screen-a" };
+    const projection = buildCodeLayerProjection(ROW, { source });
+    const anchor = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "beta",
+    );
+    expect(anchor).toBeDefined();
+
+    expect(
+      liveNudgeReorderHandoff({
+        content: ROW,
+        anchorNodeId: anchor!.id,
+        placement: "after",
+        source,
+      }),
+    ).toMatchObject({
+      anchorSelector: expect.stringContaining("beta"),
+      anchorSourceId: "beta",
+      placement: "after",
+    });
+  });
+
   it("returns null for an anchor that is not in the document", () => {
     // Caller drops the keypress rather than queueing an edit anchored to
     // nothing, which would corrupt the pending-edit batch.

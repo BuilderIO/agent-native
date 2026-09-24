@@ -1,207 +1,43 @@
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@agent-native/toolkit/ui/command";
-import {
   IconBolt,
   IconCheck,
   IconChevronDown,
-  IconCloud,
   IconDeviceDesktop,
   IconExternalLink,
   IconKey,
   IconLoader2,
   IconRoute,
+  IconSearch,
   IconServer2,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import {
+  deleteAgentEnginePersonalProviderSettings,
+  fetchOllamaModels,
+  getAgentEngineProviderKeyStatus,
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
+  type AgentEngineProviderKeyStatus,
 } from "../agent-engine-key.js";
 import {
-  AGENT_PROVIDER_CATALOG,
   getAgentProviderOption,
   type AgentProviderId,
-  type AgentProviderOption,
 } from "../agent-provider-catalog.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { AgentProviderPicker } from "./AgentProviderPicker.js";
 
-export interface AgentProviderPickerProps {
-  value: AgentProviderId;
-  onChange: (provider: AgentProviderId) => void;
-  options?: readonly AgentProviderOption[];
-  configuredProviders?: ReadonlySet<AgentProviderId>;
-  disabled?: boolean;
-  className?: string;
-  layout?: "compact" | "page";
-}
-
-function ProviderIcon({
-  option,
-  size = 15,
-}: {
-  option: AgentProviderOption;
-  size?: number;
-}) {
-  if (option.kind === "local") return <IconDeviceDesktop size={size} />;
-  if (option.kind === "gateway") return <IconRoute size={size} />;
-  return <IconCloud size={size} />;
-}
-
-export function AgentProviderPicker({
-  value,
-  onChange,
-  options = AGENT_PROVIDER_CATALOG,
-  configuredProviders,
-  disabled = false,
-  className,
-  layout = "compact",
-}: AgentProviderPickerProps) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const active = getAgentProviderOption(value);
-  const isPage = layout === "page";
-
-  return (
-    <div className={cn("space-y-1.5", className)}>
-      <p
-        className={cn(
-          "font-medium text-foreground",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
-      >
-        {t("agentPanel.chooseProvider", {
-          defaultValue: "Choose a provider",
-        })}
-      </p>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={t("agentPanel.chooseProvider", {
-              defaultValue: "Choose a provider",
-            })}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md border border-border bg-background text-start text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60",
-              isPage ? "min-h-10 px-3 text-sm" : "min-h-9 px-2.5 text-[12px]",
-            )}
-          >
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/50 text-muted-foreground">
-              <ProviderIcon option={active} size={isPage ? 16 : 14} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{active.label}</span>
-            </span>
-            <IconChevronDown
-              size={isPage ? 16 : 14}
-              className="shrink-0 text-muted-foreground"
-            />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={6}
-          className="w-[min(390px,calc(100vw-2rem))] p-0"
-        >
-          <Command
-            filter={(candidate, search) =>
-              candidate.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
-            }
-          >
-            <CommandInput
-              placeholder={t("agentPanel.searchProviders", {
-                defaultValue: "Search providers...",
-              })}
-            />
-            <CommandList className="max-h-[min(440px,calc(100vh-8rem))]">
-              <CommandEmpty>
-                {t("agentPanel.noProvidersFound", {
-                  defaultValue: "No providers found.",
-                })}
-              </CommandEmpty>
-              <CommandGroup
-                heading={t("agentPanel.availableProviders", {
-                  defaultValue: "Available providers",
-                })}
-              >
-                {options.map((option) => {
-                  const configured = configuredProviders?.has(option.id);
-                  return (
-                    <CommandItem
-                      key={option.id}
-                      value={`${option.label} ${option.description} ${option.key ?? "local"}`}
-                      onSelect={() => {
-                        onChange(option.id);
-                        setOpen(false);
-                      }}
-                      className="items-center gap-2.5 py-2.5"
-                    >
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent/50 text-muted-foreground">
-                        <ProviderIcon option={option} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5">
-                          <span className="truncate font-medium">
-                            {option.label}
-                          </span>
-                          {configured ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-primary">
-                              <IconCheck size={11} />
-                              {t("agentPanel.configured", {
-                                defaultValue: "Configured",
-                              })}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                          {option.description}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
-                        {option.key
-                          ? t("agentPanel.apiKey", {
-                              defaultValue: "API key",
-                            })
-                          : t("agentPanel.localRuntime", {
-                              defaultValue: "Local",
-                            })}
-                      </span>
-                      <IconCheck
-                        size={15}
-                        className={cn(
-                          "shrink-0",
-                          option.id === value ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
+export {
+  AgentProviderPicker,
+  type AgentProviderPickerProps,
+} from "./AgentProviderPicker.js";
 
 export interface AgentProviderSetupFormProps {
   initialProvider?: AgentProviderId;
   configuredProviders?: ReadonlySet<AgentProviderId>;
   onConnected?: (provider: AgentProviderId) => void;
+  /** @deprecated Provider keys are saved at organization scope. */
   scope?: "user" | "org";
   layout?: "compact" | "page";
   showTitle?: boolean;
@@ -212,7 +48,6 @@ export function AgentProviderSetupForm({
   initialProvider = "anthropic",
   configuredProviders,
   onConnected,
-  scope = "user",
   layout = "compact",
   showTitle = true,
   className,
@@ -223,22 +58,112 @@ export function AgentProviderSetupForm({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
-  const [endpointOpen, setEndpointOpen] = useState(
-    initialProvider === "ollama",
-  );
+  const [endpointOpen, setEndpointOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [removingPersonalKey, setRemovingPersonalKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerKeyStatus, setProviderKeyStatus] =
+    useState<AgentEngineProviderKeyStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
+    null,
+  );
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
   const active = getAgentProviderOption(provider);
+
+  const refreshProviderKeyStatus = async () => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    try {
+      const status = await getAgentEngineProviderKeyStatus(provider);
+      setProviderKeyStatus(status);
+      setStatusError(status.status === "unknown");
+    } catch {
+      setProviderKeyStatus(null);
+      setStatusError(true);
+    }
+  };
+
+  useEffect(() => {
+    if (!active.key) {
+      setProviderKeyStatus(null);
+      setStatusError(false);
+      return;
+    }
+    let cancelled = false;
+    void getAgentEngineProviderKeyStatus(provider)
+      .then((status) => {
+        if (cancelled) return;
+        setProviderKeyStatus(status);
+        setStatusError(status.status === "unknown");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProviderKeyStatus(null);
+        setStatusError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   useEffect(() => {
     setModel(active.defaultModel);
     setApiKey("");
     setEndpoint("");
-    setEndpointOpen(provider === "ollama");
+    setEndpointOpen(false);
     setError(null);
     setSaved(false);
+    setOllamaModels(null);
+    setOllamaModelsError(null);
   }, [active.defaultModel, provider]);
+
+  // Ask the Ollama server itself which models it has pulled, instead of only
+  // offering the static suggestion list. Triggered explicitly by the "Find
+  // models" button rather than on every keystroke, so the request always
+  // uses the address the user actually meant to check.
+  const handleFindOllamaModels = () => {
+    setOllamaModelsLoading(true);
+    setOllamaModelsError(null);
+    const typedEndpoint = endpoint.trim();
+    void fetchOllamaModels(typedEndpoint || undefined)
+      .then(async (models) => {
+        setOllamaModels(models);
+        setOllamaModelsError(null);
+        // A successful check is the only signal this address actually works.
+        // Persist it as soon as it's confirmed — other surfaces that read
+        // the saved Ollama endpoint (like the chat composer's model picker)
+        // have no address field of their own, so without this they keep
+        // falling back to the http://localhost:11434 default until the main
+        // "Use Ollama" button below is also clicked.
+        if (typedEndpoint && active.endpointKey) {
+          try {
+            await saveAgentEngineProviderSettings({
+              provider,
+              key: active.endpointKey,
+              baseUrl: typedEndpoint,
+            });
+            void refreshProviderKeyStatus();
+          } catch {
+            // coercion-ok: the connectivity check itself still succeeded and
+            // the found models are shown; the address just wasn't persisted
+            // (e.g. a dropped session). The main submit button below retries
+            // the save, so this is never reported to the user as a clean
+            // success — it's a silent retry opportunity, not a lost error.
+          }
+        }
+      })
+      .catch((err) => {
+        setOllamaModels(null);
+        setOllamaModelsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setOllamaModelsLoading(false));
+  };
 
   const handleProviderChange = (nextProvider: AgentProviderId) => {
     setProvider(nextProvider);
@@ -264,7 +189,7 @@ export function AgentProviderSetupForm({
           ...(active.key ? { key: active.key } : {}),
           ...(apiKey.trim() ? { apiKey } : {}),
           ...(endpoint.trim() ? { baseUrl: endpoint } : {}),
-          scope,
+          scope: "org",
         });
       }
       await setAgentEngineProvider({
@@ -273,6 +198,7 @@ export function AgentProviderSetupForm({
       });
       setApiKey("");
       setSaved(true);
+      void refreshProviderKeyStatus();
       onConnected?.(provider);
       window.setTimeout(() => setSaved(false), 2200);
     } catch (err) {
@@ -288,9 +214,35 @@ export function AgentProviderSetupForm({
     }
   };
 
-  const isConfigured = configuredProviders?.has(provider) || saved;
-  const modelInputVisible = active.supportsCustomModel;
+  const handleUseOrganizationKey = async () => {
+    if (removingPersonalKey) return;
+    setRemovingPersonalKey(true);
+    setError(null);
+    try {
+      await deleteAgentEnginePersonalProviderSettings(provider);
+      await refreshProviderKeyStatus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("agentPanel.providerSetupFailed", {
+              defaultValue: "Could not configure this provider.",
+            }),
+      );
+    } finally {
+      setRemovingPersonalKey(false);
+    }
+  };
+
+  const isConfigured =
+    configuredProviders?.has(provider) ||
+    providerKeyStatus?.status === "set" ||
+    saved;
+  // The catalog provides current suggestions, while the free-form field keeps
+  // newly released provider models usable before the catalog is refreshed.
+  const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
+  const isOllama = provider === "ollama";
 
   return (
     <form
@@ -329,6 +281,36 @@ export function AgentProviderSetupForm({
             })}
           </p>
         </div>
+      ) : null}
+
+      {providerKeyStatus?.effectiveScope === "user" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>{t("agentPanel.personalKeyInEffect")}</span>
+          {providerKeyStatus.organizationKeyPresent ? (
+            <button
+              type="button"
+              disabled={removingPersonalKey || saving}
+              onClick={() => void handleUseOrganizationKey()}
+              className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              {removingPersonalKey
+                ? t("agentPanel.savingProvider", { defaultValue: "Saving..." })
+                : t("agentPanel.useOrganizationKey")}
+            </button>
+          ) : null}
+        </div>
+      ) : providerKeyStatus?.effectiveScope === "org" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.organizationKeyInEffect")}
+        </p>
+      ) : providerKeyStatus?.effectiveScope === "workspace" ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.sharedKeyInEffect")}
+        </p>
+      ) : statusError ? (
+        <p className="text-[11px] text-muted-foreground">
+          {t("agentPanel.keyStatusUnavailable")}
+        </p>
       ) : null}
 
       <AgentProviderPicker
@@ -418,6 +400,54 @@ export function AgentProviderSetupForm({
           </div>
         )}
 
+        {isOllama && endpointVisible ? (
+          <div className="space-y-1.5">
+            <span
+              className={cn(
+                "font-medium text-foreground",
+                isPage ? "text-xs" : "text-[11px]",
+              )}
+            >
+              {t("agentPanel.endpointUrl", { defaultValue: "Endpoint URL" })}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="url"
+                value={endpoint}
+                disabled={saving}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={active.endpointPlaceholder}
+                onChange={(event) => {
+                  setEndpoint(event.target.value);
+                  setOllamaModels(null);
+                  setOllamaModelsError(null);
+                }}
+                className={cn(
+                  "min-w-0 flex-1 rounded-md border border-input bg-background text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background placeholder:text-muted-foreground/50",
+                  isPage ? "h-10 px-3 text-sm" : "h-8 px-2.5 text-[12px]",
+                )}
+              />
+              <button
+                type="button"
+                disabled={saving || ollamaModelsLoading}
+                onClick={handleFindOllamaModels}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-input bg-background font-medium text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                  isPage ? "h-10 px-3 text-xs" : "h-8 px-2.5 text-[11px]",
+                )}
+              >
+                {ollamaModelsLoading ? (
+                  <IconLoader2 size={13} className="animate-spin" />
+                ) : (
+                  <IconSearch size={13} />
+                )}
+                {t("agentPanel.findModels", { defaultValue: "Find models" })}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {modelInputVisible ? (
           <label className="block space-y-1.5">
             <span
@@ -431,7 +461,7 @@ export function AgentProviderSetupForm({
             <input
               type="text"
               value={model}
-              list={`agent-provider-models-${provider}`}
+              list={isOllama ? undefined : `agent-provider-models-${provider}`}
               disabled={saving}
               spellCheck={false}
               autoComplete="off"
@@ -442,26 +472,76 @@ export function AgentProviderSetupForm({
                 isPage ? "h-10 px-3 text-sm" : "h-8 px-2.5 text-[12px]",
               )}
             />
-            <datalist id={`agent-provider-models-${provider}`}>
-              {active.supportedModels.map((modelOption) => (
-                <option key={modelOption} value={modelOption} />
-              ))}
-            </datalist>
+            {isOllama ? null : (
+              <datalist id={`agent-provider-models-${provider}`}>
+                {active.supportedModels.map((modelOption) => (
+                  <option key={modelOption} value={modelOption} />
+                ))}
+              </datalist>
+            )}
+            {isOllama ? (
+              <div className="space-y-1.5">
+                {ollamaModels && ollamaModels.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {ollamaModels.map((modelOption) => (
+                      <button
+                        key={modelOption}
+                        type="button"
+                        disabled={saving}
+                        onClick={() => setModel(modelOption)}
+                        aria-pressed={model === modelOption}
+                        className={cn(
+                          "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          model === modelOption
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background text-foreground hover:bg-accent/40",
+                        )}
+                      >
+                        {modelOption}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  {ollamaModelsLoading
+                    ? t("agentPanel.ollamaModelsChecking", {
+                        defaultValue: "Checking installed models…",
+                      })
+                    : ollamaModels && ollamaModels.length > 0
+                      ? t("agentPanel.ollamaModelsFound", {
+                          count: ollamaModels.length,
+                        })
+                      : ollamaModels
+                        ? t("agentPanel.ollamaModelsNone", {
+                            defaultValue:
+                              "Connected, but no models are pulled yet — run `ollama pull llama3.1`.",
+                          })
+                        : ollamaModelsError
+                          ? t("agentPanel.ollamaModelsError", {
+                              error: ollamaModelsError,
+                              defaultValue: `${ollamaModelsError} Showing example model names below.`,
+                            })
+                          : t("agentPanel.ollamaModelsPrompt", {
+                              defaultValue:
+                                'Click "Find models" above to list what your Ollama server actually has installed.',
+                            })}
+                </p>
+              </div>
+            ) : null}
           </label>
         ) : null}
 
-        {endpointVisible ? (
+        {!isOllama && endpointVisible ? (
           <div className="border-t border-border/70 pt-2">
             <button
               type="button"
               onClick={() => setEndpointOpen((open) => !open)}
               className="flex w-full items-center justify-between gap-2 text-start text-[11px] font-medium text-foreground"
               aria-expanded={endpointOpen}
-              title={
-                provider === "ollama"
-                  ? "Defaults to Ollama at http://localhost:11434."
-                  : "Use for LiteLLM or another OpenAI-compatible gateway."
-              }
+              title={t("agentPanel.compatibleEndpointHint", {
+                defaultValue:
+                  "Use this for LiteLLM or another OpenAI-compatible gateway.",
+              })}
             >
               <span className="inline-flex items-center gap-1.5">
                 <IconChevronDown
@@ -547,9 +627,24 @@ export function AgentProviderSetupForm({
           ) : null}
         </div>
         {error ? (
-          <p className="text-[11px] leading-relaxed text-destructive">
-            {error}
-          </p>
+          <div
+            role="alert"
+            aria-live="polite"
+            className="space-y-1 text-[11px] leading-relaxed text-destructive"
+          >
+            <p>{error}</p>
+            {active.docsUrl ? (
+              <a
+                href={active.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-2"
+              >
+                {t("agentPanel.getApiKey", { defaultValue: "Get an API key" })}
+                <IconExternalLink size={11} />
+              </a>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </form>

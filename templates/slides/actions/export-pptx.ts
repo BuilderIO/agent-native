@@ -1,10 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
@@ -307,6 +308,7 @@ interface TextElement {
   runs?: TextRunElement[];
   rotate?: number; // degrees clockwise
   order?: number;
+  stack?: number;
 }
 
 interface TextRunElement {
@@ -330,6 +332,7 @@ interface ImageElement {
   h: number;
   rotate?: number; // degrees clockwise
   order?: number;
+  stack?: number;
 }
 
 interface ShapeElement {
@@ -351,6 +354,7 @@ interface ShapeElement {
   points?: PptxGenJS.ShapeProps["points"];
   rotate?: number; // degrees clockwise
   order?: number;
+  stack?: number;
 }
 
 interface TableElement {
@@ -364,6 +368,7 @@ interface TableElement {
   /** Per-row heights in inches, from the source `a:tr/@h`; absent when the HTML declares none. */
   rowH?: number[];
   order?: number;
+  stack?: number;
 }
 
 interface GridElement {
@@ -753,6 +758,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     const geometry = importedGeometry(style, dims);
     if (!geometry) continue;
     const rotate = importedRotation(style);
+    const stack = cssStackLevel(style);
 
     if (kind === "image") {
       const imageAttrs = innerHtml.match(/<img\b([^>]*)>/i)?.[1] ?? "";
@@ -763,6 +769,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
           ...geometry,
           ...(rotate != null ? { rotate } : {}),
           order: match.index,
+          stack,
         });
       }
       continue;
@@ -803,6 +810,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
         ...line,
         ...(rotate != null ? { rotate } : {}),
         order: match.index,
+        stack,
       });
       continue;
     }
@@ -815,6 +823,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
           rows,
           ...importedTableTracks(innerHtml, rows, geometry),
           order: match.index,
+          stack,
         });
       }
       continue;
@@ -859,6 +868,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       runs,
       ...(rotate != null ? { rotate } : {}),
       order: match.index,
+      stack,
     });
   }
 
@@ -1579,6 +1589,44 @@ function importedRunOptions(
   };
 }
 
+/**
+ * An imported element's own paint level. The importer stamps every element with
+ * `z-index: <its index in the source deck's scene graph>`, so this is the true
+ * order the deck was drawn in; `auto` and absent both paint at 0, as a browser
+ * treats them. The div's position in the stored HTML string cannot stand in for
+ * it: a later edit rewrites that string without renumbering anything.
+ */
+function cssStackLevel(style: string): number {
+  const value = getStyle(style, "z-index");
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Stacks imported objects the way the deck draws them: by the level the
+ * importer recorded, then by source order within a level. Ordering on position
+ * in the stored HTML alone laid a full-slide panel over the content it belongs
+ * behind, since editing a slide rewrites that string without renumbering
+ * anything.
+ */
+export function orderImportedObjects(parsed: {
+  images: ImageElement[];
+  shapes: ShapeElement[];
+  tables: TableElement[];
+  texts: TextElement[];
+}) {
+  return [
+    ...parsed.texts.map((value) => ({ kind: "text" as const, value })),
+    ...parsed.images.map((value) => ({ kind: "image" as const, value })),
+    ...parsed.shapes.map((value) => ({ kind: "shape" as const, value })),
+    ...parsed.tables.map((value) => ({ kind: "table" as const, value })),
+  ].sort(
+    (a, b) =>
+      (a.value.stack ?? 0) - (b.value.stack ?? 0) ||
+      (a.value.order ?? 0) - (b.value.order ?? 0),
+  );
+}
+
 function cssPx(style: string, property: string): number | null {
   const value = getStyle(style, property);
   if (!value) return null;
@@ -1915,12 +1963,20 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }) => {
+  run: async ({ deckId, includeNotes }, ctx) => {
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
 
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw new Error(`Deck not found: ${deckId}`);
+    if (!access)
+      fail(`Deck not found: ${deckId}`, {
+        errorCode: "deck_not_found",
+        statusCode: 404,
+      });
 
     const row = access.resource;
     const deckData = JSON.parse(row.data);
@@ -1965,7 +2021,7 @@ export default defineAction({
       });
       pptx.layout = "AGENT_NATIVE";
     }
-    pptx.author = "Agent Native Slides";
+    pptx.author = "Agent-Native Slides";
     pptx.title = row.title;
     // The font scheme is the one half of the theme pptxgenjs does expose;
     // without it a themed deck re-imports as Calibri Light / Calibri.
@@ -2056,14 +2112,13 @@ export default defineAction({
       );
 
       // Imported elements are parsed separately because PptxGenJS needs real
-      // slide objects. Keep their source order so overlapping objects retain
-      // the same paint order as the editor preview.
-      const orderedObjects = [
-        ...orderedTexts.map((value) => ({ kind: "text" as const, value })),
-        ...orderedImages.map((value) => ({ kind: "image" as const, value })),
-        ...orderedShapes.map((value) => ({ kind: "shape" as const, value })),
-        ...orderedTables.map((value) => ({ kind: "table" as const, value })),
-      ].sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0));
+      // slide objects, so they are stacked back together here.
+      const orderedObjects = orderImportedObjects({
+        images: orderedImages,
+        shapes: orderedShapes,
+        tables: orderedTables,
+        texts: orderedTexts,
+      });
 
       for (const object of orderedObjects) {
         if (object.kind === "text") {
@@ -2189,6 +2244,19 @@ export default defineAction({
       filePath = path.join(exportDir, filename);
       fs.writeFileSync(filePath, buffer);
     }
+
+    track(
+      "deck_exported",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: deckId,
+        output_type: "deck",
+        export_format: "pptx",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
 
     return {
       buffer,

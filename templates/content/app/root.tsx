@@ -3,7 +3,6 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   createAgentNativeQueryClient,
-  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
@@ -22,14 +21,9 @@ import {
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import type { ListContentDatabasesResponse } from "@shared/api";
 import {
-  IconDatabase,
   IconDeviceDesktop,
   IconHierarchy2,
-  IconFileText,
-  IconFolderOpen,
-  IconLoader2,
   IconMoon,
   IconSun,
 } from "@tabler/icons-react";
@@ -39,7 +33,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -68,15 +62,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
+import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
-import {
-  contentCommandDocumentPath,
-  groupContentCommandSearchResults,
-  type CommandSearchDocumentsResponse,
-} from "./lib/content-command-search";
+import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -127,7 +118,8 @@ export function shouldRevalidate({
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
 const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  const { AgentSidebar } =
+    await import("@agent-native/core/client/AgentSidebar");
   return { default: AgentSidebar };
 });
 
@@ -240,7 +232,7 @@ function AppSetup() {
   return <LocalFolderLiveSync />;
 }
 
-function ThemeToggleItem() {
+function ThemeToggleItem({ query }: { query: string }) {
   const { theme, setTheme } = useTheme();
   const t = useT();
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
@@ -261,222 +253,27 @@ function ThemeToggleItem() {
     setTheme(next);
   };
 
-  return (
-    <CommandMenu.Item
-      onSelect={handleSelect}
-      keywords={["theme", "dark", "light", "system", "mode"]}
-    >
-      <ActiveIcon size={16} />
-      {t("root.toggleTheme")}
-      <span className="ml-auto text-xs text-muted-foreground">
-        {t(`theme.${activeOption.value}`)}
-      </span>
-    </CommandMenu.Item>
-  );
-}
-
-function CommandStateMessage({
-  children,
-  icon,
-}: {
-  children: React.ReactNode;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div
-      className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground"
-      role="status"
-      aria-live="polite"
-    >
-      {icon}
-      <span className="min-w-0 flex-1">{children}</span>
-    </div>
-  );
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => setDebouncedValue(value), delayMs);
-    return () => window.clearTimeout(id);
-  }, [delayMs, value]);
-
-  return debouncedValue;
-}
-
-function ContentCommandSearchResults({
-  query,
-  onOpenChange,
-}: {
-  query: string;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const t = useT();
-  const navigate = useNavigate();
-  const trimmedQuery = query.trim();
-  const debouncedQuery = useDebouncedValue(trimmedQuery, 200);
-  const searchEnabled = debouncedQuery.length > 0;
-  const documentsQuery = useActionQuery<CommandSearchDocumentsResponse>(
-    "search-documents",
-    searchEnabled ? { query: debouncedQuery, limit: 8 } : undefined,
-    { enabled: searchEnabled, retry: false },
-  );
-  const databasesQuery = useActionQuery<ListContentDatabasesResponse>(
-    "list-content-databases",
-    searchEnabled ? { query: debouncedQuery, limit: 6 } : undefined,
-    { enabled: searchEnabled, retry: false, staleTime: 60_000 },
-  );
-
-  const searchGroups = useMemo(
-    () =>
-      groupContentCommandSearchResults({
-        documents: documentsQuery.data?.documents ?? [],
-        databases: databasesQuery.data?.databases ?? [],
-        query: debouncedQuery,
-      }),
-    [
-      databasesQuery.data?.databases,
-      documentsQuery.data?.documents,
-      debouncedQuery,
-    ],
-  );
-
-  if (!trimmedQuery) return null;
-
-  const resultCount =
-    searchGroups.documents.length +
-    searchGroups.databases.length +
-    searchGroups.localFiles.length;
-  const isWaitingForDebounce = trimmedQuery !== debouncedQuery;
-  const isLoading =
-    (isWaitingForDebounce ||
-      documentsQuery.isLoading ||
-      databasesQuery.isLoading) &&
-    resultCount === 0;
-  const error = documentsQuery.error ?? databasesQuery.error;
-  const hasResults = resultCount > 0;
-
-  const openDocument = (documentId: string) => {
-    onOpenChange(false);
-    navigate(contentCommandDocumentPath(documentId));
-  };
-
-  if (isLoading) {
-    return (
-      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-        <CommandStateMessage
-          icon={<IconLoader2 className="size-4 animate-spin" />}
-        >
-          {t("root.commandSearchLoading")}
-        </CommandStateMessage>
-      </CommandMenu.Group>
-    );
-  }
-
-  if (error && !hasResults) {
-    return (
-      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-        <CommandStateMessage>
-          {t("root.commandSearchError")}
-        </CommandStateMessage>
-      </CommandMenu.Group>
-    );
-  }
-
-  if (!hasResults) {
-    return (
-      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-        <CommandStateMessage>
-          {t("root.commandSearchEmpty")}
-        </CommandStateMessage>
-      </CommandMenu.Group>
-    );
-  }
+  if (
+    query.trim() &&
+    ![t("root.toggleTheme"), "theme", "dark", "light", "system", "mode"].some(
+      (label) => label.toLowerCase().includes(query.trim().toLowerCase()),
+    )
+  )
+    return null;
 
   return (
-    <>
-      {error ? (
-        <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-          <CommandStateMessage>
-            {t("root.commandSearchPartialError")}
-          </CommandStateMessage>
-        </CommandMenu.Group>
-      ) : null}
-
-      {searchGroups.documents.length > 0 ? (
-        <CommandMenu.Group heading={t("root.commandDocumentsHeading")}>
-          {searchGroups.documents.map((document) => (
-            <CommandMenu.Item
-              key={`document:${document.id}`}
-              onSelect={() => openDocument(document.id)}
-              deferSelect={false}
-              className="items-start py-2"
-            >
-              <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">
-                  {document.title || t("sidebar.untitled")}
-                </span>
-                {document.snippet ? (
-                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
-                    {document.snippet}
-                  </span>
-                ) : null}
-              </span>
-            </CommandMenu.Item>
-          ))}
-        </CommandMenu.Group>
-      ) : null}
-
-      {searchGroups.databases.length > 0 ? (
-        <CommandMenu.Group heading={t("root.commandDatabasesHeading")}>
-          {searchGroups.databases.map((database) => (
-            <CommandMenu.Item
-              key={`database:${database.databaseId}`}
-              onSelect={() => openDocument(database.documentId)}
-              deferSelect={false}
-              className="items-start py-2"
-            >
-              <IconDatabase className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">
-                  {database.title || t("sidebar.untitled")}
-                </span>
-                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                  {t("root.commandDatabaseResultDescription")}
-                </span>
-              </span>
-            </CommandMenu.Item>
-          ))}
-        </CommandMenu.Group>
-      ) : null}
-
-      {searchGroups.localFiles.length > 0 ? (
-        <CommandMenu.Group heading={t("root.commandLocalFilesHeading")}>
-          {searchGroups.localFiles.map((document) => (
-            <CommandMenu.Item
-              key={`local-file:${document.id}`}
-              onSelect={() => openDocument(document.id)}
-              deferSelect={false}
-              className="items-start py-2"
-            >
-              <IconFolderOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">
-                  {document.title || t("sidebar.untitled")}
-                </span>
-                {document.snippet ? (
-                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
-                    {document.snippet}
-                  </span>
-                ) : null}
-              </span>
-            </CommandMenu.Item>
-          ))}
-        </CommandMenu.Group>
-      ) : null}
-    </>
+    <CommandMenu.Group heading={t("root.commandAppearance")}>
+      <CommandMenu.Item
+        onSelect={handleSelect}
+        keywords={["theme", "dark", "light", "system", "mode"]}
+      >
+        <ActiveIcon size={16} />
+        {t("root.toggleTheme")}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {t(`theme.${activeOption.value}`)}
+        </span>
+      </CommandMenu.Item>
+    </CommandMenu.Group>
   );
 }
 
@@ -528,9 +325,11 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 function ContentCommandMenu({
   open,
   onOpenChange,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -538,13 +337,19 @@ function ContentCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       placeholder={t("root.commandSearchPlaceholder")}
+      inputLabel={t("root.commandSearchDocuments")}
+      className="!top-1/2 h-[min(760px,calc(100vh-2rem))] w-[calc(100vw-1rem)] max-w-5xl !-translate-y-1/2 [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full"
+      showAgentFallback={false}
       changelog={changelog}
       changelogKey="content"
-      renderResults={(search) => (
+      renderContent={({ search, renderList }) => (
         <ContentCommandSearchResults
           query={search}
           onOpenChange={onOpenChange}
+          renderList={renderList}
+          staticItems={<ThemeToggleItem query={search} />}
         />
       )}
     >
@@ -554,23 +359,65 @@ function ContentCommandMenu({
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>
-      <CommandMenu.Group heading={t("root.commandAppearance")}>
-        <ThemeToggleItem />
-      </CommandMenu.Group>
     </CommandMenu>
+  );
+}
+
+function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target?.closest(".notion-editor")) return true;
+
+  const selection = window.getSelection();
+  return (
+    !selection || selection.isCollapsed || selection.toString().length === 0
   );
 }
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useCommandMenuShortcut(
+    useCallback(() => {
+      commandTrigger.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      setCmdkOpen(true);
+    }, []),
+    {
+      allowContentEditable: true,
+      shouldHandleContentEditable: shouldHandleEditorCommandMenuShortcut,
+    },
+  );
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      commandTrigger.current =
+        (event as CustomEvent<{ returnFocusTo?: HTMLElement }>).detail
+          ?.returnFocusTo ??
+        (document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+      setCmdkOpen(true);
+    };
+    window.addEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+    return () =>
+      window.removeEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+  }, []);
+  const handleCommandMenuCloseAutoFocus = useCallback((event: Event) => {
+    const target = commandTrigger.current;
+    if (!target?.isConnected) return;
+    event.preventDefault();
+    commandTrigger.current = null;
+    target.focus();
+  }, []);
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
+  const isMarketingHome = location.pathname === "/";
 
   // Content's 3-way theme cycle (system/light/dark) animates the transition;
   // pass disableThemeTransitions={false} to restore that behaviour.
@@ -579,12 +426,12 @@ export default function Root() {
   // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
-  if (isPublicPath) {
+  if (isPublicPath || isMarketingHome) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath
+          isPublicPath={isPublicPath || isMarketingHome}
           disableThemeTransitions={false}
           toaster={contentToaster}
           i18n={{
@@ -596,9 +443,13 @@ export default function Root() {
           }}
         >
           <Toaster />
-          <PublicAgentShell>
+          {isPublicPath ? (
+            <PublicAgentShell>
+              <Outlet />
+            </PublicAgentShell>
+          ) : (
             <Outlet />
-          </PublicAgentShell>
+          )}
         </AppProviders>
       </AppToolkitProvider>
     );
@@ -620,7 +471,11 @@ export default function Root() {
         <AppSetup />
         <Toaster />
         <RouteTransitionIndicator />
-        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <ContentCommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          onCloseAutoFocus={handleCommandMenuCloseAutoFocus}
+        />
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>

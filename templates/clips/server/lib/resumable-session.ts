@@ -1,4 +1,5 @@
 import {
+  compareAndSetAppState,
   deleteAppState,
   readAppState,
   writeAppState,
@@ -10,6 +11,20 @@ export interface StoredResumableSession {
   meta: Record<string, unknown>;
   bytesUploaded: number;
   lastCommittedIndex?: number;
+  providerClosed?: boolean;
+}
+
+export async function compareAndSetResumableSession(
+  recordingId: string,
+  expected: StoredResumableSession,
+  next: StoredResumableSession,
+  generationId?: string | null,
+): Promise<boolean> {
+  return compareAndSetAppState(
+    key(recordingId, generationId),
+    expected as unknown as Record<string, unknown>,
+    next as unknown as Record<string, unknown>,
+  );
 }
 
 const key = (recordingId: string, generationId?: string | null) =>

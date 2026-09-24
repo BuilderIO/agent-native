@@ -13,7 +13,15 @@ metadata:
 
 Use this skill when the user shares a feedback document, issue, thread, or pasted notes and asks you to address the feedback.
 
-The default posture is judgment plus action: fix clear, verified bugs you agree with; propose UX changes with rationale; skip or flag low-signal, unclear, or out-of-scope items.
+The default posture is judgment plus action: fix clear, verified bugs and
+handle concrete design/UX feedback about existing surfaces. In a Slack sweep,
+new capability requests still need the invoking identity's `:upvote:`; praise,
+status updates, merge/review requests, bot forwards, duplicates, and noise stay
+out of scope. Do not exclude Design feedback just because it is visual or
+subjective. If another agent or owner is already handling a report, leave it
+with that owner. If a previous run mistakenly reacted to an out-of-scope item,
+release the claim with `:no_entry_sign:` (triage complete, not a fix) when
+reactions are available and do not add a compensating reply.
 
 ## Choose the fix altitude
 
@@ -38,9 +46,9 @@ the right abstraction, not the most general one.
 - If no link or feedback text is provided, ask for it.
 - Read the repo `AGENTS.md` before touching code.
 - Use the relevant connector/plugin/skill for the source when available, instead of scraping authenticated pages.
-- For Slack, use the `SLACK_BOT_TOKEN` / `@agent-native` identity contract in
-  `address-feedback-with-replies`; never mix user OAuth reads or writes into a
-  bot-authenticated feedback workflow.
+- For Slack, use the connected identity contract in
+  `address-feedback-with-replies`; verify the invoking user's profile and use
+  that same identity for all reads, reactions, replies, and read-backs.
 - Before starting work, search available task history and local Git/PR metadata for the exact feedback link or issue identifiers. Reuse existing work instead of creating a duplicate fix.
 
 ## Steps
@@ -53,11 +61,11 @@ the right abstraction, not the most general one.
    | Google Docs/Drive link | Google Drive connector or Google Docs skill |
    | Linear link | Linear connector if installed; otherwise ask for pasted content |
    | GitHub issue or PR | GitHub connector or `gh issue view` / `gh pr view` |
-   | Slack thread | Slack Web API with `SLACK_BOT_TOKEN` / `@agent-native` identity |
+   | Slack thread | Slack connector with the invoking user's identity |
    | Public URL | Web browsing |
    | Pasted text | Read directly |
 
-   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For Slack threads, use the bot-authenticated Web API for the parent, replies, reactions, and Slack metadata; fetch linked external artifacts through their owning connector or public URL.
+   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For Slack threads, use the invoking user's connected Slack identity for the parent, replies, reactions, and Slack metadata; fetch linked external artifacts through their owning connector or public URL.
 
 2. Check whether this defect has already been reported.
 
@@ -70,9 +78,10 @@ the right abstraction, not the most general one.
    and was reported again two weeks later.
 
    Search before fixing, going back at least three months: the source channel
-   in the reporter's words and in your own, Sentry, and merged PR titles. Search
-   the feature name, the error text, and the surface separately — repeat reports
-   rarely share vocabulary.
+   in the reporter's words and in your own, Sentry, first-party Agent-Native
+   Analytics error issues, and merged PR titles. Search the feature name, the
+   error text, and the surface separately - repeat reports rarely share
+   vocabulary.
 
    - **No prior report** — proceed normally.
    - **Prior report, no fix landed** — say how long it has been open. The person
@@ -96,13 +105,15 @@ answers already present. A detail found anywhere in that evidence is available
 context - never ask the reporter to repeat it.
 
 Look for resolution or ownership signals before classifying an item as missing
-evidence. A substantive reply from `@agent-native` or any participant that
-identifies the cause, supplies the repro, links a fix, or says the issue is
-fixed, landed, or being fixed is evidence, not a clarification gap. Verify the
-claim when needed and record the item as already owned, fixed, or in progress;
-do not ask a duplicate question while that work is being verified or handed
-off. Ask only when one concrete reporter or product detail still blocks a safe
-fix after this review.
+evidence. A substantive reply from the invoking Slack identity, a legacy
+`@agent-native` message, or any participant that identifies the cause, supplies
+the repro, links a fix, or says the issue is fixed, landed, or being fixed is
+evidence, not a clarification gap. Verify the claim when needed and record the
+item as already owned, fixed, or in progress; do not ask a duplicate question
+while that work is being verified or handed off. Ask only when one concrete
+reporter detail still blocks a safe fix to an otherwise clear bug after this
+review. Do not ask a subjective product question merely to choose between
+plausible UX options.
 
 Every human-facing feedback reply starts with a brief thank-you. When
 clarification is genuinely required, say `thanks for the feedback -` first and
@@ -115,8 +126,8 @@ state, never the opening or the prose of the reporter-facing reply.
    symptom, expected behavior, evidence, and owning surface: UI, action/tool,
    data model, provider/runtime, or product policy.
 
-   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Verify and fix when you agree.
-   - **UX suggestion**: Design, discoverability, workflow, or feature feedback. Propose the cleanest version first unless the user explicitly asked you to implement UX changes.
+   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Separate the observed failure from the proposed remedy. Fix verified breakage at its owning seam even when the suggested UX change is out of scope; skip only that remedy. If the failure is unverified, keep it evidence-limited or ask for the detail that would unblock reproduction.
+   - **UX suggestion**: Design, discoverability, workflow, or feature feedback. For concrete critique of an existing surface, choose and implement the smallest coherent treatment when it is in scope. A request for a new capability still needs the invoking identity's `:upvote:` in a Slack sweep.
    - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
 
@@ -128,13 +139,20 @@ state, never the opening or the prose of the reporter-facing reply.
    - Treat possible cross-user or cross-organization exposure as a security/correctness bug and verify it before proposing polish.
    - Keep undefined product policy separate from implementation bugs. If supported source types or scope semantics are not defined, flag the contract question instead of inventing behavior.
 
-5. Check Sentry when the feedback smells like an error.
+5. Check Sentry and first-party Agent-Native Analytics when the feedback smells
+   like an error.
 
    - Use the Sentry skill/plugin if available, or the repo's Sentry scripts if documented.
+   - Use authenticated Agent-Native Analytics `list-error-issues` for captured
+     client/server issue groups, then `get-error-issue` for stack and occurrence
+     details. Use the linked session replay when it is available.
    - Search by route, stack symbol, error text, and symptom keywords.
    - Default org is `builder-io` unless the user specifies another.
-   - Cite issue IDs or links when you find a match.
-   - If nothing matches, say that plainly.
+   - Query both when available. If Sentry is unavailable or rate-limited,
+     Analytics is the fallback for errors it captured.
+   - Cite the matching issue ID or link and say which source it came from.
+   - If a source cannot be read, record it as unavailable; do not say nothing
+     matched for that source.
 
 ## Fix-altitude gate
 
@@ -151,7 +169,7 @@ evidence:
   feedback, name the invariant and require repeated evidence before broadening
   it.
 
-6. Fix only the clear bugs you agree with.
+6. Fix verified bugs and actionable UX feedback that is in scope.
 
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
@@ -223,15 +241,17 @@ instead of **Fixed** until verification is complete.
 When this skill is used by `address-feedback-with-replies`, that skill's Slack
 reply states take precedence: a Slack thread must receive **Fixed**, **In
 progress**, or **Clarification needed** for the current run. **In progress** is
-valid only when `@agent-native` or another participant already owns the issue
-or is actively fixing it; it is an open handoff that the next run must resolve
-to **Fixed** or **Clarification needed**. Do not post **Not fixed yet**, **Needs
+valid only when the invoking Slack identity, a legacy `@agent-native` message,
+or another participant already owns the issue or is actively fixing it; it is
+an open handoff that the next run must resolve to **Fixed** or **Clarification
+needed**. Do not post **Not fixed yet**, **Needs
 clarification**, or a bare **Verification pending** status in Slack. Ask one
 concrete, plain-language clarification question only when reporter or product
-input is still missing after the complete-thread and resolution-signal checks. If
-`@agent-native` or another participant already found, fixed, or is fixing the
-issue, do not ask the reporter to restate it - verify the claim or continue the
-existing ownership instead. Start any **In progress** or clarification reply
+input is still missing after the complete-thread and resolution-signal checks.
+If the invoking Slack identity, a legacy `@agent-native` message, or another
+participant already found, fixed, or is fixing the issue, do not ask the
+reporter to restate it - verify the claim or continue the existing ownership
+instead. Start any **In progress** or clarification reply
 with a thank-you. For clarification, ask the question second;
 **Clarification needed** remains an internal ledger state and must not appear as
 the reporter-facing opening. **Clarification needed** is the one timing
@@ -264,13 +284,15 @@ one short sentence.
 - Do not bundle unrelated cleanups.
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
-- Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not invent Sentry or Agent-Native Analytics matches, affected users, or
+  reproduction steps.
 - Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 
 - `github:gh-address-comments` for GitHub PR review threads.
 - `github:gh-fix-ci` for failing GitHub checks.
-- `sentry:sentry` for production error investigation.
+- `sentry:sentry` for external Sentry investigation; use Analytics error issue
+  actions for first-party captured errors.
 - `frontend-design` for approved UI implementation work.
 - `qa` for broader browser verification.

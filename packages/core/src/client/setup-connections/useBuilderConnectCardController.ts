@@ -1,6 +1,9 @@
 import { useCallback } from "react";
 
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  useBuilderConnectFlow,
+  type BuilderConnectFlow,
+} from "../settings/useBuilderStatus.js";
 
 const DEFAULT_TITLE = "Builder connect";
 const DEFAULT_DESCRIPTION =
@@ -23,7 +26,7 @@ export interface BuilderConnectCardAction {
   label: "Connect Builder.io";
   pending: boolean;
   disabled: boolean;
-  onPress: () => void;
+  onPress: (provisionAccount?: boolean) => void;
 }
 
 export interface BuilderConnectCardViewModel {
@@ -34,6 +37,7 @@ export interface BuilderConnectCardViewModel {
   pending: boolean;
   error: string | null;
   orgName: string | null;
+  connectFlow?: BuilderConnectFlow;
   action: BuilderConnectCardAction | null;
 }
 
@@ -48,10 +52,14 @@ export function useBuilderConnectCardController({
     [onConnected],
   );
   const flow = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource,
     onConnected: handleConnected,
   });
-  const handlePress = useCallback(() => flow.start(), [flow.start]);
+  const handlePress = useCallback(
+    (provisionAccount = false) => flow.start({ provisionAccount }),
+    [flow.start],
+  );
 
   const status: BuilderConnectCardStatus = !flow.hasFetchedStatus
     ? { kind: "checking", label: "Checking" }
@@ -70,6 +78,7 @@ export function useBuilderConnectCardController({
     pending: flow.connecting,
     error: flow.error,
     orgName: flow.orgName,
+    connectFlow: flow,
     action: flow.configured
       ? null
       : {

@@ -1,8 +1,8 @@
-import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -10,6 +10,7 @@ import {
   assertAccess,
   ForbiddenError,
   resolveAccess,
+  resolveRegisteredAccessContext,
 } from "./access.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -44,8 +45,31 @@ const docShares = createSharesTable("qa_doc_shares");
 
 type Db = ReturnType<typeof drizzle>;
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: Db;
+
+it("preserves a transaction through resource-specific context normalization", () => {
+  const transaction = {
+    execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+  };
+  const resolved = resolveRegisteredAccessContext(
+    {
+      type: "normalized-transaction-test",
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      resolveAccessContext: (ctx) => ({ userEmail: ctx.userEmail }),
+    },
+    {
+      userEmail: viewerEmail,
+      orgId,
+      transaction,
+    },
+  );
+
+  expect(resolved).toEqual({ userEmail: viewerEmail, transaction });
+});
 
 async function insertDoc(values: {
   id: string;
@@ -63,8 +87,8 @@ async function insertDoc(values: {
 }
 
 let memberSeq = 0;
-function addOrgMember(memberOrgId: string, email: string) {
-  sqlite
+async function addOrgMember(memberOrgId: string, email: string) {
+  await pglite
     .prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -86,9 +110,9 @@ async function listVisible(
   });
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`
     CREATE TABLE qa_docs (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -103,20 +127,24 @@ beforeEach(() => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     );
     CREATE TABLE workspace_user_groups (
       id TEXT PRIMARY KEY,
@@ -124,11 +152,11 @@ beforeEach(() => {
       name TEXT NOT NULL,
       member_emails_json TEXT NOT NULL DEFAULT '[]',
       created_by_email TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
+      created_at BIGINT NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL DEFAULT 0
     );
   `);
-  db = drizzle(sqlite);
+  db = drizzle(pglite.db);
   registerShareableResource({
     type: resourceType,
     resourceTable: docs,
@@ -140,8 +168,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("shareable resource access helpers", () => {
@@ -153,6 +181,7 @@ describe("shareable resource access helpers", () => {
   });
 
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
@@ -192,7 +221,7 @@ describe("shareable resource access helpers", () => {
 
   it("resolves organization share display names", async () => {
     await insertDoc({ id: "doc-org-share" });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO organizations (id, name, created_by, created_at)
          VALUES (?, ?, ?, ?)`,
@@ -224,6 +253,39 @@ describe("shareable resource access helpers", () => {
         displayName: "Builder.io",
       }),
     ]);
+  });
+
+  it("lists shares while an additive share-column migration is pending", async () => {
+    await insertDoc({ id: "doc-pending-migration" });
+    await db.insert(docShares).values({
+      id: "share-pending-migration",
+      resourceId: "doc-pending-migration",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    await pglite.exec("ALTER TABLE qa_doc_shares DROP COLUMN notified_at");
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-pending-migration",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      shares: [
+        {
+          id: "share-pending-migration",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "viewer",
+          createdAt: "2026-09-09T00:00:00.000Z",
+        },
+      ],
+    });
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
@@ -304,7 +366,7 @@ describe("shareable resource access helpers", () => {
 
   it("includes group-only shares in filtered listings while checking current membership", async () => {
     await insertDoc({ id: "shared-group", ownerEmail: outsiderEmail });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_user_groups
          (id, org_id, name, member_emails_json)
@@ -320,13 +382,13 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.toContain("shared-group");
 
-    sqlite
+    await pglite
       .prepare("DELETE FROM org_members WHERE org_id = ? AND email = ?")
       .run(orgId, viewerEmail);
     await expect(
@@ -358,7 +420,7 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -439,7 +501,7 @@ describe("shareable resource access helpers", () => {
       orgId: otherOrgId,
       visibility: "org",
     });
-    addOrgMember(otherOrgId, viewerEmail);
+    await addOrgMember(otherOrgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
       await expect(
@@ -471,6 +533,53 @@ describe("shareable resource access helpers", () => {
       await expect(
         assertAccess(resourceType, "doc-org-no-membership", "viewer"),
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("keeps direct user shares working in a transaction without org_members", async () => {
+    await insertDoc({
+      id: "doc-org-direct-share-without-members",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await db.insert(docShares).values({
+      id: "share-direct-without-members",
+      resourceId: "doc-org-direct-share-without-members",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+    await pglite.exec("DROP TABLE org_members");
+    const transaction = {
+      execute: async (
+        statement: string | { sql: string; args?: unknown[] },
+      ) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        const result = await pglite.query(sql, args);
+        return {
+          rows: Array.from(result.rows ?? []),
+          rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+        };
+      },
+    };
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+      assertAccess(
+        resourceType,
+        "doc-org-direct-share-without-members",
+        "editor",
+        {
+          userEmail: viewerEmail,
+          orgId,
+          transaction: transaction as any,
+        },
+      ),
+    ).then((access) => {
+      expect(access.role).toBe("editor");
     });
   });
 
@@ -558,7 +667,7 @@ describe("shareable resource access helpers", () => {
     const driftShares = createSharesTable("qa_drift_doc_shares");
     const driftType = "qa-doc-schema-drift";
 
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE qa_drift_docs (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -574,7 +683,8 @@ describe("shareable resource access helpers", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        notified_at TEXT
       );
     `);
     registerShareableResource({
@@ -588,7 +698,7 @@ describe("shareable resource access helpers", () => {
         resource.data === '{"publicEdit":true}' ? "editor" : "viewer",
     });
 
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO qa_drift_docs (id, title, data, owner_email, org_id, visibility)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -933,7 +1043,11 @@ describe("shareable resource access helpers", () => {
           principalId: "opaque-user-id",
           role: "viewer",
         }),
-      ).rejects.toThrow(/email address/);
+      ).rejects.toMatchObject({
+        errorCode: "invalid_user_share_principal",
+        statusCode: 400,
+        message: expect.stringMatching(/email address/),
+      });
     });
 
     const shares = await db
@@ -1084,7 +1198,7 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         createdAt: "2026-04-30T00:00:00.000Z",
       },
     ]);
-    addOrgMember(orgId, viewerEmail);
+    await addOrgMember(orgId, viewerEmail);
 
     const cases: Array<{
       ctx: { userEmail?: string; orgId?: string };

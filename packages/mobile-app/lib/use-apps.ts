@@ -6,15 +6,25 @@ import * as AppStore from "./app-store";
 export function useApps() {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const reload = useCallback(async () => {
-    const loaded = await AppStore.getApps();
-    setApps(loaded);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const loaded = await AppStore.getApps();
+      setApps(loaded);
+      setError(null);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause : new Error("Unable to load apps"),
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    reload();
+    void reload();
     return AppStore.subscribe(reload);
   }, [reload]);
 
@@ -53,6 +63,7 @@ export function useApps() {
     apps,
     enabledApps,
     loading,
+    error,
     addApp,
     removeApp,
     updateApp,

@@ -1,5 +1,3 @@
-import { getDialect, type Dialect } from "@agent-native/core/db";
-
 export function chunks<T>(items: T[], size: number): T[][] {
   if (items.length === 0) return [];
   const out: T[][] = [];
@@ -9,14 +7,8 @@ export function chunks<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-export function bulkChunkSizeForColumnCount(
-  columnCount: number,
-  dialect: Dialect = getDialect(),
-) {
-  // D1 rejects statements with more than 100 bound params, so derive every
-  // bulk chunk from the statement's column count instead of a fixed row count.
-  const budget = dialect === "d1" ? 90 : 900;
-  return Math.max(1, Math.floor(budget / Math.max(1, columnCount)));
+export function bulkChunkSizeForColumnCount(columnCount: number) {
+  return Math.max(1, Math.floor(900 / Math.max(1, columnCount)));
 }
 
 export async function processWithConcurrency<T>(

@@ -59,7 +59,7 @@ async function remapItemReferences(db: Db, replacements: Map<string, string>) {
   }
 }
 
-async function reconcileDocuments(args: {
+export async function reconcileDocuments(args: {
   db: Db;
   documents: Array<typeof schema.documents.$inferSelect>;
   filesDatabases: Array<typeof schema.contentDatabases.$inferSelect>;

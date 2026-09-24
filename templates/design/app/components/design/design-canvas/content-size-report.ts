@@ -5,8 +5,8 @@ import { injectDocumentMarkup } from "@agent-native/core/shared";
  * breakpoint) so a frame can grow to fit its own content instead of inheriting
  * the primary frame's aspect ratio. The iframes are sandbox="allow-scripts"
  * (opaque origin), so the parent can't read contentDocument — this measures
- * scrollHeight inside the frame and posts { type, width, height } out, keyed by
- * event.source. It first pins full-height utilities to a fixed per-frame
+ * the viewport extent and natural body content, then posts both heights keyed
+ * by event.source. It first pins full-height utilities to a fixed per-frame
  * --agent-native-device-vh so a min-h-screen hero can't chase the growing frame
  * (runaway), then remaps raw viewport-height units in authored CSS to the same
  * fixed device viewport.
@@ -91,7 +91,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
   }
 
-  function measure() {
+  function rawMeasure() {
     var doc = document.documentElement;
     var body = document.body;
     return Math.max(
@@ -101,18 +101,106 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     );
   }
 
+  function naturalMeasure() {
+    var body = document.body;
+    if (!body) return 0;
+    var bodyTop = body.getBoundingClientRect().top + (window.scrollY || 0);
+    var height = Math.max(body.scrollHeight, body.offsetHeight);
+    var descendants = body.querySelectorAll("*");
+    for (var i = 0; i < descendants.length; i++) {
+      var element = descendants[i];
+      if (element.closest("[data-agent-native-edit-overlay]")) continue;
+      var styles = window.getComputedStyle(element);
+      if (styles.display === "none" || styles.position === "fixed") continue;
+      var bottom = element.getBoundingClientRect().bottom +
+        (window.scrollY || 0) - bodyTop;
+      if (bottom > height) height = bottom;
+    }
+    return Math.max(1, Math.ceil(height));
+  }
+
+  function usesNaturalHeight() {
+    if (document.querySelector('meta[data-agent-native-screen-height-mode="hug"]')) {
+      return true;
+    }
+    var modeStyle = document.querySelector(
+      "style[data-agent-native-screen-default-height]",
+    );
+    return !!modeStyle && modeStyle.textContent.trim() === "";
+  }
+
+  // The editor's overlays are chrome, not content. A selection handle sits a
+  // few px outside the box it marks, so once a selection reaches the bottom
+  // edge the frame grows to fit it, which moves the handle down, which grows
+  // the frame again. Hug screens also need the natural measurement without
+  // badges, whose shadows can extend past their border box. Hide chrome only
+  // in this report and only when Hug is opted in or chrome affects the frame.
+  function measure(includeNaturalHeight) {
+    var raw = rawMeasure();
+    var chrome = document.querySelectorAll("[data-agent-native-edit-overlay]");
+    if (!chrome.length) {
+      return {
+        height: raw,
+        naturalHeight: includeNaturalHeight ? naturalMeasure() : null,
+      };
+    }
+    var chromeBottom = 0;
+    var scrollY = window.scrollY || 0;
+    for (var i = 0; i < chrome.length; i++) {
+      var bottom = chrome[i].getBoundingClientRect().bottom + scrollY;
+      if (bottom > chromeBottom) chromeBottom = bottom;
+    }
+    var rawNeedsChromeExclusion = chromeBottom >= raw - 1;
+    if (!rawNeedsChromeExclusion && !includeNaturalHeight) {
+      return {
+        height: raw,
+        naturalHeight: null,
+      };
+    }
+    var prior = [];
+    for (var j = 0; j < chrome.length; j++) {
+      prior.push(chrome[j].style.display);
+      chrome[j].style.display = "none";
+    }
+    try {
+      return {
+        height: rawNeedsChromeExclusion ? rawMeasure() : raw,
+        naturalHeight: includeNaturalHeight ? naturalMeasure() : null,
+      };
+    } finally {
+      for (var k = 0; k < chrome.length; k++) {
+        chrome[k].style.display = prior[k];
+      }
+    }
+  }
+
+  window.__agentNativeMeasureNaturalHeight = function () {
+    return measure(true).naturalHeight || 0;
+  };
+
   var lastHeight = -1;
+  var lastNaturalHeight = null;
   var lastWidth = -1;
   var frame = 0;
   function report() {
     frame = 0;
     applyDeviceVh();
     applyViewportHeightGuard();
-    var height = measure();
+    // Natural content sizing is opt-in for explicit Hug screens. Most
+    // overview frames keep their authored/device height and should not walk
+    // every layer on each observer report.
+    var measurement = measure(usesNaturalHeight());
+    var height = measurement.height;
+    var naturalHeight = measurement.naturalHeight;
     var width = window.innerWidth || 0;
     var viewportHeight = window.innerHeight || 0;
-    if (height === lastHeight && width === lastWidth) return;
+    if (
+      height === lastHeight &&
+      naturalHeight === lastNaturalHeight &&
+      width === lastWidth
+    ) return;
     lastHeight = height;
+    lastNaturalHeight = naturalHeight;
     lastWidth = width;
     try {
       window.parent.postMessage(
@@ -120,6 +208,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
           type: "agent-native:content-size",
           width: width,
           height: height,
+          naturalHeight: naturalHeight,
           viewportHeight: viewportHeight,
         },
         "*",
@@ -138,9 +227,44 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
   if (typeof ResizeObserver === "function") {
     var ro = new ResizeObserver(scheduleReport);
     if (document.documentElement) ro.observe(document.documentElement);
+    if (document.body) ro.observe(document.body);
+  }
+  // measure() hides and restores every chrome node to take a chrome-free
+  // reading, and the hover ring is repositioned on each pointermove. Both are
+  // attribute writes inside the observed subtree, so observing chrome lets the
+  // reporter re-arm from its own measurement: one mutation then reflows the
+  // whole document every frame for as long as the cursor stays on the canvas.
+  function isChromeNode(node) {
+    var el = node && node.nodeType === 1 ? node : node && node.parentNode;
+    if (!el || el.nodeType !== 1 || !el.closest) return false;
+    return !!el.closest("[data-agent-native-edit-overlay]");
+  }
+  function allChromeNodes(nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isChromeNode(nodes[i])) return false;
+    }
+    return true;
+  }
+  function touchesAuthoredContent(records) {
+    for (var i = 0; i < records.length; i++) {
+      var record = records[i];
+      if (isChromeNode(record.target)) continue;
+      if (
+        record.type === "childList" &&
+        allChromeNodes(record.addedNodes) &&
+        allChromeNodes(record.removedNodes)
+      ) {
+        continue;
+      }
+      return true;
+    }
+    return false;
   }
   if (typeof MutationObserver === "function") {
-    var mo = new MutationObserver(scheduleReport);
+    var mo = new MutationObserver(function (records) {
+      if (!touchesAuthoredContent(records)) return;
+      scheduleReport();
+    });
     mo.observe(document.documentElement, {
       childList: true,
       subtree: true,
@@ -197,4 +321,17 @@ export function resolveStableContentSizeSample(
  * marker handling so it runs regardless of document structure. */
 export function appendContentSizeReporter(html: string): string {
   return injectDocumentMarkup(html, CONTENT_SIZE_REPORT_BRIDGE);
+}
+
+/** Uses the same overlay-excluding natural-height measurement as the iframe
+ * reporter, so exports agree with the Hug height shown by the live canvas. */
+export function measureNaturalDocumentHeight(doc: Document): number | null {
+  const view = doc.defaultView as
+    | (Window & { __agentNativeMeasureNaturalHeight?: () => number })
+    | null;
+  if (!view || typeof view.__agentNativeMeasureNaturalHeight !== "function") {
+    return null;
+  }
+  const height = view.__agentNativeMeasureNaturalHeight();
+  return Number.isFinite(height) && height > 0 ? Math.ceil(height) : null;
 }

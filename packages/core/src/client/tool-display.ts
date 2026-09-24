@@ -26,6 +26,24 @@ export function humanizeToolName(toolName: string | undefined): string {
   return (name || "tool").toLowerCase();
 }
 
+/**
+ * A tool row's label, translated when the app ships a string for this action.
+ *
+ * Without a catalog entry the label is derived from the action name itself
+ * (`get-case` reads "get case"), which leaves every non-English app with
+ * English rows it cannot translate. Apps add `agentChat.toolLabels.<action>`;
+ * the derived name stays the fallback, so nothing changes until they do.
+ */
+export function toolLabel(
+  translate: (key: string, options?: Record<string, unknown>) => string,
+  toolName: string | undefined,
+): string {
+  const humanized = humanizeToolName(toolName);
+  const raw = (toolName ?? "").trim();
+  if (!raw) return humanized;
+  return translate(`agentChat.toolLabels.${raw}`, { defaultValue: humanized });
+}
+
 export function runningToolLabel(toolName: string | undefined): string {
   return `Running ${humanizeToolName(toolName)}`;
 }
@@ -38,6 +56,57 @@ export function humanizeToolLabelText(
   const tool = (toolName ?? "").trim();
   if (!tool) return text;
   return text.split(tool).join(humanizeToolName(tool));
+}
+
+export interface ToolCallRowContext {
+  text: string;
+  mono: boolean;
+  kind: "file" | "data" | "url";
+}
+
+const TOOL_CALL_CONTEXT_KEYS = [
+  "cmd",
+  "command",
+  "script",
+  "sql",
+  "query",
+  "pattern",
+  "path",
+  "filePath",
+  "filename",
+  "url",
+] as const;
+
+export function resolveToolCallRowContext(
+  args: Record<string, unknown> | undefined,
+): ToolCallRowContext | null {
+  if (!args) return null;
+
+  for (const key of TOOL_CALL_CONTEXT_KEYS) {
+    const value = args[key];
+    if (typeof value !== "string") continue;
+    const text = value.trim().replace(/\s*\n\s*/g, " ");
+    if (!text) continue;
+    return {
+      text,
+      kind:
+        key === "path" || key === "filePath" || key === "filename"
+          ? "file"
+          : key === "url"
+            ? "url"
+            : "data",
+      mono:
+        key === "cmd" ||
+        key === "command" ||
+        key === "script" ||
+        key === "sql" ||
+        key === "path" ||
+        key === "filePath" ||
+        key === "filename",
+    };
+  }
+
+  return null;
 }
 
 type ToolDisplayPart = {

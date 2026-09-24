@@ -19,7 +19,14 @@ import {
   IconPlus,
   IconClipboardList,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
@@ -28,9 +35,17 @@ import {
   localizeKnownChatErrorText,
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
-import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
+import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
+import { LazyChunkRetryFallback } from "../lazy-chunk-retry-fallback.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+
+const LazyAgentProviderSetupForm = lazy(() =>
+  import("../settings/ProviderSetupForm.js").then((module) => ({
+    default: module.AgentProviderSetupForm,
+  })),
+);
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
@@ -155,7 +170,7 @@ export function getRequestModeMetadata(
 
 // ─── Run error classifiers ────────────────────────────────────────────────────
 
-function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
+export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const message = info.message.toLowerCase();
   const isAuthCode =
@@ -235,19 +250,26 @@ function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
 export function BuilderConnectCta({
   variant = "primary",
   onConnected,
+  reconnect = false,
 }: {
   variant?: "primary" | "compact";
   onConnected?: () => void;
+  /** Render the connect control even while connection status still reports
+   *  configured. A caller sets this after the server has actually seen the
+   *  credential rejected: Builder can revoke upstream without that landing in
+   *  the local status, and a Connected badge in that state is a dead end. */
+  reconnect?: boolean;
 }) {
   const t = useT();
-  const { configured, orgName, connecting, error, start } =
-    useBuilderConnectFlow({
-      trackingSource: "assistant_chat_builder_cta",
-      onConnected,
-    });
+  const flow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "assistant_chat_builder_cta",
+    onConnected,
+  });
+  const { configured, orgName, connecting, error } = flow;
 
   if (variant === "compact") {
-    if (configured) {
+    if (configured && !reconnect) {
       return (
         <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
@@ -260,22 +282,25 @@ export function BuilderConnectCta({
 
     return (
       <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <button
-          type="button"
-          onClick={() => start()}
-          disabled={connecting}
-          className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          aria-busy={connecting}
-        >
-          {connecting ? (
-            <>
-              <IconLoader2 size={10} className="animate-spin" />
-              {t("agentChat.common.waiting")}
-            </>
-          ) : (
-            t("agentChat.setup.connectBuilder")
-          )}
-        </button>
+        <DeferredBuilderConnectPopover flow={flow}>
+          <button
+            type="button"
+            disabled={connecting}
+            className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            aria-busy={connecting}
+          >
+            {connecting ? (
+              <>
+                <IconLoader2 size={10} className="animate-spin" />
+                {t("agentChat.common.waiting")}
+              </>
+            ) : reconnect ? (
+              t("agentChat.recovery.reconnectBuilder")
+            ) : (
+              t("agentChat.setup.connectBuilder")
+            )}
+          </button>
+        </DeferredBuilderConnectPopover>
         {error && (
           <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
             {error}
@@ -320,22 +345,23 @@ export function BuilderConnectCta({
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={connecting}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2 size={10} className="animate-spin" />
-            {t("agentChat.common.waiting")}
-          </>
-        ) : (
-          t("agentChat.common.connect")
-        )}
-      </button>
+      <DeferredBuilderConnectPopover flow={flow}>
+        <button
+          type="button"
+          disabled={connecting}
+          className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+          aria-busy={connecting}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2 size={10} className="animate-spin" />
+              {t("agentChat.common.waiting")}
+            </>
+          ) : (
+            t("agentChat.common.connect")
+          )}
+        </button>
+      </DeferredBuilderConnectPopover>
     </div>
   );
 }
@@ -343,12 +369,39 @@ export function BuilderConnectCta({
 // ─── ApiKeyConnect ────────────────────────────────────────────────────────────
 
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+  const t = useT();
+  const loadingForm = (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={t("agentChat.common.loading")}
+      className="space-y-2 rounded-md border border-border bg-accent/20 p-2.5"
+    >
+      <div
+        aria-hidden="true"
+        className="h-8 animate-pulse rounded-md bg-muted"
+      />
+      <div
+        aria-hidden="true"
+        className="h-16 animate-pulse rounded-md bg-muted"
+      />
+      <div
+        aria-hidden="true"
+        className="ms-auto h-8 w-20 animate-pulse rounded-md bg-muted"
+      />
+    </div>
+  );
+
   return (
-    <AgentProviderSetupForm
-      onConnected={() => onConnected?.()}
-      layout="compact"
-      showTitle={false}
-    />
+    <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+      <Suspense fallback={loadingForm}>
+        <LazyAgentProviderSetupForm
+          onConnected={() => onConnected?.()}
+          layout="compact"
+          showTitle={false}
+        />
+      </Suspense>
+    </LazyChunkErrorBoundary>
   );
 }
 
@@ -428,18 +481,32 @@ export function BuilderSetupContent({
 
 export function BuilderSetupCard({
   onConnected,
+  onDismiss,
+  onRetry,
   bouncePulse,
   attached = false,
   fullWidth,
   layout = "default",
 }: {
   onConnected?: () => void;
+  onDismiss?: () => void;
+  onRetry?: () => void;
   bouncePulse?: number;
   attached?: boolean;
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
   const sidebarLayout = layout === "sidebar";
+  const t = useT();
+  const retryRequestedRef = useRef(false);
+  const [retryRequested, setRetryRequested] = useState(false);
+
+  const handleRetry = useCallback(() => {
+    if (!onRetry || retryRequestedRef.current) return;
+    retryRequestedRef.current = true;
+    setRetryRequested(true);
+    onRetry();
+  }, [onRetry]);
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Replay the bounce keyframe each time bouncePulse increments. Toggling the
@@ -474,8 +541,37 @@ export function BuilderSetupCard({
           sidebarLayout ? "p-2.5" : "p-3",
         )}
       >
-        <BuilderSetupContent onConnected={onConnected} layout={layout} />
+        {onDismiss ? (
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <BuilderSetupContent onConnected={onConnected} layout={layout} />
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label={t("agentChat.common.dismiss")}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
+        ) : (
+          <BuilderSetupContent onConnected={onConnected} layout={layout} />
+        )}
       </div>
+      {onRetry ? (
+        <div className="flex justify-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={retryRequested}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          >
+            <IconRefresh size={13} />
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -504,31 +600,39 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
-  const [providerConnected, setProviderConnected] = useState(false);
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const shouldShowProviderSetup =
-    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
   );
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) ||
+    isDesktopChatRelayRunError(info) ||
+    (isProviderAuthError && !shouldShowBuilderReconnect);
   // Blocked on something the reader goes and fixes elsewhere, then comes back
   // to. Recoverable runs and email verification keep a retry path; rejected
   // provider credentials use the setup flow below so the same bad key is not
   // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  // Rejected provider keys already have a recovery path: update/connect the
-  // credential, then let the setup callback re-run the turn. Exposing a
-  // separate retry button here just replays the same rejected credential and
-  // turns a permanent auth failure into a loop.
-  const canRetry = canRecover || isUnblockableExternally;
+  // Rejected provider keys keep their setup path below — update/connect the
+  // credential and the setup callback re-runs the turn. They ALSO get a retry
+  // now, which the old comment here ruled out because "retry replays the same
+  // rejected credential and turns a permanent auth failure into a loop". That
+  // is no longer true: a 401 fingerprints the credential and skips it for a
+  // backing-off window (`recordProviderCredentialAuthFailure`), so the next
+  // attempt reaches for a different one, or fails closed as missing
+  // credentials. Without this the common case — a rejected workspace or
+  // deployment credential the reader cannot see, let alone edit — rendered a
+  // "Connected ✓" panel with no action at all.
+  const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -570,7 +674,6 @@ export function RunErrorRecoveryCard({
   }, [onDismiss, onProviderConnected, onRetry]);
 
   const handleMissingProviderConnected = useCallback(() => {
-    setProviderConnected(true);
     onProviderConnected?.();
   }, [onProviderConnected]);
   const handleMissingProviderRetry = useCallback(() => {
@@ -608,27 +711,42 @@ export function RunErrorRecoveryCard({
         <BuilderSetupCard
           fullWidth
           layout="sidebar"
-          onConnected={handleMissingProviderConnected}
+          onConnected={
+            isProviderAuthError
+              ? handleProviderConnected
+              : handleMissingProviderConnected
+          }
         />
-        {providerConnected ? (
-          <div className="flex justify-center px-3 pt-1">
-            <button
-              type="button"
-              onClick={handleMissingProviderRetry}
-              disabled={retryRequested}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-            >
-              <IconRefresh size={13} />
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        ) : null}
+        {/*
+          Deliberately not gated on `providerConnected`. That gate assumed
+          connecting here is the only route out, which is false for the reader
+          this card now most often reaches: a rejected workspace or deployment
+          credential is skipped for a backing-off window, so the next run can
+          report missing credentials while the actual fix is someone else
+          repairing the shared credential, or simply the window expiring.
+          Withholding retry until they connect a provider they may have no
+          permission to add left an already-connected panel with no action —
+          the same dead end the rejected-credential card was just changed to
+          stop producing, one step later. `handleMissingProviderRetry` fires at
+          most once per card, so offering it cannot loop.
+        */}
+        <div className="flex justify-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={handleMissingProviderRetry}
+            disabled={retryRequested}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          >
+            <IconRefresh size={13} />
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+    <div className="min-w-0 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
           <IconAlertTriangle size={14} />
@@ -640,17 +758,9 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
             {localizeKnownChatErrorText(info.message, t)}
           </p>
-          {isProviderAuthError && (
-            <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-              <BuilderSetupContent
-                layout="sidebar"
-                onConnected={handleProviderConnected}
-              />
-            </div>
-          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.credentialRejected")}
@@ -700,31 +810,32 @@ export function RunErrorRecoveryCard({
       </div>
       <div className="mt-3 flex min-w-0 items-center gap-2">
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
-          <button
-            type="button"
-            onClick={() => builderReconnect.start()}
-            disabled={builderReconnect.connecting}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
-          >
-            {builderReconnect.connecting ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : null}
-            {builderReconnect.connecting
-              ? t("agentChat.recovery.connectingBuilder")
-              : t("agentChat.recovery.reconnectBuilder")}
-          </button>
+          <DeferredBuilderConnectPopover flow={builderReconnect}>
+            <button
+              type="button"
+              disabled={builderReconnect.connecting}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
+            >
+              {builderReconnect.connecting ? (
+                <IconLoader2 size={13} className="animate-spin" />
+              ) : null}
+              {builderReconnect.connecting
+                ? t("agentChat.recovery.connectingBuilder")
+                : t("agentChat.recovery.reconnectBuilder")}
+            </button>
+          </DeferredBuilderConnectPopover>
         )}
         {canRecover && (
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
           </button>
         )}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/60 p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {canRetry && (
             <button
               type="button"
@@ -829,7 +940,8 @@ export function LoopLimitContinueCard({
   onContinue: () => void;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );

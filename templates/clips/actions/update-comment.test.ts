@@ -5,6 +5,8 @@ type CommentRow = {
   recordingId: string;
   authorEmail: string;
   content: string;
+  organizationId: string;
+  mentionsJson: string | null;
   updatedAt: string;
 };
 
@@ -17,6 +19,7 @@ const mockGetUserEmail = vi.hoisted(() =>
   vi.fn<() => string | null>(() => "author@example.com"),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockIsOrgMember = vi.hoisted(() => vi.fn());
 const { MockForbiddenError } = vi.hoisted(() => {
   class MockForbiddenError extends Error {}
   return { MockForbiddenError };
@@ -33,6 +36,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: (...args: unknown[]) => mockIsOrgMember(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -77,6 +84,8 @@ vi.mock("../server/db/index.js", () => {
       recordingId: column("recordingId"),
       authorEmail: column("authorEmail"),
       content: column("content"),
+      organizationId: column("organizationId"),
+      mentionsJson: column("mentionsJson"),
       updatedAt: column("updatedAt"),
     },
   };
@@ -125,10 +134,13 @@ beforeEach(() => {
       recordingId: "recording-1",
       authorEmail: "author@example.com",
       content: "Original text",
+      organizationId: "org-1",
+      mentionsJson: null,
       updatedAt: "2026-07-29T00:00:00.000Z",
     },
   ];
   mockGetUserEmail.mockReturnValue("author@example.com");
+  mockIsOrgMember.mockResolvedValue(true);
 });
 
 describe("update-comment", () => {
@@ -166,6 +178,7 @@ describe("update-comment", () => {
     expect(result).toEqual({
       id: "comment-1",
       content: "Updated text",
+      mentions: [],
       updatedAt: expect.any(String),
     });
     expect(state.rows[0]).toMatchObject({
@@ -186,6 +199,23 @@ describe("update-comment", () => {
     expect(() =>
       action.schema.parse({ id: "comment-1", content: "   " }),
     ).toThrow();
+  });
+
+  it("preserves an existing mention when the optional field is omitted", async () => {
+    state.rows[0].content = "Original text @Member";
+    state.rows[0].mentionsJson = JSON.stringify([
+      { email: "member@example.com", name: "Member" },
+    ]);
+
+    const result = await run({
+      id: "comment-1",
+      content: "Updated text @Member",
+    });
+
+    expect(state.rows[0].mentionsJson).toBe(
+      JSON.stringify([{ email: "member@example.com", name: "Member" }]),
+    );
+    expect(result.mentions).toEqual([{ name: "Member" }]);
   });
 
   it("fails loudly when the comment changed concurrently", async () => {

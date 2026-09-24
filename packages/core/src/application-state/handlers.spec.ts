@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockAppStateGet = vi.fn();
 const mockAppStateGetManyEntries = vi.fn();
 const mockAppStatePut = vi.fn();
+const mockAppStateCompareAndSet = vi.fn();
 const mockAppStateDelete = vi.fn();
 const mockAppStateList = vi.fn();
 const mockAppStateDeleteByPrefix = vi.fn();
@@ -14,6 +15,7 @@ vi.mock("./store.js", () => ({
   appStateGetManyEntries: (...args: any[]) =>
     mockAppStateGetManyEntries(...args),
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
+  appStateCompareAndSet: (...args: any[]) => mockAppStateCompareAndSet(...args),
   appStateDelete: (...args: any[]) => mockAppStateDelete(...args),
   appStateList: (...args: any[]) => mockAppStateList(...args),
   appStateDeleteByPrefix: (...args: any[]) =>
@@ -41,10 +43,12 @@ vi.mock("h3", () => ({
 
 import { getSession } from "../server/auth.js";
 import {
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   getState,
   getStateMany,
   MAX_APP_STATE_BATCH_KEYS,
   putState,
+  compareAndSetState,
   deleteState,
   listComposeDrafts,
   getComposeDraft,
@@ -105,6 +109,20 @@ describe("application-state handlers", () => {
       expect(result).toBeNull();
     });
 
+    it("scopes ambient navigation reads to the requesting browser tab", async () => {
+      mockAppStateGet.mockResolvedValue({ view: "detail" });
+
+      await getState({
+        _params: { key: "navigation" },
+        _headers: { "x-agent-native-browser-tab": "tab-a" },
+      });
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "user@example.com",
+        "navigation:tab-a",
+      );
+    });
+
     it("rejects unauthenticated requests instead of sharing local state", async () => {
       vi.mocked(getSession).mockResolvedValue(null as any);
       mockAppStateGet.mockResolvedValue({ leaked: true });
@@ -115,6 +133,80 @@ describe("application-state handlers", () => {
       });
 
       expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+
+    it("scopes an unauthenticated request to the app's anonymous owner", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+      mockAppStateGet.mockResolvedValue({ path: "/chat" });
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: {
+          [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: () => "anon-1@example.com",
+        },
+      };
+      await expect(getState(event)).resolves.toEqual({ path: "/chat" });
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "anon-1@example.com",
+        "navigation",
+      );
+    });
+
+    it("prefers the session over the anonymous owner", async () => {
+      mockAppStateGet.mockResolvedValue(null);
+      const anonymousOwner = vi.fn(() => "anon-1@example.com");
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: { [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: anonymousOwner },
+      };
+      await getState(event);
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "user@example.com",
+        "navigation",
+      );
+      expect(anonymousOwner).not.toHaveBeenCalled();
+    });
+
+    it("still rejects when the anonymous owner resolves to nothing", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+
+      const event = {
+        _params: { key: "navigation" },
+        _headers: {},
+        context: { [APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY]: () => null },
+      };
+      await expect(getState(event)).rejects.toMatchObject({
+        statusCode: 401,
+      });
+      expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("compareAndSetState", () => {
+    it("atomically replaces only the expected state", async () => {
+      mockAppStateCompareAndSet.mockResolvedValue(true);
+      const expected = { requestId: "request-a", status: "pending" };
+      const next = { requestId: "request-a", status: "success" };
+
+      await expect(
+        compareAndSetState({
+          _params: { key: "flush-request-doc-1" },
+          _headers: { "x-request-source": "user" },
+          _body: { expected, next },
+        }),
+      ).resolves.toEqual({ changed: true });
+      expect(mockAppStateCompareAndSet).toHaveBeenCalledWith(
+        "user@example.com",
+        "flush-request-doc-1",
+        expected,
+        next,
+        { requestSource: "user" },
+      );
     });
   });
 
@@ -162,6 +254,30 @@ describe("application-state handlers", () => {
       expect("never-written" in (result as any).values).toBe(false);
       expect((result as any).values["stored-null"]).toBeNull();
       expect((result as any).missing).not.toContain("stored-null");
+    });
+
+    it("scopes ambient keys and returns them under their requested names", async () => {
+      mockAppStateGetManyEntries.mockResolvedValue([
+        { key: "navigation:tab-a", value: { view: "detail" } },
+        { key: "selection:tab-a", value: { ids: ["a"] } },
+      ]);
+
+      const result = await getStateMany({
+        _query: { keys: "navigation,selection:tab-a" },
+        _headers: { "x-agent-native-browser-tab": "tab-a" },
+      });
+
+      expect(mockAppStateGetManyEntries).toHaveBeenCalledWith(
+        "user@example.com",
+        ["navigation:tab-a", "selection:tab-a"],
+      );
+      expect(result).toEqual({
+        values: {
+          navigation: { view: "detail" },
+          "selection:tab-a": { ids: ["a"] },
+        },
+        missing: [],
+      });
     });
 
     it("scopes the read to the caller and rejects unauthenticated requests", async () => {
@@ -261,6 +377,23 @@ describe("application-state handlers", () => {
         "test",
         { v: 1 },
         { requestSource: "tab-1" },
+      );
+    });
+
+    it("scopes ambient navigation writes to the requesting browser tab", async () => {
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await putState({
+        _params: { key: "navigate" },
+        _body: { view: "settings" },
+        _headers: { "x-agent-native-browser-tab": "tab-a" },
+      });
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "user@example.com",
+        "navigate:tab-a",
+        { view: "settings" },
+        { requestSource: undefined },
       );
     });
   });

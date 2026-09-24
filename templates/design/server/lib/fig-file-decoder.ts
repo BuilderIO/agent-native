@@ -1,6 +1,3 @@
-import * as crypto from "node:crypto";
-import * as zlib from "node:zlib";
-
 import { Decompress as ZstdDecompress } from "fzstd";
 import {
   ByteBuffer,
@@ -9,6 +6,19 @@ import {
   type Schema,
 } from "kiwi-schema";
 
+import {
+  asciiBytes,
+  bytesEqual,
+  concatBytes,
+  indexOfBytes,
+  inflateCapped,
+  readAscii,
+  readU16LE,
+  readU32LE,
+  readUtf8,
+  sha1Hex,
+  utf8ByteLength,
+} from "../../shared/fig-bytes.js";
 import {
   MAX_FIG_DECOMPRESSED_BYTES,
   MAX_FIG_FILE_BYTES,
@@ -29,28 +39,34 @@ const MAX_DECODED_OBJECTS = 8_000_000;
 const MAX_COLLECTION_LENGTH = 2_000_000;
 const MAX_COLLECTION_ITEMS = 24_000_000;
 const MAX_DECODE_READS = 64 * 1024 * 1024;
-const MAX_SANITIZED_BINARY_BYTES = 32 * 1024 * 1024;
+const MAX_DECODED_BINARY_BYTES = 32 * 1024 * 1024;
+const MAX_DECODED_BINARY_FIELD_BYTES = 4 * 1024 * 1024;
 const MAX_DECODED_STRING_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_STRING_BYTES = 32 * 1024 * 1024;
-const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
-const FIG_KIWI_MAGIC = Buffer.from("fig-kiwi", "utf8");
-const FIGJAM_KIWI_MAGIC = Buffer.from("fig-jam.", "utf8");
-const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+// Roots the budgeted decoder produced. They were bounded while decoding, so the
+// renderer-side safety walk can skip them; only the decoder adds to this set.
+const decodedDocuments = new WeakSet<object>();
+const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
+const FIG_KIWI_MAGIC = asciiBytes("fig-kiwi");
+const FIGJAM_KIWI_MAGIC = asciiBytes("fig-jam.");
+const ZIP_MAGIC = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+const PNG_MAGIC = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const JPEG_MAGIC = new Uint8Array([0xff, 0xd8, 0xff]);
 
 export interface DecodedFigKiwi {
   version: number;
-  schema: Buffer;
-  document: Buffer;
-  blobs: Buffer[];
+  schema: Uint8Array;
+  document: Uint8Array;
+  blobs: Uint8Array[];
 }
 
 export interface DecodedFigImage {
   /** SHA1 of the blob bytes — matches what the document references. */
   hash: string;
   ext: string;
-  bytes: Buffer;
+  bytes: Uint8Array;
 }
 
 export interface DecodedFig {
@@ -59,30 +75,43 @@ export interface DecodedFig {
   document: unknown;
   decodeError?: string;
   images: DecodedFigImage[];
-  thumbnail: Buffer | null;
+  thumbnail: Uint8Array | null;
 }
 
-function sha1(buf: Buffer): string {
-  return crypto.createHash("sha1").update(buf).digest("hex");
+export interface DecodeFigOptions {
+  /** `null` removes only the raw-file cap for browser-local decoding. */
+  maxFileBytes?: number | null;
 }
 
-function detectImageExt(buf: Buffer): string {
-  if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_MAGIC)) return "png";
-  if (buf.length >= 3 && buf.subarray(0, 3).equals(JPEG_MAGIC)) return "jpg";
+function maxFileBytes(options?: DecodeFigOptions): number | null {
+  return options?.maxFileBytes === undefined
+    ? MAX_FIG_FILE_BYTES
+    : options.maxFileBytes;
+}
+
+function sha1(buf: Uint8Array): string {
+  return sha1Hex(buf);
+}
+
+function detectImageExt(buf: Uint8Array): string {
+  if (buf.length >= 8 && bytesEqual(buf.subarray(0, 8), PNG_MAGIC))
+    return "png";
+  if (buf.length >= 3 && bytesEqual(buf.subarray(0, 3), JPEG_MAGIC))
+    return "jpg";
   if (
     buf.length >= 12 &&
-    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
-    buf.subarray(8, 12).toString("ascii") === "WEBP"
+    readAscii(buf, 0, 4) === "RIFF" &&
+    readAscii(buf, 8, 12) === "WEBP"
   ) {
     return "webp";
   }
-  if (buf.length >= 4 && buf.subarray(0, 4).toString("ascii") === "GIF8") {
+  if (buf.length >= 4 && readAscii(buf, 0, 4) === "GIF8") {
     return "gif";
   }
   return "bin";
 }
 
-function checkDecompressedSize(buf: Buffer): Buffer {
+function checkDecompressedSize(buf: Uint8Array): Uint8Array {
   if (buf.length > MAX_DECOMPRESSED_CHUNK_BYTES) {
     throw new Error("Decompressed .fig chunk is too large (max 48 MB).");
   }
@@ -94,7 +123,7 @@ function checkDecompressedSize(buf: Buffer): Buffer {
  * cap before the decoder allocates that window. The Figma container uses a
  * single standard Zstd frame per chunk.
  */
-function assertSafeZstdFrameHeader(buf: Buffer): void {
+function assertSafeZstdFrameHeader(buf: Uint8Array): void {
   if (buf.length < 6) throw new Error("Truncated Zstandard .fig chunk.");
   const descriptor = buf[4]!;
   if ((descriptor & 0x08) !== 0) {
@@ -151,56 +180,53 @@ function assertSafeZstdFrameHeader(buf: Buffer): void {
   }
 }
 
-function decompressZstdChunk(buf: Buffer): Buffer {
+function decompressZstdChunk(buf: Uint8Array): Uint8Array {
   assertSafeZstdFrameHeader(buf);
-  const parts: Buffer[] = [];
+  const parts: Uint8Array[] = [];
   let total = 0;
   const decoder = new ZstdDecompress((part) => {
     total += part.byteLength;
     if (total > MAX_DECOMPRESSED_CHUNK_BYTES) {
       throw new Error("Decompressed .fig chunk is too large (max 48 MB).");
     }
-    parts.push(Buffer.from(part));
+    parts.push(part);
   });
   decoder.push(buf, true);
-  return Buffer.concat(parts, total);
+  return concatBytes(parts, total);
 }
 
-function decompressChunk(buf: Buffer): Buffer {
-  if (buf.length === 0) return Buffer.alloc(0);
-  if (buf.length >= 4 && buf.subarray(0, 4).equals(ZSTD_MAGIC)) {
+function decompressChunk(buf: Uint8Array): Uint8Array {
+  if (buf.length === 0) return new Uint8Array(0);
+  if (buf.length >= 4 && bytesEqual(buf.subarray(0, 4), ZSTD_MAGIC)) {
     return decompressZstdChunk(buf);
   }
   try {
-    return zlib.inflateRawSync(buf, {
-      maxOutputLength: MAX_DECOMPRESSED_CHUNK_BYTES,
-    });
+    return inflateCapped(buf, MAX_DECOMPRESSED_CHUNK_BYTES, true);
   } catch (e) {
-    if (e instanceof RangeError || /too large|max output/i.test(String(e))) {
+    if (/too large/i.test(String(e))) {
       throw new Error("Decompressed .fig chunk is too large (max 48 MB).");
     }
     /* fall through for format/data errors */
   }
   try {
-    return zlib.inflateSync(buf, {
-      maxOutputLength: MAX_DECOMPRESSED_CHUNK_BYTES,
-    });
+    return inflateCapped(buf, MAX_DECOMPRESSED_CHUNK_BYTES, false);
   } catch (e) {
-    if (e instanceof RangeError || /too large|max output/i.test(String(e))) {
+    if (/too large/i.test(String(e))) {
       throw new Error("Decompressed .fig chunk is too large (max 48 MB).");
     }
     /* fall through */
   }
-  return checkDecompressedSize(Buffer.from(buf));
+  return checkDecompressedSize(buf.slice());
 }
 
-export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
-  if (file.length > MAX_FIG_FILE_BYTES) {
-    throw new Error(".fig file is too large (max 50 MB).");
-  }
+export function decodeKiwiContainer(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): DecodedFigKiwi {
+  assertFileWithinLimit(file, options);
   if (
-    !file.subarray(0, 8).equals(FIG_KIWI_MAGIC) &&
-    !file.subarray(0, 8).equals(FIGJAM_KIWI_MAGIC)
+    !bytesEqual(file.subarray(0, 8), FIG_KIWI_MAGIC) &&
+    !bytesEqual(file.subarray(0, 8), FIGJAM_KIWI_MAGIC)
   ) {
     throw new Error("Not a fig-kiwi file (missing magic header)");
   }
@@ -209,9 +235,9 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
       "Truncated kiwi header (file too short to contain version)",
     );
   }
-  const version = file.readUInt32LE(8);
+  const version = readU32LE(file, 8);
   let offset = 12;
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   let decompressedBytes = 0;
   while (offset < file.length) {
     if (chunks.length >= MAX_KIWI_CHUNKS) {
@@ -220,7 +246,7 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
     if (offset + 4 > file.length) {
       throw new Error(`Truncated chunk header at offset ${offset}`);
     }
-    const length = file.readUInt32LE(offset);
+    const length = readU32LE(file, offset);
     offset += 4;
     if (offset + length > file.length) {
       throw new Error(
@@ -254,19 +280,19 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
 
 interface ZipEntry {
   name: string;
-  data: Buffer;
+  data: Uint8Array;
 }
 
 /**
  * Minimal zip reader: supports stored (method 0) and deflate (method 8)
  * entries, no encryption, no zip64. Sufficient for legacy `.fig` archives.
  */
-function readZip(file: Buffer): ZipEntry[] {
+function readZip(file: Uint8Array): ZipEntry[] {
   const EOCD_SIG = 0x06054b50;
   const maxScan = Math.min(file.length, 65557);
   let eocdOffset = -1;
   for (let i = file.length - 22; i >= file.length - maxScan && i >= 0; i--) {
-    if (file.readUInt32LE(i) === EOCD_SIG) {
+    if (readU32LE(file, i) === EOCD_SIG) {
       eocdOffset = i;
       break;
     }
@@ -276,17 +302,17 @@ function readZip(file: Buffer): ZipEntry[] {
   if (eocdOffset + 22 > file.length) {
     throw new Error("Truncated zip EOCD record.");
   }
-  const diskNumber = file.readUInt16LE(eocdOffset + 4);
-  const centralDirectoryDisk = file.readUInt16LE(eocdOffset + 6);
+  const diskNumber = readU16LE(file, eocdOffset + 4);
+  const centralDirectoryDisk = readU16LE(file, eocdOffset + 6);
   if (diskNumber !== 0 || centralDirectoryDisk !== 0) {
     throw new Error("Multi-disk .fig zip archives are not supported.");
   }
-  const totalEntries = file.readUInt16LE(eocdOffset + 10);
+  const totalEntries = readU16LE(file, eocdOffset + 10);
   if (totalEntries === 0xffff || totalEntries > MAX_ZIP_ENTRIES) {
     throw new Error(".fig zip has too many entries (max 2048).");
   }
-  const cdSize = file.readUInt32LE(eocdOffset + 12);
-  const cdOffset = file.readUInt32LE(eocdOffset + 16);
+  const cdSize = readU32LE(file, eocdOffset + 12);
+  const cdOffset = readU32LE(file, eocdOffset + 16);
   if (
     cdOffset === 0xffffffff ||
     cdSize === 0xffffffff ||
@@ -302,17 +328,17 @@ function readZip(file: Buffer): ZipEntry[] {
     if (p + 46 > file.length) {
       throw new Error(`Truncated central directory entry at offset ${p}`);
     }
-    if (file.readUInt32LE(p) !== 0x02014b50) {
+    if (readU32LE(file, p) !== 0x02014b50) {
       throw new Error(`Bad central directory entry signature at ${p}`);
     }
-    const flags = file.readUInt16LE(p + 8);
-    const compressionMethod = file.readUInt16LE(p + 10);
-    const compressedSize = file.readUInt32LE(p + 20);
-    const uncompressedSize = file.readUInt32LE(p + 24);
-    const nameLen = file.readUInt16LE(p + 28);
-    const extraLen = file.readUInt16LE(p + 30);
-    const commentLen = file.readUInt16LE(p + 32);
-    const localHeaderOffset = file.readUInt32LE(p + 42);
+    const flags = readU16LE(file, p + 8);
+    const compressionMethod = readU16LE(file, p + 10);
+    const compressedSize = readU32LE(file, p + 20);
+    const uncompressedSize = readU32LE(file, p + 24);
+    const nameLen = readU16LE(file, p + 28);
+    const extraLen = readU16LE(file, p + 30);
+    const commentLen = readU16LE(file, p + 32);
+    const localHeaderOffset = readU32LE(file, p + 42);
     if ((flags & 0x01) !== 0) {
       throw new Error("Encrypted .fig zip entries are not supported.");
     }
@@ -325,7 +351,7 @@ function readZip(file: Buffer): ZipEntry[] {
     if (p + 46 + nameLen + extraLen + commentLen > file.length) {
       throw new Error(`Truncated central directory entry at offset ${p}`);
     }
-    const name = file.subarray(p + 46, p + 46 + nameLen).toString("utf8");
+    const name = readUtf8(file.subarray(p + 46, p + 46 + nameLen));
     p += 46 + nameLen + extraLen + commentLen;
     if (
       name.includes("\0") ||
@@ -354,38 +380,36 @@ function readZip(file: Buffer): ZipEntry[] {
     if (lh + 30 > file.length) {
       throw new Error(`Local header offset ${lh} out of bounds`);
     }
-    if (file.readUInt32LE(lh) !== 0x04034b50) {
+    if (readU32LE(file, lh) !== 0x04034b50) {
       throw new Error(`Bad local file header signature at ${lh}`);
     }
-    const localFlags = file.readUInt16LE(lh + 6);
-    const localCompressionMethod = file.readUInt16LE(lh + 8);
+    const localFlags = readU16LE(file, lh + 6);
+    const localCompressionMethod = readU16LE(file, lh + 8);
     if (
       (localFlags & 0x01) !== 0 ||
       localCompressionMethod !== compressionMethod
     ) {
       throw new Error(`Inconsistent local header for "${name}".`);
     }
-    const lhNameLen = file.readUInt16LE(lh + 26);
-    const lhExtraLen = file.readUInt16LE(lh + 28);
+    const lhNameLen = readU16LE(file, lh + 26);
+    const lhExtraLen = readU16LE(file, lh + 28);
     const dataStart = lh + 30 + lhNameLen + lhExtraLen;
     if (dataStart + compressedSize > file.length) {
       throw new Error(`Compressed data for "${name}" extends past end of file`);
     }
     const compressed = file.subarray(dataStart, dataStart + compressedSize);
 
-    let data: Buffer;
+    let data: Uint8Array;
     if (compressionMethod === 0) {
       if (compressedSize !== uncompressedSize) {
         throw new Error(`Invalid stored size for "${name}".`);
       }
-      data = Buffer.from(compressed);
+      data = compressed.slice();
     } else if (compressionMethod === 8) {
       try {
-        data = zlib.inflateRawSync(compressed, {
-          maxOutputLength: MAX_DECOMPRESSED_CHUNK_BYTES,
-        });
+        data = inflateCapped(compressed, MAX_DECOMPRESSED_CHUNK_BYTES, true);
       } catch (error) {
-        if (/buffer|length|output|large|max/i.test(String(error))) {
+        if (/too large/i.test(String(error))) {
           throw new Error(
             "Decompressed .fig zip entry is too large (max 48 MB).",
           );
@@ -408,98 +432,19 @@ function readZip(file: Buffer): ZipEntry[] {
   return entries;
 }
 
-function isZip(file: Buffer): boolean {
-  return file.length >= 4 && file.subarray(0, 4).equals(ZIP_MAGIC);
+function isZip(file: Uint8Array): boolean {
+  return file.length >= 4 && bytesEqual(file.subarray(0, 4), ZIP_MAGIC);
 }
 
-// Recursively convert non-JSON-serializable values (Uint8Array -> hex string,
-// bigint -> string) without round-tripping through a single JSON string, which
-// would throw "Invalid string length" for large documents (V8 caps strings at
-// ~512MB).
-interface ObjectBudget {
-  objects: number;
-  items: number;
-  binaryBytes: number;
-  stringBytes: number;
-  active: WeakSet<object>;
-}
-
-function sanitizeForJson(
-  value: unknown,
-  budget: ObjectBudget,
-  depth = 0,
-): unknown {
-  if (depth > MAX_DECODE_DEPTH) {
-    throw new Error("Decoded .fig document is nested too deeply.");
-  }
-  if (value instanceof Uint8Array) {
-    budget.binaryBytes += value.byteLength;
-    if (budget.binaryBytes > MAX_SANITIZED_BINARY_BYTES) {
-      throw new Error("Decoded .fig document contains too much binary data.");
-    }
-    return Buffer.from(value).toString("hex");
-  }
-  if (typeof value === "string") {
-    const bytes = Buffer.byteLength(value, "utf8");
-    budget.stringBytes += bytes;
-    if (
-      bytes > MAX_DECODED_STRING_BYTES ||
-      budget.stringBytes > MAX_TOTAL_STRING_BYTES
-    ) {
-      throw new Error("Decoded .fig document contains too much string data.");
-    }
-    return value;
-  }
-  if (typeof value === "bigint") return value.toString();
-  if (Array.isArray(value)) {
-    budget.objects += 1;
-    budget.items += value.length;
-    if (
-      budget.objects > MAX_DECODED_OBJECTS ||
-      value.length > MAX_COLLECTION_LENGTH ||
-      budget.items > MAX_COLLECTION_ITEMS
-    ) {
-      throw new Error("Decoded .fig document exceeds collection limits.");
-    }
-    if (budget.active.has(value)) {
-      throw new Error("Decoded .fig document contains a cycle.");
-    }
-    budget.active.add(value);
-    try {
-      return value.map((item) => sanitizeForJson(item, budget, depth + 1));
-    } finally {
-      budget.active.delete(value);
-    }
-  }
-  if (value !== null && typeof value === "object") {
-    budget.objects += 1;
-    if (budget.objects > MAX_DECODED_OBJECTS) {
-      throw new Error("Decoded .fig document contains too many objects.");
-    }
-    if (budget.active.has(value)) {
-      throw new Error("Decoded .fig document contains a cycle.");
-    }
-    budget.active.add(value);
-    const out: Record<string, unknown> = {};
-    const entries = Object.entries(value);
-    budget.items += entries.length;
-    if (budget.items > MAX_COLLECTION_ITEMS) {
-      throw new Error("Decoded .fig document has too many fields.");
-    }
-    try {
-      for (const [k, v] of entries) {
-        out[k] = sanitizeForJson(v, budget, depth + 1);
-      }
-    } finally {
-      budget.active.delete(value);
-    }
-    return out;
-  }
-  return value;
-}
-
-/** Re-check decoded/direct-test documents before renderer traversal. */
+/** Re-check direct documents before renderer traversal. */
 export function assertSafeDecodedFigDocument(value: unknown): void {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    decodedDocuments.has(value)
+  ) {
+    return;
+  }
   const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   const seen = new WeakSet<object>();
   let objects = 0;
@@ -513,13 +458,21 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
     }
     if (current.value instanceof Uint8Array) {
       binaryBytes += current.value.byteLength;
-      if (binaryBytes > MAX_SANITIZED_BINARY_BYTES) {
+      if (binaryBytes > MAX_DECODED_BINARY_BYTES) {
         throw new Error("Decoded .fig document contains too much binary data.");
       }
       continue;
     }
-    if (typeof current.value === "string") {
-      const bytes = Buffer.byteLength(current.value, "utf8");
+    const stringValue =
+      typeof current.value === "string"
+        ? current.value
+        : current.value instanceof String
+          ? current.value.valueOf()
+          : typeof current.value === "bigint"
+            ? current.value.toString()
+            : undefined;
+    if (stringValue !== undefined) {
+      const bytes = utf8ByteLength(stringValue);
       stringBytes += bytes;
       if (
         bytes > MAX_DECODED_STRING_BYTES ||
@@ -556,21 +509,112 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
   }
 }
 
+interface KiwiByteBufferState {
+  _data: Uint8Array;
+  _index: number;
+}
+
+const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
+// Chrome's TextDecoder costs more per call than building a short ASCII string
+// directly, and most .fig strings are short ASCII names.
+const SHORT_ASCII_STRING_BYTES = 64;
+
+function isAscii(bytes: Uint8Array): boolean {
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index]! >= 0x80) return false;
+  }
+  return true;
+}
+
+/**
+ * Enforces every document budget while kiwi decodes, so the decoded object
+ * graph can be handed to the renderer as-is. Arrays count as objects and as a
+ * nesting level, and fields and array items share one item budget, matching
+ * {@link assertSafeDecodedFigDocument} for direct documents.
+ */
 class BudgetByteBuffer extends ByteBuffer {
+  private binaryBytes = 0;
   private collectionItems = 0;
   private decodedObjects = 0;
   private decodeDepth = 0;
   private readCount = 0;
+  private stringBytes = 0;
 
   override readByte(): number {
-    this.readCount += 1;
-    if (this.readCount > MAX_DECODE_READS) {
-      throw new Error(".fig document exceeded its decode work budget.");
-    }
+    this.chargeReads(1);
     return super.readByte();
   }
 
-  readCollectionLength(): number {
+  // Budgeted from the declared length, before kiwi would allocate and copy it.
+  override readByteArray(): Uint8Array {
+    const length = this.readVarUint();
+    if (
+      length > MAX_DECODED_BINARY_FIELD_BYTES ||
+      this.binaryBytes + length > MAX_DECODED_BINARY_BYTES
+    ) {
+      throw new Error("Decoded .fig document contains too much binary data.");
+    }
+    const state = this as unknown as KiwiByteBufferState;
+    const start = state._index;
+    const end = start + length;
+    if (end > state._data.length) throw new Error("Read array out of bounds");
+    state._index = end;
+    this.binaryBytes += length;
+    return state._data.slice(start, end);
+  }
+
+  // kiwi builds strings one character at a time, which leaves each one as a
+  // rope of pieces (2-3x the heap of the flat string). Valid UTF-8 decodes to
+  // the same text in one call. Malformed input (TextDecoder marks it with
+  // U+FFFD) takes kiwi's own path, because kiwi consumes a different number of
+  // bytes there; a genuine U+FFFD takes it too and decodes the same either way.
+  override readString(): string {
+    const state = this as unknown as KiwiByteBufferState;
+    const start = state._index;
+    const end = state._data.indexOf(0, start);
+    // Charge the whole scan even when kiwi's path takes over: kiwi can stop
+    // early (an overlong NUL), and the next string rescans the same span.
+    this.chargeReads((end >= 0 ? end + 1 : state._data.length) - start);
+    if (end >= 0) {
+      if (end - start > MAX_DECODED_STRING_BYTES) {
+        throw new Error("Decoded .fig document contains too much string data.");
+      }
+      const bytes = state._data.subarray(start, end);
+      const text =
+        bytes.length <= SHORT_ASCII_STRING_BYTES && isAscii(bytes)
+          ? String.fromCharCode.apply(null, bytes as unknown as number[])
+          : utf8Decoder.decode(bytes);
+      if (!text.includes(REPLACEMENT_CHARACTER)) {
+        this.chargeString(end - start);
+        state._index = end + 1;
+        return text;
+      }
+    }
+    const text = super.readString();
+    this.chargeString(utf8ByteLength(text));
+    return text;
+  }
+
+  readVarUint64String(): string {
+    const text = super.readVarUint64().toString();
+    this.chargeString(text.length);
+    return text;
+  }
+
+  readVarInt64String(): string {
+    const text = super.readVarInt64().toString();
+    this.chargeString(text.length);
+    return text;
+  }
+
+  readEnumValue(values: Record<number, string>): string | undefined {
+    const value = values[this.readVarUint()];
+    if (value !== undefined) this.chargeString(value.length);
+    return value;
+  }
+
+  enterDecodedArray(): number {
     const length = super.readVarUint();
     this.collectionItems += length;
     if (
@@ -579,7 +623,12 @@ class BudgetByteBuffer extends ByteBuffer {
     ) {
       throw new Error(".fig document declares an oversized collection.");
     }
+    this.enterDecodedObject();
     return length;
+  }
+
+  leaveDecodedArray(): void {
+    this.decodeDepth -= 1;
   }
 
   enterDecodedObject(): void {
@@ -593,8 +642,30 @@ class BudgetByteBuffer extends ByteBuffer {
     }
   }
 
-  leaveDecodedObject(): void {
+  leaveDecodedObject<T extends object>(result: T): T {
     this.decodeDepth -= 1;
+    for (const _field in result) this.collectionItems += 1;
+    if (this.collectionItems > MAX_COLLECTION_ITEMS) {
+      throw new Error(".fig document has too many fields.");
+    }
+    return result;
+  }
+
+  private chargeReads(count: number): void {
+    this.readCount += count;
+    if (this.readCount > MAX_DECODE_READS) {
+      throw new Error(".fig document exceeded its decode work budget.");
+    }
+  }
+
+  private chargeString(bytes: number): void {
+    this.stringBytes += bytes;
+    if (
+      bytes > MAX_DECODED_STRING_BYTES ||
+      this.stringBytes > MAX_TOTAL_STRING_BYTES
+    ) {
+      throw new Error("Decoded .fig document contains too much string data.");
+    }
   }
 }
 
@@ -602,33 +673,72 @@ type CompiledDecoder = Record<string, unknown> & {
   ByteBuffer: typeof BudgetByteBuffer;
 };
 
-function compileBudgetedSchema(schema: Schema): CompiledDecoder {
-  const generated = compileSchemaJS(schema);
-  const collectionRead = "var length = bb.readVarUint();";
-  const budgetedCollectionRead = "var length = bb.readCollectionLength();";
-  const patched = generated.split(collectionRead).join(budgetedCollectionRead);
-  const compiled: CompiledDecoder = { ByteBuffer: BudgetByteBuffer };
-  new Function("exports", patched)(compiled);
+function replaceCounted(
+  source: string,
+  pattern: RegExp,
+  replacement: (match: string) => string,
+): { source: string; count: number } {
+  let count = 0;
+  const patched = source.replace(pattern, (match) => {
+    count += 1;
+    return replacement(match);
+  });
+  return { source: patched, count };
+}
 
-  for (const key of Object.keys(compiled)) {
-    if (!key.startsWith("decode")) continue;
-    const original = compiled[key];
-    if (typeof original !== "function") continue;
-    compiled[key] = function budgetedDecode(
-      this: CompiledDecoder,
-      bb: BudgetByteBuffer,
-    ) {
-      if (!(bb instanceof BudgetByteBuffer)) {
-        throw new Error("Unsafe .fig decoder buffer.");
-      }
-      bb.enterDecodedObject();
-      try {
-        return original.call(this, bb);
-      } finally {
-        bb.leaveDecodedObject();
-      }
-    };
+// The budget hooks are spliced into kiwi's generated source rather than
+// wrapped around each decode function: one shared wrapper makes every nested
+// decode call megamorphic. A kiwi upgrade that changes the generated shape
+// must fail here, not decode without budgets.
+function compileBudgetedSchema(schema: Schema): CompiledDecoder {
+  const decoders = schema.definitions.filter((d) => d.kind !== "ENUM").length;
+  let source = compileSchemaJS(schema);
+  const objects = replaceCounted(
+    source,
+    /\n {2}var result = \{\};\n/g,
+    (match) => `${match}  bb.enterDecodedObject();\n`,
+  );
+  const returns = replaceCounted(
+    objects.source,
+    /return result;/g,
+    () => "return bb.leaveDecodedObject(result);",
+  );
+  const arrays = replaceCounted(
+    returns.source,
+    /var length = bb\.readVarUint\(\);/g,
+    () => "var length = bb.enterDecodedArray();",
+  );
+  const loops = replaceCounted(
+    arrays.source,
+    /for \(var i = 0; i < length; i\+\+\) values\[i\] = [^\n]*;\n/g,
+    (match) => `${match}bb.leaveDecodedArray();\n`,
+  );
+  // Last definition wins for a repeated name, as in kiwi's own lookup.
+  const byName = new Map(schema.definitions.map((d) => [d.name, d]));
+  const enumFields = schema.definitions
+    .filter((d) => d.kind !== "ENUM")
+    .flatMap((d) => d.fields)
+    .filter((f) => f.type !== null && byName.get(f.type)?.kind === "ENUM");
+  const enums = replaceCounted(
+    loops.source,
+    /this\["[\w$]+"\]\[bb\.readVarUint\(\)\]/g,
+    (match) => `bb.readEnumValue(${match.slice(0, match.indexOf("]") + 1)})`,
+  );
+  if (
+    objects.count !== decoders ||
+    returns.count !== decoders ||
+    loops.count !== arrays.count ||
+    enums.count !== enumFields.length
+  ) {
+    throw new Error("Unsupported kiwi decoder output.");
   }
+  source = enums.source
+    .split("bb.readVarUint64()")
+    .join("bb.readVarUint64String()")
+    .split("bb.readVarInt64()")
+    .join("bb.readVarInt64String()");
+  const compiled: CompiledDecoder = { ByteBuffer: BudgetByteBuffer };
+  new Function("exports", source)(compiled);
   return compiled;
 }
 
@@ -636,9 +746,9 @@ function compileBudgetedSchema(schema: Schema): CompiledDecoder {
 // document buffer. Also returns an optional decodeError string so callers can
 // surface the reason rather than falling back to a generic message.
 function decodeKiwiDocument(
-  schemaBuf: Buffer,
-  documentBuf: Buffer,
-): { document: unknown | null; decodeError?: string } {
+  schemaBuf: Uint8Array,
+  documentBuf: Uint8Array,
+): { document: unknown; decodeError?: string } {
   let schema: Schema;
   try {
     assertSafeBinarySchemaShape(schemaBuf);
@@ -654,7 +764,10 @@ function decodeKiwiDocument(
   // validation. Real Figma schemas use ordinary identifiers and a `Message`
   // root; anything else is an unsupported/probably hostile variant.
   const definitionNames = new Set(schema.definitions.map((d) => d.name));
-  const safeIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+  // The decoded object graph reaches the renderer as-is, and a generated
+  // `result["__proto__"] = value` would replace a prototype, not set a field.
+  const isSafeIdentifier = (name: string) =>
+    /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) && name !== "__proto__";
   const primitiveTypes = new Set([
     "bool",
     "byte",
@@ -666,7 +779,7 @@ function decodeKiwiDocument(
     "uint64",
   ]);
   for (const definition of schema.definitions) {
-    if (!safeIdentifier.test(definition.name)) {
+    if (!isSafeIdentifier(definition.name)) {
       return {
         document: null,
         decodeError: `Unsafe schema identifier: "${definition.name}"`,
@@ -679,7 +792,7 @@ function decodeKiwiDocument(
       };
     }
     for (const field of definition.fields) {
-      if (!safeIdentifier.test(field.name)) {
+      if (!isSafeIdentifier(field.name)) {
         return {
           document: null,
           decodeError: `Unsafe field identifier: "${definition.name}.${field.name}"`,
@@ -738,16 +851,11 @@ function decodeKiwiDocument(
       documentBuf.byteLength,
     );
     const bb = new BudgetByteBuffer(view);
-    const document = decoder.call(compiled, bb);
-    return {
-      document: sanitizeForJson(document, {
-        objects: 0,
-        items: 0,
-        binaryBytes: 0,
-        stringBytes: 0,
-        active: new WeakSet(),
-      }),
-    };
+    const document: unknown = decoder.call(compiled, bb);
+    if (document !== null && typeof document === "object") {
+      decodedDocuments.add(document);
+    }
+    return { document };
   } catch (e) {
     return {
       document: null,
@@ -756,7 +864,7 @@ function decodeKiwiDocument(
   }
 }
 
-function collectImagesFromBlobs(blobs: Buffer[]): DecodedFigImage[] {
+function collectImagesFromBlobs(blobs: Uint8Array[]): DecodedFigImage[] {
   const seen = new Map<string, DecodedFigImage>();
   for (const blob of blobs) {
     if (blob.length === 0) continue;
@@ -769,22 +877,27 @@ function collectImagesFromBlobs(blobs: Buffer[]): DecodedFigImage[] {
   return Array.from(seen.values());
 }
 
-function findThumbnail(documentBuf: Buffer, blobs: Buffer[]): Buffer | null {
+function findThumbnail(
+  documentBuf: Uint8Array,
+  blobs: Uint8Array[],
+): Uint8Array | null {
   const pngBlobs = blobs
-    .filter((b) => b.length >= 8 && b.subarray(0, 8).equals(PNG_MAGIC))
+    .filter((b) => b.length >= 8 && bytesEqual(b.subarray(0, 8), PNG_MAGIC))
     .sort((a, b) => a.length - b.length);
   if (pngBlobs.length > 0) return pngBlobs[0]!;
 
-  const idx = documentBuf.indexOf(PNG_MAGIC);
+  const idx = indexOfBytes(documentBuf, PNG_MAGIC);
   if (idx >= 0) {
-    const iend = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
-    const end = documentBuf.indexOf(iend, idx);
+    const iend = new Uint8Array([
+      0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const end = indexOfBytes(documentBuf, iend, idx);
     if (end > idx) return documentBuf.subarray(idx, end + iend.length);
   }
   return null;
 }
 
-function assertSafeBinarySchemaShape(schemaBuf: Buffer): void {
+function assertSafeBinarySchemaShape(schemaBuf: Uint8Array): void {
   const bb = new ByteBuffer(
     new Uint8Array(
       schemaBuf.buffer,
@@ -808,57 +921,75 @@ function assertSafeBinarySchemaShape(schemaBuf: Buffer): void {
   }
 }
 
+function assertFileWithinLimit(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): void {
+  const fileLimit = maxFileBytes(options);
+  if (fileLimit !== null && file.length > fileLimit) {
+    throw new Error(
+      `.fig file is too large (max ${Math.round(fileLimit / 1024 / 1024)} MB).`,
+    );
+  }
+}
+
+function readZipCanvas(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): { entries: ZipEntry[]; inner: DecodedFigKiwi } {
+  const entries = readZip(file);
+  const canvasEntry = entries.find((e) => e.name === "canvas.fig");
+  if (!canvasEntry) throw new Error(".fig zip is missing canvas.fig.");
+  return { entries, inner: decodeKiwiContainer(canvasEntry.data, options) };
+}
+
+function collectZipImages(
+  entries: ZipEntry[],
+  blobs: Uint8Array[],
+): DecodedFigImage[] {
+  return collectImagesFromBlobs([
+    ...entries.filter((e) => e.name.startsWith("images/")).map((e) => e.data),
+    ...blobs,
+  ]);
+}
+
+/** The embedded images of a `.fig`, without decoding its kiwi document. */
+export function decodeFigImages(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): DecodedFigImage[] {
+  assertFileWithinLimit(file, options);
+  if (isZip(file)) {
+    const { entries, inner } = readZipCanvas(file, options);
+    return collectZipImages(entries, inner.blobs);
+  }
+  return collectImagesFromBlobs(decodeKiwiContainer(file, options).blobs);
+}
+
 // Handles both modern fig-kiwi files and legacy zip-format archives.
 // `document` is null if kiwi decoding failed.
-export function decodeFig(file: Buffer): DecodedFig {
-  if (file.length > MAX_FIG_FILE_BYTES) {
-    throw new Error(".fig file is too large (max 50 MB).");
-  }
+export function decodeFig(
+  file: Uint8Array,
+  options?: DecodeFigOptions,
+): DecodedFig {
+  assertFileWithinLimit(file, options);
   if (isZip(file)) {
-    const entries = readZip(file);
-    const canvasEntry = entries.find((e) => e.name === "canvas.fig");
-    const imageEntries = entries.filter((e) => e.name.startsWith("images/"));
-
-    let document: unknown = null;
-    let version: number | undefined;
-    let extraBlobs: Buffer[] = [];
-    if (!canvasEntry) throw new Error(".fig zip is missing canvas.fig.");
-    const inner = decodeKiwiContainer(canvasEntry.data);
-    version = inner.version;
-    extraBlobs = inner.blobs;
+    const { entries, inner } = readZipCanvas(file, options);
     const kiwiResult = decodeKiwiDocument(inner.schema, inner.document);
-    document = kiwiResult.document;
-
-    const images: DecodedFigImage[] = [];
-    const seen = new Set<string>();
-    for (const e of imageEntries) {
-      const ext = detectImageExt(e.data) || "bin";
-      if (ext === "bin") continue;
-      const hash = sha1(e.data);
-      if (seen.has(hash)) continue;
-      seen.add(hash);
-      images.push({ hash, ext, bytes: e.data });
-    }
-    for (const img of collectImagesFromBlobs(extraBlobs)) {
-      if (seen.has(img.hash)) continue;
-      seen.add(img.hash);
-      images.push(img);
-    }
-
     const thumbnailEntry = entries.find((e) => e.name === "thumbnail.png");
     return {
       format: "zip",
-      version,
-      document,
+      version: inner.version,
+      document: kiwiResult.document,
       ...(kiwiResult.decodeError
         ? { decodeError: kiwiResult.decodeError }
         : {}),
-      images,
+      images: collectZipImages(entries, inner.blobs),
       thumbnail: thumbnailEntry?.data ?? null,
     };
   }
 
-  const decoded = decodeKiwiContainer(file);
+  const decoded = decodeKiwiContainer(file, options);
   const kiwiResult = decodeKiwiDocument(decoded.schema, decoded.document);
   const images = collectImagesFromBlobs(decoded.blobs);
   const thumbnail = findThumbnail(decoded.document, decoded.blobs);

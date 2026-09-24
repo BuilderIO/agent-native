@@ -9,8 +9,8 @@
  *
  * Runtime placeholder (replaced by DesignCanvas.tsx before injection):
  *   __EMBEDDED_WHEEL_FORWARDING_ENABLED__  — boolean literal "true"/"false"
- *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal; true only
- *     when the editor-chrome bridge is absent (Interact mode)
+ *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal controlling
+ *     Space hotkey relay to the host; local Space-pan is always available
  *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
  *     to freeze authored motion and block native link/form navigation
  *
@@ -20,7 +20,7 @@
  *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey }
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
- *     pointerId, button, buttons, clientX, clientY,
+ *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
  *     ctrlKey, metaKey, shiftKey, altKey }
  *
  * Protocol (parent → iframe):
@@ -45,6 +45,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
   var leftButtonEnabled = false;
   var temporarySpacePanEnabled = false;
+  var forwardedSpaceKeyDown = false;
   var activePointerId: number | null = null;
   var activeButton: 0 | 1 | null = null;
   var captureTarget: Element | null = null;
@@ -96,7 +97,9 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    e.preventDefault();
+    // A fling's wheel events are not cancelable; cancelling one logs a browser
+    // Intervention per event and scrolls anyway.
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
   }
@@ -120,7 +123,11 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWheel(e: WheelEvent): void {
-    if (!wheelEnabled) return;
+    // Zoom forwards whatever the pan flag says: the flag only arrives by
+    // postMessage and a document swap strands it, while the zoom bridge cancels
+    // ctrl/meta wheel here regardless — so gating it makes the gesture vanish.
+    var zoomIntent = !!(e.ctrlKey || e.metaKey);
+    if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
     postToParent({
       type: "embedded-canvas-wheel",
@@ -161,6 +168,8 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       buttons: phase === "end" || phase === "cancel" ? 0 : e.buttons,
       clientX: lastClientX,
       clientY: lastClientY,
+      movementX: clamp(e.movementX, 100000),
+      movementY: clamp(e.movementY, 100000),
       ctrlKey: lastCtrlKey,
       metaKey: lastMetaKey,
       shiftKey: lastShiftKey,
@@ -245,9 +254,18 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     );
   }
 
+  function shouldLetEditorChromeHandleSpace(): boolean {
+    // The gesture shim runs before editor chrome; an active reorder needs the
+    // later listener to see Space so it can preserve the dragged layer's parent.
+    return (
+      !spaceKeyForwardingEnabled &&
+      editingSafetyEnabled &&
+      !!document.querySelector("[data-agent-native-editor-chrome-host]")
+    );
+  }
+
   function onKeyDown(e: KeyboardEvent): void {
     if (
-      !spaceKeyForwardingEnabled ||
       e.key !== " " ||
       e.code !== "Space" ||
       e.metaKey ||
@@ -259,8 +277,13 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       return;
     }
     temporarySpacePanEnabled = true;
+    if (shouldLetEditorChromeHandleSpace()) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
-    if (e.repeat) return;
+    if (e.repeat || !spaceKeyForwardingEnabled) return;
+    forwardedSpaceKeyDown = true;
     postToParent({
       type: "design-hotkey",
       key: e.key,
@@ -274,14 +297,20 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onKeyUp(e: KeyboardEvent): void {
-    if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space") {
-      return;
-    }
+    if (e.key !== " " || e.code !== "Space") return;
     var wasTemporarySpacePanEnabled = temporarySpacePanEnabled;
     temporarySpacePanEnabled = false;
-    if (!wasTemporarySpacePanEnabled && isTypingTarget(e.target)) return;
+    var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
+    forwardedSpaceKeyDown = false;
+    if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+    if (shouldLetEditorChromeHandleSpace() && !wasSpaceKeyForwarded) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
-    postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+    if (wasSpaceKeyForwarded) {
+      postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+    }
   }
 
   function onHostMessage(e: MessageEvent): void {
@@ -304,7 +333,19 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       // key, forced a re-register, and left the canvas on "Preparing editable
       // preview..." until that round trip finished.
       if (typeof e.data.editingSafetyEnabled === "boolean") {
-        editingSafetyEnabled = e.data.editingSafetyEnabled;
+        var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+        if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+          cancelActivePan();
+          if (forwardedSpaceKeyDown) {
+            forwardedSpaceKeyDown = false;
+            postToParent({
+              type: "design-hotkey-up",
+              key: " ",
+              code: "Space",
+            });
+          }
+        }
+        editingSafetyEnabled = nextEditingSafetyEnabled;
         syncEditingSafetyStyle();
       }
     }
@@ -322,6 +363,8 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       buttons: 0,
       clientX: lastClientX,
       clientY: lastClientY,
+      movementX: 0,
+      movementY: 0,
       ctrlKey: lastCtrlKey,
       metaKey: lastMetaKey,
       shiftKey: lastShiftKey,

@@ -13,6 +13,59 @@ import action, {
 } from "./update-content-database-personal-view";
 
 describe("update content database personal view", () => {
+  it("rejects oversized or malformed sidebar order ids on full override saves", () => {
+    const overrides = {
+      version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+      views: [
+        {
+          id: "table",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: Array.from(
+              { length: 5_001 },
+              (_, index) => `item-${index}`,
+            ),
+          },
+        },
+      ],
+    };
+    const oversized = action.schema.safeParse({
+      databaseId: "database",
+      overrides,
+    });
+    expect(oversized.success).toBe(false);
+    if (!oversized.success) {
+      expect(oversized.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "too_big",
+            path: ["overrides", "views", 0, "sidebarOrder", "itemIds"],
+          }),
+        ]),
+      );
+    }
+
+    overrides.views[0]!.sidebarOrder.itemIds = ["x".repeat(257)];
+    const malformed = action.schema.safeParse({
+      databaseId: "database",
+      overrides,
+    });
+    expect(malformed.success).toBe(false);
+    if (!malformed.success) {
+      expect(malformed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "too_big",
+            path: ["overrides", "views", 0, "sidebarOrder", "itemIds", 0],
+          }),
+        ]),
+      );
+    }
+  });
+
   it("accepts grouped filter overrides for the current user", () => {
     const parsed = action.schema.parse({
       databaseId: "database",

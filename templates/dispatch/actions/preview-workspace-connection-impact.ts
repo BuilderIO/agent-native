@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import {
   getWorkspaceConnectionAppAccess,
@@ -50,7 +50,7 @@ function optionalTimestamp(source: object, key: string) {
   const value = (source as Record<string, unknown>)[key];
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function latestTimestamp(values: Array<string | null | undefined>) {

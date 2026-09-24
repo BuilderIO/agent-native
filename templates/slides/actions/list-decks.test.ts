@@ -1,3 +1,4 @@
+import { registerErrorCaptureProvider } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const deckRows = [
@@ -5,6 +6,8 @@ const deckRows = [
     id: "deck_123",
     title: "Roadmap",
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
+    previewSlide: JSON.stringify({ id: "slide-1" }),
+    aspectRatio: "4:3",
     visibility: "private",
     designSystemId: null,
     ownerEmail: "Alice@Example.com",
@@ -14,8 +17,12 @@ const deckRows = [
 ];
 
 let requestUserEmail = "alice@example.com";
+let rowsForQuery = deckRows;
 
-const orderByFn = vi.fn(async () => deckRows);
+const limitFn = vi.fn(async (limit: number) => rowsForQuery.slice(0, limit));
+const orderByFn = vi.fn(() =>
+  Object.assign(Promise.resolve(rowsForQuery), { limit: limitFn }),
+);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
 const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
@@ -32,6 +39,7 @@ vi.mock("../server/db/index.js", () => ({
       createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      data: "data_col",
     },
     deckShares: {},
   },
@@ -39,6 +47,9 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
+  // `captureError` (real, unmocked, used by the fallback preview-parse path)
+  // reads this to skip synthetic-traffic events; no request context in tests.
+  getRequestContext: () => undefined,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -57,6 +68,7 @@ import action from "./list-decks";
 beforeEach(() => {
   vi.clearAllMocks();
   requestUserEmail = "alice@example.com";
+  rowsForQuery = deckRows;
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
@@ -122,6 +134,114 @@ describe("list-decks", () => {
     expect(result.count).toBe(1);
   });
 
+  it("can include only the first slide as a light-mode preview", async () => {
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
+      previewSlide: expect.objectContaining({
+        strings: expect.arrayContaining(["::jsonb -> 'slides' -> 0)::text"]),
+      }),
+      aspectRatio: expect.objectContaining({
+        strings: expect.arrayContaining(["::jsonb ->> 'aspectRatio')"]),
+      }),
+    });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
+  });
+
+  it("keeps the list alive when one deck's data fails the SQL preview cast", async () => {
+    // The `::jsonb` cast in the preview projection runs per row inside the
+    // query itself, so one deck with corrupted `data` used to fail the whole
+    // statement and 500 the list for every deck, not just that one.
+    const goodRow = {
+      ...deckRows[0],
+      id: "deck_good",
+      title: "Good Deck",
+      data: JSON.stringify({
+        slides: [{ id: "slide-1" }],
+        aspectRatio: "16:9",
+      }),
+      updatedAt: "2026-05-03T00:00:00.000Z",
+    };
+    const badRow = {
+      ...deckRows[0],
+      id: "deck_bad",
+      title: "Corrupted Deck",
+      data: "not json",
+      updatedAt: "2026-05-02T00:00:00.000Z",
+    };
+    rowsForQuery = [goodRow, badRow];
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(
+        // Postgres 22P02 ("invalid_text_representation") is what the real
+        // `::jsonb` cast throws for a non-JSON row; drizzle wraps it as
+        // `.cause` on a DrizzleQueryError, so a driver-level `.code` here
+        // exercises the same check `.cause.code` would.
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const captured: Array<{ error: unknown; extra: unknown }> = [];
+    const unregister = registerErrorCaptureProvider("test", (error, ctx) => {
+      captured.push({ error, extra: ctx.extra });
+    });
+
+    try {
+      const result = await action.run({
+        light: "true",
+        includePreview: "true",
+      });
+
+      expect(result.count).toBe(2);
+      expect(result.decks.find((d) => d.id === "deck_good")).toMatchObject({
+        previewSlide: { id: "slide-1" },
+        aspectRatio: "16:9",
+      });
+      const badDeck = result.decks.find((d) => d.id === "deck_bad");
+      expect(badDeck).toMatchObject({
+        id: "deck_bad",
+        title: "Corrupted Deck",
+      });
+      expect(badDeck).not.toHaveProperty("previewSlide");
+      // The bad row is visible, not silently dropped: once for the cast
+      // failure, once more naming the specific deck it belongs to.
+      expect(captured).toHaveLength(2);
+      expect(captured[1]?.extra).toMatchObject({ deckId: "deck_bad" });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not fall back on a non-JSON-cast failure, so a real outage isn't doubled with a heavier full-data scan", async () => {
+    // Only 22P02 (invalid JSON text) should trigger the fallback. A timeout,
+    // a dropped connection, or pool exhaustion is a real failure — retrying
+    // it as a second query that reads every visible deck's full `data` blob
+    // would double the load on the DB during exactly the incident this guard
+    // exists for.
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(Object.assign(new Error("timeout"), { code: "57014" })),
+    );
+
+    await expect(
+      action.run({ light: "true", includePreview: "true" }),
+    ).rejects.toThrow("timeout");
+    // The fallback's full-`data` scan never ran.
+    expect(selectFn).toHaveBeenCalledTimes(1);
+  });
+
   it("can limit results to decks created by the current user", async () => {
     await action.run({ createdBy: "me" });
 
@@ -134,6 +254,52 @@ describe("list-decks", () => {
         },
       ],
     });
+  });
+
+  it("returns bounded metadata pages with an opaque cursor", async () => {
+    rowsForQuery = [
+      ...deckRows,
+      {
+        ...deckRows[0],
+        id: "deck_122",
+        title: "Earlier",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+      },
+    ];
+
+    const result = await action.run({ limit: 1 });
+
+    expect(limitFn).toHaveBeenCalledWith(2);
+    expect(result).toMatchObject({
+      count: 1,
+      decks: [
+        { id: "deck_123", appUrl: "https://slides.agent.test/deck/deck_123" },
+      ],
+      nextCursor: Buffer.from(
+        JSON.stringify({
+          updatedAt: "2026-05-03T00:00:00.000Z",
+          id: "deck_123",
+        }),
+      ).toString("base64url"),
+    });
+  });
+
+  it("normalizes offset timestamps before incremental sync comparisons", async () => {
+    await action.run({
+      updatedSince: "2026-05-03T00:00:00-07:00",
+      limit: 1,
+    });
+
+    const pagedWhere = whereFn.mock.calls.at(-1)?.[0] as {
+      and?: Array<{ values?: unknown[] }>;
+    };
+    expect(pagedWhere.and).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          values: ["updated_at_col", "2026-05-03T07:00:00.000Z"],
+        }),
+      ]),
+    );
   });
 
   it("does not bypass Mine filtering for a whitespace-only identity", async () => {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  describeGoogleSignInCredentialPairs,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
   resolveGoogleProviderCredentialCandidates,
   resolveGoogleProviderCredentialCandidatesWithReader,
@@ -148,5 +149,48 @@ describe("resolveGoogleSignInCredentials", () => {
         credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
       }),
     ).resolves.toEqual([]);
+  });
+});
+
+describe("describeGoogleSignInCredentialPairs", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  // `mismatched` must be a plain fact about the two credential pairs — it has
+  // no notion of "managed" vs "user" credential mode, and callers (the
+  // /_agent-native/health/google route) are the ones that decide what a
+  // mismatch means for their specific mode. Env shape alone must drive it.
+  it("is true when the sign-in and provider pairs name different clients", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+
+    const result = describeGoogleSignInCredentialPairs();
+
+    expect(result.mismatched).toBe(true);
+    expect(result.signInClientId).toBe("sign-in-client");
+    expect(result.providerClientId).toBe("provider-client");
+  });
+
+  it("is false when both pairs name the same client", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "same-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "same-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+
+    expect(describeGoogleSignInCredentialPairs().mismatched).toBe(false);
+  });
+
+  it("is false when only one pair is configured", () => {
+    delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+    delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+
+    expect(describeGoogleSignInCredentialPairs().mismatched).toBe(false);
   });
 });

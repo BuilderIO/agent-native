@@ -51,6 +51,19 @@ function bookingTitle(booking: Booking) {
   return stripCrlf(booking.eventTitle) || "Meeting";
 }
 
+function bookingAttendeeEmails(booking: Booking): string[] {
+  const seen = new Set<string>();
+  return [
+    stripCrlf(booking.email),
+    ...(booking.additionalGuestEmails ?? []).map(stripCrlf),
+  ].filter((email) => {
+    const key = email.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function sendBestEffort(
   label: string,
   args: Parameters<typeof sendEmail>[0],
@@ -202,18 +215,23 @@ export async function sendBookingConfirmationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "there";
 
-  await sendBestEffort("attendee confirmation", {
-    to: attendee,
-    ...renderBookingConfirmedEmail({
-      title,
-      when,
-      host,
-      manageUrl,
-      meetingLink: booking.meetingLink,
-    }),
-    replyTo: host,
-    templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
-  });
+  for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
+    await sendBestEffort(
+      index === 0 ? "attendee confirmation" : "additional guest confirmation",
+      {
+        to: recipient,
+        ...renderBookingConfirmedEmail({
+          title,
+          when,
+          host,
+          manageUrl,
+          meetingLink: booking.meetingLink,
+        }),
+        replyTo: host,
+        templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
+      },
+    );
+  }
 
   await sendBestEffort("host notification", {
     to: host,
@@ -247,12 +265,17 @@ export async function sendBookingCancellationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "The guest";
 
-  await sendBestEffort("attendee cancellation", {
-    to: attendee,
-    ...renderBookingCancelledEmail({ title, when, host, bookAgainUrl }),
-    replyTo: host || undefined,
-    templateId: CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
-  });
+  for (const [index, recipient] of bookingAttendeeEmails(booking).entries()) {
+    await sendBestEffort(
+      index === 0 ? "attendee cancellation" : "additional guest cancellation",
+      {
+        to: recipient,
+        ...renderBookingCancelledEmail({ title, when, host, bookAgainUrl }),
+        replyTo: host || undefined,
+        templateId: CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
+      },
+    );
+  }
 
   if (!host) return;
 

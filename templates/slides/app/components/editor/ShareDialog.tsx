@@ -1,12 +1,16 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareDialog as CoreShareDialog } from "@agent-native/core/client/sharing";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
+import {
+  ShareDialog as CoreShareDialog,
+  withShareLinkAttribution,
+} from "@agent-native/core/client/sharing";
 import {
   cloneElement,
   isValidElement,
   useCallback,
+  useEffect,
   useState,
   type MouseEvent,
   type ReactElement,
@@ -14,35 +18,25 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 
 interface ShareDialogProps {
   deck: Deck;
   /** Trigger element rendered as the dialog anchor (usually the Share button). */
-  children: ReactNode;
+  children?: ReactNode;
+  /** Controlled opening for menu items that must wait for their parent to close. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-function getShareUrls(deckId: string) {
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-
-  return {
-    editor:
-      typeof window === "undefined"
-        ? `/deck/${deckId}`
-        : `${origin}${appPath(`/deck/${deckId}`)}`,
-    presentation:
-      typeof window === "undefined"
-        ? `/p/${deckId}`
-        : `${origin}${appPath(`/p/${deckId}`)}`,
-  };
-}
-
-export default function ShareDialog({ deck, children }: ShareDialogProps) {
+export default function ShareDialog({
+  deck,
+  children,
+  open: requestedOpen,
+  onOpenChange,
+}: ShareDialogProps) {
   const t = useT();
-  const { isLocal } = useDbStatus();
+  const { session } = useSession();
   const [open, setOpen] = useState(false);
   const [shareLink, setShareLink] = useState<{
     deckId: string;
@@ -50,22 +44,28 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
   } | null>(null);
   const [creatingLink, setCreatingLink] = useState(false);
 
-  const shareUrls = getShareUrls(deck.id);
-  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
+  const setDialogOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
+  // Viral attribution: whoever copies this public presentation link is
+  // tagged as the referrer, so a signup that follows it can be attributed.
   const primaryShareLink = shareToken
-    ? `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`
+    ? withShareLinkAttribution(
+        `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
+        "deck_share",
+        session?.userId,
+      )
     : undefined;
-  const secondaryShareLink = shareUrls[shareLinkOrder.secondary];
-
   const openShareDialog = useCallback(async () => {
-    if (isLocal) {
-      setOpen(true);
-      return;
-    }
     if (shareToken) {
-      setOpen(true);
+      setDialogOpen(true);
       return;
     }
     if (creatingLink) return;
@@ -96,59 +96,58 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
       if (typeof payload.shareToken !== "string" || !payload.shareToken) {
         throw new Error(t("share.createFailed"));
       }
+      trackEvent("share_link_created", {
+        output_id: deck.id,
+        output_type: "deck",
+        share_type: "presentation_link",
+      });
       setShareLink({ deckId: deck.id, token: payload.shareToken });
-      setOpen(true);
+      setDialogOpen(true);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("share.createFailed"),
       );
+      if (requestedOpen !== undefined) setDialogOpen(false);
     } finally {
       setCreatingLink(false);
     }
-  }, [creatingLink, deck, isLocal, shareToken, t]);
+  }, [creatingLink, deck, setDialogOpen, shareToken, t]);
 
-  const trigger = isValidElement(children)
-    ? (() => {
-        const triggerElement = children as ReactElement<{
-          onClick?: (event: MouseEvent) => void;
-        }>;
-        return cloneElement(triggerElement, {
-          onClick: (event) => {
-            triggerElement.props.onClick?.(event);
-            if (!event.defaultPrevented) void openShareDialog();
-          },
-        });
-      })()
-    : children;
+  useEffect(() => {
+    if (requestedOpen === undefined) return;
+    if (!requestedOpen) {
+      setOpen(false);
+      return;
+    }
+    if (!open) void openShareDialog();
+  }, [open, openShareDialog, requestedOpen]);
+
+  const trigger =
+    children && isValidElement(children)
+      ? (() => {
+          const triggerElement = children as ReactElement<{
+            onClick?: (event: MouseEvent) => void;
+          }>;
+          return cloneElement(triggerElement, {
+            onClick: (event) => {
+              triggerElement.props.onClick?.(event);
+              if (!event.defaultPrevented) void openShareDialog();
+            },
+          });
+        })()
+      : children;
 
   return (
     <>
       {trigger}
-      {open && isLocal ? (
-        <CloudUpgrade
-          title={t("share.title")}
-          description={t("share.cloudUpgradeDescription")}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
       <CoreShareDialog
-        open={open && !isLocal}
-        onClose={() => setOpen(false)}
+        open={open}
+        onClose={() => setDialogOpen(false)}
         resourceType="deck"
         resourceId={deck.id}
+        title={t("share.title")}
         resourceTitle={deck.title}
         shareUrl={primaryShareLink}
-        linkTabExtras={
-          <ShareCopyRow
-            label={t("editorToolbar.presentationLink")}
-            description={t("editorToolbar.presentationLinkDescription")}
-            value={secondaryShareLink}
-            copyLabel={t("share.copyLink")}
-            copiedLabel={t("share.copied")}
-            onCopy={(value) => writeClipboardText(value)}
-            className="mt-3"
-          />
-        }
       />
     </>
   );

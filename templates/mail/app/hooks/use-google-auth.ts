@@ -3,14 +3,19 @@ import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
+import { invalidateInboxThreads } from "@/hooks/use-inbox-threads";
+
 export interface GoogleAuthAccount {
   email: string;
   displayName?: string;
   expiresAt?: string;
   photoUrl?: string;
+  shared?: boolean;
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
   accounts: GoogleAuthAccount[];
 }
@@ -151,7 +156,7 @@ export function useGoogleAuthUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-auth-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -179,7 +184,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -200,9 +205,10 @@ export function useDisconnectGoogle() {
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["google-status"] });
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
+      void queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+      void invalidateInboxThreads(queryClient);
     },
   });
 }

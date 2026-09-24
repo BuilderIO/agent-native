@@ -21,7 +21,7 @@ const SOURCE_CREDENTIAL_KEYS: Record<string, string> = {
 };
 
 interface ResolveSourceCredentialOptions {
-  provider: BrainSourceProvider | string;
+  provider: BrainSourceProvider | (string & {});
   key: string;
   ctx: CredentialContext;
   workspaceConnectionId?: string | null;
@@ -563,7 +563,7 @@ export async function assertSourceWorkspaceConnectionAvailable({
   provider,
   workspaceConnectionId,
 }: {
-  provider: BrainSourceProvider | string;
+  provider: BrainSourceProvider | (string & {});
   workspaceConnectionId: string;
 }) {
   let result: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
@@ -601,7 +601,7 @@ export async function assertSourceCredentialAvailable({
   workspaceConnectionId,
   ctx,
 }: {
-  provider: BrainSourceProvider | string;
+  provider: BrainSourceProvider | (string & {});
   workspaceConnectionId: string;
   ctx: CredentialContext | null;
 }) {

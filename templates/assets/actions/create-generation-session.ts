@@ -1,6 +1,5 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   recordGenerationCreativeContext,
   resolveGenerationCreativeContext,
@@ -12,7 +11,15 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
+import {
+  assertCanDraft,
+  assertCanUseAssets,
+  assertCanUseRuns,
+  draftProvenanceAccess,
+  draftScopeForLibrary,
+} from "../server/lib/library-access.js";
 import { serializeGenerationSession } from "./_helpers.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 
 export default defineAction({
   description:
@@ -48,7 +55,10 @@ export default defineAction({
       contextPackId: creativeContext.contextPackId,
       reuseLabels,
     };
-    await assertAccess("asset-library", args.libraryId, "editor");
+    const draftAccess = await assertCanDraft(args.libraryId);
+    // Attaching a candidate or run to a session republishes it through the
+    // session read path, so inputs answer to the same author rule as reads.
+    const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     if (args.collectionId) {
       const [collection] = await db
@@ -60,23 +70,19 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
-    let preset: typeof schema.assetGenerationPresets.$inferSelect | null = null;
+    let preset: typeof schema.assetTemplates.$inferSelect | null = null;
     if (args.presetId) {
-      const [row] = await db
-        .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.id, args.presetId))
-        .limit(1);
-      preset = row ?? null;
-      if (!preset || preset.libraryId !== args.libraryId) {
-        throw new Error("Generation preset does not belong to this library.");
+      preset = (await resolveTemplateAccess(args.presetId, "viewer")).resource;
+      if (!preset) throw new Error("Template not found.");
+      if (preset.libraryId && preset.libraryId !== args.libraryId) {
+        throw new Error("Template is associated to a different brand kit.");
       }
       if (
         args.collectionId &&
         preset.collectionId &&
         preset.collectionId !== args.collectionId
       ) {
-        throw new Error("Generation preset belongs to a different collection.");
+        throw new Error("Template is associated to a different collection.");
       }
     }
     const assetIds = [...new Set(args.assetIds ?? [])];
@@ -85,7 +91,13 @@ export default defineAction({
     }
     if (assetIds.length) {
       const assets = await db
-        .select({ id: schema.assets.id, libraryId: schema.assets.libraryId })
+        .select({
+          id: schema.assets.id,
+          libraryId: schema.assets.libraryId,
+          role: schema.assets.role,
+          status: schema.assets.status,
+          generationRunId: schema.assets.generationRunId,
+        })
         .from(schema.assets)
         .where(inArray(schema.assets.id, assetIds));
       const foundIds = new Set(assets.map((asset) => asset.id));
@@ -94,6 +106,13 @@ export default defineAction({
       if (assets.some((asset) => asset.libraryId !== args.libraryId)) {
         throw new Error("All assets must belong to this asset library.");
       }
+      assertCanUseAssets(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        assets,
+        "A generation session",
+      );
     }
     const runIds = [...new Set(args.runIds ?? [])];
     if (runIds.length) {
@@ -112,6 +131,13 @@ export default defineAction({
           "All generation runs must belong to this asset library.",
         );
       }
+      assertCanUseRuns(
+        draftScope,
+        args.libraryId,
+        draftAccess.role,
+        runs,
+        "A generation session",
+      );
     }
 
     const now = nowIso();
@@ -188,12 +214,7 @@ export default defineAction({
               },
             ],
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
     return {
       ...serializeGenerationSession(session),

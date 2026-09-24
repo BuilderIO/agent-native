@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// These helpers resolve `isPostgres()` through `./client.js`, which derives the
-// dialect from `process.env.DATABASE_URL`. The tests stub that env and pass an
-// injected fake client, so no real database is required.
+// The tests pass injected fake clients, so no real database is required.
 
 describe("ddl-guard", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -177,7 +175,6 @@ describe("ddl-guard", () => {
       expect(
         await ensureTableExists("late", `CREATE TABLE late (id TEXT)`, {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).toBe(true);
       // A sibling probe in the same boot must see it, not the pre-DDL snapshot.
@@ -209,7 +206,6 @@ describe("ddl-guard", () => {
       expect(
         await ensureTableExists("settings", `CREATE TABLE settings (k TEXT)`, {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).toBe(false);
       expect(calls).toEqual([]);
@@ -226,7 +222,6 @@ describe("ddl-guard", () => {
       await expect(
         ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).resolves.toBe(false);
       expect(calls).toEqual([]);
@@ -250,7 +245,6 @@ describe("ddl-guard", () => {
         withMigrationRuntime(() =>
           ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
             injectedClient: client,
-            dialectIsPostgres: true,
           }),
         ),
       ).resolves.toBe(true);
@@ -271,7 +265,6 @@ describe("ddl-guard", () => {
       await expect(
         ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
           injectedClient: client,
-          dialectIsPostgres: true,
         }),
       ).resolves.toBe(false);
       expect(calls).toEqual([]);
@@ -291,17 +284,6 @@ describe("ddl-guard", () => {
   });
 
   describe("pgTableExists / pgColumnExists / pgIndexExists", () => {
-    it("are no-ops on SQLite (never query)", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { pgTableExists, pgColumnExists, pgIndexExists } =
-        await import("./ddl-guard.js");
-      const { client, calls } = recordingClient();
-      expect(await pgTableExists("settings", client)).toBe(false);
-      expect(await pgColumnExists("settings", "x", client)).toBe(false);
-      expect(await pgIndexExists("settings_idx", client)).toBe(false);
-      expect(calls).toEqual([]);
-    });
-
     it("report valid and ready index existence on Postgres", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists, pgColumnExists, pgIndexExists } =
@@ -350,17 +332,6 @@ describe("ddl-guard", () => {
   });
 
   describe("runGuardedDdl", () => {
-    it("runs DDL directly on SQLite (no transaction / lock_timeout)", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { runGuardedDdl } = await import("./ddl-guard.js");
-      const { client, calls } = recordingClient();
-      const ran = await runGuardedDdl("CREATE TABLE foo (id TEXT)", {
-        injectedClient: client,
-      });
-      expect(ran).toBe(true);
-      expect(calls).toEqual(["CREATE TABLE foo (id TEXT)"]);
-    });
-
     it("wraps Postgres DDL in a transaction with SET LOCAL lock_timeout", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { runGuardedDdl } = await import("./ddl-guard.js");
@@ -607,34 +578,6 @@ describe("ddl-guard", () => {
       // Only the initial probe ran; a hard DDL error doesn't trigger a re-probe.
       expect(probeCount).toBe(1);
     });
-
-    it("ensureTableExists / ensureColumnExists / ensureIndexExists are no-ops on SQLite", async () => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-      const { ensureTableExists, ensureColumnExists, ensureIndexExists } =
-        await import("./ddl-guard.js");
-      // On SQLite the probes return false, so the wrappers run the DDL through
-      // runGuardedDdl, which on SQLite just executes it directly (returns true).
-      const { client, calls } = recordingClient();
-      expect(
-        await ensureTableExists("foo", "CREATE TABLE foo (id TEXT)", {
-          injectedClient: client,
-        }),
-      ).toBe(true);
-      expect(calls).toEqual(["CREATE TABLE foo (id TEXT)"]);
-      expect(
-        await ensureColumnExists(
-          "foo",
-          "bar",
-          "ALTER TABLE foo ADD COLUMN bar TEXT",
-          { injectedClient: client },
-        ),
-      ).toBe(true);
-      expect(
-        await ensureIndexExists("foo_idx", "CREATE INDEX foo_idx ON foo (id)", {
-          injectedClient: client,
-        }),
-      ).toBe(true);
-    });
   });
 
   describe("isLockTimeoutError", () => {
@@ -686,12 +629,152 @@ describe("ddl-guard", () => {
       ensureIndexExistsConcurrently(
         "sync_events_created_at_id_idx",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-        { injectedClient: client, dialectIsPostgres: true },
+        { injectedClient: client },
       ),
     ).resolves.toBe(true);
     expect(calls.some((sql) => /CREATE INDEX CONCURRENTLY/.test(sql))).toBe(
       true,
     );
     expect(calls).not.toContain("BEGIN");
+  });
+
+  it("drops an INVALID index before rebuilding it", async () => {
+    // A failed CREATE INDEX CONCURRENTLY leaves the index present but unusable.
+    // `pgIndexExists` reports it missing (it requires indisvalid), yet
+    // `CREATE INDEX IF NOT EXISTS` skips because the NAME is taken — so without
+    // the drop, every later repair re-probes, still fails, and the release can
+    // never recover. This happened in production and blocked docs deploys.
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExists } = await import("./ddl-guard.js");
+    const calls: string[] = [];
+    let dropped = false;
+    let created = false;
+    const client = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        calls.push(text);
+        if (/NOT index_state\.indisvalid/.test(text)) {
+          return { rows: dropped ? [] : [{ "?column?": 1 }], rowsAffected: 0 };
+        }
+        if (/^DROP INDEX/.test(text)) {
+          dropped = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/FROM information_schema\.columns/.test(text)) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/CREATE INDEX/.test(text)) {
+          created = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        // Reports present only once a real CREATE has run. The invalid index
+        // never satisfies this probe, which is the whole point.
+        if (/FROM pg_indexes/.test(text)) {
+          return { rows: created ? [{ indexname: "t_idx" }] : [] };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ execute: client.execute }),
+    } as any;
+
+    await ensureIndexExists(
+      "t_idx",
+      "CREATE INDEX IF NOT EXISTS t_idx ON t (a)",
+      {
+        injectedClient: client,
+      },
+    );
+
+    const dropAt = calls.findIndex((sql) => /^DROP INDEX/.test(sql));
+    const createAt = calls.findIndex((sql) => /CREATE INDEX/.test(sql));
+    expect(dropAt).toBeGreaterThanOrEqual(0);
+    // Order matters: creating first is exactly the no-op that stranded prod.
+    expect(dropAt).toBeLessThan(createAt);
+  });
+
+  it("drops an INVALID index in the concurrent path too", async () => {
+    // The concurrent helper is what leaves an index invalid, so it must be able
+    // to clear one. Without this it is the only caller that cannot recover from
+    // its own failure mode — `sync_events_created_at_id_idx` in production.
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
+    const concurrentCalls: string[] = [];
+    let concurrentDropped = false;
+    let concurrentCreated = false;
+    const concurrentClient = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        concurrentCalls.push(text);
+        if (/NOT index_state\.indisvalid/.test(text)) {
+          return {
+            rows: concurrentDropped ? [] : [{ "?column?": 1 }],
+            rowsAffected: 0,
+          };
+        }
+        if (/^DROP INDEX/.test(text)) {
+          concurrentDropped = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/CREATE INDEX CONCURRENTLY/.test(text)) {
+          concurrentCreated = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/FROM information_schema\.columns/.test(text)) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/FROM pg_indexes/.test(text)) {
+          return { rows: concurrentCreated ? [{ indexname: "sync_idx" }] : [] };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async () => {
+        throw new Error("concurrent index creation must not use a transaction");
+      },
+    } as any;
+
+    await expect(
+      ensureIndexExistsConcurrently(
+        "sync_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_idx ON t (a)",
+        { injectedClient: concurrentClient },
+      ),
+    ).resolves.toBe(true);
+
+    const cDropAt = concurrentCalls.findIndex((sql) => /^DROP INDEX/.test(sql));
+    const cCreateAt = concurrentCalls.findIndex((sql) =>
+      /CREATE INDEX CONCURRENTLY/.test(sql),
+    );
+    expect(cDropAt).toBeGreaterThanOrEqual(0);
+    expect(cDropAt).toBeLessThan(cCreateAt);
+  });
+
+  it("does not drop an index that is valid", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExists } = await import("./ddl-guard.js");
+    const calls: string[] = [];
+    const client = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        calls.push(text);
+        // No invalid row, and the index already probes as present and valid.
+        if (/NOT index_state\.indisvalid/.test(text)) return { rows: [] };
+        if (/FROM pg_indexes/.test(text))
+          return { rows: [{ indexname: "t_idx" }] };
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ execute: client.execute }),
+    } as any;
+
+    await ensureIndexExists(
+      "t_idx",
+      "CREATE INDEX IF NOT EXISTS t_idx ON t (a)",
+      {
+        injectedClient: client,
+      },
+    );
+
+    expect(calls.some((sql) => /^DROP INDEX/.test(sql))).toBe(false);
   });
 });

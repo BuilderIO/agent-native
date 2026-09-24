@@ -1,5 +1,11 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  isDesignSystemCodeIndexingAllowed,
+  isDesignSystemTierAtMax,
+  readDesignSystemTierLimitFailure,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
+import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -20,10 +26,21 @@ import {
   IconExternalLink,
   IconChevronDown,
   IconRefresh,
+  IconLock,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -80,9 +97,9 @@ interface BuilderSourceDetails {
   builderUrl?: string;
   builderStatus?: string;
   sourceKind?: BuilderSourceKind;
-  docs?: Array<unknown>;
   tokenValues?: Record<string, string>;
-  docCount?: number;
+  /** null when Builder could not be read at all; 0 means still indexing. */
+  docCount?: number | null;
   warning?: string;
   githubSources?: Array<{
     repoUrl: string;
@@ -259,10 +276,11 @@ export function DesignSystemSetup({
     editingId ? { id: editingId } : undefined,
     {
       enabled: !!editingId && open,
+      // Builder's status string lags the real index state; a zero document
+      // count is the only reliable "still indexing" signal. A null count
+      // means Builder could not be read, so stop rather than spin.
       refetchInterval: (query) =>
-        query.state.data?.builder?.builderStatus === "in-progress"
-          ? 5_000
-          : false,
+        query.state.data?.builder?.docCount === 0 ? 5_000 : false,
     },
   );
 
@@ -272,6 +290,17 @@ export function DesignSystemSetup({
 
   const existingSystems = designSystemsData?.designSystems ?? [];
   const [selectedSystemId, setSelectedSystemId] = useState("");
+
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+    undefined,
+    { enabled: open && !editingId },
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const codeIndexingAllowed = isDesignSystemCodeIndexingAllowed(tierLimit);
+  const [tierLimitUpgradeUrl, setTierLimitUpgradeUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (existingDs && editingId) {
@@ -410,17 +439,15 @@ export function DesignSystemSetup({
         }
         newFiles.push(file);
       });
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
-    [t],
+    [],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.figFileRequired"));
@@ -466,6 +493,33 @@ export function DesignSystemSetup({
     },
     [companyName, t, startDecodePolling, stopDecodePolling],
   );
+
+  const handleBuilderIndexUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(event.target.files?.[0]);
+      event.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void processBuilderIndexFile(event.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
+  );
+
+  const addImageFiles = useCallback((files: FileList) => {
+    const newFiles = Array.from(files).map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    }));
+    setImageFiles((previous) => [...previous, ...newFiles]);
+  }, []);
 
   const handleEditSave = async () => {
     if (!editingId || !existingDs) return;
@@ -522,6 +576,7 @@ export function DesignSystemSetup({
       !customInstructions.trim();
     if (isGithubOnlySource) {
       setGenerating(true);
+      setTierLimitUpgradeUrl(null);
       try {
         await indexSystemMutation.mutateAsync({
           projectName: companyName.trim() || undefined,
@@ -534,11 +589,19 @@ export function DesignSystemSetup({
         toast.success(t("designSystemSetup.generationStarted"));
         onComplete();
       } catch (error) {
+        const tierFailure = readDesignSystemTierLimitFailure(
+          error,
+          t("designSystemSetup.updateFailed"),
+        );
+        if (tierFailure) {
+          setTierLimitUpgradeUrl(tierFailure.upgradeUrl);
+        }
         toast.error(t("designSystemSetup.updateFailed"), {
           description:
-            error instanceof Error
+            tierFailure?.message ??
+            (error instanceof Error
               ? error.message
-              : t("designSystemSetup.updateFailed"),
+              : t("designSystemSetup.updateFailed")),
         });
       } finally {
         setGenerating(false);
@@ -690,7 +753,7 @@ export function DesignSystemSetup({
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for sources Builder indexed successfully. If \`index-design-system-with-builder\` fails or reports Builder DSI unavailable, do not finish with nothing created: call \`create-design-system\` with tokens and guidance derived from those same sources, and tell me Builder indexing was skipped and why. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -729,6 +792,50 @@ export function DesignSystemSetup({
     indexSystemMutation,
     existingDs,
   ]);
+
+  if (!editingId && atMax) {
+    return (
+      <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("designSystemSetup.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -808,6 +915,8 @@ export function DesignSystemSetup({
                         <button
                           type="button"
                           onClick={() => figInputRef.current?.click()}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={handleBuilderIndexDrop}
                           disabled={builderIndexing}
                           className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                         >
@@ -891,6 +1000,10 @@ export function DesignSystemSetup({
                           expanded={otherSource === "code"}
                           onClick={() => selectOtherSource("code")}
                           panelId="slides-design-system-code-source"
+                          locked={!codeIndexingAllowed}
+                          lockedMessage={t(
+                            "designSystemSetup.codeIndexingEnterpriseOnly",
+                          )}
                         />
                         <SourceAccordionRow
                           className="rounded-none border-0"
@@ -1153,6 +1266,12 @@ export function DesignSystemSetup({
                     </Label>
                     <button
                       onClick={() => imageInputRef.current?.click()}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        addImageFiles(event.dataTransfer.files);
+                      }}
                       className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                     >
                       <p className="text-xs text-muted-foreground">
@@ -1165,16 +1284,7 @@ export function DesignSystemSetup({
                       accept="image/*,.svg"
                       multiple
                       onChange={(e) => {
-                        if (!e.target.files) return;
-                        const newFiles = Array.from(e.target.files).map(
-                          (f) => ({
-                            id: crypto.randomUUID(),
-                            name: f.name,
-                            type: f.type,
-                            size: f.size,
-                          }),
-                        );
-                        setImageFiles((p) => [...p, ...newFiles]);
+                        if (e.target.files) addImageFiles(e.target.files);
                         e.target.value = "";
                       }}
                       className="hidden"
@@ -1283,6 +1393,21 @@ export function DesignSystemSetup({
           )}
         </ScrollArea>
 
+        {tierLimitUpgradeUrl && (
+          <div className="mx-6 mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm text-foreground/80">
+            <span>{t("designSystems.tierLimitTitle")}</span>
+            <a
+              href={tierLimitUpgradeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <IconExternalLink className="w-3.5 h-3.5" />
+              {t("designSystems.tierLimitUpgrade")}
+            </a>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-3 px-6 pb-6 pt-2 border-t border-border">
           <Button
@@ -1359,6 +1484,8 @@ function SourceAccordionRow({
   onClick,
   panelId,
   className,
+  locked,
+  lockedMessage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -1367,16 +1494,21 @@ function SourceAccordionRow({
   onClick: () => void;
   panelId: string;
   className?: string;
+  locked?: boolean;
+  lockedMessage?: string;
 }) {
   return (
     <button
       type="button"
       aria-controls={panelId}
       aria-expanded={expanded}
-      onClick={onClick}
+      aria-disabled={locked}
+      title={locked ? lockedMessage : undefined}
+      onClick={locked ? undefined : onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         expanded && "bg-accent/40",
+        locked && "opacity-60 cursor-not-allowed hover:bg-transparent",
         className,
       )}
     >
@@ -1386,15 +1518,19 @@ function SourceAccordionRow({
           {title}
         </span>
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {description}
+          {locked ? lockedMessage : description}
         </span>
       </span>
-      <IconChevronDown
-        className={cn(
-          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-          expanded && "rotate-180",
-        )}
-      />
+      {locked ? (
+        <IconLock className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <IconChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+            expanded && "rotate-180",
+          )}
+        />
+      )}
     </button>
   );
 }
@@ -1409,26 +1545,18 @@ function BuilderSourceStatus({
   syncing?: boolean;
 }) {
   const t = useT();
-  const docs = builder.docCount ?? builder.docs?.length ?? 0;
+  // Builder's status string drifts out of sync with the real index state, so
+  // the reported document count decides: absent means Builder could not be
+  // read at all, zero means indexing, positive means ready.
+  const docCount = builder.docCount;
+  const docs = docCount ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
-  const normalizedStatus = builder.builderStatus?.toLowerCase();
   const hasIndexedResults = docs > 0 || tokens > 0;
-  const isIndexed =
-    hasIndexedResults ||
-    normalizedStatus === "ready" ||
-    normalizedStatus === "complete" ||
-    normalizedStatus === "completed";
-  const isIndexing = ["in-progress", "pending", "processing"].includes(
-    normalizedStatus ?? "",
-  );
-  const state =
-    isIndexing && !isIndexed
-      ? "indexing"
-      : builder.warning
-        ? "unavailable"
-        : isIndexed
-          ? "indexed"
-          : "indexing";
+  const state = hasIndexedResults
+    ? "indexed"
+    : builder.warning
+      ? "unavailable"
+      : "indexing";
   const sourceKind = builder.sourceKind;
   const SourceIcon =
     sourceKind === "figma"
@@ -1448,12 +1576,6 @@ function BuilderSourceStatus({
           : sourceKind === "mixed"
             ? t("designSystemSetup.sourceMixed")
             : t("designSystemSetup.sourceBuilder");
-  const statusTitle =
-    state === "unavailable"
-      ? t("designSystemSetup.sourceUnavailable")
-      : state === "indexed"
-        ? t("designSystemSetup.sourceIndexed")
-        : t("designSystemSetup.sourceIndexing");
   const statusDescription =
     state === "unavailable"
       ? t("designSystemSetup.sourceUnavailableDescription")
@@ -1469,12 +1591,6 @@ function BuilderSourceStatus({
                   docs,
                   tokens,
                 });
-  const statusClassName =
-    state === "unavailable"
-      ? "text-destructive"
-      : state === "indexed"
-        ? "text-primary"
-        : "text-muted-foreground";
 
   return (
     <section
@@ -1495,20 +1611,6 @@ function BuilderSourceStatus({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {statusDescription}
           </p>
-        </div>
-        <div
-          className={cn(
-            "flex shrink-0 items-center gap-1.5 text-xs font-medium",
-            statusClassName,
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          <span
-            className="size-1.5 rounded-full bg-current"
-            aria-hidden="true"
-          />
-          {statusTitle}
         </div>
       </div>
       {builder.builderUrl || onSync ? (

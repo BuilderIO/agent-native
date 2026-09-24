@@ -1,14 +1,18 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
+import { chromium, type Browser } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
+  deriveDesignPreviewAttestationSignature,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -30,6 +34,14 @@ async function freePort(): Promise<number> {
     });
     srv.once("error", reject);
   });
+}
+
+async function launchBrowser(): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: true });
+  } catch {
+    return chromium.launch({ channel: "chrome", headless: true });
+  }
 }
 
 async function postJson(
@@ -140,6 +152,32 @@ async function getText(
         },
       )
       .on("error", reject);
+  });
+}
+
+async function headText(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const request = http.request(
+      {
+        hostname: parsed.hostname,
+        port: Number(parsed.port),
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "HEAD",
+        headers,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, headers: res.headers }),
+        );
+      },
+    );
+    request.on("error", reject);
+    request.end();
   });
 }
 
@@ -505,6 +543,326 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("rejects a localhost connection id used as the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "localhost_0000000000000000",
+      }),
+    ).rejects.toThrow(/connection ID, not a bridge token/);
+  });
+
+  it("rejects a preview token that does not match the bridge token", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+
+    await expect(
+      startDesignConnectBridge(manifest, {
+        bridgeToken: "bridge-token",
+        previewToken: "stale-preview-token",
+      }),
+    ).rejects.toThrow(/previewToken must match/);
+  });
+
+  it("reuses the persisted bridge token after a daemon restart", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const firstBridge = await startDesignConnectBridge(manifest);
+    await new Promise<void>((resolve) =>
+      firstBridge.server.close(() => resolve()),
+    );
+
+    const secondBridge = await startDesignConnectBridge(manifest);
+    try {
+      expect(secondBridge.bridgeToken).toBe(firstBridge.bridgeToken);
+      expect(secondBridge.previewToken).toBe(firstBridge.previewToken);
+      const tokenPath = path.join(root, ".agent-native", "design-bridge-token");
+      expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+    } finally {
+      await new Promise<void>((resolve) =>
+        secondBridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const auth = { "x-design-preview-token": bridge.previewToken };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const registered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-a",
+          designId: "design-1",
+        },
+        auth,
+      );
+      expect(registered.status).toBe(200);
+      expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+      expect(
+        (
+          await postJson(
+            `${base}/live-edit-pending`,
+            {
+              pending: {
+                designId: "design-1",
+                pendingEditCount: 2,
+                status: "ready",
+                prompt: "Apply the two pending visual edits.",
+              },
+            },
+            { "x-design-preview-token": "wrong-preview-token" },
+          )
+        ).status,
+      ).toBe(401);
+
+      const queryTokenWrite = await postJson(
+        `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged query-token write",
+          },
+        },
+      );
+      expect(queryTokenWrite.status).toBe(401);
+
+      const disallowedOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged cross-origin write",
+          },
+        },
+        { ...auth, origin: "https://evil.example" },
+      );
+      expect(disallowedOriginWrite.status).toBe(403);
+
+      const opaqueOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged opaque-origin write",
+          },
+        },
+        { ...auth, origin: "null" },
+      );
+      expect(opaqueOriginWrite.status).toBe(403);
+
+      const crossSiteNoOriginWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged no-origin write",
+          },
+        },
+        { ...auth, "sec-fetch-site": "cross-site" },
+      );
+      expect(crossSiteNoOriginWrite.status).toBe(403);
+
+      const textPlainWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "forged simple-request write",
+          },
+        },
+        { ...auth, "content-type": "text/plain" },
+      );
+      expect(textPlainWrite.status).toBe(415);
+
+      const published = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(published.status).toBe(200);
+      expect(published.body.pending).toMatchObject({
+        designId: "design-1",
+        pendingEditCount: 2,
+        status: "ready",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      expect(pulled.status).toBe(200);
+      expect(pulled.body.pending).toMatchObject({
+        designId: "design-1",
+        prompt: "Apply the two pending visual edits.",
+      });
+
+      await expect(
+        runDesign([
+          "pending",
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(0);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Apply the two pending visual edits."),
+      );
+
+      const oversized = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "x".repeat(64 * 1024 + 1),
+          },
+        },
+        auth,
+      );
+      expect(oversized.status).toBe(413);
+
+      const cleared = await postJson(
+        `${base}/live-edit-pending`,
+        { designId: "design-1", pending: null },
+        auth,
+      );
+      expect(cleared.status).toBe(200);
+      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
+        ok: true,
+        pending: null,
+      });
+    } finally {
+      log.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("marks live-edit documents and keyed recovery redirects as embeddable", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><html><body><main>Screen</main></body></html>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const origin = "http://localhost:18081";
+      const liveEditUrl = `${base}/live-edit?path=/library&bridgeKey=screen-a&previewToken=${bridge.previewToken}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        auth,
+      );
+      expect(registration.status).toBe(200);
+      const bridgeKey = String(registration.body.bridgeKey ?? "screen-a");
+
+      const liveEdit = await getText(
+        liveEditUrl.replace("screen-a", encodeURIComponent(bridgeKey)),
+        { origin },
+      );
+      expect(liveEdit.status).toBe(200);
+      expect(liveEdit.headers["cross-origin-resource-policy"]).toBe(
+        "cross-origin",
+      );
+      expect(liveEdit.headers["cross-origin-embedder-policy"]).toBe(
+        "credentialless",
+      );
+
+      const recovery = await getText(
+        `${base}/library?agentNativeBridgeKey=screen-a`,
+        {
+          cookie: `agent-native-preview-token=${bridge.previewToken}`,
+          origin,
+          referer: liveEditUrl,
+          "sec-fetch-dest": "document",
+        },
+      );
+      expect(recovery.status).toBe(302);
+      expect(recovery.headers.location).toContain("/live-edit?");
+      expect(recovery.headers["cross-origin-resource-policy"]).toBe(
+        "cross-origin",
+      );
+      expect(recovery.headers["cross-origin-embedder-policy"]).toBe(
+        "credentialless",
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("keeps screen-specific editor bridge scripts isolated across parallel frames", async () => {
     const root = tmpDir();
     const devPort = await freePort();
@@ -873,6 +1231,17 @@ describe("design connect bridge endpoints", () => {
     const root = tmpDir();
     const devPort = await freePort();
     const devServer = http.createServer((req, res) => {
+      if (
+        req.url?.startsWith("/@id/__x00__virtual:react-router/browser-manifest")
+      ) {
+        res.writeHead(200, {
+          "content-type": "application/javascript; charset=utf-8",
+        });
+        res.end(
+          "const manifest={url:'/@id/__x00__virtual:react-router/browser-manifest',runtime:'/@id/__x00__virtual:react-router/inject-hmr-runtime',routes:{root:{module:'/app/root.tsx',clientActionModule:'/app/actions.ts'}}};",
+        );
+        return;
+      }
       if (req.url?.startsWith("/src/main.ts")) {
         if (req.headers.cookie || req.headers.authorization) {
           res.writeHead(400, { "content-type": "text/plain" });
@@ -889,13 +1258,29 @@ describe("design connect bridge endpoints", () => {
           "cache-control": "no-store",
         });
         res.end(
-          "window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+          "import '/src/dependency.ts'; import './relative-dependency.ts'; import('../shared/chunk.js'); const worker = new URL('./worker.ts', import.meta.url); window.__csrBooted = true; document.querySelector('#root').textContent = 'CSR booted';",
+        );
+        return;
+      }
+      if (req.url?.startsWith("/src/styles.css")) {
+        res.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+        res.end(
+          "@import './reset.css'; .app{background:url('/assets/app.woff2#font')}",
+        );
+        return;
+      }
+      if (req.url?.startsWith("/src/styles.module.js")) {
+        res.writeHead(200, {
+          "content-type": "application/javascript; charset=utf-8",
+        });
+        res.end(
+          `const __vite__css = "body{background:url('/assets/app.woff2#font')}";`,
         );
         return;
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title></head><body><div id="root">Loading</div><script type="module" src="/src/main.ts"></script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -944,8 +1329,109 @@ describe("design connect bridge endpoints", () => {
       );
       expect(html.status).toBe(200);
       expect(html.headers["content-type"]).toContain("text/html");
+      expect(html.headers["cross-origin-resource-policy"]).toBe("cross-origin");
+      expect(html.headers["cross-origin-embedder-policy"]).toBe(
+        "credentialless",
+      );
       expect(html.body).toContain(`<base href="${base}/">`);
-      expect(html.body).toContain('src="/src/main.ts"');
+      expect(html.body).toContain(
+        `src="/src/main.ts?previewToken=${bridge.previewToken}" crossorigin="use-credentials"`,
+      );
+      expect(html.body).toContain(
+        `/assets/cover.png?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `/assets/preview.mp4?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `/assets/inline.png?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `./inline.css?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `src="https://cdn.example.com/anonymous.png"`,
+      );
+      expect(html.body).toContain(
+        `inject-hmr-runtime?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `browser-manifest?previewToken=${bridge.previewToken}`,
+      );
+      expect(html.body).toContain(
+        `<script type="importmap" data-agent-native-opaque-preview-imports>`,
+      );
+      expect(html.body).toContain("data-agent-native-opaque-preview-auth");
+      expect(html.body).toContain("var W=window.WebSocket");
+      expect(html.body).toContain('a.protocol==="ws:"||a.protocol==="wss:"');
+      expect(html.body).toContain('a.searchParams.has("previewToken")');
+      expect(html.body).toContain(bridge.previewToken);
+      const authScript = html.body.match(
+        /<script data-agent-native-opaque-preview-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!authScript) throw new Error("missing preview auth shim");
+      const socketUrls: string[] = [];
+      function FakeWebSocket(url: string) {
+        socketUrls.push(url);
+      }
+      FakeWebSocket.prototype = {};
+      const iframeUrls: string[] = [];
+      const nodePrototype = {
+        appendChild: (node: unknown) => node,
+      };
+      const xhrPrototype = { open: () => undefined };
+      const windowObject = {
+        fetch: () => undefined,
+        WebSocket: FakeWebSocket,
+      };
+      vm.runInNewContext(authScript, {
+        window: windowObject,
+        document: { baseURI: `${base}/live-edit` },
+        Node: { prototype: nodePrototype },
+        XMLHttpRequest: { prototype: xhrPrototype },
+        URL,
+      });
+      const sameOriginIframe = {
+        nodeType: 1,
+        tagName: "IFRAME",
+        value: `${base}/nested-preview`,
+        getAttribute(name: string) {
+          return name === "src" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "src") {
+            this.value = value;
+            iframeUrls.push(value);
+          }
+        },
+      };
+      nodePrototype.appendChild(sameOriginIframe);
+      expect(iframeUrls).toEqual([
+        `${base}/nested-preview?previewToken=${bridge.previewToken}`,
+      ]);
+      const externalIframe = {
+        ...sameOriginIframe,
+        value: "https://external.example/nested-preview",
+      };
+      nodePrototype.appendChild(externalIframe);
+      expect(iframeUrls).toHaveLength(1);
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr`,
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        "wss://external.example/hmr",
+      );
+      new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      );
+      expect(socketUrls).toEqual([
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+        "wss://external.example/hmr",
+        `ws://${new URL(base).host}/hmr?previewToken=${bridge.previewToken}`,
+      ]);
       expect(html.body).toContain("agent-native:editor-chrome-ready");
       const previewSessionCookie = (
         Array.isArray(html.headers["set-cookie"])
@@ -959,25 +1445,110 @@ describe("design connect bridge endpoints", () => {
       );
       expect(interactHtml.status).toBe(200);
       expect(interactHtml.body).toContain(`<base href="${base}/">`);
-      expect(interactHtml.body).toContain('src="/src/main.ts"');
+      expect(interactHtml.body).toContain(
+        `src="/src/main.ts?previewToken=${bridge.previewToken}"`,
+      );
       expect(interactHtml.body).not.toContain(
         "agent-native:editor-chrome-ready",
       );
 
-      const module = await getText(`${base}/src/main.ts`, {
-        "sec-fetch-site": "cross-site",
-        "sec-fetch-dest": "script",
-        cookie: `${previewSessionCookie}; pilot_session=must-not-forward`,
-        authorization: "Bearer example-must-not-forward",
-      });
+      const module = await getText(
+        `${base}/src/main.ts?previewToken=${bridge.previewToken}`,
+        {
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-dest": "script",
+          origin: "null",
+          cookie: `${previewSessionCookie}; pilot_session=must-not-forward`,
+          authorization: "Bearer example-must-not-forward",
+        },
+      );
       expect(module.status).toBe(200);
       expect(module.headers["content-type"]).toContain(
         "application/javascript",
       );
+      expect(module.headers["cross-origin-resource-policy"]).toBeUndefined();
+      expect(module.headers["cross-origin-embedder-policy"]).toBeUndefined();
       expect(module.headers["content-length"]).toBe(
         String(Buffer.byteLength(module.body)),
       );
+      expect(module.headers["access-control-allow-origin"]).toBe("null");
+      expect(module.headers["access-control-allow-credentials"]).toBe("true");
+      expect(module.body).toContain(
+        `/src/dependency.ts?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./relative-dependency.ts?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `../shared/chunk.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./worker.ts?previewToken=${bridge.previewToken}`,
+      );
       expect(module.body).toContain("CSR booted");
+
+      const manifestModule = await getText(
+        `${base}/@id/__x00__virtual:react-router/browser-manifest?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
+      expect(manifestModule.status).toBe(200);
+      expect(manifestModule.body).toContain(
+        `/app/root.tsx?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/app/actions.ts?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/@id/__x00__virtual:react-router/browser-manifest?previewToken=${bridge.previewToken}`,
+      );
+      expect(manifestModule.body).toContain(
+        `/@id/__x00__virtual:react-router/inject-hmr-runtime?previewToken=${bridge.previewToken}`,
+      );
+
+      const css = await getText(`${base}/src/styles.css`, {
+        origin: "null",
+        cookie: previewSessionCookie,
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(css.status).toBe(200);
+      expect(css.body).toContain(
+        `/assets/app.woff2?previewToken=${bridge.previewToken}#font`,
+      );
+      expect(css.body).toContain(
+        `./reset.css?previewToken=${bridge.previewToken}`,
+      );
+
+      const cssHead = await headText(
+        `${base}/src/styles.css?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
+      expect(cssHead.status).toBe(200);
+      expect(cssHead.headers["content-length"]).toBe(
+        String(Buffer.byteLength(css.body)),
+      );
+      expect(cssHead.headers["cache-control"]).toBe("no-store");
+
+      const cookieOnlyCssModule = await getText(
+        `${base}/src/styles.module.js`,
+        {
+          origin: "null",
+          cookie: previewSessionCookie,
+        },
+      );
+      expect(cookieOnlyCssModule.status).toBe(200);
+      expect(
+        cookieOnlyCssModule.headers["access-control-allow-origin"],
+      ).toBeUndefined();
+
+      const cssModule = await getText(
+        `${base}/src/styles.module.js?previewToken=${bridge.previewToken}`,
+        { origin: "null" },
+      );
+      expect(cssModule.status).toBe(200);
+      expect(cssModule.headers["access-control-allow-origin"]).toBe("null");
+      expect(cssModule.body).toContain(
+        `/assets/app.woff2?previewToken=${bridge.previewToken}#font`,
+      );
 
       const panOnlyRegistration = await postJson(
         `${base}/live-edit-bridge`,
@@ -1000,6 +1571,101 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
+
+  it("does not make third-party preview resources opt into CORP or CORS", async () => {
+    const root = tmpDir();
+    const assetPort = await freePort();
+    let externalAssetRequests = 0;
+    const assetServer = http.createServer((req, res) => {
+      if (req.url === "/third-party.js") {
+        externalAssetRequests += 1;
+        // Deliberately omit both CORP and CORS: this models a normal CDN
+        // script that was valid before the preview was embedded in Design.
+        res.writeHead(200, { "content-type": "application/javascript" });
+        res.end("window.__thirdPartyPreviewAssetLoaded = true;");
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      assetServer.once("error", reject);
+      assetServer.listen(assetPort, "127.0.0.1", () => {
+        assetServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html>
+<html><body><div id="asset-status">Loading</div>
+<script src="http://127.0.0.1:${assetPort}/third-party.js"></script>
+<script>document.querySelector('#asset-status').textContent = window.__thirdPartyPreviewAssetLoaded ? 'Loaded' : 'Missing';</script>
+</body></html>`);
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const bridgePort = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port: bridgePort,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const hostPort = await freePort();
+    const hostServer = http.createServer((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        // Model the production Design page that embeds the loopback frame.
+        "cross-origin-embedder-policy": "require-corp",
+      });
+      res.end(
+        `<!doctype html><iframe title="preview" src="${
+          manifest.bridgeUrl
+        }/live-edit?path=/&previewToken=${bridge.previewToken}"></iframe>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      hostServer.once("error", reject);
+      hostServer.listen(hostPort, "127.0.0.1", () => {
+        hostServer.off("error", reject);
+        resolve();
+      });
+    });
+
+    const browser = await launchBrowser();
+    try {
+      const page = await browser.newPage();
+      await page.goto(`http://127.0.0.1:${hostPort}/`);
+      const frame = page
+        .frames()
+        .find((candidate) => candidate !== page.mainFrame());
+      if (!frame) throw new Error("preview iframe did not load");
+      await frame.waitForFunction(
+        () =>
+          (window as Window & { __thirdPartyPreviewAssetLoaded?: boolean })
+            .__thirdPartyPreviewAssetLoaded === true,
+        { timeout: 10_000 },
+      );
+      expect(await frame.locator("#asset-status").textContent()).toBe("Loaded");
+      expect(externalAssetRequests).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => hostServer.close(() => resolve()));
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+      await new Promise<void>((resolve) => assetServer.close(() => resolve()));
+    }
+  }, 60_000);
 
   it("proxies a query-string-suffixed asset request to the dev server byte-for-byte, without dropping or rewriting the query", async () => {
     const root = tmpDir();
@@ -1054,6 +1720,446 @@ describe("design connect bridge endpoints", () => {
       );
       expect(viaQuery.status).toBe(200);
       expect(viaQuery.body).toBe(tinyModule);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("survives a client resetting a proxied WebSocket upgrade", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    // A dev server that accepts the upgrade and then holds the socket open,
+    // so the reset comes from the bridge's client side while both proxied
+    // sockets are live.
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(404);
+      res.end();
+    });
+    const devSockets: net.Socket[] = [];
+    devServer.on("upgrade", (_req, socket) => {
+      devSockets.push(socket);
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+      );
+      socket.on("error", () => socket.destroy());
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const client = net.connect(port, "127.0.0.1");
+      await new Promise<void>((resolve, reject) => {
+        client.once("connect", resolve);
+        client.once("error", reject);
+      });
+      client.on("error", () => {});
+      client.write(
+        [
+          `GET /ws?previewToken=${bridge.previewToken} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+      await new Promise<void>((resolve) =>
+        client.once("data", () => resolve()),
+      );
+      // RST instead of FIN: this is what an abruptly closed tab produces and
+      // what surfaced as `read ECONNRESET` in the bridge.
+      client.resetAndDestroy();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const health = await getJson(`http://127.0.0.1:${port}/health`);
+      expect(health.status).toBe(200);
+      expect(health.body["ok"]).toBe(true);
+    } finally {
+      // The dev server still holds the proxied upstream socket open; drop
+      // every connection so close() does not wait on it.
+      for (const socket of devSockets) socket.destroy();
+      bridge.server.closeAllConnections();
+      devServer.closeAllConnections();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("sends a keyed frame's navigation back through /live-edit with its own bridgeKey", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const seenByDevServer: string[] = [];
+    const devServer = http.createServer((req, res) => {
+      seenByDevServer.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(
+        `<!doctype html><title>${req.url}</title><h1>page ${req.url}</h1>`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-a",
+        },
+        auth,
+      );
+      // Registered last: this is what the unkeyed slot would hand out.
+      await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
+          bridgeKey: "screen-b",
+        },
+        auth,
+      );
+      // Frame A follows a link to /home. The browser tags it as an iframe
+      // navigation and its referer is the keyed /live-edit URL it came from.
+      const navigated = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+        },
+      });
+      expect(navigated.status).toBe(302);
+      const location = new URL(navigated.headers.get("location") ?? "");
+      expect(location.pathname).toBe("/live-edit");
+      expect(location.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
+      expect(location.searchParams.get("bridgeKey")).toBe("screen-a");
+      const landed = await getText(location.toString());
+      expect(landed.status).toBe(200);
+      expect(landed.body).toContain("page /home");
+      expect(landed.body).toContain('window.__screenBridge="A"');
+      expect(landed.body).not.toContain('window.__screenBridge="B"');
+      // The pre-boot shim rewrites the frame URL to the app route; the key
+      // rides along so the NEXT navigation's referer still carries it.
+      expect(landed.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+
+      // Second hop: the frame now sits on the rewritten app route, not on
+      // /live-edit, and follows another link.
+      const secondHop = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+      });
+      expect(secondHop.status).toBe(302);
+      const secondLocation = new URL(secondHop.headers.get("location") ?? "");
+      expect(secondLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(secondLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/settings`,
+      );
+
+      // A keyed target with a valueless Vite-style flag keeps it byte-identical.
+      const flagged = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/page?url`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(flagged.status).toBe(200);
+      expect(flagged.body).toContain(
+        JSON.stringify("/page?url&agentNativeBridgeKey=screen-a"),
+      );
+      expect(flagged.body).not.toContain("?url=&");
+
+      // A form POST navigation cannot be redirected without dropping its
+      // body, so it is proxied with the frame's own keyed script instead.
+      const posted = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-a`,
+        },
+        body: "q=1",
+      });
+      expect(posted.status).toBe(200);
+      const postedHtml = await posted.text();
+      expect(postedHtml).toContain('window.__screenBridge="A"');
+      expect(postedHtml).not.toContain('window.__screenBridge="B"');
+      expect(postedHtml).toContain(
+        JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
+      );
+
+      // The bridge-only identity param never reaches the dev server, even on
+      // a POST whose form action kept the rewritten route's query.
+      const postedWithKey = await fetch(
+        `${base}/submit?agentNativeBridgeKey=screen-a`,
+        {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            ...auth,
+            "sec-fetch-dest": "iframe",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "q=1",
+        },
+      );
+      expect(postedWithKey.status).toBe(200);
+      expect(seenByDevServer).toContain("POST /submit");
+      expect(
+        seenByDevServer.some((entry) => entry.includes("agentNativeBridgeKey")),
+      ).toBe(false);
+
+      // A keyed POST whose key this bridge no longer knows is refused rather
+      // than booted with the last registered screen's script.
+      const stale = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+          referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+        },
+        body: "q=1",
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({
+        code: "unknown-bridge-key",
+        bridgeKey: "screen-gone",
+      });
+
+      // A target that already carries a stale key gets exactly one, the
+      // requested one.
+      const restamped = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?agentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(restamped.status).toBe(200);
+      expect(restamped.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(restamped.body).not.toContain("agentNativeBridgeKey=screen-b");
+
+      // A stale keyed POST is refused with its body drained, so the same
+      // keep-alive connection serves the next request normally.
+      const keepAlive = new http.Agent({ keepAlive: true, maxSockets: 1 });
+      const onSameConnection = (
+        options: http.RequestOptions,
+        body?: string,
+      ): Promise<{ status: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          const request = http.request(
+            { ...options, agent: keepAlive, host: "127.0.0.1", port },
+            (response) => {
+              const chunks: Buffer[] = [];
+              response.on("data", (chunk) => chunks.push(chunk));
+              response.on("end", () =>
+                resolve({
+                  status: response.statusCode ?? 0,
+                  body: Buffer.concat(chunks).toString("utf8"),
+                }),
+              );
+            },
+          );
+          request.on("error", reject);
+          request.end(body);
+        });
+      try {
+        const staleOnKeepAlive = await onSameConnection(
+          {
+            method: "POST",
+            path: "/submit",
+            headers: {
+              ...auth,
+              "sec-fetch-dest": "iframe",
+              "content-type": "application/x-www-form-urlencoded",
+              referer: `${base}/home?agentNativeBridgeKey=screen-gone`,
+            },
+          },
+          "q=".padEnd(64 * 1024, "x"),
+        );
+        expect(staleOnKeepAlive.status).toBe(409);
+        const next = await onSameConnection({
+          method: "GET",
+          path: "/health",
+        });
+        expect(next.status).toBe(200);
+      } finally {
+        keepAlive.destroy();
+      }
+
+      // A percent-encoded spelling of the identity param is still a duplicate.
+      const encodedStale = await getText(
+        `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?%61gentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
+      );
+      expect(encodedStale.status).toBe(200);
+      expect(encodedStale.body).toContain(
+        JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
+      );
+      expect(encodedStale.body).not.toContain("screen-b");
+
+      // The keyed page remembers its screen in window.name, and an unkeyed
+      // frame navigation (no referer: Referrer-Policy no-referrer) carries a
+      // recovery snippet that goes back through /live-edit with that key.
+      expect(landed.body).toContain(
+        'window.name="agent-native-bridge:"+"screen-a"',
+      );
+      const noReferer = await fetch(`${base}/settings`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(noReferer.status).toBe(200);
+      const noRefererHtml = await noReferer.text();
+      expect(noRefererHtml).toContain(
+        'window.name.indexOf("agent-native-bridge:")===0',
+      );
+      expect(noRefererHtml).toContain(
+        `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
+      );
+
+      // A no-referer POST that already reached the app keeps its response:
+      // recovery would re-issue it as a GET, so it is never injected there.
+      const noRefererPost = await fetch(`${base}/submit`, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          ...auth,
+          "sec-fetch-dest": "iframe",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "q=1",
+      });
+      expect(noRefererPost.status).toBe(200);
+      const noRefererPostHtml = await noRefererPost.text();
+      expect(noRefererPostHtml).toContain("page /submit");
+      expect(noRefererPostHtml).not.toContain("location.replace(");
+      // …and, with keyed screens registered, it boots with no bridge rather
+      // than with whichever screen registered last.
+      expect(noRefererPostHtml).not.toContain("__screenBridge");
+
+      // A reload of the rewritten URL itself carries the key in the request.
+      const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(reload.status).toBe(302);
+      const reloadLocation = new URL(reload.headers.get("location") ?? "");
+      expect(reloadLocation.searchParams.get("bridgeKey")).toBe("screen-a");
+      expect(reloadLocation.searchParams.get("url")).toBe(
+        `http://127.0.0.1:${devPort}/home`,
+      );
+
+      // A navigation with no keyed referer still gets the proxied page with
+      // the unkeyed bridge, as before.
+      const unkeyed = await fetch(`${base}/home`, {
+        redirect: "manual",
+        headers: { ...auth, "sec-fetch-dest": "iframe" },
+      });
+      expect(unkeyed.status).toBe(200);
+      expect(await unkeyed.text()).toContain("page /home");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("proxies a frame navigation to the bare root instead of serving the control-plane manifest", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<!doctype html><title>app root</title><h1>app root</h1>");
+        return;
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // Control-plane callers never send Sec-Fetch-Dest: the bare root keeps
+      // returning the bridge manifest for them.
+      const controlPlane = await getJson(`${base}/`, {
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(controlPlane.status).toBe(200);
+      expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
+
+      // A live frame that navigates to "/" (router redirect, home link) is a
+      // document/iframe navigation and must get the app's own root.
+      const framed = await fetch(`${base}/`, {
+        headers: {
+          "x-design-preview-token": bridge.previewToken,
+          "sec-fetch-dest": "iframe",
+        },
+      });
+      expect(framed.status).toBe(200);
+      expect(framed.headers.get("content-type") ?? "").toContain("text/html");
+      expect(framed.headers.get("cross-origin-resource-policy")).toBe(
+        "cross-origin",
+      );
+      expect(framed.headers.get("cross-origin-embedder-policy")).toBe(
+        "credentialless",
+      );
+      const framedHtml = await framed.text();
+      expect(framedHtml).toContain("app root");
+      // The frame keeps live editing after navigating: the proxy must inject
+      // the bridge into iframe navigations, not only top-level documents.
+      expect(framedHtml).toContain("data-agent-native-live-edit-location");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -1461,6 +2567,35 @@ describe("design connect bridge endpoints", () => {
       expect(typeof bridge.previewToken).toBe("string");
       expect(bridge.previewToken).toHaveLength(64);
       expect(bridge.previewToken).not.toBe(bridge.bridgeToken);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("proves possession of the bridge token for a page bootstrap challenge", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const challenge = "a".repeat(32);
+      const result = await getJson(
+        `http://127.0.0.1:${port}/manifest.json?previewToken=${bridge.previewToken}&attestationChallenge=${challenge}`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.attestation).toEqual({
+        challenge,
+        signature: deriveDesignPreviewAttestationSignature(
+          bridge.bridgeToken,
+          challenge,
+        ),
+      });
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

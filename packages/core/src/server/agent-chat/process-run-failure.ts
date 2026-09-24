@@ -58,5 +58,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
     runId,
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
   ).catch(() => {});
-  return true;
+  // Callers need to know whether the run row was actually marked errored.
+  // Returning true after a failed status update leaves a zombie "running" claim.
+  return statusUpdated;
 }

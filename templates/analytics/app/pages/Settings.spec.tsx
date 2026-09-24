@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  creativeContextEnabled: false,
   useActionQuery: vi.fn(() => ({
     data: {},
     isLoading: false,
@@ -24,6 +25,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
+}));
+
+vi.mock("@agent-native/creative-context", () => ({
+  CREATIVE_CONTEXT_LIBRARY_LAB: {
+    key: "creative-context.library",
+    defaultEnabled: false,
+  },
+}));
+
+vi.mock("@agent-native/creative-context/client", () => ({
+  createCreativeContextAgentTab: vi.fn(),
+  useCreativeContextLab: () => mocks.creativeContextEnabled,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -66,27 +79,52 @@ vi.mock("@agent-native/core/client/settings", () => ({
     account,
     general,
     extraTabs,
+    labs,
   }: {
     account: React.ReactNode;
     general: React.ReactNode;
     extraTabs?: Array<{ content: React.ReactNode }>;
+    labs?: Array<{
+      key: string;
+      defaultEnabled?: boolean;
+      displayName?: string;
+      description?: string;
+    }>;
   }) => (
     <main>
       {account}
       {general}
+      {labs?.map((lab) => (
+        <div key={lab.key} data-testid="creative-context-lab">
+          {lab.displayName}
+          {lab.description}
+          <span data-default-enabled={String(lab.defaultEnabled === true)} />
+        </div>
+      ))}
       {extraTabs?.map((tab) => tab.content)}
     </main>
   ),
   useAgentSettingsTabs: ({
     agentAdditionalContent,
+    agentAdditionalTabFactories,
   }: {
     agentAdditionalContent?: React.ReactNode;
+    agentAdditionalTabFactories?: unknown[];
   } = {}) => [
     {
       id: "agent",
       label: "Agent",
       content: agentAdditionalContent ?? null,
     },
+    ...(agentAdditionalTabFactories?.length
+      ? [
+          {
+            id: "creative-context",
+            label: "Library",
+            content: <div id="creative-context-agent-tab">Library</div>,
+          },
+        ]
+      : []),
   ],
 }));
 
@@ -127,6 +165,7 @@ describe("Analytics Settings", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.creativeContextEnabled = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -182,5 +221,32 @@ describe("Analytics Settings", () => {
 
     const toggle = container.querySelector('[aria-label="settings.bellSound"]');
     expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("lists Creative Context in Labs but hides its tab until enabled", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(container.textContent).toContain("creativeContext.share.title");
+    expect(container.textContent).toContain("creativeContext.description");
+    expect(
+      container.querySelector(
+        '[data-testid="creative-context-lab"] [data-default-enabled="false"]',
+      ),
+    ).not.toBeNull();
+    expect(container.querySelector("#creative-context-agent-tab")).toBeNull();
+  });
+
+  it("shows the Creative Context settings tab when its Lab is enabled", async () => {
+    mocks.creativeContextEnabled = true;
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(
+      container.querySelector("#creative-context-agent-tab"),
+    ).not.toBeNull();
   });
 });

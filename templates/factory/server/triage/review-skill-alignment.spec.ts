@@ -16,9 +16,17 @@ describe("Factory review skill alignment", () => {
 
     expect(prompt).toContain("Custom operator instruction.");
     expect(prompt).toContain("answered clarifications");
-    expect(prompt).toContain(
-      "@agent-native Fixed, In progress, or Clarification needed",
-    );
+    expect(prompt).toContain("@agent-native Fixed, In progress, or");
+    expect(prompt).toContain("Clarification needed");
+    expect(prompt).toContain("reaction: eyes");
+    expect(prompt).toContain("MUST pass");
+    expect(prompt).toContain("already has eyes 👀");
+    expect(prompt).not.toContain("robot_face");
+    expect(prompt).not.toContain("Do not pass reaction eyes");
+    expect(prompt).toContain("alreadyClaimed: true");
+    expect(prompt).toContain("clearBug` may be");
+    expect(prompt).not.toContain("with `clearBug: false`, omit reaction");
+    expect(prompt).not.toContain("that action adds 👀");
     expect(prompt.indexOf(markers.start)).toBeGreaterThan(-1);
     expect(prompt.indexOf(markers.end)).toBeGreaterThan(
       prompt.indexOf(markers.start),
@@ -41,7 +49,10 @@ describe("Factory review skill alignment", () => {
     expect(second).not.toContain("old contract");
   });
 
-  it("does not add a review contract to the PR babysitter", () => {
-    expect(managedReviewSkillAlignment("factory-pr-babysit")).toBeUndefined();
+  it("adds the babysit contract without review-prs governance text", () => {
+    const alignment = managedReviewSkillAlignment("factory-pr-babysit");
+    expect(alignment).toContain("propose-pr-babysit-status");
+    expect(alignment).toContain("defer");
+    expect(alignment).not.toContain("ultra-scary gate");
   });
 });

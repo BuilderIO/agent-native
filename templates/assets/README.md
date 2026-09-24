@@ -25,7 +25,7 @@ prompt, model, references, and lineage.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-assets --standalone --template assets
+npx --yes @agent-native/core@latest create my-assets --standalone --template assets
 cd my-assets
 pnpm install
 pnpm dev

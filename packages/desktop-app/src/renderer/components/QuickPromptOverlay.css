@@ -80,6 +80,12 @@ body.quick-prompt-surface #root {
   z-index: 1;
 }
 
+.quick-prompt-overlay > .relative {
+  width: 460px;
+  flex: 0 0 460px;
+  max-width: 460px;
+}
+
 .quick-prompt-overlay__composer {
   width: 460px;
   flex: 0 0 460px;

@@ -184,7 +184,7 @@ export function AgentEnginePicker() {
     mutationFn: ({ engine, model }: { engine: string; model: string }) =>
       manageAgentEngine({ action: "set", engine, model }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["agent-engines"] });
+      void qc.invalidateQueries({ queryKey: ["agent-engines"] });
       setLocalEngine(null);
       setLocalModel(null);
       setTestResult(null);

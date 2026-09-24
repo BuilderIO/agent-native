@@ -5,7 +5,7 @@ description: "انشر تطبيق agent-native على Netlify باستخدام �
 
 # Netlify
 
-يعمل إعداد `netlify` المسبق لـ Nitro بشكل جيد، وقد منحنا عمليًا بدايات باردة أسرع بكثير من Cloudflare Pages (حوالي 200 مللي ثانية TTFB مقابل حوالي 9 ثوانٍ) للقوالب التي تتواصل مع Postgres خارجي (Neon). إما أن تضبط الإعداد المسبق في `vite.config.ts`:
+يعمل إعداد `netlify` المسبق لـ Nitro بشكل جيد، وقد منحنا عمليًا بدايات باردة أسرع بكثير من Cloudflare Pages (حوالي 200 مللي ثانية TTFB مقابل حوالي 9 ثوانٍ) للقوالب التي تتواصل مع Postgres خارجي (Neon). لإعداد أدنى خارج القالب المُنشأ، اضبط الإعداد المسبق في `vite.config.ts`:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,22 @@ export default defineConfig({
 });
 ```
 
+في قالب Chat المُنشأ، يبقى اسم الاستيراد `agentNative`. يُسند الإعداد هذه الدالة إلى اسم محلي
+مستعار هو `agentNativePlugins` مع تحويل نوع، ثم ينشر مصفوفة الإضافات المُعادة لمواءمة أنواع حزم Vite.
+يقبل الاسم المستعار الخيارات نفسها الواردة في مثال `agentNative` أعلاه. لنشر هذا القالب على
+Netlify، أضف `nitro: { preset: "netlify" }` إلى خيارات استدعاء `agentNativePlugins({ ... })`
+الحالي. اترك إضافات Chat الأخرى وخياراتها والأسماء المستعارة كما هي.
+
 ...أو تضبط `NITRO_PRESET=netlify` عند وقت البناء.
+
+للتطبيق المستقل، ابنِ مخرجات Netlify وانشر الأصول والدوال:
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+قبل أول نشر للإنتاج، اضبط `DATABASE_URL` و`BETTER_AUTH_SECRET` ثابتًا في متغيرات بيئة موقع Netlify. لا تعتمد على قاعدة بيانات PGlite المحلية؛ يجب أن يشير `DATABASE_URL` إلى قاعدة PostgreSQL ثابتة يمكن لوظيفة النشر الوصول إليها.
 
 بالنسبة لمساحة عمل، انشر كل تطبيق من موقع Netlify واحد عن طريق تشغيل:
 

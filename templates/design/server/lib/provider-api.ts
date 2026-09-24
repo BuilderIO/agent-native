@@ -9,6 +9,8 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext, resolveSecret } from "@agent-native/core/server";
 
+import { rethrowFigmaProviderFailure } from "./figma-import-errors.js";
+
 export const DESIGN_APP_ID = "design";
 export const DESIGN_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
   "design",
@@ -68,6 +70,14 @@ export function fetchProviderApiDocs(
   return runtime.fetchDocs(options);
 }
 
-export function executeProviderApiRequest(args: ProviderApiRequestArgs) {
-  return runtime.executeRequest(args);
+export async function executeProviderApiRequest(args: ProviderApiRequestArgs) {
+  try {
+    return await runtime.executeRequest(args);
+  } catch (error) {
+    // Credential resolution throws before any HTTP envelope exists, so the
+    // envelope reader never sees it. Classify here, at the one place every
+    // Design provider request passes through.
+    if (args.provider === "figma") rethrowFigmaProviderFailure(error);
+    throw error;
+  }
 }

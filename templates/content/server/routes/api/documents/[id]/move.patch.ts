@@ -9,6 +9,7 @@ import { defineEventHandler, createError } from "h3";
 
 import {
   documentsPositionScope,
+  nextAppendPosition,
   withPositionLock,
 } from "../../../../../actions/_position-utils.js";
 import { getDb } from "../../../../db/index.js";
@@ -135,7 +136,7 @@ export default defineEventHandler(async (event) => {
           documentsPositionScope(ownerEmail, parentId),
           async () => {
             const maxPos = await db
-              .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+              .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
               .from(schema.documents)
               .where(
                 parentId
@@ -148,7 +149,7 @@ export default defineEventHandler(async (event) => {
                       sql`parent_id IS NULL`,
                     ),
               );
-            updates.position = (maxPos[0]?.max ?? -1) + 1;
+            updates.position = nextAppendPosition(maxPos[0]?.max);
             await applyUpdate();
           },
         );

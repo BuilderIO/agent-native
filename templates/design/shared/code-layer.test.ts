@@ -7,9 +7,11 @@ import {
   clearCodeLayerProjectionCache,
   ensureCodeLayerNodeIdsInHtml,
   findEnclosingTemplateClose,
+  hasCanonicalCodeLayerNodeIds,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
+  wrapBareTextLeavesInHtml,
   type EditIntent,
 } from "./code-layer";
 
@@ -50,12 +52,24 @@ describe("code-layer projection cache", () => {
     expect(otherFile.source.fileId).toBe("file-2");
   });
 
-  it("evicts the least recently used document past the cache bound", () => {
+  it("holds every screen of a large design", () => {
+    clearCodeLayerProjectionCache();
+    const screens = Array.from(
+      { length: 300 },
+      (_, i) => `<main><p>screen-${i}</p></main>`,
+    );
+    const first = screens.map((html) => buildCodeLayerProjection(html));
+    screens.forEach((html, i) =>
+      expect(buildCodeLayerProjection(html)).toBe(first[i]),
+    );
+  });
+
+  it("evicts the least recently used document past the size bound", () => {
     clearCodeLayerProjectionCache();
     const first = buildCodeLayerProjection("<main><p>doc-0</p></main>");
-    for (let i = 1; i <= 24; i += 1) {
-      buildCodeLayerProjection(`<main><p>doc-${i}</p></main>`);
-    }
+    const large = `<main><p>${"x".repeat(16_000_000)}</p></main>`;
+    const kept = buildCodeLayerProjection(large);
+    expect(buildCodeLayerProjection(large)).toBe(kept);
     expect(buildCodeLayerProjection("<main><p>doc-0</p></main>")).not.toBe(
       first,
     );
@@ -70,6 +84,27 @@ describe("code-layer projection cache", () => {
       // cold ones streaming past it.
       expect(buildCodeLayerProjection("<main><p>keep</p></main>")).toBe(kept);
     }
+  });
+
+  // Every distinct source of the same (here empty) document is its own entry;
+  // charging only document chars would let them grow without bound.
+  it("evicts entries of one document by source", () => {
+    clearCodeLayerProjectionCache();
+    const project = (revision: number) =>
+      buildCodeLayerProjection("", {
+        source: {
+          kind: "remote-url",
+          url: "http://localhost:3000/",
+          revision: `r${revision}`,
+        },
+      });
+    const first = project(0);
+    const kept = project(1);
+    for (let i = 2; i <= 10_000; i += 1) {
+      project(i);
+      if (i % 1_000 === 0) expect(project(1)).toBe(kept);
+    }
+    expect(project(0)).not.toBe(first);
   });
 });
 
@@ -215,6 +250,21 @@ describe("code-layer projection", () => {
     expect(button?.layerNameSource).toBe("semantic");
   });
 
+  it("keeps names from the legacy .fig layer-name attribute", () => {
+    const projection = buildCodeLayerProjection(
+      '<body><section data-agent-native-node-id="legacy" layer-name="Legacy hero"><h1>Fallback text</h1></section></body>',
+    );
+    const section = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "legacy",
+    );
+
+    expect(section).toMatchObject({
+      layerName: "Legacy hero",
+      layerNameSource: "attribute",
+      layerNameAttribute: "layer-name",
+    });
+  });
+
   it("marks component instance nodes with componentInstance metadata", () => {
     const html = `
       <section class="flex gap-4">
@@ -241,7 +291,11 @@ describe("code-layer projection", () => {
     expect(cardNode).toBeTruthy();
     expect(cardNode?.componentInstance).toBeDefined();
     expect(cardNode?.componentInstance?.name).toBe("HeroCard");
-    expect(cardNode?.componentInstance?.nodeId).toBe(cardNode?.id);
+    expect(cardNode?.componentInstance?.instanceId).toBe("hero-card-1");
+    expect(cardNode?.componentInstance?.nodeId).toBe("hero-card-1");
+    expect(cardNode?.componentInstance?.nodeId).toBe(
+      cardNode?.dataAttributes["data-agent-native-node-id"],
+    );
     expect(cardNode?.componentInstance?.selector).toBe(cardNode?.selector);
     expect(cardNode?.componentInstance?.alpineData).toBe("{ open: false }");
     expect(cardNode?.componentInstance?.props).toEqual(
@@ -272,6 +326,24 @@ describe("code-layer projection", () => {
     );
     expect(componentChild).toBeTruthy();
     expect(componentChild?.name).toBe("NavBar");
+  });
+
+  it("keeps explicit human layer names ahead of component identifiers", () => {
+    const html = `
+      <main>
+        <div data-agent-native-node-id="main" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-id="cmp-play"></div>
+        <div data-agent-native-node-id="default" data-agent-native-layer-name="Play button" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+        <div data-agent-native-node-id="renamed" data-agent-native-layer-name="Play button instance" data-agent-native-component="PlayButton" data-agent-native-component-ref="cmp-play"></div>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const componentNodes = tree[0]?.children ?? [];
+    expect(componentNodes.map((node) => node.name)).toEqual([
+      "Play button",
+      "Play button",
+      "Play button instance",
+    ]);
   });
 
   it("builds a design-editor DOM layer tree from projection parentage", () => {
@@ -326,6 +398,19 @@ describe("code-layer projection", () => {
     ]);
   });
 
+  it("classifies explicit Cmd+G wrappers as groups without changing frame identity", () => {
+    const html = `
+      <div data-agent-native-node-id="group" data-agent-native-group="true" style="position:absolute">
+        <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="position:absolute;width:80px;height:40px;background:#2563eb"></div>
+      </div>
+      <div data-agent-native-node-id="frame" data-an-primitive="frame" style="position:absolute;width:120px;height:80px"></div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree.map((node) => node.type)).toEqual(["group", "frame"]);
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
+  });
+
   it("classifies SVG-based vector primitives by their data-an-primitive kind marker", () => {
     // Pen-tool vectors, lines, arrows, polygons, and stars are <svg>s. Without
     // a distinct type they would fall through to "shape" and show a rectangle
@@ -349,6 +434,16 @@ describe("code-layer projection", () => {
     // Each SVG primitive is a single leaf layer: its internal geometry
     // (<path>/<polygon>) must not be projected as a child layer.
     expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("classifies an unmarked svg as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="icon" style="position:absolute;width:24px;height:24px">
+        <svg data-agent-native-node-id="v1" data-agent-native-layer-name="Vector" viewBox="0 0 20 20" style="position:absolute"><path d="M0 0 L20 20"/></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
   });
 
   it("does not project inline-SVG internals as child layers", () => {
@@ -382,7 +477,7 @@ describe("code-layer projection", () => {
     expect(tree.map((node) => node.type)).toEqual(["ellipse", "ellipse"]);
   });
 
-  it("deduplicates malformed duplicate root ids in the layer tree", () => {
+  it("keeps malformed duplicate ids separate in the layer tree", () => {
     const html = `
       <section data-agent-native-node-id="dup-root">First</section>
       <section data-agent-native-node-id="dup-root">Second</section>
@@ -392,9 +487,44 @@ describe("code-layer projection", () => {
     const tree = buildCodeLayerTree(projection);
 
     expect(projection.rootNodeIds).toHaveLength(2);
-    expect(new Set(projection.rootNodeIds).size).toBe(1);
-    expect(tree).toHaveLength(1);
-    expect(new Set(tree.map((node) => node.id)).size).toBe(tree.length);
+    expect(new Set(projection.rootNodeIds).size).toBe(2);
+    expect(tree).toHaveLength(2);
+    expect(new Set(tree.map((node) => node.id)).size).toBe(2);
+    expect(tree.map(({ id }) => id)).toEqual(projection.rootNodeIds);
+    expect(projection.nodes.map(({ textSnippet }) => textSnippet)).toContain(
+      "First",
+    );
+    expect(projection.nodes.map(({ textSnippet }) => textSnippet)).toContain(
+      "Second",
+    );
+  });
+
+  it("builds exact positional paths for duplicate authored ids", () => {
+    const html =
+      '<main><button id="shared">First</button><button id="shared">Second</button></main>';
+    const projection = buildCodeLayerProjection(html);
+    const first = projection.nodes.find(
+      (node) => node.tag === "button" && node.textSnippet === "First",
+    );
+    const second = projection.nodes.find(
+      (node) => node.tag === "button" && node.textSnippet === "Second",
+    );
+
+    expect(first?.path).toContain(":nth-of-type(1)");
+    expect(second?.path).toContain(":nth-of-type(2)");
+    expect(first?.path).not.toBe(second?.path);
+
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: second?.path ?? "" },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      '<main><button id="shared">First</button><button id="shared" style="color: #111">Second</button></main>',
+    );
   });
 
   it("omits repeated document shell wrappers from layer tree roots", () => {
@@ -439,7 +569,7 @@ describe("code-layer projection", () => {
     expect(tree).toEqual([]);
   });
 
-  it("keeps explicitly named document shell rows in the layer tree", () => {
+  it("omits a named document shell too, since a screen IS its body", () => {
     const html = `
       <!doctype html>
       <html data-agent-native-layer-name="Document">
@@ -453,18 +583,907 @@ describe("code-layer projection", () => {
 
     const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
 
+    // The screen frame carries the document's fill, stroke and effects now, so
+    // a shell row would only repeat the screen under a second name.
     expect(tree.map((node) => ({ tag: node.tag, name: node.name }))).toEqual([
-      { tag: "html", name: "Document" },
+      { tag: "main", name: "Home" },
     ]);
+    expect(JSON.stringify(tree)).not.toContain('"tag":"html"');
+    expect(JSON.stringify(tree)).not.toContain('"tag":"body"');
+  });
+});
+
+describe("code layer projection of a drawn vector", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none" stroke-width="2"/></svg></body>`;
+
+  function vectorNode() {
+    const projection = buildCodeLayerProjection(html);
+    const node = projection.nodes.find(
+      (candidate) => candidate.dataAttributes["data-an-primitive"] === "path",
+    );
+    if (!node) throw new Error("vector node missing from projection");
+    return node;
+  }
+
+  it("carries the shape child's paint on the addressable wrapper node", () => {
+    // The child is skipped by hasSvgAncestor and has no node id, so a reader
+    // that only sees the wrapper would report a shape with no fill at all.
+    expect(vectorNode().style).toMatchObject({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+      "stroke-width": "2",
+    });
+  });
+
+  it("keeps data-an-primitive so a projection-only selection stays a vector", () => {
+    expect(vectorNode().dataAttributes["data-an-primitive"]).toBe("path");
+  });
+
+  it("projects endpoint values and persists marker-start/marker-end edits", () => {
+    const withEndpoints = html
+      .replace(
+        'style="position:absolute;left:10px;top:10px;background-color:#782323;border-width:1px"',
+        'style="position:absolute;left:10px;top:10px;--an-vector-start-point:diamond;--an-vector-end-point:circle"',
+      )
+      .replace(
+        '<path d="M 0 0 L 80 60 Z"',
+        '<defs data-an-vector-endpoints="true"><marker id="pen-1-vector-marker-start"/></defs><path marker-start="url(#pen-1-vector-marker-start)" marker-end="url(#pen-1-vector-marker-end)" d="M 0 0 L 80 60 Z"',
+      );
+    const projected = buildCodeLayerProjection(withEndpoints).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      "--an-vector-start-point": "diamond",
+      "--an-vector-end-point": "circle",
+    });
+
+    const patch = applyVisualEdit(withEndpoints, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-end-point",
+      value: "triangle",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("--an-vector-end-point: triangle");
+    expect(patch.content).toContain(
+      'marker-end="url(#pen-1-vector-marker-end)"',
+    );
+    expect(patch.content).toContain('data-an-vector-endpoints="true"');
+    expect(patch.content).toContain('d="M 0 0 L 10 5 L 0 10 z"');
+  });
+
+  it("supports none and round endpoint values without leaving stale markers", () => {
+    const content =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line" style="--an-vector-end-point:triangle"><path marker-end="url(#line-1-vector-marker-end)" d="M 0 5 L 80 5"/></svg>';
+    const none = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      value: "none",
+    });
+    expect(none.result.status).toBe("applied");
+    expect(none.content).not.toContain("marker-end=");
+
+    const round = applyVisualEdit(none.content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-start-point",
+      value: "round",
+    });
+    expect(round.result.status).toBe("applied");
+    expect(round.content).toContain(
+      'marker-start="url(#line-1-vector-marker-start)"',
+    );
+    expect(round.content).toContain(
+      '<circle cx="5" cy="5" r="4" fill="context-stroke"/>',
+    );
+  });
+
+  it("removes endpoint styles through the structural marker rewrite", () => {
+    const base =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg>';
+    const withEndpoints = applyVisualEdit(
+      applyVisualEdit(base, {
+        kind: "style",
+        target: { nodeId: "line-1" },
+        property: "--an-vector-start-point",
+        value: "diamond",
+      }).content,
+      {
+        kind: "style",
+        target: { nodeId: "line-1" },
+        property: "--an-vector-end-point",
+        value: "circle",
+      },
+    );
+    expect(withEndpoints.result.status).toBe("applied");
+
+    const removed = applyVisualEdit(withEndpoints.content, {
+      kind: "style",
+      target: { nodeId: "line-1" },
+      property: "--an-vector-end-point",
+      operation: "remove",
+    } as EditIntent);
+
+    expect(removed.result.status).toBe("applied");
+    expect(removed.content).toContain("--an-vector-end-point: none");
+    expect(removed.content).not.toContain("marker-end=");
+    expect(removed.content).not.toContain("line-1-vector-marker-end");
+    expect(removed.content).toContain(
+      'marker-start="url(#line-1-vector-marker-start)"',
+    );
+  });
+
+  it("rejects responsive endpoint edits without mutating source or marker DOM", () => {
+    const content =
+      '<svg data-agent-native-node-id="line-1" data-an-primitive="line"><path d="M 0 5 L 80 5"/></svg>';
+    const patch = applyVisualEdit(content, {
+      kind: "breakpoint-style",
+      target: { nodeId: "line-1" },
+      maxWidthPx: 809,
+      property: "--an-vector-end-point",
+      value: "circle",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+});
+
+describe("applyVisualEdit vector paint", () => {
+  const html =
+    `<body><svg data-agent-native-node-id="pen-1" data-an-primitive="path" ` +
+    `style="position:absolute;left:10px;top:10px;width:80px;height:60px">` +
+    `<path d="M 0 0 L 80 60 Z" fill="rgb(218 218 218)" stroke="none"/></svg></body>`;
+
+  it("paints the shape child, not the svg bounding box", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    expect(patch.result.status).toBe("applied");
+    expect(path).toContain(`style="fill: #ff0000"`);
     expect(
-      tree[0]?.children.map((node) => ({ tag: node.tag, name: node.name })),
-    ).toEqual([{ tag: "body", name: "Body" }]);
+      patch.content.slice(0, patch.content.indexOf("<path")),
+    ).not.toContain("fill");
+  });
+
+  it("wins over the child's own fill presentation attribute", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const path = patch.content.slice(patch.content.indexOf("<path"));
+
+    // A presentation attribute loses to any CSS declaration on the same
+    // element, so the stale `stroke="none"` alongside it is inert.
+    expect(path).toContain(`style="stroke: #0000ff"`);
+    expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("materializes vector linear gradients as SVG paint servers and reads them back", () => {
+    const value =
+      "linear-gradient(45deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(gradient.content).toContain(
+      'style="stroke: url(#pen-1-stroke-gradient)"',
+    );
+    expect(gradient.content).toContain(
+      'stop-color="rgb(255, 0, 0)" stop-opacity="0.5"',
+    );
+    expect(gradient.content).toContain(`--an-vector-stroke-gradient: ${value}`);
     expect(
-      tree[0]?.children[0]?.children.map((node) => ({
-        tag: node.tag,
-        name: node.name,
-      })),
-    ).toEqual([{ tag: "main", name: "Home" }]);
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-stroke-gradient"],
+    ).toBe(value);
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).toContain('cx="40" cy="30" r="50"');
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-stroke-gradient");
+    expect(solid.content).not.toContain("--an-vector-stroke-gradient");
+    expect(solid.content).toContain('style="stroke: #00ff00"');
+  });
+
+  it("materializes vector fill gradients as SVG paint servers and clears them on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-fill-gradient=""');
+    expect(gradient.content).toContain(
+      'style="fill: url(#pen-1-fill-gradient)"',
+    );
+    expect(gradient.content).toContain(`--an-vector-fill-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-fill-gradient"],
+    ).toBe(value);
+    expect(gradient.content).toContain('stroke="none"');
+    expect(gradient.content).not.toContain("data-an-vector-stroke-gradient");
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain('id="pen-1-fill-gradient"');
+    expect(solid.content).toContain('style="fill: #00ff00"');
+    expect(solid.content).toContain('stroke="none"');
+  });
+
+  it("reuses the fill defs container without disturbing stroke or sibling gradients", () => {
+    const stroke = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(0deg, #111111 0%, #eeeeee 100%)",
+    });
+    const withFill = applyVisualEdit(stroke.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(withFill.result.status).toBe("applied");
+    expect(
+      withFill.content.match(/data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(withFill.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(withFill.content).toContain("stroke: url(#pen-1-stroke-gradient)");
+    expect(withFill.content).toContain("fill: url(#pen-1-fill-gradient)");
+
+    const multiShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /><path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></svg></body>';
+    const firstFill = applyVisualEdit(multiShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    const secondFill = applyVisualEdit(firstFill.content, {
+      kind: "style",
+      target: { nodeId: "shape-b" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #00ff00 0%, #ffffff 100%)",
+    });
+    expect(secondFill.result.status).toBe("applied");
+    expect(
+      secondFill.content.match(/<defs[^>]*data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient)");
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient-2)");
+    expect(secondFill.content).toContain("<linearGradient");
+    expect(secondFill.content).toContain("<radialGradient");
+  });
+
+  it("clears fill gradient metadata when a pasted vector changes from one shape to several and back", () => {
+    const oneShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><g><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /></g></svg></body>';
+    const rootOwned = applyVisualEdit(oneShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(rootOwned.result.status).toBe("applied");
+    expect(rootOwned.content).toContain(
+      "--an-vector-fill-gradient: linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    );
+
+    const nowMultiple = rootOwned.content.replace(
+      "</g></svg>",
+      '<path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></g></svg>',
+    );
+    const shapeOwned = applyVisualEdit(nowMultiple, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(shapeOwned.result.status).toBe("applied");
+    expect(shapeOwned.content).not.toMatch(
+      /<svg[^>]*--an-vector-fill-gradient:/,
+    );
+    expect(
+      shapeOwned.content.match(/--an-vector-fill-gradient:/g),
+    ).toHaveLength(1);
+
+    const backToOne = shapeOwned.content.replace(
+      /<path data-agent-native-node-id="shape-b"[^>]*\s*\/>/,
+      "",
+    );
+    const solid = applyVisualEdit(backToOne, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+  });
+
+  it("preserves CSS corner direction and interpolates omitted stop positions", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value:
+        "linear-gradient(to top right, #000000 0%, #ff0000, #00ff00 80%, #0000ff, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('x1="0" y1="60" x2="80" y2="0"');
+    expect(gradient.content).toContain('offset="40%"');
+    expect(gradient.content).toContain('offset="80%"');
+    expect(gradient.content).toContain('offset="90%"');
+  });
+
+  it("keeps an off-center radial gradient's farthest-corner geometry", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at right top, #000000 0%, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('cx="80" cy="0" r="100"');
+  });
+
+  it("refuses unsupported Oklab stroke interpolation without changing source", () => {
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(45deg in oklab, red 0%, blue 100%)",
+    });
+
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(html);
+  });
+
+  it("does not mistake diamond or angular picker gradients for radial strokes", () => {
+    for (const value of [
+      "radial-gradient(ellipse closest-side at center, red 0%, blue 100%)",
+      "conic-gradient(from 90deg at center, red 0%, blue 100%)",
+    ]) {
+      const result = applyVisualEdit(html, {
+        kind: "style",
+        target: { nodeId: "pen-1" },
+        property: "stroke",
+        value,
+      });
+      expect(result.result.status).toBe("unsupported");
+      expect(result.content).toBe(html);
+    }
+  });
+
+  it("preserves vector opacity and authored SVG ids when adding a gradient", () => {
+    const styled = html
+      .replace("height:60px", "height:60px;opacity:0.7")
+      .replace('stroke="none"/>', 'stroke="none" stroke-opacity="0.4"/>')
+      .replace(
+        "</body>",
+        '<svg><defs><linearGradient id="pen-1-stroke-gradient"/></defs></svg></body>',
+      );
+    const result = applyVisualEdit(styled, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toContain('id="pen-1-stroke-gradient-2"');
+    expect(result.content).toContain('id="pen-1-stroke-gradient"');
+    expect(result.content).toContain("opacity:0.7");
+    expect(result.content).toContain('stroke-opacity="0.4"');
+  });
+
+  it("persists inside and outside vector strokes with logical weight", () => {
+    const overflowHidden = html.replace(
+      'style="position:absolute;',
+      'style="overflow:hidden !important;position:absolute;',
+    );
+    const color = applyVisualEdit(overflowHidden, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#0000ff",
+    });
+    const width = applyVisualEdit(color.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "3px",
+    });
+    const inside = applyVisualEdit(width.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(inside.result.status).toBe("applied");
+    expect(inside.content).toContain('data-an-vector-stroke-position="inside"');
+    expect(inside.content).toContain('data-an-vector-stroke-overlay=""');
+    expect(inside.content).toContain(
+      "clip-path: url(#an-vector-stroke-pen-1-inside)",
+    );
+    expect(inside.content).toContain("stroke-width: 6px");
+    const projected = buildCodeLayerProjection(inside.content).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+    expect(projected?.style).toMatchObject({
+      stroke: "#0000ff",
+      "stroke-width": "3px",
+      "--an-vector-stroke-position": "inside",
+      "--an-vector-stroke-can-align": "true",
+    });
+
+    const outside = applyVisualEdit(inside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-position="outside"',
+    );
+    expect(outside.content).toContain(
+      "mask: url(#an-vector-stroke-pen-1-outside)",
+    );
+    expect(outside.content).toContain('mask-type="luminance"');
+    expect(outside.content).toContain("overflow: visible !important");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow="hidden"',
+    );
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow-priority="important"',
+    );
+    expect(
+      outside.content.match(/data-an-vector-stroke-overlay=""/g),
+    ).toHaveLength(1);
+
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    expect(center.result.status).toBe("applied");
+    expect(center.content).toContain("overflow: hidden !important");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
+
+    const resized = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-width",
+      value: "4px",
+    });
+    expect(resized.result.status).toBe("applied");
+    expect(resized.content).toContain('data-an-vector-logical-width="4px"');
+    expect(resized.content).toContain("stroke-width: 8px");
+    expect(resized.content).toContain(
+      'x="-16" y="-16" width="332" height="182"',
+    );
+
+    const mitered = applyVisualEdit(resized.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke-miterlimit",
+      value: "10",
+    });
+    expect(mitered.result.status).toBe("applied");
+    expect(mitered.content).toContain("stroke-miterlimit: 10");
+    expect(mitered.content).toContain(
+      'x="-40" y="-40" width="380" height="230"',
+    );
+  });
+
+  it("rejects alignment for an open vector path", () => {
+    const openPath = html.replace("L 80 60 Z", "L 80 60");
+    const patch = applyVisualEdit(openPath, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "inside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(openPath);
+  });
+
+  it("rejects an open path tagged as a polygon", () => {
+    const content =
+      '<svg data-agent-native-node-id="open-polygon" data-an-primitive="polygon" ' +
+      'viewBox="0 0 100 80"><path d="M 0 0 L 80 60" fill="none" ' +
+      'stroke="#000000" stroke-width="2"/></svg>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "open-polygon" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
+  it("preserves dash offset and miter limit on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      stroke: "#123456",
+      strokeWidth: "3px",
+      strokeDasharray: "8 2",
+      strokeDashoffset: "-3px",
+      strokeMiterlimit: "9",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("stroke-dasharray: 8 2");
+    expect(overlay).toContain("stroke-dashoffset: -3px");
+    expect(overlay).toContain("stroke-miterlimit: 9");
+  });
+
+  it("preserves the vector shape opacity on the aligned stroke", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      opacity: "0.5",
+    });
+    const overlay = patch.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+    const node = buildCodeLayerProjection(patch.content).nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "pen-1",
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+    expect(node?.style.vectorOpacity).toBe("0.5");
+  });
+
+  it("falls back to shape opacity when refreshing a legacy overlay", () => {
+    const styledShape = html.replace(
+      "<path d=",
+      '<path style="opacity: 0.5" d=',
+    );
+    const outside = applyVisualEdit(styledShape, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const legacyOverlay = outside.content.replace("opacity: 0.5; ", "");
+    const refreshed = applyVisualEdit(legacyOverlay, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const overlay = refreshed.content.match(
+      /<use[^>]*data-an-vector-stroke-overlay=""[^>]*>/,
+    )?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(refreshed.result.status).toBe("applied");
+    expect(overlay).toContain("opacity: 0.5");
+  });
+
+  it("restores an absent inline overflow after outside alignment", () => {
+    const withCssOverflow =
+      '<style>svg[data-agent-native-node-id="pen-1"]{overflow:hidden!important}</style>' +
+      html;
+    const outside = applyVisualEdit(withCssOverflow, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    const center = applyVisualEdit(outside.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "center",
+    });
+    const svg = center.content.match(/<svg\b[^>]*>/)?.[0];
+
+    expect(outside.result.status).toBe("applied");
+    expect(outside.content).toContain(
+      'data-an-vector-stroke-original-overflow=""',
+    );
+    expect(outside.content).toContain("overflow: visible !important");
+    expect(center.result.status).toBe("applied");
+    expect(svg).not.toContain("overflow:");
+    expect(center.content).not.toContain(
+      "data-an-vector-stroke-original-overflow=",
+    );
+  });
+
+  it("pads outside masks for the doubled stroke and acute miter joins", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      strokeWidth: "3px",
+      strokeMiterlimit: "9",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('x="-27" y="-27" width="354" height="204"');
+  });
+
+  it("uses computed transform on the geometry proxy without duplicating its transform attribute", () => {
+    const transformed = html.replace(
+      '<path d="M 0 0 L 80 60 Z"',
+      '<path transform="translate(4 5)" d="M 0 0 L 80 60 Z"',
+    );
+    const patch = applyVisualEdit(transformed, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+      transform: "matrix(1, 0, 0, 1, 4, 5)",
+      transformOrigin: "0px 0px",
+      transformBox: "view-box",
+    });
+    const geometry = patch.content.match(
+      /<path[^>]*data-an-vector-stroke-geometry=""[^>]*\/>/,
+    )?.[0];
+
+    expect(patch.result.status).toBe("applied");
+    expect(geometry).not.toContain("transform=");
+    expect(geometry).toContain(
+      'style="transform: matrix(1, 0, 0, 1, 4, 5); transform-origin: 0px 0px; transform-box: view-box"',
+    );
+  });
+
+  it.each([
+    {
+      kind: "rect",
+      tag: "rect",
+      geometry: 'x="4" y="6" width="80" height="30" rx="5" ry="7"',
+    },
+    {
+      kind: "ellipse",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="32" ry="18"',
+    },
+    {
+      kind: "circle",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "circle",
+      tag: "ellipse",
+      geometry: 'cx="40" cy="25" rx="18" ry="18"',
+    },
+    {
+      kind: "ellipse",
+      tag: "circle",
+      geometry: 'cx="40" cy="25" r="18"',
+    },
+    {
+      kind: "polygon",
+      tag: "path",
+      geometry: 'd="M 50 5 L 95 95 L 5 95 Z"',
+    },
+    {
+      kind: "star",
+      tag: "path",
+      geometry: 'd="M 50 5 L 60 40 L 95 50 Z"',
+    },
+  ])(
+    "aligns SVG $kind geometry and preserves its attributes",
+    ({ kind, tag, geometry }) => {
+      const content =
+        `<svg data-agent-native-node-id="${kind}-1" data-an-primitive="${kind}" ` +
+        `viewBox="0 0 100 80"><${tag} ${geometry} fill="none" ` +
+        `stroke="#123456" stroke-width="2"/></svg>`;
+      const patch = applyVisualEdit(content, {
+        kind: "style",
+        target: { nodeId: `${kind}-1` },
+        property: "--an-vector-stroke-position",
+        value: "outside",
+      });
+      const proxy = patch.content.match(
+        new RegExp(`<${tag}[^>]*data-an-vector-stroke-geometry=""[^>]*/>`),
+      )?.[0];
+
+      expect(patch.result.status).toBe("applied");
+      expect(proxy).toContain(geometry);
+      expect(patch.content).toContain(
+        'data-an-vector-stroke-position="outside"',
+      );
+      expect(
+        buildCodeLayerProjection(patch.content).nodes.find(
+          (node) =>
+            node.dataAttributes["data-agent-native-node-id"] === `${kind}-1`,
+        )?.style["--an-vector-stroke-can-align"],
+      ).toBe("true");
+    },
+  );
+
+  it("does not enable stroke alignment for canvas div primitives", () => {
+    const content =
+      '<div data-agent-native-node-id="rect-1" data-an-primitive="rectangle" ' +
+      'style="width:80px;height:30px;border:1px solid #123456"></div>';
+    const patch = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "rect-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(content);
+  });
+
+  it("clears box paint the wrapper should never have carried", () => {
+    const corrupted = html.replace(
+      'style="position:absolute',
+      'style="background-color:#782323;border-width:1px;position:absolute',
+    );
+    const patch = applyVisualEdit(corrupted, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#ff0000",
+    });
+    const wrapper = patch.content.slice(0, patch.content.indexOf("<path"));
+
+    expect(wrapper).not.toContain("background-color");
+    expect(wrapper).not.toContain("border-width");
+    expect(wrapper).toMatch(/position:\s*absolute/);
+  });
+
+  it("leaves geometry edits on the svg wrapper", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "left",
+      value: "40px",
+    });
+
+    expect(patch.content).toContain("left: 40px");
+    expect(patch.content).toContain(`<path d="M 0 0 L 80 60 Z"`);
+    expect(patch.content.slice(patch.content.indexOf("<path"))).not.toContain(
+      "left: 40px",
+    );
+  });
+});
+
+describe("applyVisualEdit CSS border gradients", () => {
+  const html =
+    '<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;background:#fff;border-width:4px;border-style:solid;border-color:#111827"></div></body>';
+
+  it("persists a linear border gradient and restores the original color on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain(`--an-css-border-gradient: ${value}`);
+    expect(gradient.content).toContain("--an-css-border-solid-color: #111827");
+    expect(gradient.content).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+    expect(gradient.content).toContain("border-image-slice: 1");
+    expect(gradient.content).toContain("border-color: transparent");
+    expect(
+      gradient.projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === "css-rect-1",
+      )?.style["--an-css-border-gradient"],
+    ).toBe(value);
+    expect(stripEditorOnlyAttributes(gradient.content)).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+
+    const solid = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-css-border-gradient");
+    expect(solid.content).not.toContain("--an-css-border-solid-color");
+    expect(solid.content).not.toContain("border-image-source");
+    expect(solid.content).toContain("border-color: #00ff00");
+  });
+
+  it.each([
+    ["rounded corners", "border-radius:8px;"],
+    ["dashed border", "border-style:dashed;"],
+    ["per-side border", "border-left-color:#000;"],
+  ])("rejects %s without changing source", (_label, unsupportedStyle) => {
+    const source = `<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;border-width:4px;border-style:solid;border-color:#111827;${unsupportedStyle}"></div></body>`;
+    const result = applyVisualEdit(source, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(source);
   });
 });
 
@@ -496,6 +1515,11 @@ describe("applyVisualEdit", () => {
     let html = `<section data-layer-name="Card" style="width: 240px">Hello</section>`;
     const edits = [
       { property: "fontSize", cssProperty: "font-size", value: "24px" },
+      {
+        property: "backgroundClip",
+        cssProperty: "background-clip",
+        value: "text",
+      },
       { property: "borderRadius", cssProperty: "border-radius", value: "12px" },
       { property: "opacity", cssProperty: "opacity", value: "0.64" },
       {
@@ -521,6 +1545,27 @@ describe("applyVisualEdit", () => {
         value: "#0f172a",
       },
       { property: "overflow", cssProperty: "overflow", value: "hidden" },
+      { property: "display", cssProperty: "display", value: "-webkit-box" },
+      {
+        property: "webkitBoxOrient",
+        cssProperty: "-webkit-box-orient",
+        value: "vertical",
+      },
+      {
+        property: "webkitLineClamp",
+        cssProperty: "-webkit-line-clamp",
+        value: "3",
+      },
+      {
+        property: "--agent-native-truncate-original-display",
+        cssProperty: "--agent-native-truncate-original-display",
+        value: '"initial"',
+      },
+      {
+        property: "--agent-native-truncate-original-overflow",
+        cssProperty: "--agent-native-truncate-original-overflow",
+        value: '"clip"',
+      },
       { property: "flexWrap", cssProperty: "flex-wrap", value: "wrap" },
       { property: "rotate", cssProperty: "rotate", value: "15deg" },
       { property: "scale", cssProperty: "scale", value: "-1 1" },
@@ -557,10 +1602,34 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("-webkit-text-stroke-width: 2px");
     expect(html).toContain("-webkit-text-stroke-color: #0f172a");
     expect(html).toContain("overflow: hidden");
+    expect(html).toContain("display: -webkit-box");
+    expect(html).toContain("-webkit-box-orient: vertical");
+    expect(html).toContain("-webkit-line-clamp: 3");
+    expect(html).toContain(
+      "--agent-native-truncate-original-display: &quot;initial&quot;",
+    );
+    expect(html).toContain(
+      "--agent-native-truncate-original-overflow: &quot;clip&quot;",
+    );
     expect(html).toContain("flex-wrap: wrap");
     expect(html).toContain("rotate: 15deg");
     expect(html).toContain("scale: -1 1");
     expect(html).toContain("left: 32px");
+  });
+
+  it("restores CSS-wide display values through the style boundary", () => {
+    const html = `<div data-testid="text" style="display:-webkit-box"></div>`;
+    for (const value of ["initial", "revert-layer"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "style",
+        target: { selector: '[data-testid="text"]' },
+        property: "display",
+        value,
+      });
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).toContain(`display: ${value}`);
+    }
   });
 
   it("aliases camelCase webkit text-stroke longhands to their -webkit- kebab forms", () => {
@@ -623,6 +1692,112 @@ describe("applyVisualEdit", () => {
     expect(patch.result.after?.classes).toEqual(["px-4", "bg-black"]);
   });
 
+  it("rejects executable attribute URLs and style payloads", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of ["javascript:alert(1)", "java&#x73;cript:alert(1)"]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+
+    const stylePatch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "style",
+      value: "background: url(javascript:alert(1))",
+    });
+    expect(stylePatch.result.status).toBe("unsupported");
+    expect(stylePatch.content).toBe(html);
+  });
+
+  it("allows safe attribute values", () => {
+    const patch = applyVisualEdit(`<a id="link">Open</a>`, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "https://example.com",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('href="https://example.com"');
+  });
+
+  it("rejects vbscript: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#link" },
+      name: "href",
+      value: "vbscript:msgbox(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects non-image data: attribute URLs", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "data:text/html,<script>alert(1)</script>",
+      "data:image/svg+xml,<svg onload=alert(1)>",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status).toBe("unsupported");
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("allows safe data:image attribute URLs", () => {
+    const patch = applyVisualEdit(`<img id="pic" />`, {
+      kind: "attribute",
+      target: { selector: "#pic" },
+      name: "src",
+      value: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(patch.result.status).toBe("applied");
+  });
+
+  it("rejects control-character and whitespace evasions of javascript:", () => {
+    const html = `<a id="link">Open</a>`;
+    for (const value of [
+      "java\tscript:alert(1)",
+      "java\nscript:alert(1)",
+      " javascript:alert(1)",
+      "\u0000javascript:alert(1)",
+    ]) {
+      const patch = applyVisualEdit(html, {
+        kind: "attribute",
+        target: { selector: "#link" },
+        name: "href",
+        value,
+      });
+      expect(patch.result.status, `value ${JSON.stringify(value)}`).toBe(
+        "unsupported",
+      );
+      expect(patch.content).toBe(html);
+    }
+  });
+
+  it("rejects on* event-handler attribute names outright, regardless of value", () => {
+    const html = `<button id="btn">Click</button>`;
+    const patch = applyVisualEdit(html, {
+      kind: "attribute",
+      target: { selector: "#btn" },
+      name: "onclick",
+      value: "alert(1)",
+    });
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
   it("applies textContent edits only to leaf elements", () => {
     const html = `<div><button data-testid="cta">Buy now</button></div>`;
     const patch = applyVisualEdit(html, {
@@ -651,6 +1826,36 @@ describe("applyVisualEdit", () => {
     expect(patch.content).toContain(
       `Build <span style="color: red">faster</span>`,
     );
+  });
+
+  it("detects canonical node ids exactly when stamping would change nothing", () => {
+    const id = (value: string) => ` data-agent-native-node-id="${value}"`;
+    const cases = [
+      "",
+      "<main><p>No ids</p></main>",
+      `<main${id("a")}><p${id("b")}>Ids</p></main>`,
+      `<main${id("a")}><p>One missing</p></main>`,
+      `<main${id("a")}><p${id("a")}>Duplicate</p></main>`,
+      `<main${id("a")}><p${id("b")}${id("c")}>Two attributes</p></main>`,
+      `<main${id("a")}><p${id(" ")}>Blank</p></main>`,
+      `<main${id("a")}><p data-agent-native-node-id>Boolean</p></main>`,
+      `<main${id("a")}><p title="x data-agent-native-node-id=q"${id("b")}>In a value</p></main>`,
+      `<main${id("a")}><svg${id("s")}><path d="M0 0"/></svg></main>`,
+      `<main${id("a")}><template${id("t")}><i>Child</i></template></main>`,
+      `<main${id("a")}><template><i${id("i")}>Child</i></template></main>`,
+      `<html><head><title>T</title><style>p{}</style></head><body${id("b")}><script>if (a<b) x()</script><p${id("p")}>x</p></body></html>`,
+      `<main${id("a")}><textarea${id("t")}><p>raw</p></textarea></main>`,
+      `<ul${id("u")}><li${id("1")}>One<li${id("2")}>Two</ul>`,
+      `<main${id("a")}><div${id("b")} data-x="a > b">Quoted</div></main>`,
+      `<main${id("a")}><img${id("b")}/><br></main>`,
+    ];
+    for (const html of cases) {
+      const stamped = ensureCodeLayerNodeIdsInHtml(html);
+      expect(hasCanonicalCodeLayerNodeIds(html), html).toBe(!stamped.changed);
+      expect(hasCanonicalCodeLayerNodeIds(stamped.content), html).toBe(
+        !ensureCodeLayerNodeIdsInHtml(stamped.content).changed,
+      );
+    }
   });
 
   it("stamps stable node ids and removes nodes by source span", () => {
@@ -715,9 +1920,9 @@ describe("applyVisualEdit", () => {
     expect(
       stamped.content.match(/<script>[\s\S]*?<\/script>/)?.[0],
     ).not.toContain("data-agent-native-node-id");
-    expect(
-      stamped.content.match(/<template>[\s\S]*?<\/template>/)?.[0],
-    ).not.toContain("data-agent-native-node-id");
+    expect(stamped.content).toContain(
+      `<div class="ghost" data-agent-native-node-id=`,
+    );
   });
 
   it("repairs duplicate stable node ids and uses them before duplicate HTML ids", () => {
@@ -806,6 +2011,44 @@ describe("applyVisualEdit", () => {
       `<main><div id="a">A</div><section id="c"><div id="b">B</div></section></main>`,
     );
   });
+
+  it.each(["data-an-primitive", "data-agent-native-primitive"])(
+    "keeps a reparented Frame with %s as the containing block for absolute descendants",
+    (marker) => {
+      const html =
+        `<main>` +
+        `<section id="workspace" style="display:flex;gap:12px"></section>` +
+        `<div data-agent-native-node-id="frame" ${marker}="frame" ` +
+        `class="!absolute !inset-0" ` +
+        `style="position:absolute!important;inset:24px;left:24px;top:24px;right:24px;bottom:24px;background:#475569">` +
+        `<button data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px">Play</button>` +
+        `</div></main>`;
+
+      const moved = applyVisualEdit(html, {
+        kind: "moveNode",
+        target: { nodeId: "frame" },
+        anchor: { selector: "#workspace" },
+        placement: "inside",
+      });
+
+      expect(moved.result.status).toBe("applied");
+      const frameTag = moved.content.match(
+        /<div[^>]*data-agent-native-node-id="frame"[^>]*>/,
+      )?.[0];
+      expect(frameTag).toBeTruthy();
+      expect(frameTag).toMatch(/position:\s*relative\s*!important/i);
+      for (const side of ["left", "top", "right", "bottom"]) {
+        expect(frameTag).toMatch(
+          new RegExp(`${side}:\\s*auto\\s*!important`, "i"),
+        );
+      }
+      expect(frameTag).not.toMatch(/!absolute/);
+      expect(frameTag).toContain("!inset-0");
+      expect(moved.content).toContain(
+        'data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px"',
+      );
+    },
+  );
 
   it("moves nodes from raw bridge source ids instead of fragile selectors", () => {
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div></main>`;
@@ -1051,6 +2294,7 @@ describe("wrapNodes", () => {
       `data-agent-native-node-id="${patch.result.wrapperNodeId}"`,
     );
     expect(patch.content).toContain(`data-agent-native-layer-name="Group"`);
+    expect(patch.content).toContain(`data-agent-native-group="true"`);
     expect(patch.content).toContain(`data-agent-native-node-id="a"`);
     expect(patch.content).toContain(`data-agent-native-node-id="b"`);
     // Wrapper should appear before c
@@ -1099,6 +2343,59 @@ describe("wrapNodes", () => {
     expect(patch.content).not.toContain("right: 5px");
   });
 
+  it("keeps an autoLayout wrapper at the selection's own origin instead of the parent's 0,0", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 240px; top: 180px; width: 120px; height: 60px">X</div><div data-agent-native-node-id="y" style="position: absolute; left: 240px; top: 300px; width: 120px; height: 60px">Y</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x", "y"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperStyle = new RegExp(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*style="([^"]*)"`,
+    ).exec(patch.content)?.[1];
+    expect(wrapperStyle).toContain("position: absolute");
+    expect(wrapperStyle).toContain("left: 240px");
+    expect(wrapperStyle).toContain("top: 180px");
+    expect(wrapperStyle).toContain("display: flex");
+    // No width/height: an auto-layout frame hugs its children, like Figma's.
+    expect(wrapperStyle).not.toContain("width:");
+    expect(wrapperStyle).not.toContain("height:");
+  });
+
+  it("keeps an autoLayout wrapper at the origin even when children have no width/height", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 240px; top: 180px">Hello</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperStyle = new RegExp(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*style="([^"]*)"`,
+    ).exec(patch.content)?.[1];
+    expect(wrapperStyle).toContain("left: 240px");
+    expect(wrapperStyle).toContain("top: 180px");
+    expect(wrapperStyle).toContain("display: flex");
+  });
+
+  it("wraps a single absolutely-positioned node at its own bounds", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 64px; top: 32px; width: 100px; height: 40px">X</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 64px; top: 32px");
+    expect(patch.content).toContain("width: 100px; height: 40px");
+    // The child is rebased into the wrapper's coordinate space.
+    expect(patch.content).toContain("left: 0px");
+    expect(patch.content).toContain("top: 0px");
+  });
+
   it("returns unsupported when targets don't share a parent", () => {
     const html = `<main><section><div data-agent-native-node-id="a">A</div></section><div data-agent-native-node-id="b">B</div></main>`;
     const patch = applyVisualEdit(html, {
@@ -1110,7 +2407,10 @@ describe("wrapNodes", () => {
     expect(patch.content).toBe(html);
   });
 
-  it("groups non-contiguous same-parent siblings by moving them adjacent to the topmost member first (L6)", () => {
+  it("groups non-contiguous same-parent siblings at the TOPMOST member's z-position, not the bottommost (L6)", () => {
+    // a (bottom), b (middle, unselected), c (top) — later source position
+    // paints on top for plain siblings. Figma places the resulting group at
+    // c's stacking position, so b ends up BELOW the group, not above it.
     const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="c">C</div></main>`;
     const patch = applyVisualEdit(html, {
       kind: "wrapNodes",
@@ -1131,10 +2431,10 @@ describe("wrapNodes", () => {
     const bIdx = patch.content.indexOf(`data-agent-native-node-id="b"`);
     expect(wrapperIdx).toBeLessThan(aIdx);
     expect(aIdx).toBeLessThan(cIdx);
-    // b (not selected) is left behind in the original parent, outside the wrapper.
-    expect(bIdx).toBeGreaterThan(
-      patch.content.indexOf("</div>", cIdx) /* end of wrapper's C child */,
-    );
+    // b (not selected) is left behind in the original parent, BEFORE the
+    // wrapper — i.e. below the new group, matching Figma's topmost-child
+    // z-position placement.
+    expect(bIdx).toBeLessThan(wrapperIdx);
   });
 
   it("returns conflict when a target node id is not found", () => {
@@ -1229,6 +2529,507 @@ describe("wrapNodes", () => {
       ),
     );
     expect(wrapperOpenTagMatch?.[0]).not.toContain("position: absolute");
+  });
+});
+
+describe("booleanSubtract", () => {
+  const html = `<main><div data-agent-native-node-id="base" data-agent-native-layer-name="Base" data-an-primitive="rectangle" style="position:absolute;left:20px;top:30px;width:38px;height:38px;background-color:rgb(255, 0, 0);border-radius:8px"></div><div data-agent-native-node-id="cutter" data-agent-native-layer-name="Cutter" data-an-primitive="ellipse" style="position:absolute;left:31px;top:41px;width:16px;height:16px;background-color:#336699"></div><div data-agent-native-node-id="after" style="position:absolute;left:80px;top:30px;width:12px;height:12px;background:#000"></div></main>`;
+
+  it("creates a source-backed group with editable operands and a bounded SVG mask", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.result.wrapperNodeId).toBeTruthy();
+    expect(patch.content).toContain('maskUnits="objectBoundingBox"');
+    expect(patch.content).toContain('width="120%"');
+    expect(patch.content).not.toContain("100000");
+    expect(
+      patch.content.match(/data-agent-native-node-id="base"/g),
+    ).toHaveLength(1);
+    expect(
+      patch.content.match(/data-agent-native-node-id="cutter"/g),
+    ).toHaveLength(1);
+    expect(patch.content).toContain('data-an-boolean-operand="base"');
+    expect(patch.content).toContain('data-an-boolean-operand="subtract"');
+    expect(patch.content).toContain("--boolean-mask-fill:white");
+    expect(patch.content).toContain('data-an-boolean-cutter-stroke="true"');
+    expect(patch.content).toContain("overflow:visible;opacity:1");
+    expect(patch.content).toContain('style="--boolean-mask-fill:black;');
+
+    const projection = buildCodeLayerProjection(patch.content);
+    const root = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] ===
+        patch.result.wrapperNodeId,
+    );
+    const operands = projection.nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "boolean-operand",
+    );
+    expect(root?.dataAttributes["data-an-primitive"]).toBe("boolean");
+    expect(operands.map((node) => node.layerName)).toEqual(["Base", "Cutter"]);
+    expect(operands.every((node) => node.parentId === root?.id)).toBe(true);
+    expect(root?.children).toEqual(operands.map((node) => node.id));
+  });
+
+  it("keeps child paint and geometry edits connected to SVG source geometry", () => {
+    const created = applyVisualEdit(html, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+    const color = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: "cutter" },
+      property: "fill",
+      value: "#ff0000",
+    });
+    expect(color.result.status).toBe("applied");
+    expect(color.content).toContain("--operand-fill: #ff0000");
+    const stroke = applyVisualEdit(color.content, {
+      kind: "style",
+      target: { nodeId: "cutter" },
+      property: "stroke-width",
+      value: "2px",
+    });
+    expect(stroke.result.status).toBe("applied");
+    const width = applyVisualEdit(stroke.content, {
+      kind: "style",
+      target: { nodeId: "cutter" },
+      property: "width",
+      value: "20px",
+    });
+    expect(width.result.status).toBe("applied");
+    expect(width.content).toContain('width="20"');
+    expect(width.content).toContain('viewBox="0 0 20 16"');
+    expect(width.content).toContain('<rect x="1" y="1" width="18" height="14"');
+
+    const rootId = created.result.wrapperNodeId;
+    const resultPaint = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "fill",
+      value: "#224466",
+    });
+    expect(resultPaint.result.status).toBe("applied");
+    expect(resultPaint.content).toContain("--boolean-mask-fill: #224466");
+    expect(resultPaint.content).toMatch(/fill:\s*var\(--boolean-mask-fill\)/);
+    const resultOpacity = applyVisualEdit(resultPaint.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "opacity",
+      value: "0.5",
+    });
+    expect(resultOpacity.result.status).toBe("applied");
+    expect(resultOpacity.content).toContain("opacity: 0.5");
+    expect(resultOpacity.content).toMatch(/opacity:\s*1/);
+
+    const resultRadius = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "border-radius",
+      value: "13px",
+    });
+    expect(resultRadius.result.status).toBe("applied");
+    expect(resultRadius.content).toContain("border-radius: 13px");
+    expect(resultRadius.content).toContain("--boolean-result-radius-x: 13px");
+    expect(resultRadius.content).toContain("--boolean-result-radius-y: 13px");
+    expect(
+      applyVisualEdit(resultRadius.content, {
+        kind: "style",
+        target: { nodeId: rootId! },
+        property: "border-top-left-radius",
+        value: "13px",
+      }).result.status,
+    ).toBe("applied");
+    expect(
+      applyVisualEdit(resultRadius.content, {
+        kind: "style",
+        target: { nodeId: rootId! },
+        property: "border-top-left-radius",
+        value: "4px",
+      }).result.status,
+    ).toBe("unsupported");
+    const resultStroke = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "stroke",
+      value: "#000000",
+    });
+    expect(resultStroke.result.status).toBe("applied");
+    expect(resultStroke.content).toContain("--boolean-mask-stroke: #000000");
+    const resultStrokeWidth = applyVisualEdit(resultStroke.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "stroke-width",
+      value: "4px",
+    });
+    expect(resultStrokeWidth.result.status).toBe("applied");
+    expect(resultStrokeWidth.content).toContain(
+      "--boolean-mask-stroke-width: 4px",
+    );
+    const resultStrokeOpacity = applyVisualEdit(resultStrokeWidth.content, {
+      kind: "style",
+      target: { nodeId: rootId! },
+      property: "stroke-opacity",
+      value: "0.25",
+    });
+    expect(resultStrokeOpacity.result.status).toBe("applied");
+    const projectedStroke = buildCodeLayerProjection(
+      resultStrokeOpacity.content,
+    ).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === rootId,
+    );
+    expect(projectedStroke?.style.stroke).toBe("#000000");
+    expect(projectedStroke?.style["stroke-width"]).toBe("4px");
+    expect(projectedStroke?.style["stroke-opacity"]).toBe("0.25");
+  });
+
+  it("keeps Boolean operand X edits semantic after absolute positioning", () => {
+    const created = applyVisualEdit(html, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+    const rootId = created.result.wrapperNodeId!;
+    const rotated = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: rootId },
+      property: "rotation",
+      value: "45deg",
+    });
+    const positioned = applyVisualEdit(rotated.content, {
+      kind: "style",
+      target: { nodeId: "cutter" },
+      property: "position",
+      value: "absolute",
+    });
+
+    expect(positioned.result.status).toBe("applied");
+    const moved = applyVisualEdit(positioned.content, {
+      kind: "style",
+      target: { nodeId: "cutter" },
+      property: "left",
+      value: "30px",
+    });
+
+    expect(moved.result.status).toBe("applied");
+    const projection = buildCodeLayerProjection(moved.content);
+    const operand = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "cutter",
+    );
+    const root = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === rootId,
+    );
+    expect(operand?.attributes.x).toBe("30");
+    expect(operand?.style.left).toBe("30px");
+    expect(root?.style.rotate).toBe("45deg");
+    expect(moved.content).toContain(`href="#${operand?.attributes.id}"`);
+  });
+
+  it("keeps standalone SVG position edits on their wrapper", () => {
+    const standalone =
+      '<body><svg data-agent-native-node-id="vector" data-an-primitive="path" style="position:absolute;left:20px;top:30px;width:100px;height:100px"><path d="M 0 0 L 80 60 Z"/></svg></body>';
+    const positioned = applyVisualEdit(standalone, {
+      kind: "style",
+      target: { nodeId: "vector" },
+      property: "position",
+      value: "absolute",
+    });
+    const moved = applyVisualEdit(positioned.content, {
+      kind: "style",
+      target: { nodeId: "vector" },
+      property: "left",
+      value: "40px",
+    });
+
+    expect(positioned.result.status).toBe("applied");
+    expect(moved.result.status).toBe("applied");
+    expect(moved.content).toContain("left: 40px");
+    expect(moved.content).toContain('<path d="M 0 0 L 80 60 Z"');
+  });
+
+  it("keeps result stroke edits inside their own Boolean group", () => {
+    const source = html.replace(
+      "</main>",
+      '<div data-agent-native-node-id="base-2" data-agent-native-layer-name="Base 2" data-an-primitive="rectangle" style="position:absolute;left:140px;top:30px;width:38px;height:38px;background:#00f"></div><div data-agent-native-node-id="cutter-2" data-agent-native-layer-name="Cutter 2" data-an-primitive="ellipse" style="position:absolute;left:151px;top:41px;width:16px;height:16px;background:#0f0"></div></main>',
+    );
+    const first = applyVisualEdit(source, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+    const second = applyVisualEdit(first.content, {
+      kind: "booleanSubtract",
+      targetIds: ["base-2", "cutter-2"],
+    });
+    const secondRootId = second.result.wrapperNodeId!;
+    const cutterStrokeStyle = (content: string, rootId: string) => {
+      const rootStart = content.indexOf(
+        `data-agent-native-node-id="${rootId}"`,
+      );
+      const marker = content.indexOf(
+        'data-an-boolean-cutter-stroke="true"',
+        rootStart,
+      );
+      const start = content.lastIndexOf("<use", marker);
+      const end = content.indexOf(">", marker);
+      return content.slice(start, end);
+    };
+    const untouchedStyle = cutterStrokeStyle(second.content, secondRootId);
+
+    const editedFirst = applyVisualEdit(second.content, {
+      kind: "style",
+      target: { nodeId: first.result.wrapperNodeId! },
+      property: "stroke",
+      value: "#ff0000",
+    });
+
+    expect(editedFirst.result.status).toBe("applied");
+    expect(cutterStrokeStyle(editedFirst.content, secondRootId)).toBe(
+      untouchedStyle,
+    );
+  });
+
+  it("releases Boolean operands with their own paint, transform, and result radius", () => {
+    const source = html
+      .replace(
+        "background-color:rgb(255, 0, 0);border-radius:8px",
+        "background-color:#d9d9d9;border-radius:8px;opacity:0.7",
+      )
+      .replace(
+        "background-color:#336699",
+        "background-color:#ff0000;opacity:0.6",
+      )
+      .replace("left:31px;top:41px", "left:35px;top:41px");
+    const created = applyVisualEdit(source, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+    const rootId = created.result.wrapperNodeId!;
+    const resultFill = applyVisualEdit(created.content, {
+      kind: "style",
+      target: { nodeId: rootId },
+      property: "fill",
+      value: "#336699",
+    });
+    const rotated = applyVisualEdit(resultFill.content, {
+      kind: "style",
+      target: { nodeId: rootId },
+      property: "rotation",
+      value: "-45deg",
+    });
+    const rounded = applyVisualEdit(rotated.content, {
+      kind: "style",
+      target: { nodeId: rootId },
+      property: "border-radius",
+      value: "13px",
+    });
+    const translucent = applyVisualEdit(rounded.content, {
+      kind: "style",
+      target: { nodeId: rootId },
+      property: "opacity",
+      value: "0.5",
+    });
+
+    const released = applyVisualEdit(translucent.content, {
+      kind: "unwrap",
+      targetId: rootId,
+    });
+
+    expect(released.result.status).toBe("applied");
+    expect(released.content).not.toContain('data-an-primitive="boolean"');
+    expect(released.content).not.toContain("data-an-boolean-cutter");
+    expect(released.content).not.toContain("data-an-boolean-result");
+    expect(released.content).not.toContain('mask="url(#');
+    expect(released.content).toContain(
+      'data-agent-native-node-id="base" data-agent-native-layer-name="Base" data-an-primitive="rectangle"',
+    );
+    expect(released.content).toContain(
+      'data-agent-native-node-id="cutter" data-agent-native-layer-name="Cutter" data-an-primitive="ellipse"',
+    );
+    expect(released.content).toContain("fill: #d9d9d9");
+    expect(released.content).toContain("fill: #ff0000");
+    expect(released.content).not.toContain("#336699");
+    expect(released.content).toContain("opacity: 0.7");
+    expect(released.content).toContain("opacity: 0.6");
+    expect(released.content).not.toContain("opacity: 0.5");
+    expect(released.content.match(/rotate: -45deg/g)).toHaveLength(2);
+    expect(released.content).toContain('rx="13"');
+    expect(released.content).toContain('ry="13"');
+    expect(released.content).not.toContain("--operand-fill");
+    expect(released.content).not.toContain("--boolean-result-radius");
+
+    const projection = buildCodeLayerProjection(released.content);
+    const releasedNodes = projection.nodes.filter((node) =>
+      ["base", "cutter"].includes(
+        node.dataAttributes["data-agent-native-node-id"] ?? "",
+      ),
+    );
+    expect(
+      releasedNodes.map((node) => node.dataAttributes["data-an-primitive"]),
+    ).toEqual(["rectangle", "ellipse"]);
+    const base = releasedNodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "base",
+    );
+    const cutter = releasedNodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "cutter",
+    );
+    expect(base?.style.left).toBe("20px");
+    expect(base?.style.top).toBe("30px");
+    expect(Number.parseFloat(cutter?.style.left ?? "")).toBeCloseTo(33.8284, 3);
+    expect(Number.parseFloat(cutter?.style.top ?? "")).toBeCloseTo(38.1716, 3);
+
+    const recolored = applyVisualEdit(released.content, {
+      kind: "style",
+      target: { nodeId: "base" },
+      property: "fill",
+      value: "#112233",
+    });
+    expect(recolored.result.status).toBe("applied");
+    expect(recolored.content).toContain("fill: #112233");
+    const radiusEdit = applyVisualEdit(recolored.content, {
+      kind: "style",
+      target: { nodeId: "base" },
+      property: "border-radius",
+      value: "9px",
+    });
+    expect(radiusEdit.result.status).toBe("applied");
+    expect(radiusEdit.content).toContain('rx="9"');
+    expect(radiusEdit.content).toContain('ry="9"');
+    expect(radiusEdit.content).toContain("border-radius: 9px");
+  });
+
+  it("releases three operands when the editable base is an ellipse", () => {
+    const source = html
+      .replace(
+        'data-agent-native-node-id="base" data-agent-native-layer-name="Base" data-an-primitive="rectangle"',
+        'data-agent-native-node-id="base" data-agent-native-layer-name="Base" data-an-primitive="ellipse"',
+      )
+      .replace(
+        'data-agent-native-node-id="after" style=',
+        'data-agent-native-node-id="after" data-an-primitive="rectangle" style=',
+      )
+      .replace("left:80px;top:30px", "left:35px;top:44px");
+    const created = applyVisualEdit(source, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter", "after"],
+    });
+    expect(created.result.status).toBe("applied");
+
+    const released = applyVisualEdit(created.content, {
+      kind: "unwrap",
+      targetId: created.result.wrapperNodeId!,
+    });
+    expect(released.result.status).toBe("applied");
+    expect(released.content).not.toContain('data-an-primitive="boolean"');
+    expect(released.content).not.toContain("data-an-boolean-operand");
+    for (const [id, shape] of [
+      ["base", "ellipse"],
+      ["cutter", "ellipse"],
+      ["after", "rectangle"],
+    ]) {
+      expect(released.content).toMatch(
+        new RegExp(
+          'data-agent-native-node-id="' +
+            id +
+            '"[^>]*data-an-primitive="' +
+            shape +
+            '"',
+        ),
+      );
+    }
+    const projection = buildCodeLayerProjection(released.content);
+    expect(
+      projection.nodes.filter((node) =>
+        ["base", "cutter", "after"].includes(
+          node.dataAttributes["data-agent-native-node-id"] ?? "",
+        ),
+      ),
+    ).toHaveLength(3);
+  });
+
+  it("protects canonical operands from moves and deletes that break mask references", () => {
+    const created = applyVisualEdit(html, {
+      kind: "booleanSubtract",
+      targetIds: ["base", "cutter"],
+    });
+    const rootId = created.result.wrapperNodeId!;
+
+    const unwrappedOperand = applyVisualEdit(created.content, {
+      kind: "unwrap",
+      targetId: "cutter",
+    });
+    expect(unwrappedOperand.result.status).toBe("unsupported");
+    expect(unwrappedOperand.content).toBe(created.content);
+
+    const deleted = applyVisualEdit(created.content, {
+      kind: "deleteNode",
+      target: { nodeId: "cutter" },
+    });
+    expect(deleted.result.status).toBe("unsupported");
+    expect(deleted.content).toBe(created.content);
+
+    const moved = applyVisualEdit(created.content, {
+      kind: "moveNode",
+      target: { nodeId: "cutter" },
+      anchor: { nodeId: "after" },
+      placement: "before",
+    });
+    expect(moved.result.status).toBe("unsupported");
+    expect(moved.content).toBe(created.content);
+
+    const movedIntoRoot = applyVisualEdit(created.content, {
+      kind: "moveNode",
+      target: { nodeId: "after" },
+      anchor: { nodeId: rootId },
+      placement: "inside",
+    });
+    expect(movedIntoRoot.result.status).toBe("unsupported");
+    expect(movedIntoRoot.content).toBe(created.content);
+
+    const movedIntoOperand = applyVisualEdit(created.content, {
+      kind: "moveNode",
+      target: { nodeId: "after" },
+      anchor: { nodeId: "base" },
+      placement: "inside",
+    });
+    expect(movedIntoOperand.result.status).toBe("unsupported");
+    expect(movedIntoOperand.content).toBe(created.content);
+  });
+
+  it("refuses non-sibling, unsupported and nonuniform corner geometry", () => {
+    const nonConsecutive = html.replace(
+      '<div data-agent-native-node-id="cutter"',
+      '<p data-agent-native-node-id="between">Label</p><div data-agent-native-node-id="cutter"',
+    );
+    expect(
+      applyVisualEdit(nonConsecutive, {
+        kind: "booleanSubtract",
+        targetIds: ["base", "cutter"],
+      }).result.status,
+    ).toBe("unsupported");
+
+    const customMarkup = html.replace(
+      'data-agent-native-layer-name="Base"',
+      'data-agent-native-layer-name="Base" class="rounded-lg"',
+    );
+    expect(
+      applyVisualEdit(customMarkup, {
+        kind: "booleanSubtract",
+        targetIds: ["base", "cutter"],
+      }).result.status,
+    ).toBe("unsupported");
+
+    const asymmetricRadius = html.replace(
+      "border-radius:8px",
+      "border-radius:8px 2px",
+    );
+    expect(
+      applyVisualEdit(asymmetricRadius, {
+        kind: "booleanSubtract",
+        targetIds: ["base", "cutter"],
+      }).result.status,
+    ).toBe("unsupported");
   });
 });
 
@@ -1344,6 +3145,23 @@ describe("unwrap", () => {
     expect(patch.content).toContain("top: 35px");
   });
 
+  it("L3: rebases a measured flow origin and relative wrapper inset on unwrap", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper" data-agent-native-group-wrapper="true" data-agent-native-group-origin-left="100px" data-agent-native-group-origin-top="80px" style="position:relative;left:10px;top:5px">` +
+      `<div data-agent-native-node-id="child" style="position:absolute;left:2px;top:3px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 112px");
+    expect(patch.content).toContain("top: 88px");
+  });
+
   it("L3: does not rebase children when the wrapper itself is not absolutely positioned", () => {
     const html =
       `<main>` +
@@ -1360,9 +3178,93 @@ describe("unwrap", () => {
     expect(patch.content).toContain("left: 10px");
     expect(patch.content).toContain("top: 5px");
   });
+
+  it("L3: ignores inert offsets on a static wrapper", () => {
+    const html =
+      `<main>` +
+      `<div data-agent-native-node-id="wrapper" style="left: 50px; top: 30px">` +
+      `<div data-agent-native-node-id="child" style="position: absolute; left: 10px; top: 5px">Child</div>` +
+      `</div>` +
+      `</main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "unwrap",
+      targetId: "wrapper",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("left: 10px");
+    expect(patch.content).toContain("top: 5px");
+    expect(patch.content).not.toContain("left: 60px");
+  });
 });
 
 describe("autoLayout", () => {
+  const treeNodeById = (
+    nodes: ReturnType<typeof buildCodeLayerTree>,
+    id: string,
+  ): (typeof nodes)[number] | undefined => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      const nested = treeNodeById(node.children, id);
+      if (nested) return nested;
+    }
+    return undefined;
+  };
+
+  it("changes a grouped wrapper into a Frame and keeps that identity when auto-layout is removed", () => {
+    const wrapped = applyVisualEdit(
+      `<main><div data-agent-native-node-id="a" style="position:absolute;left:10px;top:10px">A</div><div data-agent-native-node-id="b" style="position:absolute;left:30px;top:10px">B</div></main>`,
+      { kind: "wrapNodes", targetIds: ["a", "b"] },
+    );
+    const groupId = wrapped.result.wrapperNodeId;
+    expect(groupId).toBeTruthy();
+    expect(wrapped.content).toContain(`data-agent-native-group="true"`);
+
+    const enabled = applyVisualEdit(wrapped.content, {
+      kind: "autoLayout",
+      targetId: groupId!,
+      enabled: true,
+      direction: "row",
+      gap: "8px",
+    });
+    expect(enabled.result.status).toBe("applied");
+    expect(enabled.content).not.toContain(`data-agent-native-group="true"`);
+    expect(enabled.content).toContain(`data-an-primitive="frame"`);
+    const enabledProjection = buildCodeLayerProjection(enabled.content);
+    const enabledWrapper = enabledProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
+    );
+    expect(enabledWrapper).toBeDefined();
+    expect(enabledWrapper?.layerName).toBe("Frame 1");
+    expect(
+      treeNodeById(buildCodeLayerTree(enabledProjection), enabledWrapper!.id)
+        ?.type,
+    ).toBe("frame");
+
+    const disabled = applyVisualEdit(enabled.content, {
+      kind: "autoLayout",
+      targetId: groupId!,
+      enabled: false,
+      childRects: {
+        a: { x: 0, y: 0, width: 20, height: 20 },
+        b: { x: 20, y: 0, width: 20, height: 20 },
+      },
+      containerRect: { width: 40, height: 20 },
+    });
+    expect(disabled.result.status).toBe("applied");
+    expect(disabled.content).toContain(`data-an-primitive="frame"`);
+    expect(disabled.content).not.toContain(`data-agent-native-group="true"`);
+    const disabledProjection = buildCodeLayerProjection(disabled.content);
+    const disabledWrapper = disabledProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
+    );
+    expect(disabledWrapper).toBeDefined();
+    expect(
+      treeNodeById(buildCodeLayerTree(disabledProjection), disabledWrapper!.id)
+        ?.type,
+    ).toBe("frame");
+  });
+
   it("enables auto-layout on a container with display:flex + direction + gap", () => {
     const html = `<div data-agent-native-node-id="box"><span>A</span><span>B</span></div>`;
     const patch = applyVisualEdit(html, {
@@ -1377,6 +3279,76 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 16px");
+  });
+
+  it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
+    const html =
+      `<div data-agent-native-node-id="workspace">` +
+      `<div data-agent-native-node-id="frame" data-an-primitive="frame" ` +
+      `style="position:absolute;inset:24px;background:#475569">` +
+      `<button data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px">Play</button>` +
+      `</div></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "workspace",
+      enabled: true,
+      direction: "row",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const frameTag = patch.content.match(
+      /<div[^>]*data-agent-native-node-id="frame"[^>]*>/,
+    )?.[0];
+    expect(frameTag).toBeTruthy();
+    expect(frameTag).toMatch(/position:\s*relative\s*!important/i);
+    expect(frameTag).toMatch(/left:\s*auto\s*!important/i);
+    expect(frameTag).toMatch(/top:\s*auto\s*!important/i);
+    expect(frameTag).toMatch(/right:\s*auto\s*!important/i);
+    expect(frameTag).toMatch(/bottom:\s*auto\s*!important/i);
+    expect(patch.content).toContain(
+      'data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px"',
+    );
+  });
+
+  it("writes grid tracks from containerStyles and reflows the children", () => {
+    const html =
+      `<div data-agent-native-node-id="box">` +
+      `<div data-agent-native-node-id="a" style="position: absolute; left: 40px; top: 12px">A</div>` +
+      `<div data-agent-native-node-id="b" class="absolute" style="left: 90px">B</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: grid");
+    expect(patch.content).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
+    expect(patch.content).not.toContain("display: flex");
+    expect(patch.content).not.toMatch(/position:\s*absolute/);
+    expect(patch.content).not.toMatch(/left:\s*40px/);
+    expect(patch.content).not.toMatch(/class="absolute"/);
+  });
+
+  it("rejects containerStyles that carry no writable declaration", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid; content: url(javascript:0)" },
+    });
+
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("uses column and 8px defaults when direction and gap are omitted", () => {
@@ -1499,8 +3471,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
     expect(patch.content).not.toContain("position: absolute");
   });
 
@@ -1531,8 +3503,8 @@ describe("autoLayout", () => {
       enabled: false,
     });
 
-    expect(patch.result.status).toBe("applied");
-    expect(patch.content).toContain("display: block");
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
   });
 
   it("returns conflict when targetId is not found", () => {
@@ -1707,6 +3679,7 @@ describe("moveNodeBetweenDocuments", () => {
 
     const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
       nodeId: "duplicate",
+      sourceSelector: 'section[data-agent-native-node-id="duplicate"]',
     });
 
     expect(result.status).toBe("applied");
@@ -1796,6 +3769,7 @@ describe("moveNodeBetweenDocuments", () => {
       result.destHtml.indexOf(">", movedIdx) + 1,
     );
     expect(movedTag).not.toContain("position: absolute");
+    expect(movedTag).not.toMatch(/position:\s*relative/i);
     expect(movedTag).not.toContain("left:");
     expect(movedTag).not.toContain("top:");
     // Non-positioning styles on the moved root survive.
@@ -2366,6 +4340,8 @@ describe("style edit property normalization for fill layers", () => {
   const html = `<button id="cta">Buy</button>`;
 
   it.each([
+    ["object-fit", "contain"],
+    ["objectFit", "cover"],
     ["background-size", "cover"],
     ["backgroundSize", "cover"],
     ["background-repeat", "no-repeat"],
@@ -2465,5 +4441,126 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background: #f5f5f5");
+  });
+});
+
+describe("design node classification", () => {
+  const typeOf = (html: string, tag: string) => {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const found: Array<{ type: string; name: string; isComponent?: boolean }> =
+      [];
+    const walk = (nodes: ReturnType<typeof buildCodeLayerTree>) => {
+      for (const node of nodes) {
+        if (node.tag === tag) {
+          found.push({
+            type: node.type,
+            name: node.name,
+            isComponent: node.isComponent,
+          });
+        }
+        walk(node.children);
+      }
+    };
+    walk(tree);
+    return found[0];
+  };
+
+  it("classifies a painted, padded text leaf as a frame, not text", () => {
+    const node = typeOf(
+      `<div><button class="px-6 py-3 bg-blue-600 rounded">Get Started</button></div>`,
+      "button",
+    );
+    expect(node?.type).toBe("frame");
+    expect(node?.isComponent).toBe(true);
+  });
+
+  it("keeps a plain text leaf as text", () => {
+    expect(typeOf(`<div><a href="/x">Features</a></div>`, "a")?.type).toBe(
+      "text",
+    );
+    expect(
+      typeOf(`<div><h1 class="text-4xl">Hello</h1></div>`, "h1")?.type,
+    ).toBe("text");
+  });
+
+  it("keeps a heading with inline runs as one text layer", () => {
+    const html = `<div><h1 class="text-4xl">Transform <span class="text-blue-400">Your</span> Workflow</h1></div>`;
+    const heading = typeOf(html, "h1");
+    expect(heading?.type).toBe("text");
+    expect(heading?.name).toBe("Transform Your Workflow");
+    expect(typeOf(html, "span")).toBeUndefined();
+  });
+
+  it("classifies painted void leaves by their radius", () => {
+    const dot = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-3 h-3 rounded-full bg-red-500"></div><div class="h-px w-full bg-border"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(dot?.[0]?.type).toBe("ellipse");
+    expect(dot?.[1]?.type).toBe("shape");
+  });
+
+  it("treats a wide rounded-full box as a pill, not an ellipse", () => {
+    const shapes = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="w-20 h-6 rounded-full bg-slate-200"></div><div class="size-3 rounded-full bg-red-500"></div></section>`,
+      ),
+    )[0]?.children;
+    expect(shapes?.[0]?.type).toBe("shape");
+    expect(shapes?.[1]?.type).toBe("ellipse");
+  });
+
+  it("does not treat a colour utility as a component marker", () => {
+    const card = typeOf(
+      `<section><div class="p-6 rounded-lg border bg-card"><p>Body</p></div></section>`,
+      "div",
+    );
+    expect(card?.type).toBe("frame");
+    expect(card?.isComponent).toBe(false);
+  });
+
+  it("never names a layer after a tailwind utility", () => {
+    const tree = buildCodeLayerTree(
+      buildCodeLayerProjection(
+        `<section><div class="flex flex-col opacity-90 top-0"><p class="text-lg">Body</p></div></section>`,
+      ),
+    );
+    expect(tree[0]?.children[0]?.name).toBe("Frame");
+  });
+});
+
+describe("wrapBareTextLeavesInHtml", () => {
+  it("gives a painted text leaf its own text layer", () => {
+    const wrapped = wrapBareTextLeavesInHtml(
+      `<div><button class="px-6 py-3 bg-blue-600">Get Started</button></div>`,
+    );
+    expect(wrapped.wrapped).toBe(1);
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(wrapped.content));
+    const button = tree[0]?.children[0];
+    expect(button?.type).toBe("frame");
+    expect(button?.children[0]?.type).toBe("text");
+    expect(button?.children[0]?.name).toBe("Get Started");
+  });
+
+  it("is idempotent", () => {
+    const html = `<div><button class="px-6 py-3 bg-blue-600">Save</button></div>`;
+    const once = wrapBareTextLeavesInHtml(html);
+    expect(once.changed).toBe(true);
+    expect(once.wrapped).toBe(1);
+    const twice = wrapBareTextLeavesInHtml(once.content);
+    expect(twice.changed).toBe(false);
+    expect(twice.content).toBe(once.content);
+  });
+
+  it("leaves unpainted text and mixed content alone", () => {
+    const result = wrapBareTextLeavesInHtml(
+      `<div><h1 class="text-4xl">Title</h1><p class="p-4 bg-muted">Hi <b>there</b></p><button class="px-4 py-2 bg-blue-600">Save</button></div>`,
+    );
+    expect(result.wrapped).toBe(1);
+    expect(result.content).toContain(`<h1 class="text-4xl">Title</h1>`);
+    expect(result.content).toContain(
+      `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
+    );
   });
 });

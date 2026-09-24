@@ -151,6 +151,9 @@ export function normalizeWorkspaceAppConfigs(
       enabled: true,
       mode: "prod",
       ...(color ? { color } : {}),
+      ...(typeof record.workspaceSso === "boolean"
+        ? { workspaceSso: record.workspaceSso }
+        : {}),
     });
   }
 

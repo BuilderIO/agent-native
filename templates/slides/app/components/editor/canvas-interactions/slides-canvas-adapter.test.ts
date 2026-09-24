@@ -9,6 +9,7 @@ import {
   resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
+  resolveSlidesCanvasRotation,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
 
@@ -40,8 +41,8 @@ describe("Slides canvas interaction adapter", () => {
     expect(core.capabilities.snapping).toBe(true);
     expect(core.capabilities.alignment).toBe(true);
     expect(core.capabilities.distribution).toBe(true);
-    expect(core.capabilities.grouping).toBe(false);
-    expect(core.capabilities.rotation).toBe(false);
+    expect(core.capabilities.grouping).toBe(true);
+    expect(core.capabilities.rotation).toBe(true);
   });
 
   it("uses the shared nudge and resize geometry", () => {
@@ -130,6 +131,45 @@ describe("Slides canvas interaction adapter", () => {
     );
   });
 
+  it("maps Alt+Arrow to 15-degree rotation and Shift+Alt+Arrow to one degree", () => {
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBe(15);
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowLeft",
+        altKey: true,
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBe(-1);
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: true,
+        ctrlKey: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowUp",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBeNull();
+  });
+
   it("reserves only a selected object's edge band for movement", () => {
     expect(
       resolveSlidesCanvasPointerIntent({
@@ -156,6 +196,31 @@ describe("Slides canvas interaction adapter", () => {
         targetContainsSelectedObject: false,
         pointerWithinMoveBand: false,
         targetIsEditableText: false,
+      }),
+    ).toBe("move-object-body");
+  });
+
+  it("keeps a direct text-leaf click in edit mode outside the move band", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: true,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: false,
+        targetIsEditableText: true,
+      }),
+    ).toBe("edit-text");
+  });
+
+  it("lets Alt-drag duplicate from the body of a text layer", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: true,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: false,
+        targetIsEditableText: true,
+        duplicateModifierActive: true,
       }),
     ).toBe("move-object-body");
   });
@@ -209,6 +274,18 @@ describe("Slides canvas interaction adapter", () => {
         targetIsEditableText: true,
       }),
     ).toBe("edit-text");
+  });
+
+  it("moves the selected object from whitespace over its selection perimeter", () => {
+    expect(
+      resolveSlidesCanvasPointerIntent({
+        hasSelectedObject: true,
+        targetWithinSelectedObject: false,
+        targetContainsSelectedObject: false,
+        pointerWithinMoveBand: true,
+        targetIsEditableText: false,
+      }),
+    ).toBe("move-object-perimeter");
   });
 
   it("passes semantic commands through the supplied HTML persistence adapter", () => {

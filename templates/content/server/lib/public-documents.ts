@@ -46,7 +46,7 @@ ${fullDocumentGuidance}
 Document ID: ${doc.id}
 Title: ${doc.title}
 Description: ${doc.description || "(none)"}
-Updated at: ${doc.updatedAt}
+Updated at: ${String(doc.updatedAt)}
 
 Markdown excerpt:
 ${excerpt}

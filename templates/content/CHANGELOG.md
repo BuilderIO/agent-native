@@ -3,6 +3,142 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Added
+
+- Every page in the sidebar now has a "…" menu to rename, duplicate, move, copy its link, open it in a new tab, or move it to Trash, and it shows who last edited the page. Duplicate copies sub-pages too, and Move can take a page and its sub-pages to another workspace after warning you that its sharing will change.
+
+### Improved
+
+- The sidebar is easier to scan: the page you're on is highlighted wherever it appears, nested pages show guide lines and Trash stays in reach below the page list.
+
+### Fixed
+
+- Tables inserted in the visual editor now let you resize columns.
+- Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
+- The Trash view no longer highlights a document that is not in Trash.
+
+## 2026-09-22
+
+### Fixed
+
+- Comments, replies, and suggested-edit decisions now appear immediately without leaving duplicate text in the composer while they save.
+
+## 2026-09-21
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
+## 2026-09-16
+
+### Fixed
+
+- Content now combines non-overlapping edits from another tab or agent automatically, while recovery choices stay attached to the exact draft and saved page version you reviewed.
+
+## 2026-09-15
+
+### Fixed
+
+- Google sign-in and Notion connections now open reliably in embedded browsers
+
+## 2026-09-14
+
+### Improved
+
+- Trash now uses table-native metadata filters to find nested Pages, preview their content, and empty reviewed scopes with progress that survives navigation.
+- Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
+
+### Fixed
+
+- Pages created in agent conversations now appear in navigation and open when they are ready.
+- Cmd+K now opens the command menu while writing in a page.
+- The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
+- Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
+- Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
+
+## 2026-09-13
+
+### Fixed
+
+- Tables now export as real tables. Downloading a page as PDF or HTML keeps rows, columns, header rows, header columns, and cell line breaks instead of flattening the table into plain text. Callouts, toggles, and column layouts survive the same export path, and printed tables repeat their header row across page breaks.
+- Suggestion previews and highlights stay aligned when editing text near lists.
+
+## 2026-09-12
+
+### Improved
+
+- Search with quoted phrases, exclusions, OR, and intitle: operators, search all workspaces, pick a modified date from the calendar, and see snippets anchored at the matching sentence deep inside long pages.
+
+### Fixed
+
+- Setting up Notion from a document now opens the Integrations settings, where Notion can actually be connected.
+
+### Changed
+
+- Databases are now called **collections** across Content — same pages, views, and sharing, friendlier name.
+
+## 2026-09-10
+
+### Fixed
+
+- Opening a page link your account cannot read now lands on a page you can open and says why, instead of stopping on a "Document unavailable" screen — so a brand-new account no longer arrives on a dead end after signing up.
+
+## 2026-09-09
+
+### Added
+
+- Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Improved
+
+- Search pages and databases with scoped filters, result previews, and keyboard navigation across result pages.
+
+### Fixed
+
+- Sidebar Search opens the command picker, icon controls have accessible names, and the sidebar can be resized with the keyboard.
+- First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
+- Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
+
+## 2026-09-03
+
+### Fixed
+
+- Database records can be added even when older rows use legacy positions.
+
+## 2026-08-28
+
+### Fixed
+
+- Builder Publish connections made in Settings can now discover, attach, and refresh read-only database sources without separate legacy keys or Builder write access.
+- Delegated Content requests now stay on Content's own actions for every authorized caller, including managed Slack channels.
+
+## 2026-08-26
+
+### Fixed
+
+- Shared pages now show retryable load failures instead of leaving their content indefinitely loading.
+
+## 2026-08-24
+
+### Fixed
+
+- Database columns keep their chosen order across reloads, visibility changes, and newly added fields
+
+## 2026-08-22
+
+### Fixed
+
+- Code and code-tabs blocks inserted from the slash menu no longer get stuck on "Loading…"
+- The sidebar page tree no longer flashes empty for a moment after creating a new page
+
+## 2026-08-18
+
+### Added
+
+- Database exports can be configured and downloaded as CSV
+
 ## 2026-08-14
 
 ### Fixed
@@ -95,7 +231,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-30
 
@@ -270,7 +406,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
+- Local folder selection avoids unsafe embedded pickers, remembers picker attempts that never returned so they cannot cause a crash loop, and continues to support Agent-Native Desktop and native folder access in Chrome, Edge, and other Chromium browsers.
 - Workspace database views now control sidebar workspace navigation, and local folders attach to the correct Files database.
 
 ## 2026-07-17

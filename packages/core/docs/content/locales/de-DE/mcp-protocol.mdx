@@ -413,3 +413,19 @@ Für komplexere Analysen:
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## Fetch zuerst: Erkennung
+
+Agent-Native stellt zusätzlich einen HTTP-Kompatibilitätskatalog unter
+`GET /.well-known/mcp.json` bereit. Agenten können ihn mit `fetch` oder `curl`
+auch ohne laufenden Browser abrufen. Er beschreibt Aktions-Endpunkte, JSON-Schemata,
+Lesezugriff und Authentifizierungsanforderungen. Ein Tool lässt sich über
+`POST /mcp/tool/:name` aufrufen; Authentifizierung, Autorisierung, Validierung und
+Mandantentrennung bleiben serverseitig.
+
+Dies ist eine Agent-Native-Kompatibilitätskonvention und kein Bestandteil von
+WebMCP oder MCP Streamable HTTP. `/mcp` bleibt der standardmäßige MCP-Endpunkt,
+und seitenlokale `document.modelContext`-Tools bleiben für kompatible Browser
+verfügbar. Clips veröffentlicht `agentContextUrl` sowie direkte URLs für den
+vollständigen Transcript und JPEG-Frames, damit Agenten den Inhalt direkt per
+HTTP abrufen können.

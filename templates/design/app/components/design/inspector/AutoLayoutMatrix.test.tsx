@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AutoLayoutMatrix,
+  mirrorPaddingChange,
   type AutoLayoutMatrixValue,
 } from "./AutoLayoutMatrix";
 
@@ -22,6 +23,88 @@ const value: AutoLayoutMatrixValue = {
 const noop = () => {};
 
 describe("AutoLayoutMatrix", () => {
+  it("mirrors the opposite padding side only for an Alt scrub", () => {
+    const padding = { top: 4, right: 8, bottom: 12, left: 16 };
+
+    expect(
+      mirrorPaddingChange({ ...padding, top: 24 }, "top", {
+        source: "scrub",
+        phase: "preview",
+        altKey: true,
+      }),
+    ).toEqual({
+      top: 24,
+      right: 8,
+      bottom: 24,
+      left: 16,
+    });
+    expect(mirrorPaddingChange({ ...padding, top: 24 }, "top")).toEqual({
+      top: 24,
+      right: 8,
+      bottom: 12,
+      left: 16,
+    });
+  });
+
+  it("renders fractional resolved sizes without rounding them away", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: {
+          ...value,
+          resolvedSize: { horizontal: 123.4, vertical: 45.6 },
+        },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain("W 123.4 Fixed");
+    expect(markup).toContain("H 45.6 Fixed");
+  });
+
+  it("keeps gap and unlinked padding on fixed inspector grid geometry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toMatch(
+      /data-inspector-layout="pair-flow"[^>]*>[\s\S]*?data-inspector-span="13"[\s\S]*?data-inspector-span="13"/,
+    );
+    expect(markup).toMatch(
+      /<input(?=[^>]*aria-label="Gap")(?=[^>]*class="[^"]*h-6[^"]*")[^>]*>/,
+    );
+
+    const unlinkedMarkup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: { ...value, paddingLinked: false },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+    expect(unlinkedMarkup).toMatch(
+      /data-inspector-layout="pair"[^>]*>[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="11"[\s\S]*?data-inspector-span="2"[\s\S]*?data-inspector-span="11"/,
+    );
+  });
+
   it("hides child layout controls when the selection has no children", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {
@@ -43,6 +126,27 @@ describe("AutoLayoutMatrix", () => {
     expect(markup).not.toContain("Gap");
     expect(markup).not.toContain("Padding");
     expect(markup).not.toContain("Clip content");
+  });
+
+  it("does not offer resize to fit for an unmeasurable shape", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        availableChildSizing: {
+          horizontal: ["fixed"],
+          vertical: ["fixed"],
+        },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).not.toContain("Resize to fit");
   });
 
   it("shows a Mixed placeholder for gap instead of a misleading 0 when the multi-selection's gap values differ", () => {
@@ -165,5 +269,25 @@ describe("AutoLayoutMatrix", () => {
     ]) {
       expect(markup).toContain(`aria-label="${label}" aria-pressed="false"`);
     }
+  });
+
+  it("keeps the flex alignment and gap row on the canonical pair geometry", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value,
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain('data-inspector-layout="pair-flow"');
+    expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
+    expect(markup).not.toContain('data-inspector-span="14"');
+    expect(markup).toContain("w-full max-w-[92px]");
   });
 });

@@ -1,15 +1,9 @@
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
 import type {
   PublicRemotePushRegistration,
   RemotePushNotification,
@@ -18,9 +12,6 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
 function buildCreateRegistrationsSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_remote_push_registrations (
@@ -34,9 +25,9 @@ function buildCreateRegistrationsSql(): string {
     token TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     status TEXT NOT NULL,
-    last_seen_at ${intType()},
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    last_seen_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   )
 `;
 }
@@ -50,13 +41,13 @@ function buildCreateNotificationsSql(): string {
     registration_id TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     status TEXT NOT NULL,
-    attempts ${intType()} NOT NULL DEFAULT 0,
+    attempts BIGINT NOT NULL DEFAULT 0,
     provider_ticket_id TEXT,
-    next_attempt_at ${intType()} NOT NULL DEFAULT 0,
+    next_attempt_at BIGINT NOT NULL DEFAULT 0,
     last_error TEXT,
-    delivered_at ${intType()},
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    delivered_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   )
 `;
 }
@@ -64,87 +55,51 @@ function buildCreateNotificationsSql(): string {
 export async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const createRegistrationsSql = buildCreateRegistrationsSql();
       const createNotificationsSql = buildCreateNotificationsSql();
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists(
-          "integration_remote_push_registrations",
-          createRegistrationsSql,
-        );
-        await ensureIndexExists(
-          "idx_remote_push_token_hash",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
-        );
-        await ensureIndexExists(
-          "idx_remote_push_owner",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
-        );
-        await ensureTableExists(
-          "integration_remote_push_notifications",
-          createNotificationsSql,
-        );
-        await ensureIndexExists(
-          "idx_remote_push_notifications_owner",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
-        );
-        await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "provider_ticket_id",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS provider_ticket_id TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "next_attempt_at",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at ${intType()} NOT NULL DEFAULT 0`,
-        );
-        await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "last_error",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS last_error TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_remote_push_notifications",
-          "delivered_at",
-          `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at ${intType()}`,
-        );
-        await ensureIndexExists(
-          "idx_remote_push_notifications_delivery",
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_delivery ON integration_remote_push_notifications(status, next_attempt_at, updated_at)`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() => client.execute(createRegistrationsSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
-        ),
+      await ensureTableExists(
+        "integration_remote_push_registrations",
+        createRegistrationsSql,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
-        ),
+      await ensureIndexExists(
+        "idx_remote_push_token_hash",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
       );
-
-      await retryOnDdlRace(() => client.execute(createNotificationsSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
-        ),
+      await ensureIndexExists(
+        "idx_remote_push_owner",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
       );
-      await addNotificationColumnIfMissing("provider_ticket_id", "TEXT");
-      await addNotificationColumnIfMissing(
+      await ensureTableExists(
+        "integration_remote_push_notifications",
+        createNotificationsSql,
+      );
+      await ensureIndexExists(
+        "idx_remote_push_notifications_owner",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
+      );
+      await ensureColumnExists(
+        "integration_remote_push_notifications",
+        "provider_ticket_id",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS provider_ticket_id TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_remote_push_notifications",
         "next_attempt_at",
-        `${intType()} NOT NULL DEFAULT 0`,
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT NOT NULL DEFAULT 0`,
       );
-      await addNotificationColumnIfMissing("last_error", "TEXT");
-      await addNotificationColumnIfMissing("delivered_at", intType());
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_delivery ON integration_remote_push_notifications(status, next_attempt_at, updated_at)`,
-        ),
+      await ensureColumnExists(
+        "integration_remote_push_notifications",
+        "last_error",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS last_error TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_remote_push_notifications",
+        "delivered_at",
+        `ALTER TABLE integration_remote_push_notifications ADD COLUMN IF NOT EXISTS delivered_at BIGINT`,
+      );
+      await ensureIndexExists(
+        "idx_remote_push_notifications_delivery",
+        `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_delivery ON integration_remote_push_notifications(status, next_attempt_at, updated_at)`,
       );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -153,21 +108,6 @@ export async function ensureTables(): Promise<void> {
     });
   }
   return _initPromise;
-}
-
-async function addNotificationColumnIfMissing(
-  name: string,
-  definition: string,
-): Promise<void> {
-  try {
-    await retryOnDdlRace(() =>
-      getDbExec().execute(
-        `ALTER TABLE integration_remote_push_notifications ADD COLUMN ${name} ${definition}`,
-      ),
-    );
-  } catch (error) {
-    if (!isDuplicateColumnError(error)) throw error;
-  }
 }
 
 function rowToRegistration(

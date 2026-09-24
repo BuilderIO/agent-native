@@ -1,17 +1,25 @@
 import crypto from "node:crypto";
 
+import { findConnectedMcpServersForProvider } from "@agent-native/core/mcp-client";
 import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
+  getRequestOrgId,
   getSession,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { createError, getHeader, setCookie, type H3Event } from "h3";
+import {
+  createError,
+  getHeader,
+  getRequestURL,
+  setCookie,
+  type H3Event,
+} from "h3";
 
 import { canonicalizeNfm } from "../../shared/nfm.js";
 
@@ -78,10 +86,10 @@ export class NotionApiError extends Error {
 }
 
 function getOrigin(event: H3Event): string {
-  const req = event.node?.req;
-  const host = req?.headers["x-forwarded-host"] || req?.headers.host;
-  const proto = req?.headers["x-forwarded-proto"] || "http";
-  return `${proto}://${host}`;
+  return getRequestURL(event, {
+    xForwardedHost: true,
+    xForwardedProto: true,
+  }).origin;
 }
 
 /**
@@ -348,15 +356,16 @@ export async function notionFetch<T>(
 ): Promise<T> {
   const MAX_RETRIES = 2;
   for (let attempt = 0; ; attempt++) {
+    const headers = new Headers({
+      Authorization: `Bearer ${accessToken}`,
+      "Notion-Version": NOTION_API_VERSION,
+      "Content-Type": "application/json",
+    });
+    new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
     const response = await fetch(`${NOTION_API_BASE}${path}`, {
       ...init,
       signal: init?.signal ?? AbortSignal.timeout(NOTION_FETCH_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Notion-Version": NOTION_API_VERSION,
-        "Content-Type": "application/json",
-        ...(init?.headers || {}),
-      },
+      headers,
     });
     if (response.status === 429 && attempt < MAX_RETRIES) {
       const rawRetryAfter = Number(response.headers.get("retry-after"));
@@ -556,6 +565,45 @@ export async function getNotionConnectionForOwner(owner: string) {
     workspaceName: tokens.workspace_name || null,
     workspaceId: tokens.workspace_id || null,
   };
+}
+
+/**
+ * Resolve the owner's Notion account connection, or throw an error that says
+ * which of the two Notion connections is missing.
+ *
+ * Settings > Integrations connects the Notion MCP server; Content's link and
+ * sync features need the per-user Notion account OAuth grant. A bare "Notion
+ * not connected" reads as false to anyone looking at a green badge in
+ * Settings, so name the distinction whenever the MCP side is in fact
+ * connected.
+ */
+export async function requireNotionConnectionForOwner(
+  owner: string,
+  intent: string,
+) {
+  const connection = await getNotionConnectionForOwner(owner);
+  if (connection) return connection;
+
+  const mcp = await findConnectedMcpServersForProvider({
+    providerId: NOTION_PROVIDER,
+    userEmail: owner,
+    orgId: getRequestOrgId() ?? null,
+    // coercion-ok: null is the typed "status unreadable" answer and produces a
+    // different error below than an empty, successfully-read server list.
+  }).catch(() => null);
+
+  const base = `Connect your Notion account before ${intent}.`;
+  if (mcp === null) {
+    throw new Error(
+      `${base} Notion MCP connection status could not be read, so this may be the separate MCP connection rather than the account grant.`,
+    );
+  }
+  if (mcp.servers.length > 0) {
+    throw new Error(
+      `${base} The Notion MCP server shown under Settings > Integrations is connected, but that is a separate connection and does not grant Content the account access it needs to link and sync documents.`,
+    );
+  }
+  throw new Error(base);
 }
 
 export async function disconnectNotionForOwner(owner: string) {

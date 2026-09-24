@@ -50,7 +50,7 @@ function findNode(html: string, nodeId: string) {
   });
   const node = projection.nodes.find((n) => componentNodeIdMatches(n, nodeId));
   if (!node) throw new Error(`test fixture node "${nodeId}" not found`);
-  return node;
+  return { node, projectionNodes: projection.nodes };
 }
 
 describe("stripComponentAnnotations", () => {
@@ -60,8 +60,8 @@ describe("stripComponentAnnotations", () => {
       'data-agent-native-prop-variant="solid" data-agent-native-prop-size="lg" ' +
       'class="rounded px-4" x-data="{ open: false }">Save</button></main>';
 
-    const node = findNode(html, "btn1");
-    const result = stripComponentAnnotations(html, node.source);
+    const { node, projectionNodes } = findNode(html, "btn1");
+    const result = stripComponentAnnotations(html, node, projectionNodes);
 
     expect(result.changed).toBe(true);
     expect(result.removedAttributes).toContain("data-agent-native-component");
@@ -82,8 +82,8 @@ describe("stripComponentAnnotations", () => {
   it("is a no-op (changed: false) when the node has no component annotation", () => {
     const html =
       '<main><div data-agent-native-node-id="plain1" class="box">Hi</div></main>';
-    const node = findNode(html, "plain1");
-    const result = stripComponentAnnotations(html, node.source);
+    const { node, projectionNodes } = findNode(html, "plain1");
+    const result = stripComponentAnnotations(html, node, projectionNodes);
     expect(result.changed).toBe(false);
     expect(result.content).toBe(html);
     expect(result.removedAttributes).toEqual([]);
@@ -104,8 +104,8 @@ describe("stripComponentAnnotations", () => {
       '<button data-agent-native-node-id="a" data-agent-native-component="Chip" data-agent-native-prop-tone="info">A</button>' +
       '<button data-agent-native-node-id="b" data-agent-native-component="Chip" data-agent-native-prop-tone="danger">B</button>' +
       "</main>";
-    const nodeA = findNode(html, "a");
-    const result = stripComponentAnnotations(html, nodeA.source);
+    const { node: nodeA, projectionNodes } = findNode(html, "a");
+    const result = stripComponentAnnotations(html, nodeA, projectionNodes);
 
     expect(result.changed).toBe(true);
     // Sibling "b" keeps its annotation and its own prop value untouched.
@@ -118,5 +118,60 @@ describe("stripComponentAnnotations", () => {
     );
     expect(aTagMatch?.[0]).not.toContain("data-agent-native-component");
     expect(aTagMatch?.[0]).not.toContain("data-agent-native-prop-");
+  });
+
+  it("clears this instance mapping while preserving a nested instance mapping", () => {
+    const html =
+      "<main>" +
+      '<article data-agent-native-node-id="card-instance" data-agent-native-component="Card" data-agent-native-component-ref="cmp-card" data-agent-native-component-overrides="card-override">' +
+      '<button data-agent-native-node-id="play-instance" data-agent-native-component-ref="cmp-play" data-agent-native-component-source-node-id="card-play" data-agent-native-component-overrides="play-override"><span data-agent-native-node-id="play-label" data-agent-native-component-source-node-id="play-label-main">Play</span></button>' +
+      '<p data-agent-native-node-id="card-copy" data-agent-native-component-source-node-id="card-copy-main" data-agent-native-component-overrides="copy-override">Card copy</p>' +
+      "</article></main>";
+    const { node, projectionNodes } = findNode(html, "card-instance");
+    const result = stripComponentAnnotations(html, node, projectionNodes);
+    const detached = buildCodeLayerProjection(result.content);
+    const root = detached.nodes.find(
+      (candidate) => candidate.tag === "article",
+    );
+    const nestedRef = detached.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] ===
+        "play-instance",
+    );
+    const nestedChild = detached.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "play-label",
+    );
+    const ordinaryChild = detached.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "card-copy",
+    );
+
+    expect(
+      root?.dataAttributes["data-agent-native-component-ref"],
+    ).toBeUndefined();
+    expect(
+      root?.dataAttributes["data-agent-native-component-overrides"],
+    ).toBeUndefined();
+    expect(nestedRef?.dataAttributes["data-agent-native-component-ref"]).toBe(
+      "cmp-play",
+    );
+    expect(
+      nestedRef?.dataAttributes["data-agent-native-component-source-node-id"],
+    ).toBeUndefined();
+    expect(
+      nestedRef?.dataAttributes["data-agent-native-component-overrides"],
+    ).toBe("play-override");
+    expect(
+      nestedChild?.dataAttributes["data-agent-native-component-source-node-id"],
+    ).toBe("play-label-main");
+    expect(
+      ordinaryChild?.dataAttributes[
+        "data-agent-native-component-source-node-id"
+      ],
+    ).toBeUndefined();
+    expect(
+      ordinaryChild?.dataAttributes["data-agent-native-component-overrides"],
+    ).toBeUndefined();
   });
 });

@@ -10,14 +10,13 @@ import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
 } from "../server/lib/agent-readable-resource-context";
-import { repairCanonicalFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
-import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
 
 export default defineAction({
   description:
-    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries and layout/order fields without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
+    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries, layout/order fields, and current-version certification status without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
     includeConfig: z
@@ -66,10 +65,10 @@ export default defineAction({
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
       if (seed) {
-        const config =
-          args.id === FIRST_PARTY_DASHBOARD_ID
-            ? repairCanonicalFirstPartyDashboardQueries(seed).config
-            : seed;
+        const config = repairKnownFirstPartyDashboardQueries(
+          args.id,
+          seed,
+        ).config;
         return buildDashboardSeedAgentContext(args.id, config, {
           includeConfig: args.includeConfig === true,
         });
@@ -78,14 +77,11 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    const dashboard =
-      args.id === FIRST_PARTY_DASHBOARD_ID
-        ? {
-            ...dash,
-            config: repairCanonicalFirstPartyDashboardQueries(dash.config)
-              .config,
-          }
-        : dash;
+    const dashboard = {
+      ...dash,
+      config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
+        .config,
+    };
     return buildDashboardAgentContext(dashboard, {
       includeConfig: args.includeConfig === true,
     });

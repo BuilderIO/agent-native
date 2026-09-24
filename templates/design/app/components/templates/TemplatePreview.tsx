@@ -1,6 +1,7 @@
 import { IconTemplate } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "@/components/design/scaled-iframe-paint";
 import { cn } from "@/lib/utils";
 
 export function TemplatePreview({
@@ -79,6 +80,7 @@ export function TemplatePreview({
           transformOrigin: "top left",
           border: 0,
           pointerEvents: "none",
+          ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
         }}
       />
     </div>

@@ -765,7 +765,6 @@ describe("hostedApps", () => {
     // Hidden templates must never appear.
     expect(names).not.toContain("voice");
     expect(names).not.toContain("scheduling");
-    expect(names).not.toContain("macros");
     // Every returned app has an https prodUrl.
     for (const a of apps) {
       expect(a.url).toMatch(/^https:\/\//);

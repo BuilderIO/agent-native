@@ -1,6 +1,6 @@
 ---
 title: "النشر"
-description: "انشر تطبيق Agent-Native أو مساحة عمل على منصة متوافقة مع Nitro باستخدام قاعدة بيانات SQL دائمة."
+description: "انشر تطبيق Agent-Native أو مساحة عمل على منصة متوافقة مع Nitro باستخدام قاعدة بيانات PostgreSQL دائمة."
 ---
 
 <!-- i18n-docs-ignore -->
@@ -26,13 +26,21 @@ description: "انشر تطبيق Agent-Native أو مساحة عمل على م�
 
 ## قبل النشر: اختر قاعدة بيانات دائمة {#persistent-database}
 
-كل تطبيق منشور يحتاج إلى قاعدة بيانات SQL دائمة. اضبط `DATABASE_URL` في بيئة النشر قبل أول نشر إنتاجي. استخدم `DATABASE_AUTH_TOKEN` عندما يطلب موفر قاعدة البيانات رمزًا منفصلًا.
+كل تطبيق منشور يحتاج إلى قاعدة بيانات PostgreSQL دائمة. يمكن استخدام قاعدة بيانات PGlite المحلية للتطوير، لكن يجب ضبط `DATABASE_URL` قبل أول نشر إنتاجي. تشمل خيارات PostgreSQL المستضافة [Neon](/docs/neon) و[Supabase](/docs/supabase) وRailway وRender و[Amazon RDS for PostgreSQL](/docs/aws-rds) و[Cloud SQL for PostgreSQL](/docs/cloud-sql) و[Azure Database for PostgreSQL](/docs/azure-postgresql). راجع دليل [Plain Postgres](/docs/postgres) للخدمات المُدارة الأخرى وخوادم PostgreSQL ذاتية الاستضافة.
 
 تحتاج التطبيقات المستقلة إلى `BETTER_AUTH_SECRET` ثابت. تحتاج مساحات العمل التي تستخدم الطلبات الموقعة بين التطبيقات إلى `A2A_SECRET`.
 
+اضبط هذه القيم في إعدادات بيئة موفر الاستضافة، لا في ملف `.env` المحلي فقط. أنشئ سر المصادقة باستخدام `openssl rand -hex 32`. لا يتضمن Agent-Native حسابًا لإرسال البريد؛ يجب ربط Resend أو SendGrid بشكل منفصل.
+
+## تسليم البريد الإلكتروني اختياري، لكنه موصى به {#email-provider}
+
+موفر البريد الإلكتروني ليس مطلوبًا لمصادقة البريد الإلكتروني وكلمة المرور. بدونه، تستخدم التطبيقات المنشورة التسجيل وتسجيل الدخول بالبريد الإلكتروني وكلمة المرور، وتتخطى التحقق من البريد عند التسجيل، ولا تعرض مصادقة الروابط السحرية.
+
+اربط Resend أو SendGrid قبل النشر إذا أردت الروابط السحرية أو التحقق من البريد أو إعادة تعيين كلمات المرور أو الدعوات أو إشعارات المشاركة. اضبط `RESEND_API_KEY` أو `SENDGRID_API_KEY` في بيئة النشر؛ ويحتاج SendGrid أيضًا إلى `EMAIL_FROM`. راجع [المصادقة](/docs/authentication) لأنماط المصادقة المتاحة.
+
 ## الأهداف المدعومة
 
-يدعم Agent-Native [Node.js](/docs/node-js) و[Docker](/docs/docker) و[Vercel](/docs/vercel) و[Netlify](/docs/netlify) و[Cloudflare Pages](/docs/cloudflare#cloudflare-pages) و[Cloudflare Workers](/docs/cloudflare#cloudflare-workers) و[AWS Lambda](/docs/aws-lambda) و[Deno Deploy](/docs/deno-deploy) و[Azure Static Web Apps](/docs/azure-static-web-apps) و[Koyeb](/docs/koyeb) و[Render](/docs/render).
+يدعم Agent-Native [Node.js](/docs/node-js) و[Docker](/docs/docker) و[Vercel](/docs/vercel) و[Netlify](/docs/netlify) و[Cloudflare Pages](/docs/cloudflare#cloudflare-pages) و[Cloudflare Workers](/docs/cloudflare#cloudflare-workers) و[AWS Amplify](/docs/aws-amplify) و[AWS Lambda](/docs/aws-lambda) و[Deno Deploy](/docs/deno-deploy) و[Azure Static Web Apps](/docs/azure-static-web-apps) و[Koyeb](/docs/koyeb) و[Render](/docs/render).
 
 راجع [مرجع متغيرات بيئة النشر](/docs/deployment-environment-variables) للإعدادات المتقدمة، والأسرار، وإعدادات الإنتاج.
 

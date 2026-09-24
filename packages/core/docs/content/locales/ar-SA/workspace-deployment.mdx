@@ -140,7 +140,7 @@ npx @agent-native/core@latest deploy
 
 هل تُكوِّن أمر بناء مزود بدلاً من النشر يدويًا؟ أضف `--build-only` إلى نفس الأمر، على سبيل المثال `npx @agent-native/core@latest deploy --preset vercel --build-only`. يكتب المخرجات مباشرةً، لذا لا يُطلَب `vercel.json` لتوجيه مساحة العمل.
 
-هل تفضّل نطاقًا منفصلًا لكل تطبيق بدلاً من مصدر مشترك واحد؟ لا يزال كل تطبيق في مساحة العمل قابلاً للنشر بشكل مستقل. شغّل `cd apps/<name> && npx @agent-native/core@latest build` مثل سقالة مستقلة.
+هل تفضّل نطاقًا منفصلًا لكل تطبيق بدلاً من مصدر مشترك واحد؟ لا يزال كل تطبيق في مساحة العمل قابلاً للنشر بشكل مستقل. شغّل `cd apps/<name> && pnpm build` مثل سقالة مستقلة.
 
 </Callout>
 
@@ -217,7 +217,7 @@ npx @agent-native/core@latest deploy
 مسار القاعدة هو مُدخَل وقت بناء لحزمة العميل ومُدخَل وقت تشغيل للخادم. ابنِ كل تطبيق بنفس المسار الذي سيوجّهه إليه الوكيل:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 
@@ -335,8 +335,8 @@ agents.example.com {
   وبيانات اعتماد مشتركة، وA2A بين التطبيقات.
 - اضبط `BETTER_AUTH_URL` على عنوان URL العام لمسار ذلك التطبيق. يجب أن
   تستخدم عناوين URL لرد اتصال OAuth نفس عنوان URL العام.
-- لا تعتمد على نظام ملفات الحاوية لبيانات الإنتاج. استخدم Postgres (أو
-  خلفية SQL دائمة أخرى) لأجل `DATABASE_URL`.
+- لا تعتمد على نظام ملفات الحاوية لبيانات الإنتاج. استخدم PostgreSQL لأجل
+  `DATABASE_URL`.
 - إذا كان Cloudflare يُنهي TLS أمام VPS، كوِّن Cloudflare لإرسال ترويسات
   `X-Forwarded-Proto` / `X-Forwarded-Host` العادية وتوجيه المضيف العام
   إلى حاوية الوكيل.

@@ -1,3 +1,7 @@
+import {
+  buildCodeLayerTree,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { flushSync } from "react-dom";
 
@@ -9,6 +13,10 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
 } from "@/components/design/types";
+import {
+  resolveCodeLayerNodeFromElementInfo,
+  resolvedLayerName,
+} from "@/pages/design-editor/code-layer-state";
 import {
   computeIframeLocalCanvasPoint,
   readOverviewZoomPercentFromTransform,
@@ -22,6 +30,9 @@ export interface IframeContextMenuArgs {
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasContextMenuRef: RefObject<CanvasContextMenuHandle | null>;
   focusDesignInspectorForSelection: () => void;
+  getCodeLayerProjectionForScreen: (
+    screenId: string,
+  ) => CodeLayerProjection | null;
   handleScreenElementSelect: (
     screenId: string,
     info: ElementInfo,
@@ -44,6 +55,7 @@ export function runIframeContextMenu(
     canvasContainerRef,
     canvasContextMenuRef,
     focusDesignInspectorForSelection,
+    getCodeLayerProjectionForScreen,
     handleScreenElementSelect,
     overviewCanvasZoom,
     setCanvasLayerHitCandidates,
@@ -57,13 +69,42 @@ export function runIframeContextMenu(
   if (!container || !menu) return;
   const contextScreenId =
     payload.screenId ?? activeFile?.id ?? activeFileId ?? null;
+  const projection =
+    contextScreenId && payload.layerCandidates?.length
+      ? getCodeLayerProjectionForScreen(contextScreenId)
+      : null;
+  const layerNamesByNodeId = new Map<string, string>();
+  if (projection) {
+    const collectLayerNames = (
+      nodes: ReturnType<typeof buildCodeLayerTree>,
+    ) => {
+      for (const node of nodes) {
+        layerNamesByNodeId.set(node.id, resolvedLayerName(node));
+        collectLayerNames(node.children);
+      }
+    };
+    collectLayerNames(buildCodeLayerTree(projection));
+  }
+  const layerCandidates = (payload.layerCandidates ?? []).map((candidate) => {
+    const node = projection
+      ? resolveCodeLayerNodeFromElementInfo(projection, candidate.info)
+      : null;
+    return {
+      ...candidate,
+      label: node
+        ? (layerNamesByNodeId.get(node.id) ?? candidate.label)
+        : candidate.label,
+      breakpointWidthPx: payload.breakpointWidthPx,
+    };
+  });
   flushSync(() => {
-    setCanvasLayerHitCandidates(payload.layerCandidates ?? []);
+    setCanvasLayerHitCandidates(layerCandidates);
   });
   if (payload.info && contextScreenId) {
     flushSync(() => {
       handleScreenElementSelect(contextScreenId, payload.info!, undefined, {
         persistPendingNodeId: false,
+        breakpointWidthPx: payload.breakpointWidthPx,
       });
     });
     focusDesignInspectorForSelection();
@@ -113,9 +154,16 @@ export function runIframeContextMenu(
     iframeRect: iframeForPoint?.getBoundingClientRect() ?? null,
     zoomPercent: viewMode === "single" ? zoom : liveOverviewZoom,
   });
+  const scroll = (iframeForPoint as HTMLIFrameElement | null)?.contentWindow;
   menu.openAt({
     clientX,
     clientY,
-    ...(canvasPoint ? { canvasX: canvasPoint.x, canvasY: canvasPoint.y } : {}),
+    ...(canvasPoint
+      ? {
+          canvasX: canvasPoint.x + (scroll?.scrollX ?? 0),
+          canvasY: canvasPoint.y + (scroll?.scrollY ?? 0),
+          ...(contextScreenId ? { screenId: contextScreenId } : {}),
+        }
+      : {}),
   });
 }

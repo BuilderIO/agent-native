@@ -57,7 +57,7 @@ setting never retains raw input.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-brain --standalone --template brain
+npx --yes @agent-native/core@latest create my-brain --standalone --template brain
 cd my-brain
 pnpm install
 pnpm dev

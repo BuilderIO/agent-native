@@ -91,6 +91,7 @@ const excludedDirNames = new Set([
   "coverage",
   "corpus",
   "dist",
+  "pglite",
   "node_modules",
   "playwright-report",
   "scratch",
@@ -106,14 +107,7 @@ const excludedFileNames = new Set([
   "yarn.lock",
 ]);
 
-const excludedFileSuffixes = [
-  ".db",
-  ".db-journal",
-  ".db-shm",
-  ".db-wal",
-  ".log",
-  ".tsbuildinfo",
-];
+const excludedFileSuffixes = [".log", ".tsbuildinfo"];
 
 // Matches both the "corpus" output dir itself and the unique per-process
 // temp dirs materializeSourceCorpus() swaps into place (see
@@ -266,7 +260,7 @@ function copySourceFiles(rootRel, targetName, baseDir) {
 
 function writeCorpusReadme(stats, baseDir) {
   const lines = [
-    "# Agent Native Source Corpus",
+    "# Agent-Native Source Corpus",
     "",
     "This directory is generated when `@agent-native/core` is built for npm.",
     "It gives coding agents a version-matched, searchable reference corpus",
@@ -274,7 +268,7 @@ function writeCorpusReadme(stats, baseDir) {
     "",
     "## Contents",
     "",
-    "- `templates/` -- source-only copies of first-party Agent Native templates.",
+    "- `templates/` -- source-only copies of first-party Agent-Native templates.",
     "",
     "Core and Toolkit source are not duplicated here: read the compiled sources",
     "and declarations under `node_modules/@agent-native/core/dist`, the docs",

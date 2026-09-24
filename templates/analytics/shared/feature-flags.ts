@@ -7,4 +7,14 @@ export const VERIFIED_FLEET_FLAG_MUTATIONS = defineFeatureFlag({
     "Verify cross-app feature flag changes with an independent target read-back.",
 });
 
-export const ANALYTICS_FEATURE_FLAGS = [VERIFIED_FLEET_FLAG_MUTATIONS];
+export const RESILIENT_FLEET_FLAG_DIRECTORY = defineFeatureFlag({
+  key: "analytics.resilient-fleet-flag-directory",
+  displayName: "Resilient fleet flag directory",
+  description:
+    "Retry transient organization directory failures before changing a feature flag.",
+});
+
+export const ANALYTICS_FEATURE_FLAGS = [
+  VERIFIED_FLEET_FLAG_MUTATIONS,
+  RESILIENT_FLEET_FLAG_DIRECTORY,
+];

@@ -26,8 +26,8 @@ function resolve(overrides: Partial<DesktopDesignPreviewPlacementInput> = {}) {
   });
 }
 
-describe("native Design preview placement", () => {
-  it("composes app-relative fractional geometry by rounding both edges", () => {
+void describe("native Design preview placement", () => {
+  void it("composes app-relative fractional geometry by rounding both edges", () => {
     assert.deepEqual(resolve(), {
       kind: "native",
       bounds: { x: 180, y: 122, width: 800, height: 600 },
@@ -47,7 +47,7 @@ describe("native Design preview placement", () => {
   });
 
   for (const mode of ["edit", "draw", "comment"] as const) {
-    it(`keeps ${mode} mode on the DOM surface so editor overlays stay interactive`, () => {
+    void it(`keeps ${mode} mode on the DOM surface so editor overlays stay interactive`, () => {
       assert.deepEqual(resolve({ mode }), {
         kind: "dom",
         reason: "dom-overlay-required",
@@ -56,7 +56,7 @@ describe("native Design preview placement", () => {
   }
 
   for (const scale of [0.25, 0.5, 0.999, 1.001, 2, 4]) {
-    it(`fails closed at ${scale * 100}% scale`, () => {
+    void it(`fails closed at ${scale * 100}% scale`, () => {
       assert.deepEqual(resolve({ scale }), {
         kind: "dom",
         reason: "scaled",
@@ -65,7 +65,7 @@ describe("native Design preview placement", () => {
   }
 
   for (const rotationDegrees of [-180, -0.01, 0.01, 15, 360]) {
-    it(`fails closed at ${rotationDegrees} degrees rotation`, () => {
+    void it(`fails closed at ${rotationDegrees} degrees rotation`, () => {
       assert.deepEqual(resolve({ rotationDegrees }), {
         kind: "dom",
         reason: "rotated",
@@ -73,14 +73,14 @@ describe("native Design preview placement", () => {
     });
   }
 
-  it("rejects overview before considering its accompanying scale", () => {
+  void it("rejects overview before considering its accompanying scale", () => {
     assert.deepEqual(resolve({ presentation: "overview", scale: 0.6 }), {
       kind: "dom",
       reason: "overview-transform",
     });
   });
 
-  it("rejects partial clipping on every edge", () => {
+  void it("rejects partial clipping on every edge", () => {
     for (const previewBounds of [
       { x: 9, y: 20, width: 100, height: 100 },
       { x: 20, y: 9, width: 100, height: 100 },
@@ -100,7 +100,7 @@ describe("native Design preview placement", () => {
     }
   });
 
-  it("rejects spoofed clip or preview rectangles outside the owner viewport", () => {
+  void it("rejects spoofed clip or preview rectangles outside the owner viewport", () => {
     assert.deepEqual(
       resolve({
         hostBounds: { x: 50, y: 50, width: 100, height: 100 },
@@ -114,7 +114,7 @@ describe("native Design preview placement", () => {
     );
   });
 
-  it("accepts a preview exactly touching every clip edge", () => {
+  void it("accepts a preview exactly touching every clip edge", () => {
     assert.deepEqual(
       resolve({
         previewBounds: { x: 0, y: 0, width: 1120, height: 720 },
@@ -126,21 +126,21 @@ describe("native Design preview placement", () => {
     );
   });
 
-  it("falls back when DOM content obscures the native rectangle", () => {
+  void it("falls back when DOM content obscures the native rectangle", () => {
     assert.deepEqual(resolve({ obscured: true }), {
       kind: "dom",
       reason: "obscured",
     });
   });
 
-  it("falls back for rounded hit regions that would steal corner input", () => {
+  void it("falls back for rounded hit regions that would steal corner input", () => {
     assert.deepEqual(resolve({ borderRadius: 0.5 }), {
       kind: "dom",
       reason: "rounded-hit-region",
     });
   });
 
-  it("hides an inactive owner synchronously even if its old geometry is invalid", () => {
+  void it("hides an inactive owner synchronously even if its old geometry is invalid", () => {
     assert.deepEqual(
       resolve({
         visible: false,
@@ -150,7 +150,7 @@ describe("native Design preview placement", () => {
     );
   });
 
-  it("fails closed for non-finite, zero, and negative geometry", () => {
+  void it("fails closed for non-finite, zero, and negative geometry", () => {
     const invalidRects = [
       { x: Number.NaN, y: 0, width: 100, height: 100 },
       { x: 0, y: Number.POSITIVE_INFINITY, width: 100, height: 100 },

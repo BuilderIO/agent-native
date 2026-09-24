@@ -3,13 +3,58 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
+
+const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  // Local visual-edit tools are intentionally explicit: the connector
+  // catalog otherwise hides them from Claude Code/Codex hosts without a
+  // browser WebMCP surface.
+  "open-visual-edit",
+  // Keep the durable handoff visible to Claude Code/Codex without requiring
+  // the user's Design tab or a page-local WebMCP host.
+  "get-visual-edit-pending",
+  "acknowledge-visual-edit-pending",
+  "connect-localhost",
+  "add-localhost-screens",
+  "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
+  "view-screen",
+  // Pairs with view-screen: an external agent that can read the screen but
+  // cannot move it has to drive the browser to change screens, which is the
+  // UI automation the WebMCP contract exists to avoid.
+  "navigate",
+  "list-designs",
+  "list-design-systems",
+  "list-design-templates",
+  "get-design",
+  "get-design-system",
+  "index-design-tokens",
+  "get-design-snapshot",
+  "get-design-template",
+  "create-design",
+  "create-design-from-template",
+  "edit-design",
+  "generate-design",
+  "present-design-variants",
+  "insert-asset",
+  "apply-tweaks",
+  "update-design",
+  "list-files",
+  "create-file",
+  "update-file",
+  "rename-screen",
+  "export-png",
+];
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -22,16 +67,22 @@ const INITIAL_TOOL_NAMES = [
   "consume-review-feedback",
   "set-review-status",
   "list-designs",
+  "list-design-systems",
   "list-design-templates",
   "get-design",
+  "get-design-system",
+  "index-design-tokens",
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
   "get-design-template",
-  "save-design-as-template",
   "open-visual-edit",
+  "get-visual-edit-pending",
   "add-localhost-screens",
   "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -43,18 +94,173 @@ const INITIAL_TOOL_NAMES = [
   "list-files",
   "create-file",
   "update-file",
+  "rename-screen",
+  "export-png",
   "navigate",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
 ];
+
+const DESIGN_EDIT_TOOLS = new Set([
+  "add-breakpoint",
+  "add-localhost-screens",
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-design-token-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-tweaks",
+  "apply-visual-edit",
+  "create-file",
+  "detach-component-instance",
+  "delete-file",
+  "edit-design",
+  "generate-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-breakpoint",
+  "remove-motion-timeline",
+  "rename-screen",
+  "swap-component-instance",
+  "update-design",
+  "update-breakpoint",
+  "update-file",
+  "update-screen-source",
+]);
+
+const DESIGN_FILE_TARGET_TOOLS = new Set([
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-visual-edit",
+  "delete-file",
+  "detach-component-instance",
+  "edit-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-motion-timeline",
+  "rename-screen",
+  "swap-component-instance",
+  "update-file",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+async function fileDesignId(fileId: string): Promise<string | undefined> {
+  const { getDb, schema } = await import("../db/index.js");
+  const [file] = await getDb()
+    .select({ designId: schema.designFiles.designId })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.id, fileId))
+    .limit(1);
+  return file?.designId;
+}
+
+async function designIdForTool(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  if (typeof input?.designId === "string") return input.designId;
+  if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
+  const fileId =
+    tool === "delete-file" || tool === "rename-screen" || tool === "update-file"
+      ? input?.id
+      : input?.fileId;
+  return typeof fileId === "string" ? fileDesignId(fileId) : undefined;
+}
+
+async function hasDesignEdit(
+  run: { events: readonly unknown[] },
+  designId: string,
+): Promise<boolean> {
+  for (const [index, entry] of run.events.entries()) {
+    const record = eventRecord(entry);
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DESIGN_EDIT_TOOLS.has(record.tool)
+    ) {
+      continue;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    if ((await designIdForTool(record.tool, input)) === designId) return true;
+  }
+  return false;
+}
+
+async function autosaveDesignAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "design" || !(await hasDesignEdit(run, scope.id))) return;
+
+  const { createDesignVersionSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignVersionSnapshot(scope.id, {
+    label: "Chat autosave",
+    chatContext: {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    },
+  });
+}
 
 export default createAgentChatPlugin({
   appId: "design",
+  onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
+    keyToolNames: ["get-visual-edit-pending"],
+    instructions:
+      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
+  },
+  externalAgents: { writes: "allowlisted" },
+  finalResponseGuard: designFinalResponseGuard,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per GitHub endpoint.
@@ -67,6 +273,8 @@ export default createAgentChatPlugin({
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.
 
+Completion is evidence-based: any request to create, generate, build, edit, refine, add, or insert design content must finish with a successful mutating action result. Do not report a design, screen, variant, or asset as created, updated, or ready from prose alone. "create-design" creates only an empty shell (renderable: false), so continue to "generate-design", "present-design-variants", or the required "insert-asset" placement action and wait for its persisted proof.
+
 When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
 
 When a user message begins with [Selection question], answer about the captured element and selected subtree without changing the design. You may use read-only actions when more context is needed, but do not call any content-writing action. If the user actually intended an edit, explain that they can choose Preview change from the composer mode menu and resend.
@@ -74,6 +282,10 @@ When a user message begins with [Selection question], answer about the captured 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
 Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+
+Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
+
+Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 
 When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt or selected a different linked design system, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 

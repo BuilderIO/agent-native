@@ -1,8 +1,9 @@
 import type { EventEmitter } from "node:events";
 
-import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
@@ -67,64 +68,27 @@ export function getSettingsEmitter(): EventEmitter {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const table = settingsTable();
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${table} (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
-          updated_at ${intType()} NOT NULL
+          updated_at BIGINT NOT NULL
         )
       `;
 
-      if (isPostgres()) {
-        // Hot path: the `settings` table and its poll index are virtually
-        // always already present in production. Issuing `CREATE TABLE`/
-        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
-        // process behind a concurrent connection on the shared Neon DB, can
-        // block ~indefinitely (ACCESS EXCLUSIVE for CREATE TABLE; a write-
-        // blocking SHARE lock for CREATE INDEX). `ensureTableExists` /
-        // `ensureIndexExists` probe `information_schema`/`pg_indexes` first
-        // (plain reads, no lock) and run DDL ONLY for what is actually missing,
-        // bounding any DDL with a transaction-scoped `lock_timeout`. They also
-        // re-probe after a swallowed lock-timeout and THROW if the schema is
-        // still missing, so a timed-out DDL never poisons this init memo with
-        // missing schema. `settingsTable()` is `public.settings` on Postgres;
-        // the existence checks use the unqualified table name.
-        await ensureTableExists("settings", createSql);
-        // Older deployments (pre BIGINT-compat) have a 32-bit `updated_at`; on
-        // Postgres the `Date.now()` written on every setSetting overflows int4.
-        // widenIntColumnsToBigInt already probes information_schema and only
-        // ALTERs columns that are still int4 — a no-op on fresh/widened DBs.
-        await widenIntColumnsToBigInt("settings", ["updated_at"]);
-        // Index for the poll watermark query: `SELECT MAX(updated_at)`.
-        await ensureIndexExists(
-          "settings_updated_at_idx",
-          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
-      // No-op on SQLite (INTEGER is already 64-bit).
+      await ensureTableExists("settings", createSql);
       await widenIntColumnsToBigInt("settings", ["updated_at"]);
-      // Index for the poll watermark query: `SELECT MAX(updated_at) FROM settings`.
-      // MAX on an indexed column avoids a full-table scan on every poll cycle.
-      // IF NOT EXISTS makes it idempotent on existing databases.
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-        );
-      } catch {
-        // Index already exists or the dialect rejected a duplicate.
-      }
+      await ensureIndexExists(
+        "settings_updated_at_idx",
+        `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -137,19 +101,20 @@ export async function ensureTable(): Promise<void> {
 export interface StoreReadOptions {
   /** Skip the per-request snapshot when a cross-request race must be checked. */
   bypassCache?: boolean;
+  transaction?: DbExec;
 }
 
 export async function getSetting(
   key: string,
   options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
-  const cache = requestSettingsCache();
+  const cache = options?.transaction ? null : requestSettingsCache();
   if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
     return cached == null ? null : JSON.parse(cached);
   }
-  await ensureTable();
-  const client = getDbExec();
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
   const { rows } = await client.execute({
     sql: `SELECT value FROM ${table} WHERE key = ?`,
@@ -158,6 +123,84 @@ export async function getSetting(
   const raw = rows.length === 0 ? null : (rows[0].value as string);
   if (!options?.bypassCache) cache?.set(key, raw);
   return raw == null ? null : JSON.parse(raw);
+}
+
+// Keeps the IN-list under Postgres's bind-parameter ceiling and out of
+// pathological query-planning territory for the rare caller (a huge org
+// roster, or a flag registry with hundreds of keys) that requests more keys
+// than fit in one statement.
+const SETTINGS_IN_LIST_CHUNK_SIZE = 500;
+
+// Batch reads only: one corrupt row must not fail every other key in the
+// batch (a whole feature-flag registry reads through one call). The bad key is
+// captured and comes back like a missing one, which is what per-key callers
+// already did with a failed read. Single-key getSetting still throws.
+function parseSettingValue(
+  key: string,
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "settings", op: "getSettings" },
+      extra: { key },
+    });
+    return null;
+  }
+}
+
+/**
+ * Batched read of several settings keys in as few round trips as possible.
+ * Serves per-request cache hits directly (same cache as {@link getSetting}),
+ * then issues one `key IN (...)` query — chunked above
+ * {@link SETTINGS_IN_LIST_CHUNK_SIZE} — for the rest. Every requested key is
+ * cached, including a miss as `null`, so a later {@link getSetting} for the
+ * same key in this request is free. A key absent from production but present
+ * in the request is indistinguishable from a key never asked for other than
+ * by looking it up, matching `getSetting`'s null-for-missing contract.
+ */
+export async function getSettings(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, Record<string, unknown> | null>();
+  if (uniqueKeys.length === 0) return result;
+
+  const cache = options?.transaction ? null : requestSettingsCache();
+  const misses: string[] = [];
+  for (const key of uniqueKeys) {
+    if (!options?.bypassCache && cache?.has(key)) {
+      const cached = cache.get(key);
+      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+    } else {
+      misses.push(key);
+    }
+  }
+  if (misses.length === 0) return result;
+
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
+  const table = settingsTable();
+  const rawByKey = new Map<string, string>();
+  for (let i = 0; i < misses.length; i += SETTINGS_IN_LIST_CHUNK_SIZE) {
+    const chunk = misses.slice(i, i + SETTINGS_IN_LIST_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`,
+      args: chunk,
+    });
+    for (const row of rows) {
+      rawByKey.set(row.key as string, row.value as string);
+    }
+  }
+  for (const key of misses) {
+    const raw = rawByKey.get(key) ?? null;
+    if (!options?.bypassCache) cache?.set(key, raw);
+    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+  }
+  return result;
 }
 
 export interface StoreWriteOptions {
@@ -169,7 +212,7 @@ const SETTINGS_MUTATION_ATTEMPTS = 25;
 
 /**
  * Atomically derive and persist one setting with an optimistic raw-value CAS.
- * This works across SQLite/libSQL and Postgres and remains safe across
+ * This remains safe across
  * horizontally scaled processes where an in-memory mutex would not.
  * The updater may run more than once after contention and must not perform
  * external side effects.
@@ -200,9 +243,7 @@ export async function mutateSetting(
     const result =
       raw == null
         ? await client.execute({
-            sql: isPostgres()
-              ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-              : `INSERT OR IGNORE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
+            sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
             args: [key, nextRaw, timestamp],
           })
         : await client.execute({
@@ -232,9 +273,7 @@ export async function putSetting(
   const client = getDbExec();
   const table = settingsTable();
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
+    sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));

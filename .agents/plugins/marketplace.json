@@ -5,16 +5,29 @@
   },
   "plugins": [
     {
+      "name": "agent-native",
+      "source": { "source": "local", "path": "./.agents/plugins/agent-native" }
+    },
+    {
       "name": "agent-native-visual-plans",
-      "source": { "source": "local", "path": "./agent-native-visual-plans" }
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/agent-native-visual-plans"
+      }
     },
     {
       "name": "agent-native-design",
-      "source": { "source": "local", "path": "./agent-native-design" }
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/agent-native-design"
+      }
     },
     {
       "name": "agent-native-turn-into-app",
-      "source": { "source": "local", "path": "./agent-native-turn-into-app" }
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/agent-native-turn-into-app"
+      }
     }
   ]
 }

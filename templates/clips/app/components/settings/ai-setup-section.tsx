@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_PROVIDER_CATALOG,
   AgentProviderSetupForm,
+  BuilderConnectPopover,
   SettingsGroup,
   SettingsRow,
   type AgentProviderId,
@@ -104,23 +105,28 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
                   Builder.io
                 </span>
               ) : (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() =>
+                <BuilderConnectPopover
+                  flow={builder.connectFlow}
+                  onConnect={(provisionAccount) =>
                     builder.start({
+                      provisionAccount,
                       trackingSource: "clips_settings_ai_setup",
                       trackingFlow: "connect_llm",
                     })
                   }
-                  disabled={builder.connecting || builder.loading}
                 >
-                  {builder.connecting ? (
-                    <IconLoader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  {t("settings.connectBuilder")}
-                </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={builder.connecting || builder.loading}
+                  >
+                    {builder.connecting ? (
+                      <IconLoader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    {t("settings.connectBuilder")}
+                  </Button>
+                </BuilderConnectPopover>
               )}
               <CollapsibleTrigger asChild>
                 <Button type="button" variant="outline" size="sm">

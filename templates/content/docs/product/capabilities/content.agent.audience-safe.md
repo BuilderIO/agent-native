@@ -81,7 +81,7 @@ Given a strict-audience run produces an answer with safe authorized provenance, 
 
 ## Proof plan
 
-1. Build deterministic resolver tests for multi-viewer intersections across Pages, Databases, Sources, inherited consent ceilings, membership changes, revocation, and authority-read failures.
+1. Build deterministic resolver tests for multi-viewer intersections across Pages, Collections, Sources, inherited consent ceilings, membership changes, revocation, and authority-read failures.
 2. Verify agent retrieval, search, traversal, tool calls, aggregation, citations, error rendering, and final output use the same strict context and cannot observe excluded identity or counts.
 3. Test cache and intermediate-artifact keys against audience identity, membership/access epoch, consent epoch, source policy, and resource version; prove revocation and audience change invalidate unsafe reuse.
 4. Run real-interface workflows that define an audience, generate a result, alter its membership/access/consent mid-run, inspect safe provenance, and confirm that review/verification status remains distinct.

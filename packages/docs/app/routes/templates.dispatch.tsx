@@ -1,55 +1,47 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconBrandSlack,
-  IconCheck,
-  IconClock,
-  IconHierarchy,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title:
-          "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
+        title: "Free AI Agent Orchestration | Agent-Native Dispatch",
       },
       {
         name: "description",
         content:
-          "Your agent's home base. Talk to it from Slack, Telegram, or any messenger and it routes to your other agents. Jobs, memory, approvals, and A2A delegation built in. The central hub for all your agent-native apps.",
+          "Coordinate connected apps, message agents from Slack or Telegram, and schedule recurring work. Dispatch is a free and open-source AI agent orchestration app.",
       },
       {
         property: "og:title",
-        content:
-          "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
+        content: "Free AI Agent Orchestration | Agent-Native Dispatch",
       },
       {
         property: "og:description",
         content:
-          "Talk to your agent from any messenger. Jobs, memory, approvals, and A2A delegation — the central router for your agent-native apps.",
+          "Coordinate connected apps, message agents from Slack or Telegram, and schedule recurring work. Dispatch is a free and open-source AI agent orchestration app.",
       },
       {
         name: "keywords",
         content:
-          "Slack agent, Telegram agent, agent router, A2A protocol, agent-to-agent, AI orchestration, AI assistant Slack, agent memory, recurring jobs agent, AI approvals, agent-native dispatch",
+          "AI agent orchestration, agent router, Slack agent, Telegram agent, A2A protocol, agent-to-agent delegation, recurring agent tasks, workspace approvals, agent-native dispatch",
       },
     ],
     "Dispatch",
@@ -57,358 +49,237 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "dispatch")!;
 
-const primaryLinkClassName = "primary-button";
+// Same no-imagery pattern Slides and Clips use: plain ContentCards, no
+// `image`/`imageLabel`, so the section reads as one system with the
+// key-features grid below it instead of leaving placeholder boxes.
+const USE_CASES = [
+  {
+    id: "delegate-from-one-conversation",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+  },
+  {
+    id: "recurring-team-updates",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+  },
+  {
+    id: "investigate-agent-activity",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+  },
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "cross-app-delegation",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "messaging-connections",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  { id: "scheduled-tasks", titleKey: "feature3Title", bodyKey: "feature3Body" },
+  {
+    id: "saved-delivery-destinations",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "shared-integrations",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "workspace-change-approvals",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-dispatch", question: "question1", answer: "answer1" },
+  {
+    id: "which-apps-can-dispatch-use",
+    question: "question2",
+    answer: "answer2",
+  },
+  { id: "slack-or-telegram", question: "question3", answer: "answer3" },
+  { id: "scheduled-tasks-faq", question: "question4", answer: "answer4" },
+  { id: "approvals-scope", question: "question5", answer: "answer5" },
+] as const;
+
+// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
+// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
+// below draws its grid lines flush to that same max-w-site edge, so this
+// wrapper must match exactly (no px-* here) or the hero's border-x box ends
+// up narrower than the rest of the page.
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function DispatchTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      icon: IconBrandSlack,
-      title: "Slack & Telegram",
-      body: t("templateLanding.dispatch.s012"),
-    },
-    {
-      icon: IconHierarchy,
-      title: "A2A Delegation",
-      body: t("templateLanding.dispatch.s013"),
-    },
-    {
-      icon: IconClock,
-      title: t("templateLanding.dispatch.s014"),
-      body: t("templateLanding.dispatch.s015"),
-    },
-    {
-      icon: IconShieldCheck,
-      title: t("templateLanding.dispatch.s016"),
-      body: t("templateLanding.dispatch.s017"),
-    },
-  ];
-  const faqItems = Array.from({ length: 6 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `dispatch-question-${itemNumber}`,
-      question: t(`templateLanding.dispatch.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.dispatch.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.dispatch.s007")}
-        description={
-          <p className="m-0">{t("templateLanding.dispatch.s008")}</p>
-        }
-        headingAction={
-          <a
-            href="https://dispatch.agent-native.com"
+    <div className="builder-brand-tokens">
+      {/* Hero — copy and layout updated to match Slides. Existing hero
+          screenshot kept since there's no newer Dispatch asset yet. */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[520px]">
+              {t("templateLanding.dispatch.heroTitle")}
+            </span>
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.dispatch.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="dispatch" />
+            </span>
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://dispatch.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.dispatch.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.dispatch.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <BuilderImage
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F533287112de248b98b3d97dd8a918328"
+              crossOrigin="anonymous"
+              alt={t("templateLanding.dispatch.s001")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto max-h-[640px] w-full object-cover object-top"
+            />
+          }
+        />
+      </div>
+
+      {/* What can you do with Dispatch? — three use-case cards */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.dispatch.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.dispatch.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
+            {USE_CASES.map((useCase) => (
+              <ContentCard
+                key={useCase.id}
+                title={t(`templateLanding.dispatch.${useCase.titleKey}`)}
+                body={t(`templateLanding.dispatch.${useCase.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grids, so every app reads as one
+          system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.dispatch.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.dispatch.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.dispatch.${feature.titleKey}`)}
+                body={t(`templateLanding.dispatch.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="dispatch-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.dispatch.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.dispatch.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.dispatch.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.dispatch.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
+            href={firstPartyAppUrl("https://dispatch.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
+            // The shared cta variant renders at 14px in sentence case, but
+            // the hero's .primary-button (uppercase 12px mono, via the
+            // .template-detail-page CSS rule) only applies inside the hero
+            // wrapper. Match it explicitly here so both CTAs on the page
+            // read as the same button style.
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "dispatch",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F533287112de248b98b3d97dd8a918328"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.dispatch.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[536px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
-          {[
-            { number: "Slack", label: t("templateLanding.dispatch.s002") },
-            { number: "A2A", label: t("templateLanding.dispatch.s003") },
-            { number: "∞", label: t("templateLanding.dispatch.s004") },
-            { number: "Cron", label: t("templateLanding.dispatch.s005") },
-          ].map((stat) => (
-            <TemplateStatOrStepsGridItem key={stat.label}>
-              <div
-                className="text-3xl font-medium tracking-tight sm:text-4xl"
-                style={{ color: template.color }}
-              >
-                {stat.number}
-              </div>
-              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
-                {stat.label}
-              </div>
-            </TemplateStatOrStepsGridItem>
-          ))}
-        </TemplateStatOrStepsGrid>
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.dispatch.s010")}
-            </h2>
-            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s011")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map(({ icon: Icon, title, body }, index) => (
-          <div
-            key={title}
-            className={`flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0 ${
-              [1, 2].includes(index)
-                ? "!border !border-[var(--docs-border)] sm:!border"
-                : ""
-            } ${index === 1 ? "sm:!border-e-0" : ""}`}
-          >
-            <div
-              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
-              style={{ color: template.color }}
-            >
-              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
-                {title}
-              </h3>
-              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-                {body}
-              </p>
-            </div>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.dispatch.s018")}
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s019")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s020", "s021", "s022"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.dispatch.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.dispatch.s023")}
-            </h3>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s024")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s025", "s026", "s027"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.dispatch.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
-              {t("templateLanding.dispatch.s028")}
-            </h2>
-            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s029")}
-            </p>
-            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {["s030", "s031", "s032", "s033"].map((key) => (
-                <li key={key} className="flex items-start gap-3 py-2">
-                  <IconCheck
-                    aria-hidden="true"
-                    className="mt-0.5 size-5 shrink-0"
-                    stroke={2}
-                    style={{ color: template.color }}
-                  />
-                  {t(`templateLanding.dispatch.${key}`)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
-              <div className="mb-4 text-[var(--fg-secondary)]">
-                {"// Available agent actions"}
-              </div>
-              <div className="grid min-w-[28rem] gap-3 text-[var(--fg)]">
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  route --target slides
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  schedule --cron "0 9 * * 1-5"
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  remember --scope user
-                </div>
-                <div>
-                  <span style={{ color: template.color }}>$</span> pnpm action
-                  approve --action send-email
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
-            {t("templateLanding.dispatch.s034")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.dispatch.s034")}
-          featureHeader={t("templateLanding.dispatch.s034")}
-          columns={[
-            { id: "slack-bots", header: "Slack Bots" },
-            {
-              id: "closed-assistants",
-              header: t("templateLanding.dispatch.s035"),
-            },
-            {
-              id: "agent-native",
-              emphasized: true,
-              agentNative: { color: template.color, name: template.name },
-            },
-          ]}
-          rows={[
-            {
-              id: "cross-app-routing",
-              label: t("templateLanding.dispatch.s036"),
-              cells: {
-                "slack-bots": t("templateLanding.dispatch.s037"),
-                "closed-assistants": t("templateLanding.dispatch.s038"),
-                "agent-native": "A2A to any agent-native app",
-              },
-            },
-            {
-              id: "memory",
-              label: t("templateLanding.dispatch.s004"),
-              cells: {
-                "slack-bots": "None",
-                "closed-assistants": t("templateLanding.dispatch.s039"),
-                "agent-native": t("templateLanding.dispatch.s040"),
-              },
-            },
-            {
-              id: "recurring-jobs",
-              label: t("templateLanding.dispatch.s005"),
-              cells: {
-                "slack-bots": t("templateLanding.dispatch.s041"),
-                "closed-assistants": t("templateLanding.dispatch.s042"),
-                "agent-native": "Cron + agent loop",
-              },
-            },
-            {
-              id: "customization",
-              label: t("templateLanding.dispatch.s043"),
-              cells: {
-                "slack-bots": t("templateLanding.dispatch.s044"),
-                "closed-assistants": t("templateLanding.dispatch.s045"),
-                "agent-native": t("templateLanding.dispatch.s046"),
-              },
-            },
-            {
-              id: "pricing",
-              label: t("templateLanding.dispatch.s047"),
-              cells: {
-                "slack-bots": t("templateLanding.dispatch.s048"),
-                "closed-assistants": t("templateLanding.dispatch.s049"),
-                "agent-native": t("templateLanding.dispatch.s050"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <TemplateFinalCta
-        eyebrow={
-          <span
-            className="font-mono text-sm font-semibold tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.dispatch.s051")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.dispatch.s052")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="dispatch-faq"
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.dispatch.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

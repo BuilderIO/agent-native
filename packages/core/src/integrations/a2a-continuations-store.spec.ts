@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
-const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  isPostgres: isPostgresMock,
   isProductionServerlessFunctionRuntime: () => false,
-  intType: () => "INTEGER",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -16,6 +13,18 @@ vi.mock("../db/migrations.js", () => ({
     /duplicate column name|column .* already exists/i.test(
       (err as Error | undefined)?.message ?? "",
     ),
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn(
+    async (_table: string, _column: string, sql: string) => executeMock(sql),
+  ),
+  ensureIndexExists: vi.fn(async (_index: string, sql: string) =>
+    executeMock(sql),
+  ),
+  ensureTableExists: vi.fn(async (_table: string, sql: string) =>
+    executeMock(sql),
+  ),
 }));
 
 async function loadStore() {
@@ -87,7 +96,6 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
 describe("A2A continuations store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isPostgresMock.mockReturnValue(false);
   });
 
   it("adds migrated columns before indexing them", async () => {
@@ -98,7 +106,7 @@ describe("A2A continuations store", () => {
 
     const calls = executeMock.mock.calls.map(([query]) => querySql(query));
     const dedupeAlterIndex = calls.findIndex((sql) =>
-      sql.includes("ADD COLUMN dedupe_key"),
+      sql.includes("ADD COLUMN IF NOT EXISTS dedupe_key"),
     );
     const dedupeIndexIndex = calls.findIndex((sql) =>
       sql.includes("idx_a2a_continuations_dedupe_key"),
@@ -107,25 +115,33 @@ describe("A2A continuations store", () => {
     expect(dedupeIndexIndex).toBeGreaterThan(-1);
     expect(dedupeAlterIndex).toBeLessThan(dedupeIndexIndex);
     expect(calls).toContainEqual(
-      expect.stringContaining("ADD COLUMN progress_ref"),
+      expect.stringContaining("ADD COLUMN IF NOT EXISTS progress_ref"),
     );
     expect(calls).toContainEqual(
-      expect.stringContaining("ADD COLUMN verified_artifact_checkpoint"),
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint",
+      ),
     );
     expect(calls).toContainEqual(
-      expect.stringContaining("ADD COLUMN terminal_delivery_kind"),
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS terminal_delivery_kind",
+      ),
     );
     expect(calls).toContainEqual(
-      expect.stringContaining("ADD COLUMN terminal_delivery_confirmed_at"),
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at",
+      ),
     );
     expect(calls).toContainEqual(
-      expect.stringContaining("ADD COLUMN terminal_history_payload"),
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS terminal_history_payload",
+      ),
     );
     expect(calls).toContainEqual(
       expect.stringContaining("SET terminal_delivery_kind = 'success'"),
     );
     const progressOwnerAlterIndex = calls.findIndex((sql) =>
-      sql.includes("ADD COLUMN progress_ref_claimed"),
+      sql.includes("ADD COLUMN IF NOT EXISTS progress_ref_claimed"),
     );
     const progressOwnerIndexIndex = calls.findIndex((sql) =>
       sql.includes("idx_a2a_continuations_one_progress_owner"),
@@ -142,8 +158,7 @@ describe("A2A continuations store", () => {
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
-  it("applies terminal receipt and history migrations on Postgres", async () => {
-    isPostgresMock.mockReturnValue(true);
+  it("applies terminal receipt and history migrations", async () => {
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
     const { getA2AContinuationForIntegrationTask } = await loadStore();
 
@@ -519,7 +534,12 @@ describe("A2A continuations store", () => {
         }
         if (sql.includes("attempts = attempts + 1")) {
           state.status = "processing";
-          return { rows: [], rowsAffected: 1 };
+          return {
+            rows: [
+              { ...state, status: "processing", attempts: state.attempts + 1 },
+            ],
+            rowsAffected: 1,
+          };
         }
         if (sql.includes("terminal_history_payload = NULL")) {
           state.status = "completed";
@@ -586,7 +606,101 @@ describe("A2A continuations store", () => {
       querySql(query).includes("INNER JOIN integration_pending_tasks"),
     );
     expect(joinedReads).toHaveLength(1);
+    expect(querySql(joinedReads[0]![0])).toContain(
+      "ORDER BY has_pending_confirmed_delivery DESC",
+    );
+    expect(querySql(joinedReads[0]![0])).toContain("MIN(c.next_check_at) ASC");
     expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
+  });
+
+  it("defers only due unconfirmed continuations without spending a claim", async () => {
+    const { deferA2AContinuationsForRuntime } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 2 });
+
+    await deferA2AContinuationsForRuntime(["task-1", "task-2"], 120_000);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET next_check_at = ?"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "terminal_delivery_confirmed_at IS NULL",
+    );
+    expect(querySql(update!)).toContain("status = 'processing'");
+    expect(querySql(update!)).toContain("status = 'delivering'");
+    expect(querySql(update!)).not.toContain("attempts = attempts + 1");
+    expect(queryArgs(update!)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "task-1",
+      "task-2",
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    ]);
+  });
+
+  it("returns the claim attempt when runtime pauses before remote polling", async () => {
+    const { pauseA2AContinuationForRuntime } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [{ id: "cont-1" }] });
+
+    await expect(
+      pauseA2AContinuationForRuntime("cont-1", 31, 20_000),
+    ).resolves.toBe(true);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("attempts = attempts - 1"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "status = 'processing' AND attempts = ?",
+    );
+    expect(queryArgs(update!)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "cont-1",
+      31,
+    ]);
+  });
+
+  it("does not exhaust the remote polling budget through repeated runtime pauses", async () => {
+    const state = continuationRow({ status: "pending", attempts: 0 });
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("attempts = attempts + 1")) {
+          if (state.status !== "pending") return { rows: [] };
+          state.status = "processing";
+          state.attempts = Number(state.attempts) + 1;
+          return { rows: [{ ...state }] };
+        }
+        if (sql.includes("attempts = attempts - 1")) {
+          const expected = queryArgs(query).at(-1);
+          if (state.status !== "processing" || state.attempts !== expected) {
+            return { rows: [] };
+          }
+          state.status = "pending";
+          state.attempts = Number(state.attempts) - 1;
+          return { rows: [{ id: state.id }] };
+        }
+        return { rows: [] };
+      },
+    );
+    const { claimA2AContinuation, pauseA2AContinuationForRuntime } =
+      await loadStore();
+
+    for (let pause = 0; pause < 35; pause += 1) {
+      const claimed = await claimA2AContinuation("cont-1");
+      expect(claimed?.attempts).toBe(1);
+      await expect(
+        pauseA2AContinuationForRuntime("cont-1", claimed!.attempts, 20_000),
+      ).resolves.toBe(true);
+    }
+
+    expect(state.attempts).toBe(0);
+    await expect(claimA2AContinuation("cont-1")).resolves.toMatchObject({
+      attempts: 1,
+      a2aTaskId: "a2a-task-1",
+    });
   });
 
   it("terminalizes all active A2A rows for a disabled durable task", async () => {
@@ -621,7 +735,7 @@ describe("A2A continuations store", () => {
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = querySql(query);
-        if (sql.includes("ADD COLUMN a2a_auth_token")) {
+        if (sql.includes("ADD COLUMN IF NOT EXISTS a2a_auth_token")) {
           throw migrationError;
         }
         return { rows: [], rowsAffected: 0 };
@@ -747,7 +861,7 @@ describe("A2A continuations store", () => {
         if (sql.includes("SET progress_ref = ?, progress_ref_claimed = 1")) {
           if (progressOwnerClaimed) {
             throw new Error(
-              "UNIQUE constraint failed: integration_a2a_continuations.integration_task_id",
+              "duplicate key value violates unique constraint integration_a2a_continuations.integration_task_id",
             );
           }
           progressOwnerClaimed = true;
@@ -981,7 +1095,7 @@ describe("A2A continuations store", () => {
         }
         if (sql.includes("SET progress_ref = ?, progress_ref_claimed = 1")) {
           throw new Error(
-            "UNIQUE constraint failed: integration_a2a_continuations.integration_task_id",
+            "duplicate key value violates unique constraint integration_a2a_continuations.integration_task_id",
           );
         }
         if (
@@ -1156,7 +1270,10 @@ describe("A2A continuations store", () => {
         const sql = querySql(query);
         const args = queryArgs(query);
         if (sql.includes("UPDATE integration_a2a_continuations")) {
-          return { rows: [], rowsAffected: 1 };
+          return {
+            rows: [continuationRow({ status: "delivering" })],
+            rowsAffected: 1,
+          };
         }
         if (
           sql.includes(
@@ -1255,7 +1372,16 @@ describe("A2A continuations store", () => {
             "SET status = ?, attempts = attempts + 1, updated_at = ?",
           )
         ) {
-          return { rows: [], rowsAffected: 1 };
+          return {
+            rows: [
+              continuationRow({
+                id: args[2],
+                status: "processing",
+                attempts: 3,
+              }),
+            ],
+            rowsAffected: 1,
+          };
         }
         if (
           sql.includes(
@@ -1451,7 +1577,16 @@ describe("A2A continuations store", () => {
             "SET status = ?, attempts = attempts + 1, updated_at = ?",
           )
         ) {
-          return { rows: [], rowsAffected: 1 };
+          return {
+            rows: [
+              continuationRow({
+                id: args[2],
+                status: "processing",
+                attempts: 2,
+              }),
+            ],
+            rowsAffected: 1,
+          };
         }
         if (
           sql.includes(

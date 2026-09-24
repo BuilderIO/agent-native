@@ -93,7 +93,7 @@ export function CreateCrmRecordDialog({ kind }: { kind: CrmKind }) {
         queryKey: ["action", "list-crm-records"],
       });
       toast.success(`Native ${copy.noun} created.`);
-      navigate(`/records/${encodeURIComponent(result.recordId)}`);
+      void navigate(`/records/${encodeURIComponent(result.recordId)}`);
     } catch (error) {
       toast.error(
         error instanceof Error

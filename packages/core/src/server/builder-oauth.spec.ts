@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const startMock = vi.hoisted(() => vi.fn());
@@ -6,11 +8,10 @@ const readMock = vi.hoisted(() => vi.fn());
 const saveMock = vi.hoisted(() => vi.fn());
 const revokeMock = vi.hoisted(() => vi.fn());
 const getAccessTokenMock = vi.hoisted(() => vi.fn());
+const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
-const mutateSettingMock = vi.hoisted(() => vi.fn());
-const putSettingMock = vi.hoisted(() => vi.fn());
-const getSettingMock = vi.hoisted(() => vi.fn());
+const resolveOrgMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
   startMcpOAuthAuthorization: startMock,
@@ -19,6 +20,7 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
   saveMcpOAuthCredentials: saveMock,
   revokeMcpOAuthCredentials: revokeMock,
   getMcpOAuthAccessToken: getAccessTokenMock,
+  markMcpOAuthReconnectRequired: markReconnectMock,
   validateMcpOAuthCallbackIssuer: validateIssuerMock,
 }));
 
@@ -26,33 +28,43 @@ vi.mock("../oauth-tokens/store.js", () => ({
   getOAuthTokens: getRawTokensMock,
 }));
 
-vi.mock("../settings/store.js", () => ({
-  mutateSetting: mutateSettingMock,
-  putSetting: putSettingMock,
-  getSetting: getSettingMock,
+vi.mock("../org/context.js", () => ({
+  resolveOrgIdForEmail: resolveOrgMock,
 }));
 
 import {
-  BUILDER_OAUTH_AUTHORIZATION_ENDPOINT,
-  BUILDER_OAUTH_AUTHORIZATION_METADATA,
   BUILDER_OAUTH_ISSUER,
-  BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
-  BUILDER_OAUTH_REGISTRATION_ENDPOINT,
   BUILDER_OAUTH_RESOURCE,
-  BUILDER_OAUTH_REVOCATION_ENDPOINT,
   BUILDER_OAUTH_SCOPE,
   BUILDER_OAUTH_SCOPES,
-  BUILDER_OAUTH_TOKEN_ENDPOINT,
   deleteBuilderOAuthSession,
+  exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
+  getBuilderOAuthConnectionScope,
+  getBuilderOAuthStoredScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
+  saveBuilderOAuthCredentials,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
 
 const ownerEmail = "alice@example.com";
+const DEFAULT_ORG = "org-default";
+
+const BASE_KEY = "builder-general-resource-v1";
+function perOrgKey(orgId: string): string {
+  const digest = createHash("sha256").update(orgId).digest("hex");
+  return `${BASE_KEY}:o:${digest}`;
+}
+
+function perUserKey(email: string): string {
+  const digest = createHash("sha256")
+    .update(email.trim().toLowerCase())
+    .digest("hex");
+  return `${BASE_KEY}:u:${digest}`;
+}
 
 function credentials(overrides: Record<string, unknown> = {}) {
   return {
@@ -63,20 +75,9 @@ function credentials(overrides: Record<string, unknown> = {}) {
     },
     discoveryState: {
       authorizationServerUrl: BUILDER_OAUTH_ISSUER,
-      resourceMetadataUrl: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
-      authorizationServerMetadata: {
-        issuer: BUILDER_OAUTH_ISSUER,
-        authorization_endpoint: BUILDER_OAUTH_AUTHORIZATION_ENDPOINT,
-        token_endpoint: BUILDER_OAUTH_TOKEN_ENDPOINT,
-        registration_endpoint: BUILDER_OAUTH_REGISTRATION_ENDPOINT,
-        revocation_endpoint: BUILDER_OAUTH_REVOCATION_ENDPOINT,
-        response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
-        code_challenge_methods_supported: ["S256"],
-      },
+      authorizationServerMetadata: { issuer: BUILDER_OAUTH_ISSUER },
       resourceMetadata: {
         resource: BUILDER_OAUTH_RESOURCE,
-        authorization_servers: [BUILDER_OAUTH_ISSUER],
       },
     },
     tokens: {
@@ -91,66 +92,48 @@ function credentials(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  let lease: Record<string, unknown> | null = null;
   startMock.mockReset();
   finishMock.mockReset();
   readMock.mockReset();
   saveMock.mockReset();
   revokeMock.mockReset();
   getAccessTokenMock.mockReset();
+  markReconnectMock.mockReset();
+  markReconnectMock.mockResolvedValue(true);
   validateIssuerMock.mockReset();
   getRawTokensMock.mockReset();
-  getSettingMock.mockReset();
-  getSettingMock.mockResolvedValue(null);
-  putSettingMock.mockReset();
-  putSettingMock.mockResolvedValue(undefined);
-  mutateSettingMock.mockReset();
-  mutateSettingMock.mockImplementation(
-    async (
-      _key: string,
-      updater: (
-        current: Record<string, unknown> | null,
-      ) => Record<string, unknown>,
-    ) => {
-      lease = updater(lease);
-      return lease;
-    },
-  );
+  getRawTokensMock.mockResolvedValue(null);
+  resolveOrgMock.mockReset();
+  // Every user belongs to an org; individual tests override the org id.
+  resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
 });
 
 describe("Builder hosted user OAuth", () => {
-  it("uses the exact fixed Builder contract and one least-privilege scope", () => {
+  it("uses the exact fixed Builder contract and requests every Builder scope up front", () => {
     expect({
       issuer: BUILDER_OAUTH_ISSUER,
       resource: BUILDER_OAUTH_RESOURCE,
-      protectedResourceMetadata: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
-      authorizationMetadata: BUILDER_OAUTH_AUTHORIZATION_METADATA,
-      authorization: BUILDER_OAUTH_AUTHORIZATION_ENDPOINT,
-      token: BUILDER_OAUTH_TOKEN_ENDPOINT,
-      registration: BUILDER_OAUTH_REGISTRATION_ENDPOINT,
-      revoke: BUILDER_OAUTH_REVOCATION_ENDPOINT,
       scopes: BUILDER_OAUTH_SCOPES,
     }).toEqual({
       issuer: "https://mcp.builder.io",
       resource: "https://api.builder.io",
-      protectedResourceMetadata:
-        "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
-      authorizationMetadata:
-        "https://mcp.builder.io/.well-known/oauth-authorization-server",
-      authorization: "https://mcp.builder.io/oauth/authorize",
-      token: "https://mcp.builder.io/oauth/token",
-      registration: "https://mcp.builder.io/oauth/register",
-      revoke: "https://mcp.builder.io/oauth/revoke",
-      scopes: ["builder:ai:invoke"],
+      scopes: [
+        "builder:ai:invoke",
+        "builder:agents:run",
+        "builder:browser:connect",
+        "builder:assets:write",
+        "builder:projects:read",
+        "builder:projects:write",
+        "builder:designsystem:read",
+        "builder:designsystem:write",
+      ],
     });
-    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toMatch(
-      /offline_access|project|design|browser|agent|assets/,
-    );
+    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toContain("offline_access");
   });
 
   it("starts public PKCE authorization with Builder's fixed resource and scope", async () => {
     startMock.mockResolvedValue({
-      authorizationUrl: new URL(BUILDER_OAUTH_AUTHORIZATION_ENDPOINT),
+      authorizationUrl: new URL("https://mcp.builder.io/oauth/authorize"),
       codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
       clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
       discoveryState: { authorizationServerUrl: BUILDER_OAUTH_ISSUER },
@@ -163,7 +146,7 @@ describe("Builder hosted user OAuth", () => {
         state: "<STATE_EXAMPLE>",
       }),
     ).resolves.toEqual({
-      authorizationUrl: BUILDER_OAUTH_AUTHORIZATION_ENDPOINT,
+      authorizationUrl: "https://mcp.builder.io/oauth/authorize",
       pending: {
         codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
         clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
@@ -175,25 +158,43 @@ describe("Builder hosted user OAuth", () => {
       serverUrl: BUILDER_OAUTH_RESOURCE,
       redirectUrl: "https://app.example.com/_agent-native/builder/callback",
       state: "<STATE_EXAMPLE>",
-      scope: BUILDER_OAUTH_SCOPE,
-      discoveryState: {
-        authorizationServerUrl: BUILDER_OAUTH_ISSUER,
-        authorizationServerMetadata: {
-          issuer: BUILDER_OAUTH_ISSUER,
-          authorization_endpoint: BUILDER_OAUTH_AUTHORIZATION_ENDPOINT,
-          token_endpoint: BUILDER_OAUTH_TOKEN_ENDPOINT,
-          registration_endpoint: BUILDER_OAUTH_REGISTRATION_ENDPOINT,
-          revocation_endpoint: BUILDER_OAUTH_REVOCATION_ENDPOINT,
-          response_types_supported: ["code"],
-          grant_types_supported: ["authorization_code", "refresh_token"],
-          code_challenge_methods_supported: ["S256"],
-        },
-        resourceMetadataUrl: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
-        resourceMetadata: {
-          resource: BUILDER_OAUTH_RESOURCE,
-          authorization_servers: [BUILDER_OAUTH_ISSUER],
-        },
+      scope: BUILDER_OAUTH_SCOPES.join(" "),
+      resourceMetadataUrl:
+        "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
+    });
+  });
+
+  it("separates PKCE exchange from credential persistence", async () => {
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    const exchanged = await exchangeBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
       },
+    });
+
+    expect(exchanged).toEqual(finished);
+    expect(saveMock).not.toHaveBeenCalled();
+
+    await saveBuilderOAuthCredentials({
+      ownerEmail,
+      orgId: DEFAULT_ORG,
+      role: "owner",
+      credentials: exchanged,
+    });
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
     });
   });
 
@@ -214,7 +215,7 @@ describe("Builder hosted user OAuth", () => {
     });
 
     expect(saveMock).toHaveBeenCalledWith({
-      key: "builder-general-resource-v1",
+      key: perUserKey(ownerEmail),
       scope: "user",
       scopeId: ownerEmail,
       serverUrl: BUILDER_OAUTH_RESOURCE,
@@ -226,6 +227,67 @@ describe("Builder hosted user OAuth", () => {
     );
     expect(finishMock).toHaveBeenCalledWith(
       expect.objectContaining({ iss: BUILDER_OAUTH_ISSUER }),
+    );
+  });
+
+  // Without this the grant's scopes would have to be guessed on every later
+  // read, and a new two-scope grant is indistinguishable from a legacy one.
+  it("records the requested scopes when the token response omits them", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          tokens: expect.objectContaining({
+            scope: BUILDER_OAUTH_SCOPES.join(" "),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("leaves a declared scope claim untouched", async () => {
+    const finished = credentials({
+      tokens: {
+        access_token: "<ACCESS_TOKEN_EXAMPLE>",
+        scope: BUILDER_OAUTH_SCOPE,
+        issuer: BUILDER_OAUTH_ISSUER,
+      },
+    });
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ credentials: finished }),
     );
   });
 
@@ -271,30 +333,187 @@ describe("Builder hosted user OAuth", () => {
     expect(finishMock).not.toHaveBeenCalled();
   });
 
-  it("keeps users isolated in every token-store operation", async () => {
+  it("keys token-store lookups by the caller's org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
     getRawTokensMock.mockResolvedValue(null);
     await hasBuilderOAuthSession("Bob@Example.com");
     expect(getRawTokensMock).toHaveBeenCalledWith(
       "mcp",
-      "builder-general-resource-v1",
-      "user:bob@example.com",
+      perOrgKey("org-acme"),
+      "org:org-acme",
     );
   });
 
-  it("does not return a stored access token after reconnect is required", async () => {
-    getSettingMock.mockResolvedValue({ required: true, at: Date.now() });
+  it("does not fall back to the active org when the caller has no org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+
+    await expect(hasBuilderOAuthSession(ownerEmail, null)).resolves.toBe(false);
+    expect(getRawTokensMock).toHaveBeenCalledTimes(1);
+    expect(getRawTokensMock).toHaveBeenCalledWith(
+      "mcp",
+      perUserKey(ownerEmail),
+      "user:alice@example.com",
+    );
+  });
+
+  it("does not treat an unreadable empty token bundle as OAuth custody", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-acme" ? {} : null,
+    );
+
+    await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
+  });
+
+  it("does not treat a non-record token bundle as OAuth custody", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue("not-a-token-bundle");
+
+    await expect(hasBuilderOAuthSession(ownerEmail)).resolves.toBe(false);
+  });
+
+  it("shares one org-scoped credential across members of the same org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-acme" ? {} : null,
+    );
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(credentials());
+
+    await getBuilderOAuthSession("alice@example.com");
+    await getBuilderOAuthSession("bob@example.com");
+
+    const keys = getAccessTokenMock.mock.calls.map((c) => c[0].key);
+    expect(keys).toEqual([perOrgKey("org-acme"), perOrgKey("org-acme")]);
+    expect(getAccessTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org", scopeId: "org-acme" }),
+    );
+  });
+
+  it("stores a completed grant under the org scope when the connector has an org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      role: "owner",
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey("org-acme"),
+      scope: "org",
+      scopeId: "org-acme",
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
+    });
+  });
+
+  it("keeps member OAuth credentials in personal custody", async () => {
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      orgId: "org-acme",
+      role: "member",
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: perUserKey(ownerEmail),
+        scope: "user",
+        scopeId: ownerEmail,
+      }),
+    );
+  });
+
+  it("stores under the org captured at start, not the active org at callback", async () => {
+    // A switched active org must not win over the org authorized at start.
+    resolveOrgMock.mockResolvedValue("org-switched");
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      orgId: "org-started",
+      role: "owner",
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey("org-started"),
+      scope: "org",
+      scopeId: "org-started",
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
+    });
+    expect(resolveOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("reports the requesting user's email even when the token is org-scoped", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-acme" ? {} : null,
+    );
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockResolvedValue(credentials());
+
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail: "Bob@Example.com",
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      }),
+    ).resolves.toMatchObject({ ownerEmail: "bob@example.com" });
+  });
+
+  it("does not return a stored access token after reconnect is required", async () => {
+    // reconnect_required lives on the credential now; the generic resolver
+    // returns no token for it.
+    getAccessTokenMock.mockResolvedValue(null);
 
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
     expect(readMock).not.toHaveBeenCalled();
   });
 
   it("marks reconnect required for a revoked OAuth grant", async () => {
-    await markBuilderOAuthReconnectRequired(ownerEmail);
-    expect(putSettingMock).toHaveBeenCalledWith(
-      "builder-oauth-reconnect:user:alice@example.com",
-      expect.objectContaining({ required: true }),
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
     );
+    await markBuilderOAuthReconnectRequired(ownerEmail);
+    expect(markReconnectMock).toHaveBeenCalledWith({
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+    });
   });
 
   it("treats malformed Builder-owned custody as present so callers fail closed", async () => {
@@ -305,6 +524,8 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("accepts custody whose serverUrl was canonicalized with a trailing slash", async () => {
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
         serverUrl: `${BUILDER_OAUTH_RESOURCE}/`,
@@ -317,6 +538,8 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("parses scopes for status and rejects an insufficient requested scope", async () => {
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
         tokens: {
@@ -337,7 +560,85 @@ describe("Builder hosted user OAuth", () => {
     ).rejects.toThrow("does not grant builder:assets:write");
   });
 
+  it("falls back to an org grant when a personal grant lacks the requested scope", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockImplementation(async (options: { scope: "user" | "org" }) =>
+      options.scope === "user"
+        ? credentials()
+        : credentials({
+            tokens: {
+              access_token: "<ACCESS_TOKEN_EXAMPLE>",
+              scope: BUILDER_OAUTH_SCOPES.join(" "),
+              issuer: BUILDER_OAUTH_ISSUER,
+            },
+          }),
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).resolves.toMatchObject({ scope: "org", scopes: BUILDER_OAUTH_SCOPES });
+  });
+
+  it("reports the usable org grant when personal custody needs reconnect", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockImplementation(
+      async (options: { scope: "user" | "org" }) =>
+        options.scope === "user" ? null : "<ACCESS_TOKEN_EXAMPLE>",
+    );
+    readMock.mockResolvedValue(credentials());
+
+    await expect(getBuilderOAuthConnectionScope(ownerEmail)).resolves.toBe(
+      "org",
+    );
+  });
+
+  it("reports stored custody for disconnect even when its token is unusable", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
+    getAccessTokenMock.mockResolvedValue(null);
+
+    await expect(getBuilderOAuthStoredScope(ownerEmail)).resolves.toBe("org");
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  // A stored credential with no `scope` claim predates both Builder always
+  // setting one and this flow recording it, so it can only be an AI-only grant.
+  // Crediting it with the upload scope would trade a clear local error for an
+  // opaque 403 from Builder.
+  it("keeps a scope-less legacy credential AI-only", async () => {
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockResolvedValue(
+      credentials({
+        tokens: {
+          access_token: "<ACCESS_TOKEN_EXAMPLE>",
+          issuer: BUILDER_OAUTH_ISSUER,
+        },
+      }),
+    );
+
+    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
+      scopes: [BUILDER_OAUTH_SCOPE],
+    });
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).rejects.toThrow("does not grant builder:assets:write");
+  });
+
   it("fails closed for a credential whose issuer or resource binding changed", async () => {
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
     readMock.mockResolvedValue(
       credentials({
         discoveryState: {
@@ -360,6 +661,10 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("delegates expiring bundles to the guarded generic OAuth refresher", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     let stored = credentials({ tokenExpiresAt: Date.now() + 1_000 });
     readMock.mockImplementation(async () => stored);
     getAccessTokenMock.mockImplementation(async () => {
@@ -378,82 +683,30 @@ describe("Builder hosted user OAuth", () => {
       scopes: [BUILDER_OAUTH_SCOPE],
     });
     expect(getAccessTokenMock).toHaveBeenCalledWith({
-      key: "builder-general-resource-v1",
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
     });
   });
 
-  it("allows one lease holder to refresh while waiters reload its persisted bundle", async () => {
-    let stored = credentials({ tokenExpiresAt: Date.now() + 1_000 });
-    let releaseRefresh!: () => void;
-    const refreshStarted = new Promise<void>((resolve) => {
-      releaseRefresh = resolve;
-    });
-    readMock.mockImplementation(async () => stored);
-    getAccessTokenMock.mockImplementation(async () => {
-      await refreshStarted;
-      stored = credentials({
-        tokens: {
-          ...stored.tokens,
-          access_token: "<ROTATED_ACCESS_TOKEN_EXAMPLE>",
-          refresh_token: "<ROTATED_REFRESH_TOKEN_EXAMPLE>",
-        },
-      });
-      return "<ROTATED_ACCESS_TOKEN_EXAMPLE>";
-    });
-
-    const first = getBuilderOAuthSession(ownerEmail);
-    await vi.waitFor(() => expect(getAccessTokenMock).toHaveBeenCalledTimes(1));
-    const second = getBuilderOAuthSession(ownerEmail);
-    releaseRefresh();
-
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      expect.objectContaining({
-        accessToken: "<ROTATED_ACCESS_TOKEN_EXAMPLE>",
-      }),
-      expect.objectContaining({
-        accessToken: "<ROTATED_ACCESS_TOKEN_EXAMPLE>",
-      }),
-    ]);
-    expect(getAccessTokenMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("marks reconnect and returns no token when refresh material is missing", async () => {
-    readMock.mockResolvedValue(
-      credentials({
-        tokenExpiresAt: Date.now() + 1_000,
-        tokens: {
-          access_token: "<ACCESS_TOKEN_EXAMPLE>",
-          scope: BUILDER_OAUTH_SCOPE,
-          issuer: BUILDER_OAUTH_ISSUER,
-        },
-      }),
-    );
-    getAccessTokenMock.mockResolvedValue(null);
-
-    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
-    expect(putSettingMock).toHaveBeenCalledWith(
-      "builder-oauth-reconnect:user:alice@example.com",
-      expect.objectContaining({ required: true }),
-    );
-  });
-
-  it("marks reconnect and returns no token when Builder rejects a refresh", async () => {
+  it("returns no session and does not double-mark when the resolver yields no token", async () => {
+    // The credential lifecycle owns reconnect latching on a failed refresh, so
+    // Builder just reports no session instead of writing its own flag.
     readMock.mockResolvedValue(
       credentials({ tokenExpiresAt: Date.now() + 1_000 }),
     );
     getAccessTokenMock.mockResolvedValue(null);
 
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
-    expect(putSettingMock).toHaveBeenCalledWith(
-      "builder-oauth-reconnect:user:alice@example.com",
-      expect.objectContaining({ required: true }),
-    );
+    expect(markReconnectMock).not.toHaveBeenCalled();
   });
 
   it("revokes remotely on disconnect and always deletes local custody", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     revokeMock.mockResolvedValue({
       local: "deleted",
       remote: "succeeded",
@@ -464,14 +717,18 @@ describe("Builder hosted user OAuth", () => {
       remoteRevoked: true,
     });
     expect(revokeMock).toHaveBeenCalledWith({
-      key: "builder-general-resource-v1",
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
     });
   });
 
   it("deletes local custody even when Builder revocation fails", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
     revokeMock.mockResolvedValue({
       local: "deleted",
       remote: "failed",

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readPrivateBlob,
   type PrivateBlobHandle,

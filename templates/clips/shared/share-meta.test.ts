@@ -1,3 +1,7 @@
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -94,6 +98,30 @@ describe("Clips share metadata", () => {
     });
   });
 
+  it("advertises the JPEG MIME type for the default social image fallback", () => {
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      recording: {
+        id: "rec-1",
+        title: "Launch notes",
+        thumbnailUrl: null,
+        animatedThumbnailUrl: null,
+        visibility: "public",
+        status: "ready",
+        isLoomEmbedBacked: true,
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+    expect(meta).toContainEqual({
+      property: "og:image:type",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
+    });
+  });
+
   it("prefers the stable still thumbnail over an animated preview", () => {
     expect(
       preferredThumbnailVariant({
@@ -142,6 +170,22 @@ describe("Clips share metadata", () => {
     expect(imageUrl).toBe(
       "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350",
     );
+  });
+
+  it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "public",
+          status: "ready",
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+          isLoomEmbedBacked: true,
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBe(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
   });
 
   it("proxies public stored thumbnails through the same-origin image route", () => {

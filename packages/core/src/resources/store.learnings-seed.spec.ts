@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -19,24 +19,24 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
   },
 };
 
-function bindClientTo(db: Database.Database): void {
+function bindClientTo(db: Awaited<ReturnType<typeof createTestPglite>>): void {
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = db.prepare(sql);
+      const stmt = await db.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
@@ -45,17 +45,17 @@ function bindClientTo(db: Database.Database): void {
 let tempDir: string;
 let cwdSpy: ReturnType<typeof vi.spyOn>;
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
-  bindClientTo(sqlite);
+beforeAll(async () => {
+  pglite = await createTestPglite();
+  bindClientTo(pglite);
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "learnings-seed-"));
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 });
 
-afterAll(() => {
+afterAll(async () => {
   cwdSpy.mockRestore();
   fs.rmSync(tempDir, { recursive: true, force: true });
-  sqlite.close();
+  await pglite.close();
 });
 
 describe("shared LEARNINGS.md boot seeding", () => {
@@ -92,7 +92,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
 
   it("falls back to the built-in default when no project-root learnings.md exists", async () => {
     fs.rmSync(path.join(tempDir, "learnings.md"), { force: true });
-    const freshDb = new Database(":memory:");
+    const freshDb = await createTestPglite();
     bindClientTo(freshDb);
     try {
       vi.resetModules();
@@ -105,7 +105,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
         "User preferences, corrections, and patterns",
       );
     } finally {
-      bindClientTo(sqlite);
+      bindClientTo(pglite);
       freshDb.close();
     }
   });
@@ -118,7 +118,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
       path.join(tempDir, "learnings.defaults.md"),
       "# Learnings\n\n- Checked-in defaults entry\n",
     );
-    const freshDb = new Database(":memory:");
+    const freshDb = await createTestPglite();
     bindClientTo(freshDb);
     try {
       vi.resetModules();
@@ -128,7 +128,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
 
       expect(resource?.content).toContain("Checked-in defaults entry");
     } finally {
-      bindClientTo(sqlite);
+      bindClientTo(pglite);
       freshDb.close();
       fs.rmSync(path.join(tempDir, "learnings.defaults.md"), { force: true });
     }
@@ -136,7 +136,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
 
   it("ignores an empty project-root learnings.md and seeds the default", async () => {
     fs.writeFileSync(path.join(tempDir, "learnings.md"), "   \n\n  ");
-    const freshDb = new Database(":memory:");
+    const freshDb = await createTestPglite();
     bindClientTo(freshDb);
     try {
       vi.resetModules();
@@ -149,7 +149,7 @@ describe("shared LEARNINGS.md boot seeding", () => {
         "User preferences, corrections, and patterns",
       );
     } finally {
-      bindClientTo(sqlite);
+      bindClientTo(pglite);
       freshDb.close();
       fs.rmSync(path.join(tempDir, "learnings.md"), { force: true });
     }

@@ -10,7 +10,12 @@ import { fileURLToPath } from "node:url";
 
 import type { Browser, BrowserContext } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { type BetaSite, originFor } from "./fleet";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
 
 /**
  * Authenticated-session bootstrap for the beta fleet.
@@ -30,6 +35,11 @@ import { type BetaSite, originFor } from "./fleet";
  *                            `pnpm e2e:beta:capture`. Use when a host issues
  *                            cookies the token path cannot reproduce.
  *
+ *   BETA_E2E_SESSION_TOKEN_<APP>
+ *                            an optional per-app token override, useful when
+ *                            one host needs refreshing without replacing the
+ *                            fleet map.
+ *
  * Both expire — the framework session is 30 days (`DEFAULT_MAX_AGE` in
  * packages/core/src/server/auth.ts). `pnpm e2e:beta:capture` re-mints them.
  *
@@ -44,6 +54,22 @@ const AUTH_DIR = path.join(
   "..",
   ".auth",
 );
+const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
+const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
+
+export function shouldRetrySessionExchange(
+  status: number,
+  attempt: number,
+): boolean {
+  return (
+    attempt < SESSION_EXCHANGE_MAX_ATTEMPTS &&
+    RETRYABLE_SESSION_EXCHANGE_STATUSES.has(status)
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface SessionIdentity {
   email: string;
@@ -88,6 +114,11 @@ export function expectedEmail(): string {
       "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
     );
   }
+  if (!isAutozQaEmail(email)) {
+    throw new Error(
+      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
+    );
+  }
   return email;
 }
 
@@ -107,7 +138,13 @@ function sessionTokens(): Record<string, string> | undefined {
   return parseJsonEnv<Record<string, string>>("BETA_E2E_SESSION_TOKENS");
 }
 
-function sessionTokenFor(appId: string): string | undefined {
+function sessionTokenEnvName(appId: string): string {
+  return `BETA_E2E_SESSION_TOKEN_${appId.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
+}
+
+export function sessionTokenFor(appId: string): string | undefined {
+  const appToken = process.env[sessionTokenEnvName(appId)]?.trim();
+  if (appToken) return appToken;
   const tokens = sessionTokens();
   if (!tokens) return undefined;
   return tokens[appId] ?? tokens["*"];
@@ -121,9 +158,18 @@ function storageStateBlob(): string | undefined {
   return undefined;
 }
 
+function hasPerAppSessionToken(): boolean {
+  return Object.entries(process.env).some(
+    ([name, value]) =>
+      name.startsWith("BETA_E2E_SESSION_TOKEN_") && Boolean(value?.trim()),
+  );
+}
+
 /** True when this run has been given something to authenticate with. */
 export function hasSessionCredentials(): boolean {
-  return Boolean(sessionTokens() || storageStateBlob());
+  return Boolean(
+    sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
+  );
 }
 
 /**
@@ -140,42 +186,63 @@ export function missingCredentialsMessage(): string {
   ].join("\n");
 }
 
+export function sessionFailureReason(options: {
+  status: number;
+  body: string;
+  tokenProvided: boolean;
+}): string {
+  const credential = options.tokenProvided
+    ? "supplied session token"
+    : "stored session cookie";
+  if (options.status >= 500) {
+    return `The beta host's session endpoint was unavailable (HTTP ${options.status}); retry the host.`;
+  }
+  if (options.status === 401 || options.status === 403) {
+    return `The ${credential} was rejected by this host (HTTP ${options.status}).`;
+  }
+
+  try {
+    const parsed = JSON.parse(options.body) as { error?: unknown } | null;
+    if (
+      typeof parsed?.error === "string" &&
+      /not authenticated/i.test(parsed.error)
+    ) {
+      return "The host answered successfully but did not honor the supplied session credential.";
+    }
+  } catch {
+    return `The beta host returned an unreadable session response (HTTP ${options.status}).`;
+  }
+  return `The beta host returned no authenticated identity (HTTP ${options.status}).`;
+}
+
 /** Read the live session the way the app itself would, from inside the page. */
 async function readSessionIdentity(
   context: BrowserContext,
   origin: string,
 ): Promise<{ identity?: SessionIdentity; status: number; body: string }> {
-  const page = await context.newPage();
-  try {
-    await page.goto(`${origin}/sign-in`, {
-      waitUntil: "domcontentloaded",
+  const response = await context.request.get(
+    `${origin}/_agent-native/auth/session`,
+    {
+      headers: { accept: "application/json" },
       timeout: 60_000,
-    });
-    const raw = await page.evaluate(async () => {
-      const response = await fetch("/_agent-native/auth/session", {
-        headers: { accept: "application/json" },
-      });
-      const body = await response.text();
-      return { status: response.status, body };
-    });
+    },
+  );
+  const body = await response.text();
 
-    let identity: SessionIdentity | undefined;
-    try {
-      const parsed = JSON.parse(raw.body) as { email?: string; orgId?: string };
-      if (parsed?.email) {
-        identity = {
-          email: parsed.email,
-          ...(parsed.orgId ? { orgId: parsed.orgId } : {}),
-        };
-      }
-    } catch {
-      identity = undefined;
+  let identity: SessionIdentity | undefined;
+  try {
+    const parsed = JSON.parse(body) as { email?: string; orgId?: string };
+    if (parsed?.email) {
+      identity = {
+        email: parsed.email,
+        ...(parsed.orgId ? { orgId: parsed.orgId } : {}),
+      };
     }
-
-    return { identity, status: raw.status, body: raw.body.slice(0, 400) };
-  } finally {
-    await page.close();
+  } catch {
+    identity = undefined;
   }
+
+  return { identity, status: response.status(), body: body.slice(0, 400) };
 }
 
 /**
@@ -195,55 +262,80 @@ export async function bootstrapAppSession(
   if (!blob && !token) throw new Error(missingCredentialsMessage());
 
   const context = await browser.newContext(
-    blob ? { storageState: JSON.parse(blob) } : {},
+    blob
+      ? {
+          storageState: JSON.parse(blob),
+          extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+        }
+      : { extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS },
   );
+  await installBetaE2ETrafficMarker(context);
 
   try {
     if (token) {
       // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
       // token for this host's own session cookie on any request carrying it.
       //
-      // Issued as an in-page fetch rather than a navigation on purpose. A
-      // navigation URL is echoed verbatim by Playwright into error messages,
-      // the HTML report, and CI logs — none of which are masked — so a live
-      // 30-day session token would end up in plain text on every failure.
-      // A fetch response's Set-Cookie is honoured identically.
+      // Navigate a real browser page so Set-Cookie is persisted by the same
+      // cookie jar that is saved and reused by the authenticated specs.
       const page = await context.newPage();
-      try {
-        await page.goto(`${origin}/sign-in`, {
-          waitUntil: "domcontentloaded",
-          timeout: 60_000,
-        });
-        const promoted = await page.evaluate(async (sessionToken: string) => {
-          const response = await fetch(
-            `/sign-in?_session=${encodeURIComponent(sessionToken)}`,
-            { redirect: "manual", credentials: "include" },
-          );
-          return response.status;
-        }, token);
-        if (promoted >= 500) {
+      const exchangeSession = async () => {
+        const response = await page.goto(
+          `${origin}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
+          { waitUntil: "domcontentloaded", timeout: 60_000 },
+        );
+        if (!response) {
           throw new Error(
-            `${origin} answered HTTP ${promoted} while exchanging the session token.`,
+            `${origin} returned no response while exchanging the session token.`,
           );
         }
-      } finally {
+        return response;
+      };
+      let promoted: Awaited<ReturnType<typeof exchangeSession>>;
+      try {
+        promoted = await exchangeSession();
+        for (
+          let attempt = 1;
+          shouldRetrySessionExchange(promoted.status(), attempt);
+          attempt++
+        ) {
+          await sleep(1_000 * attempt);
+          promoted = await exchangeSession();
+        }
+      } catch {
+        // Keep the live query token out of Playwright's error and report text.
         await page.close();
+        throw new Error(`${origin} failed while exchanging the session token.`);
+      }
+      await page.close();
+      if (promoted.status() >= 500) {
+        throw new Error(
+          `${origin} answered HTTP ${promoted.status()} while exchanging the session token.`,
+        );
       }
     }
 
-    const { identity, status, body } = await readSessionIdentity(
-      context,
-      origin,
-    );
+    let session = await readSessionIdentity(context, origin);
+    for (
+      let attempt = 1;
+      shouldRetrySessionExchange(session.status, attempt);
+      attempt++
+    ) {
+      await sleep(1_000 * attempt);
+      session = await readSessionIdentity(context, origin);
+    }
+    const { identity, status, body } = session;
 
     if (!identity) {
       throw new Error(
         [
           `Beta session bootstrap failed for ${site.id} (${origin}).`,
           `GET /_agent-native/auth/session returned HTTP ${status}: ${body}`,
-          token
-            ? "The supplied session token was rejected. Framework sessions expire after 30 days — re-run `pnpm e2e:beta:capture`."
-            : "The supplied storage state carried no session cookie this host accepts.",
+          sessionFailureReason({
+            status,
+            body,
+            tokenProvided: Boolean(token),
+          }),
         ].join("\n"),
       );
     }

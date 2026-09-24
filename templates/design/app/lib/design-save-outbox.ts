@@ -70,9 +70,9 @@ export function isTerminalSaveError(error: unknown): boolean {
  * The server's update-file version conflict ("File changed since it was read…").
  * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
  * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
- * the client-side "no known base version" / "changed elsewhere" 409 synthetics
- * are intentionally retained by drainEntries, and the client-build-mismatch 409
- * is a reload-then-retry.
+ * the apply-tweaks no-base-version synthetic is intentionally retained by
+ * drainEntries, while a missing update-file content hash is rebased before its
+ * action is invoked. The client-build-mismatch 409 is a reload-then-retry.
  */
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -97,6 +97,32 @@ const UPDATED_AT_INDEX = "by-updated-at";
 export const DESIGN_SAVE_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
+
+const outboxOperationChains = new WeakMap<
+  DesignSaveOutboxStorage,
+  Map<string, Promise<void>>
+>();
+
+function enqueueOutboxOperation<T>(
+  storage: DesignSaveOutboxStorage,
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const chains =
+    outboxOperationChains.get(storage) ?? new Map<string, Promise<void>>();
+  outboxOperationChains.set(storage, chains);
+  const previous = chains.get(key) ?? Promise.resolve();
+  const current = previous.then(operation);
+  const settled = current.then(
+    () => undefined,
+    () => undefined,
+  );
+  chains.set(key, settled);
+  void settled.then(() => {
+    if (chains.get(key) === settled) chains.delete(key);
+  });
+  return current;
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
@@ -301,40 +327,61 @@ export async function journalDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<void> {
-  await storage.putLatest(entry);
+  await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.putLatest(entry),
+  );
 }
 
 export async function acknowledgeDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await storage.deleteIfRevision(entry);
+  return await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.deleteIfRevision(entry),
+  );
 }
 
 export async function discardDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await storage.deleteIfRevision(entry);
+  return await enqueueOutboxOperation(storage, entry.key, () =>
+    storage.deleteIfRevision(entry),
+  );
 }
 
-/** A versioned update-file no-op is safe to acknowledge only when the server
- * proves the exact requested content is already persisted. A higher revision
- * from the same source also reports skippedStaleOperation, but its version hash
- * belongs to different content and must leave this entry conflict-retained. */
+/** A save requires an explicit acknowledgement. A supplied hash must match
+ * the requested content, including idempotent no-ops; a higher revision from
+ * the same source may acknowledge different content that must stay queued. */
 export function updateFileResultPersistedContent(
   actionResult: unknown,
   expectedContent: string,
+  unconfirmedMessage = "The file save response did not confirm persistence",
 ): boolean {
-  if (!actionResult || typeof actionResult !== "object") return true;
+  if (!actionResult || typeof actionResult !== "object") {
+    throw new Error(unconfirmedMessage);
+  }
   const result = actionResult as {
+    updated?: unknown;
     skippedStaleMirror?: unknown;
     skippedStaleOperation?: unknown;
     versionHash?: unknown;
   };
+  if (
+    result.updated !== true ||
+    (result.skippedStaleMirror !== undefined &&
+      typeof result.skippedStaleMirror !== "boolean") ||
+    (result.skippedStaleOperation !== undefined &&
+      typeof result.skippedStaleOperation !== "boolean") ||
+    (result.versionHash !== undefined && typeof result.versionHash !== "string")
+  ) {
+    throw new Error(unconfirmedMessage);
+  }
   if (result.skippedStaleMirror) return false;
-  if (!result.skippedStaleOperation) return true;
-  return result.versionHash === sourceContentHash(expectedContent);
+  if (result.versionHash !== undefined) {
+    return result.versionHash === sourceContentHash(expectedContent);
+  }
+  return !result.skippedStaleOperation;
 }
 
 async function drainEntries(
@@ -356,11 +403,12 @@ async function drainEntries(
     try {
       if (
         entry.actionName === "update-file" &&
-        entry.payload.syncCollab === false &&
-        typeof entry.payload.expectedVersionHash !== "string"
+        typeof entry.payload.content === "string" &&
+        (typeof entry.payload.expectedVersionHash !== "string" ||
+          entry.payload.expectedVersionHash.trim().length === 0)
       ) {
         const conflict = new Error(
-          "A live-collaboration mirror cannot be replayed without a known base version",
+          "File changed since it was read. Re-read the file before retrying this saved change.",
         );
         (conflict as Error & { status?: number }).status = 409;
         throw conflict;

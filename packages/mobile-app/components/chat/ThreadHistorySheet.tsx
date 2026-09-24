@@ -105,7 +105,9 @@ export function ThreadHistorySheet({
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(380, width * 0.88);
   // Start with the complete workspace history, then let the user narrow it.
-  const [selectedAppId, setSelectedAppId] = useState<"all" | string>("all");
+  const [selectedAppId, setSelectedAppId] = useState<"all" | (string & {})>(
+    "all",
+  );
   // Discards results from a superseded app-filter request.
   const requestIdRef = useRef(0);
 

@@ -27,6 +27,7 @@ describe("resolveAgentChatMcpOptions", () => {
         externalAgents: { writes: "ask_app_only" },
         builtinCrossAppTools: false,
         title: "Mail",
+        instructions: "Call view-screen before editing.",
       },
     });
     expect(resolved.enabled).toBe(false);
@@ -34,6 +35,7 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.externalAgents).toEqual({ writes: "ask_app_only" });
     expect(resolved.builtinCrossAppTools).toBe(false);
     expect(resolved.title).toBe("Mail");
+    expect(resolved.instructions).toBe("Call view-screen before editing.");
   });
 
   it("accepts the deprecated top-level keys and warns", () => {

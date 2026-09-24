@@ -3,8 +3,27 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
-import { propNameToDataAttribute } from "@shared/component-model";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerProjection,
+} from "@shared/code-layer";
+import {
+  COMPONENT_ARCHIVE_ATTR,
+  readComponentArchivePointer,
+} from "@shared/component-archive";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_OVERRIDES_ATTR,
+  COMPONENT_REF_ATTR,
+  componentNodeIdMatches,
+  propNameToDataAttribute,
+} from "@shared/component-model";
 import {
   IconArrowRight,
   IconArrowsLeftRight,
@@ -12,10 +31,11 @@ import {
   IconComponents,
   IconExternalLink,
   IconLoader2,
+  IconRefresh,
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -40,6 +60,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import type { LocalhostWriteConsentPayload } from "../LocalhostWriteConsentDialog";
+import { findCanvasIframeForScreen } from "../multi-screen/iframe-targeting";
 import {
   canRebuildAlpineDataLosslessly,
   isBooleanPropValue,
@@ -47,6 +69,20 @@ import {
   replaceAlpineDataKeyValue,
   serializeAlpineDataObject,
 } from "./code-inspect-helpers";
+import {
+  InspectorActionRail,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
+
+function isLocalhostWriteConsentError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "LocalWriteConsentRequiredError" ||
+      error.name === "WriteConsentRequiredError" ||
+      /write-consent grant|grant expired/i.test(error.message))
+  );
+}
 
 // ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
@@ -105,10 +141,25 @@ function MakeItRealCard({
   featureLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
     "connect-builder-app",
     { designId },
   );
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl:
+      data?.cta?.kind === "connect-builder" ? data.cta.connectUrl : undefined,
+    provisionAccount: true,
+    trackingSource: "design_editor_make_real",
+    trackingFlow: "design_migration",
+    onConnected: () => {
+      if (data?.cta?.kind === "connect-builder") {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "connect-builder-app", { designId }],
+        });
+      }
+    },
+  });
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
@@ -134,12 +185,6 @@ function MakeItRealCard({
 
   // "Make it real" primary action: open the connect URL or migrate.
   const handlePrimary = () => {
-    if (cta.kind === "connect-builder") {
-      // Open the Builder OAuth connect flow in a new tab.  The user completes
-      // it there and comes back; the card will re-query on next render.
-      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     if (cta.kind === "configure-project") {
       window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
       return;
@@ -164,7 +209,7 @@ function MakeItRealCard({
     return (
       <div className="flex items-center gap-2 rounded-[5px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1.5">
         <IconLoader2 className="size-3.5 shrink-0 animate-spin text-[var(--design-editor-accent-color)]" />
-        <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+        <p className="design-sidebar-field-label min-w-0 flex-1 truncate text-muted-foreground">
           {migrateResult.message ??
             `Generating ${migrateResult.branchName ?? "React app"}.`}
         </p>
@@ -201,21 +246,35 @@ function MakeItRealCard({
           aria-hidden="true"
         />
         <p
-          className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
+          className="design-sidebar-field-label min-w-0 flex-1 truncate text-muted-foreground"
           title={summary}
         >
           {summary}
         </p>
-        <Button
-          type="button"
-          size="sm"
-          onClick={handlePrimary}
-          title={cta.primaryAction}
-          className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-white hover:bg-[var(--design-editor-accent-hover-color)]"
-        >
-          {primaryLabel}
-          <IconArrowRight className="size-2.5" />
-        </Button>
+        {cta.kind === "connect-builder" ? (
+          <BuilderConnectPopover flow={builderConnect}>
+            <Button
+              type="button"
+              size="sm"
+              title={cta.primaryAction}
+              className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+            >
+              {primaryLabel}
+              <IconArrowRight className="size-2.5" />
+            </Button>
+          </BuilderConnectPopover>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={handlePrimary}
+            title={cta.primaryAction}
+            className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+          >
+            {primaryLabel}
+            <IconArrowRight className="size-2.5" />
+          </Button>
+        )}
 
         {/* When Builder is fully connected, also offer direct migration */}
         {data.connected && data.builderEnabled && (
@@ -259,7 +318,10 @@ interface ComponentDetailsResult {
   nodeId: string;
   name: string;
   sourceType: string;
+  isMain?: boolean;
+  canRestore?: boolean;
   observedProps: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
   sourceLocation?: { filePath: string; exportName?: string } | null;
   /** Component instance shape, including the Alpine `x-data` expression. */
@@ -275,6 +337,37 @@ interface ComponentDetailsResult {
     ctaRequired: boolean;
     ctaMessage?: string;
   };
+}
+
+export interface ComponentLocalSource {
+  connectionId: string;
+  path: string;
+  line: number;
+  column: number;
+  positionPrecision?: "authored" | "transformed" | "unknown";
+  runtimeMultiplicity?: number;
+  scope?:
+    | "single-instance"
+    | "repeated-render"
+    | "shared-component-definition"
+    | "unknown";
+  expectedVersionHash?: string;
+  expectedValue?: string;
+  propStamps?: Array<{ name: string; value: string }>;
+}
+
+export interface RuntimeComponentDetails {
+  name: string;
+  nodeId: string;
+  selector: string;
+  props: Array<{ name: string; value: string }>;
+  literalProps?: Array<{ name: string; value: string }>;
+  alpineData?: string | null;
+  componentId?: string;
+  componentRef?: string;
+  isMain?: boolean;
+  sourceLocation?: { filePath: string; exportName?: string };
+  local?: ComponentLocalSource;
 }
 
 /** Shape returned by `go-to-main-component`. */
@@ -317,11 +410,45 @@ interface DetachComponentInstanceResult {
 export type PropRow = {
   name: string;
   value: string;
+  literalValue?: string;
   /** Variant/enum options when the prop is a known group. */
   options?: string[];
   /** Persist surface for this prop. */
   surface: "alpineData" | "attribute";
 };
+
+/** Whether a selected linked instance subtree carries explicit override keys. */
+export function componentInstanceHasLocalOverrides(
+  projection: CodeLayerProjection,
+  root: CodeLayerNode | null | undefined,
+): boolean {
+  if (
+    !root?.dataAttributes[COMPONENT_REF_ATTR] ||
+    root.dataAttributes[COMPONENT_ID_ATTR]
+  ) {
+    return false;
+  }
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  return projection.nodes.some((node) => {
+    const raw = node.dataAttributes[COMPONENT_OVERRIDES_ATTR];
+    if (typeof raw !== "string" || !raw.trim()) return false;
+    let current: CodeLayerNode | undefined = node;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      if (current.id === root.id) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(raw)) as unknown;
+          return !Array.isArray(parsed) || parsed.length > 0;
+        } catch {
+          return true;
+        }
+      }
+      visited.add(current.id);
+      current = current.parentId ? nodesById.get(current.parentId) : undefined;
+    }
+    return false;
+  });
+}
 
 /**
  * Build the editable prop rows for a component instance from
@@ -337,9 +464,18 @@ export function buildComponentPropRows(data: {
   instance?: { alpineData?: string | null } | null;
   observedProps: Array<{ name: string; value: string }>;
   persistedVariants: Record<string, string[]>;
+  literalProps?: Array<{ name: string; value: string }>;
 }): PropRow[] {
-  const { observedProps, persistedVariants, instance } = data;
+  const {
+    observedProps,
+    persistedVariants,
+    instance,
+    literalProps = [],
+  } = data;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
+  const literalValues = new Map(
+    literalProps.map(({ name, value }) => [name, value]),
+  );
 
   const rows: PropRow[] = [];
   const seen = new Set<string>();
@@ -363,13 +499,29 @@ export function buildComponentPropRows(data: {
     rows.push({
       name: prop.name,
       value: prop.value,
+      ...(literalValues.has(prop.name)
+        ? { literalValue: literalValues.get(prop.name) }
+        : {}),
       options: persistedVariants[prop.name],
       surface: "attribute",
     });
     seen.add(prop.name);
   }
 
-  // 3) persistedVariant groups with no observed value yet (default to first).
+  // 3) Verified literal invocation props that are not reflected in the host DOM.
+  for (const prop of literalProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      literalValue: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 4) persistedVariant groups with no observed value yet (default to first).
   // Surface is always "attribute" here, NOT "alpineData" even when this
   // instance's x-data happens to be non-empty for other keys: x-data blocks
   // for a real component instance are written with every prop the component
@@ -386,7 +538,10 @@ export function buildComponentPropRows(data: {
     if (seen.has(group)) continue;
     rows.push({
       name: group,
-      value: options[0] ?? "",
+      value: literalValues.get(group) ?? options[0] ?? "",
+      ...(literalValues.has(group)
+        ? { literalValue: literalValues.get(group) }
+        : {}),
       options,
       surface: "attribute",
     });
@@ -437,20 +592,43 @@ export function isMessageFromOwnPreviewIframe(
 export function ComponentSection({
   designId,
   fileId,
+  boardFileId,
+  previewFrameId,
   activeContent,
   activeFileUpdatedAt,
+  getExpectedFiles,
+  componentDetailsReady = true,
   nodeId,
   swapPickerRequest = 0,
+  hasLocalOverrides = false,
+  onResetOverrides,
+  onRestoreComponent,
   onComponentPropApplied,
   sourceCapabilities = [],
+  runtime,
+  requestLocalhostWrite,
 }: {
   designId: string;
   fileId?: string;
+  /** Reserved board file id for the dedicated board preview iframe. */
+  boardFileId?: string;
+  /** Host iframe id for live prop previews when several frames are mounted. */
+  previewFrameId?: string;
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
+  /** Current hashes for every HTML file when a linked prop edit spans Screens. */
+  getExpectedFiles?: () => Array<{ fileId: string; versionHash: string }>;
+  /** Whether the selected component is present in the accepted source snapshot. */
+  componentDetailsReady?: boolean;
   nodeId: string;
   /** Increment to open the Swap instance picker from another UI entry point. */
   swapPickerRequest?: number;
+  /** True when the selected linked instance subtree has local override keys. */
+  hasLocalOverrides?: boolean;
+  /** Reset the selected linked instance through the editor's mutation queue. */
+  onResetOverrides?: () => void;
+  /** Restore the selected linked component through the editor's mutation queue. */
+  onRestoreComponent?: () => void;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -458,10 +636,40 @@ export function ComponentSection({
   ) => void;
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
+  /** Live component metadata used when a URL file stores only its route URL. */
+  runtime?: RuntimeComponentDetails;
+  /** Request the existing localhost write-consent dialog before source writes. */
+  requestLocalhostWrite?: (opts: {
+    files: string[];
+    onGranted: LocalhostWriteConsentPayload["onGranted"];
+    onCancel?: () => void;
+  }) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
+  const [runtimePropOverride, setRuntimePropOverride] = useState<Array<{
+    name: string;
+    value: string;
+  }> | null>(null);
+  const effectiveRuntime = runtime
+    ? {
+        ...runtime,
+        props: runtimePropOverride ?? runtime.props,
+      }
+    : undefined;
+  const propPreviewStateRef = useRef(
+    new Map<string, { generation: number; authoritativeValue: string }>(),
+  );
+  useEffect(() => {
+    setRuntimePropOverride(null);
+    propPreviewStateRef.current.clear();
+  }, [nodeId, runtime?.nodeId, runtime?.props]);
+  const detailsParams = {
+    designId,
+    nodeId,
+    ...(fileId ? { fileId } : {}),
+    ...(effectiveRuntime ? { runtime: effectiveRuntime } : {}),
+  };
   const detailsKey = ["action", "get-component-details", detailsParams];
   const latestSourceRef = useRef<{
     content: string;
@@ -470,6 +678,8 @@ export function ComponentSection({
     content: activeContent ?? "",
     revision: activeFileUpdatedAt ?? null,
   });
+  const componentDetailsReadyRef = useRef(componentDetailsReady);
+  componentDetailsReadyRef.current = componentDetailsReady;
 
   useEffect(() => {
     latestSourceRef.current = {
@@ -482,8 +692,33 @@ export function ComponentSection({
     useActionQuery<ComponentDetailsResult>(
       "get-component-details",
       detailsParams,
-      { refetchOnMount: "always" },
+      { refetchOnMount: "always", enabled: componentDetailsReady },
     );
+  const sourceRestoreState = useMemo<
+    "unreadable" | "absent" | "invalid" | "valid"
+  >(() => {
+    if (typeof activeContent !== "string") return "unreadable";
+    try {
+      const node = buildCodeLayerProjection(activeContent, {
+        source: {
+          kind: "design-file",
+          designId,
+          ...(fileId ? { fileId } : {}),
+        },
+      }).nodes.find((candidate) => componentNodeIdMatches(candidate, nodeId));
+      if (!node) return "absent";
+      const componentRef = node.dataAttributes[COMPONENT_REF_ATTR]?.trim();
+      if (!componentRef) return "absent";
+      const archive = readComponentArchivePointer(
+        node.dataAttributes[COMPONENT_ARCHIVE_ATTR],
+      );
+      if (archive.status === "absent") return "absent";
+      if (archive.status === "invalid") return "invalid";
+      return archive.pointer.componentId === componentRef ? "valid" : "invalid";
+    } catch {
+      return "unreadable";
+    }
+  }, [activeContent, designId, fileId, nodeId]);
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
@@ -529,10 +764,10 @@ export function ComponentSection({
     }
     void queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
     void queryClient.invalidateQueries({ queryKey: detailsKey });
-    void refetch();
   };
 
   const sourceForMutation = () => {
+    if (effectiveRuntime?.local) return undefined;
     const latestSource = latestSourceRef.current;
     return latestSource.content
       ? {
@@ -639,8 +874,12 @@ export function ComponentSection({
     (attribute: string, value: string) => {
       if (typeof document === "undefined") return;
 
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
+      const targetFrameId = previewFrameId ?? fileId;
+      if (!targetFrameId) return;
+      const iframe = findCanvasIframeForScreen(
+        document.body,
+        targetFrameId,
+        boardFileId,
       );
       iframe?.contentWindow?.postMessage(
         {
@@ -652,8 +891,51 @@ export function ComponentSection({
         "*",
       );
     },
-    [data?.instance?.nodeId, data?.instance?.selector, nodeId],
+    [
+      data?.instance?.nodeId,
+      data?.instance?.selector,
+      boardFileId,
+      fileId,
+      nodeId,
+      previewFrameId,
+    ],
   );
+
+  const updateLocalSourceCache = (content: unknown, versionHash: unknown) => {
+    if (
+      !effectiveRuntime?.local ||
+      (typeof content !== "string" && typeof versionHash !== "string")
+    )
+      return;
+    queryClient.setQueryData(
+      [
+        "action",
+        "read-local-file",
+        {
+          designId,
+          connectionId: effectiveRuntime.local.connectionId,
+          path: effectiveRuntime.local.path,
+        },
+      ],
+      (previous: { content?: string; versionHash?: string } | undefined) => ({
+        ...previous,
+        ...(typeof content === "string" ? { content } : {}),
+        ...(typeof versionHash === "string" ? { versionHash } : {}),
+      }),
+    );
+  };
+
+  const updateRuntimeProp = (propName: string | undefined, value: string) => {
+    if (!effectiveRuntime || !propName) return;
+    setRuntimePropOverride((previous) => {
+      const props = previous ?? effectiveRuntime.props;
+      const index = props.findIndex((prop) => prop.name === propName);
+      if (index === -1) return [...props, { name: propName, value }];
+      return props.map((prop, propIndex) =>
+        propIndex === index ? { ...prop, value } : prop,
+      );
+    });
+  };
 
   // Persist a single prop change through apply-component-prop-edit. Attribute
   // props also preview immediately in the iframe so the selected component
@@ -661,49 +943,119 @@ export function ComponentSection({
   const persistPropEdit = (
     edit:
       | { kind: "alpineData"; value: string }
-      | { kind: "attribute"; attribute: string; value: string },
-    optimistic: (prev: ComponentDetailsResult) => ComponentDetailsResult,
+      | {
+          kind: "attribute";
+          attribute: string;
+          value: string;
+          expectedValue?: string;
+          previewValue?: string;
+          propName?: string;
+        },
   ) => {
-    queryClient.setQueryData<ComponentDetailsResult>(detailsKey, (prev) =>
-      prev ? optimistic(prev) : prev,
-    );
+    const previousPreviewValue =
+      edit.kind === "attribute"
+        ? (edit.previewValue ?? edit.expectedValue ?? "")
+        : undefined;
+    const previewGeneration =
+      edit.kind === "attribute"
+        ? (propPreviewStateRef.current.get(edit.attribute)?.generation ?? 0) + 1
+        : undefined;
+    if (edit.kind === "attribute") {
+      const previous = propPreviewStateRef.current.get(edit.attribute);
+      propPreviewStateRef.current.set(edit.attribute, {
+        generation: previewGeneration!,
+        authoritativeValue:
+          previous?.authoritativeValue ?? previousPreviewValue!,
+      });
+    }
+    const rollbackPreview = () => {
+      if (edit.kind !== "attribute") return;
+      const current = propPreviewStateRef.current.get(edit.attribute);
+      if (!current || current.generation !== previewGeneration) return;
+      postComponentPropPreview(edit.attribute, current.authoritativeValue);
+    };
     if (edit.kind === "attribute") {
       postComponentPropPreview(edit.attribute, edit.value);
     }
     const latestSource = latestSourceRef.current;
-    applyPropMutation.mutate(
-      {
-        designId,
-        nodeId,
-        ...(fileId ? { fileId } : {}),
-        edit,
-        ...(latestSource.content
+    const mutationSource = effectiveRuntime?.local
+      ? {
+          local: {
+            ...effectiveRuntime.local,
+            ...(edit.kind === "attribute" && edit.expectedValue !== undefined
+              ? { expectedValue: edit.expectedValue }
+              : {}),
+          },
+        }
+      : latestSource.content
+        ? {
+            currentContent: latestSource.content,
+            ...(latestSource.revision
+              ? { revision: latestSource.revision }
+              : {}),
+            ...(getExpectedFiles ? { expectedFiles: getExpectedFiles() } : {}),
+          }
+        : undefined;
+    const payload = {
+      designId,
+      nodeId,
+      ...(fileId ? { fileId } : {}),
+      edit:
+        edit.kind === "attribute"
           ? {
-              source: {
-                currentContent: latestSource.content,
-                ...(latestSource.revision
-                  ? { revision: latestSource.revision }
-                  : {}),
-              },
+              kind: "attribute" as const,
+              attribute: edit.attribute,
+              value: edit.value,
             }
-          : {}),
-      },
-      {
+          : edit,
+      ...(mutationSource ? { source: mutationSource } : {}),
+    };
+    const submit = (retriedAfterConsent = false) => {
+      applyPropMutation.mutate(payload, {
         onSuccess: (result) => {
           const response = result as {
             content?: unknown;
             fileId?: unknown;
             updatedAt?: unknown;
             conflict?: unknown;
+            ctaRequired?: unknown;
+            persisted?: unknown;
             error?: unknown;
+            source?: {
+              connectionId?: unknown;
+              path?: unknown;
+              versionHash?: unknown;
+            };
+            result?: { status?: unknown; message?: unknown };
           };
-          if (response.conflict) {
+          const resultStatus = response.result?.status;
+          updateLocalSourceCache(
+            response.content,
+            response.source?.versionHash,
+          );
+          if (
+            response.conflict ||
+            response.ctaRequired ||
+            response.persisted === false ||
+            (typeof resultStatus === "string" && resultStatus !== "applied")
+          ) {
+            rollbackPreview();
             toast.error(
               typeof response.error === "string"
                 ? response.error
-                : "This file changed since this component prop edit was prepared. Refresh and try again.",
+                : t("designEditor.toasts.componentCreateFailed"),
             );
             return;
+          }
+          if (edit.kind === "attribute") {
+            const current = propPreviewStateRef.current.get(edit.attribute);
+            if (current) {
+              propPreviewStateRef.current.set(edit.attribute, {
+                ...current,
+                authoritativeValue: edit.value,
+              });
+            }
+            updateRuntimeProp(edit.propName, edit.value);
           }
           if (
             typeof response.fileId === "string" &&
@@ -724,15 +1076,36 @@ export function ComponentSection({
             );
           }
         },
+        onError: (error: unknown) => {
+          if (
+            !retriedAfterConsent &&
+            effectiveRuntime?.local &&
+            requestLocalhostWrite &&
+            isLocalhostWriteConsentError(error)
+          ) {
+            requestLocalhostWrite({
+              files: [effectiveRuntime.local.path],
+              onGranted: () => submit(true),
+              onCancel: rollbackPreview,
+            });
+            return;
+          }
+          rollbackPreview();
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.componentCreateFailed"),
+          );
+        },
         onSettled: () => {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           void queryClient.invalidateQueries({ queryKey: detailsKey });
-          void refetch();
         },
-      },
-    );
+      });
+    };
+    submit();
   };
 
   useEffect(() => {
@@ -745,7 +1118,7 @@ export function ComponentSection({
         return;
       }
       if (!isMessageFromOwnPreviewIframe(event.source)) return;
-      void refetch();
+      if (componentDetailsReadyRef.current) void refetch();
     };
     window.addEventListener("message", handleMessage);
     return () => {
@@ -754,13 +1127,13 @@ export function ComponentSection({
   }, [refetch]);
 
   // While loading, show a compact skeleton that matches the section width.
-  if (isLoading) {
+  if (isLoading || !componentDetailsReady) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
-        <div className="flex min-h-9 items-center gap-2 px-3">
+        <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
           <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
         </div>
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5">
+        <div className="design-sidebar-section-content pt-0">
           <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
           <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
         </div>
@@ -780,7 +1153,12 @@ export function ComponentSection({
     persistedVariants,
     instance,
     capabilities,
+    canRestore: serverCanRestore,
   } = data;
+  const canRestore =
+    sourceRestoreState === "unreadable"
+      ? serverCanRestore
+      : sourceRestoreState === "valid";
 
   // ── Editable prop model ───────────────────────────────────────────────────
   // Inline/Alpine designs persist through apply-component-prop-edit. Two write
@@ -790,19 +1168,20 @@ export function ComponentSection({
   // Real-app sources keep the deeper source-prop controls gated as-is, so for
   // non-inline sources the controls are read-only here.
   const isInline = sourceType === "inline";
-  const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
+  const editingEnabled =
+    (isInline || Boolean(effectiveRuntime?.local)) && capabilities.canEditProps;
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
   const rows: PropRow[] = buildComponentPropRows({
     instance,
     observedProps,
     persistedVariants,
+    literalProps: data.literalProps ?? effectiveRuntime?.literalProps,
   });
 
   const hasRows = rows.length > 0;
 
-  // Build the apply-component-prop-edit payload + optimistic cache patch for a
-  // single prop change.
+  // Build the apply-component-prop-edit payload for a single prop change.
   const commitProp = (row: PropRow, nextValue: string) => {
     if (!editingEnabled || nextValue === row.value) return;
 
@@ -834,35 +1213,16 @@ export function ComponentSection({
       }
 
       const nextSerialized = serialized;
-      persistPropEdit(
-        { kind: "alpineData", value: nextSerialized },
-        (prev) => ({
-          ...prev,
-          instance: { ...(prev.instance ?? {}), alpineData: nextSerialized },
-          observedProps: prev.observedProps.map((p) =>
-            p.name === row.name ? { ...p, value: nextValue } : p,
-          ),
-        }),
-      );
+      persistPropEdit({ kind: "alpineData", value: nextSerialized });
     } else {
-      persistPropEdit(
-        {
-          kind: "attribute",
-          attribute: propNameToDataAttribute(row.name),
-          value: nextValue,
-        },
-        (prev) => {
-          const exists = prev.observedProps.some((p) => p.name === row.name);
-          return {
-            ...prev,
-            observedProps: exists
-              ? prev.observedProps.map((p) =>
-                  p.name === row.name ? { ...p, value: nextValue } : p,
-                )
-              : [...prev.observedProps, { name: row.name, value: nextValue }],
-          };
-        },
-      );
+      persistPropEdit({
+        kind: "attribute",
+        attribute: propNameToDataAttribute(row.name),
+        value: nextValue,
+        expectedValue: row.literalValue,
+        previewValue: row.value,
+        propName: row.name,
+      });
     }
   };
 
@@ -879,170 +1239,231 @@ export function ComponentSection({
 
   return (
     <section
-      className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0"
+      className="design-sidebar-section shrink-0"
       data-testid="component-section"
     >
       {/* ── Section header ── */}
-      <div className="flex min-h-9 items-center gap-2 px-3">
-        {/* Accent diamond matching the workbench artboard component rows */}
-        <span
-          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
-          aria-hidden="true"
-        />
-        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
-          {name}
-        </h3>
-        {/* Instance operations: Go to main component / Swap instance /
+      <div className="px-2">
+        <InspectorGrid
+          className="min-h-[var(--design-section-height)] items-center"
+          layout="header-actions"
+        >
+          <InspectorGridCell span={20}>
+            <div className="flex min-w-0 items-center gap-2">
+              {/* Accent diamond matching the workbench artboard component rows */}
+              <span
+                className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
+                aria-hidden="true"
+              />
+              <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
+                {name}
+              </h3>
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell span={8}>
+            <InspectorActionRail>
+              {/* Instance operations: Go to main component / Swap instance /
             Detach instance (Figma's instance-only affordances). Inline/Alpine
             designs only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
-        {isInline && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={goToMainMutation.isPending}
-                  aria-label={t("designEditor.componentInstances.goToMain")}
-                  onClick={handleGoToMainComponent}
-                >
-                  <IconComponents className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("designEditor.componentInstances.goToMain")}
-              </TooltipContent>
-            </Tooltip>
+              {isInline && !data.isMain && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={
+                          canRestore
+                            ? !onRestoreComponent
+                            : goToMainMutation.isPending
+                        }
+                        aria-label={t(
+                          canRestore
+                            ? "designEditor.componentInstances.restore"
+                            : "designEditor.componentInstances.goToMain",
+                        )}
+                        onClick={
+                          canRestore
+                            ? onRestoreComponent
+                            : handleGoToMainComponent
+                        }
+                      >
+                        {canRestore ? (
+                          <IconRefresh className="size-3.5" />
+                        ) : (
+                          <IconComponents className="size-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        canRestore
+                          ? "designEditor.componentInstances.restore"
+                          : "designEditor.componentInstances.goToMain",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
 
-            <Popover
-              open={swapPickerOpen}
-              onOpenChange={(open) => {
-                setSwapPickerOpen(open);
-                if (!open) setSwapQuery("");
-              }}
-            >
+                  <Popover
+                    open={swapPickerOpen}
+                    onOpenChange={(open) => {
+                      setSwapPickerOpen(open);
+                      if (!open) setSwapQuery("");
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={!editingEnabled || swapMutation.isPending}
+                            aria-label={t(
+                              "designEditor.componentInstances.swap",
+                            )}
+                          >
+                            <IconArrowsLeftRight className="size-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("designEditor.componentInstances.swap")}
+                      </TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="end"
+                      className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
+                    >
+                      <Input
+                        autoFocus
+                        value={swapQuery}
+                        onChange={(e) => setSwapQuery(e.target.value)}
+                        placeholder={t(
+                          "designEditor.componentInstances.searchComponents",
+                        )}
+                        className="mb-1.5 h-7 !text-[11px]"
+                      />
+                      <div className="max-h-52 overflow-y-auto">
+                        {swapCatalogLoading ? (
+                          <div className="px-2 py-1.5 text-muted-foreground">
+                            {t("designEditor.componentInstances.loading")}
+                          </div>
+                        ) : swapCandidates.length === 0 ? (
+                          <div className="px-2 py-1.5 text-muted-foreground">
+                            {t(
+                              "designEditor.componentInstances.noOtherComponents",
+                            )}
+                          </div>
+                        ) : (
+                          swapCandidates.map((candidate) => (
+                            <button
+                              key={candidate.name}
+                              type="button"
+                              disabled={swapMutation.isPending}
+                              onClick={() => handleSwapInstance(candidate.name)}
+                              className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
+                            >
+                              <span className="min-w-0 flex-1 truncate">
+                                {candidate.name}
+                              </span>
+                              <span className="design-sidebar-field-label shrink-0 text-muted-foreground">
+                                {candidate.instanceCount}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!editingEnabled || detachMutation.isPending}
+                        aria-label={t("designEditor.componentInstances.detach")}
+                        onClick={handleDetachInstance}
+                      >
+                        <IconUnlink className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("designEditor.componentInstances.detach")}
+                      <span className="ms-1.5 text-muted-foreground/70">
+                        {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                  {hasLocalOverrides && onResetOverrides ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={
+                            !editingEnabled || applyPropMutation.isPending
+                          }
+                          aria-label={t(
+                            "editPanel.interactionStates.resetOverride",
+                          )}
+                          onClick={onResetOverrides}
+                        >
+                          <IconRefresh className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("editPanel.interactionStates.resetOverride")}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </>
+              )}
+              {/* Jump-to-source action */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!editingEnabled || swapMutation.isPending}
-                      aria-label={t("designEditor.componentInstances.swap")}
-                    >
-                      <IconArrowsLeftRight className="size-3.5" />
-                    </Button>
-                  </PopoverTrigger>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!canJumpToSource}
+                    aria-label={t("designEditor.componentSource.editSource")}
+                    onClick={() => {
+                      openSourceMutation.mutate({
+                        designId,
+                        nodeId,
+                        ...(fileId ? { fileId } : {}),
+                      });
+                    }}
+                  >
+                    <IconExternalLink className="size-3.5" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {t("designEditor.componentInstances.swap")}
+                  {canJumpToSource
+                    ? t("designEditor.componentSource.editSource")
+                    : (capabilities.ctaMessage ??
+                      t("designEditor.componentSource.needsConnectedApp"))}
                 </TooltipContent>
               </Tooltip>
-              <PopoverContent
-                align="end"
-                className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
-              >
-                <Input
-                  autoFocus
-                  value={swapQuery}
-                  onChange={(e) => setSwapQuery(e.target.value)}
-                  placeholder={t(
-                    "designEditor.componentInstances.searchComponents",
-                  )}
-                  className="mb-1.5 h-7 !text-[11px]"
-                />
-                <div className="max-h-52 overflow-y-auto">
-                  {swapCatalogLoading ? (
-                    <div className="px-2 py-1.5 text-muted-foreground">
-                      {t("designEditor.componentInstances.loading")}
-                    </div>
-                  ) : swapCandidates.length === 0 ? (
-                    <div className="px-2 py-1.5 text-muted-foreground">
-                      {t("designEditor.componentInstances.noOtherComponents")}
-                    </div>
-                  ) : (
-                    swapCandidates.map((candidate) => (
-                      <button
-                        key={candidate.name}
-                        type="button"
-                        disabled={swapMutation.isPending}
-                        onClick={() => handleSwapInstance(candidate.name)}
-                        className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-white disabled:cursor-wait disabled:opacity-60"
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {candidate.name}
-                        </span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {candidate.instanceCount}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={!editingEnabled || detachMutation.isPending}
-                  aria-label={t("designEditor.componentInstances.detach")}
-                  onClick={handleDetachInstance}
-                >
-                  <IconUnlink className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("designEditor.componentInstances.detach")}
-                <span className="ms-1.5 text-muted-foreground/70">
-                  {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          </>
-        )}
-        {/* Jump-to-source action */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!canJumpToSource}
-              aria-label={t("designEditor.componentSource.editSource")}
-              onClick={() => {
-                openSourceMutation.mutate({
-                  designId,
-                  nodeId,
-                  ...(fileId ? { fileId } : {}),
-                });
-              }}
-            >
-              <IconExternalLink className="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {canJumpToSource
-              ? t("designEditor.componentSource.editSource")
-              : (capabilities.ctaMessage ??
-                t("designEditor.componentSource.needsConnectedApp"))}
-          </TooltipContent>
-        </Tooltip>
+            </InspectorActionRail>
+          </InspectorGridCell>
+        </InspectorGrid>
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
+      <div className="design-sidebar-section-content !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -1050,7 +1471,7 @@ export function ComponentSection({
             title={sourceChip}
           >
             <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            <span className="design-sidebar-field-label min-w-0 flex-1 truncate font-mono text-muted-foreground">
               {sourceChip}
             </span>
           </div>
@@ -1060,7 +1481,7 @@ export function ComponentSection({
             through apply-component-prop-edit; real-app sources are read-only
             until the deeper source-prop controls land. */}
         {hasRows && (
-          <div className="space-y-1">
+          <div className="design-sidebar-control-stack">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
               {t("designEditor.componentProps.label")}
             </p>
@@ -1069,64 +1490,68 @@ export function ComponentSection({
               const isBoolean = !hasOptions && isBooleanPropValue(row.value);
               const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
-                <div key={row.name} className="flex items-center gap-1.5">
-                  <Label className="w-[64px] shrink-0 truncate !text-[11px] font-medium capitalize text-muted-foreground">
-                    {row.name}
-                  </Label>
-                  {hasOptions ? (
-                    // Dropdown for variant / enum groups.
-                    <Select
-                      value={row.value || row.options![0] || ""}
-                      onValueChange={(v) => commitProp(row, v)}
-                      disabled={disabled}
-                    >
-                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {row.options!.map((opt) => (
-                          <SelectItem
-                            key={opt}
-                            value={opt}
-                            className="!text-[11px]"
-                          >
-                            {opt}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : isBoolean ? (
-                    // Toggle for boolean props.
-                    <div className="flex min-w-0 flex-1 items-center">
-                      <Switch
-                        checked={row.value.trim().toLowerCase() === "true"}
-                        onCheckedChange={(checked) =>
-                          commitProp(row, checked ? "true" : "false")
-                        }
+                <InspectorGrid key={row.name} className="items-center">
+                  <InspectorGridCell span={8}>
+                    <Label className="design-sidebar-field-label min-w-0 truncate capitalize text-muted-foreground">
+                      {row.name}
+                    </Label>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={20}>
+                    {hasOptions ? (
+                      // Dropdown for variant / enum groups.
+                      <Select
+                        value={row.value || row.options![0] || ""}
+                        onValueChange={(v) => commitProp(row, v)}
                         disabled={disabled}
-                        className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
-                        aria-label={
-                          row.name /* i18n-ignore dynamic prop name */
-                        }
+                      >
+                        <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {row.options!.map((opt) => (
+                            <SelectItem
+                              key={opt}
+                              value={opt}
+                              className="!text-[11px]"
+                            >
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : isBoolean ? (
+                      // Toggle for boolean props.
+                      <div className="flex min-w-0 items-center">
+                        <Switch
+                          checked={row.value.trim().toLowerCase() === "true"}
+                          onCheckedChange={(checked) =>
+                            commitProp(row, checked ? "true" : "false")
+                          }
+                          disabled={disabled}
+                          className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                          aria-label={
+                            row.name /* i18n-ignore dynamic prop name */
+                          }
+                        />
+                      </div>
+                    ) : (
+                      // Text input for string props (e.g. a label).
+                      <Input
+                        defaultValue={row.value}
+                        key={`${row.name}:${row.value}`}
+                        disabled={disabled}
+                        onBlur={(e) => commitProp(row, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
                       />
-                    </div>
-                  ) : (
-                    // Text input for string props (e.g. a label).
-                    <Input
-                      defaultValue={row.value}
-                      key={`${row.name}:${row.value}`}
-                      disabled={disabled}
-                      onBlur={(e) => commitProp(row, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
-                    />
-                  )}
-                </div>
+                    )}
+                  </InspectorGridCell>
+                </InspectorGrid>
               );
             })}
           </div>

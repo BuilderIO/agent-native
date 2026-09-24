@@ -85,6 +85,15 @@ export function resolveDeployEnvironment(): string {
   );
 }
 
+/** Whether the dedicated deployment identity explicitly opts into local mode. */
+export function isExplicitLocalDeployEnvironment(): boolean {
+  return (
+    firstNonEmpty(
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+    )?.toLowerCase() === "local"
+  );
+}
+
 /**
  * Resolve the agent-native version baked into core's package.json so the
  * reported "release" reflects the running framework version. Mirrors how the

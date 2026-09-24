@@ -34,9 +34,8 @@ build
 !.env.example
 
 # Data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+data/pglite/
+data/*.lock
 data/uploads/
 data/settings.json
 data/.sessions.json

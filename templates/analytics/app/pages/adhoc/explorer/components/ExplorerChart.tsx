@@ -23,6 +23,15 @@ import type { ExplorerConfig } from "../types";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : JSON.stringify(value);
+}
+
 const COLORS = [
   "var(--brand-blue)",
   "#f59e0b",
@@ -117,7 +126,7 @@ function MetricView({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
       {rows.map((row, i) => {
-        const label = String(
+        const label = stringifyValue(
           row.event_label ?? config.events[0]?.event ?? "Count",
         );
         const value = Number(row.count ?? 0);
@@ -266,7 +275,7 @@ function TimeSeriesView({
 
     for (const row of rows) {
       const d = formatDate(row.date);
-      const s = String(row[seriesKey] ?? "unknown");
+      const s = stringifyValue(row[seriesKey] ?? "unknown");
       const v = Number(row.count ?? 0);
       allSeries.add(s);
       if (!dateMap.has(d)) dateMap.set(d, {});
@@ -359,10 +368,10 @@ function TimeSeriesView({
 
 function formatDate(val: unknown): string {
   if (!val) return "";
-  const s = String(val);
+  const s = stringifyValue(val);
   // BigQuery DATE format: { value: "2024-01-15" } or plain string
   if (typeof val === "object" && val !== null && "value" in val) {
-    return String((val as any).value);
+    return stringifyValue((val as { value: unknown }).value);
   }
   return s.slice(0, 10);
 }
@@ -371,6 +380,6 @@ function formatCell(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "number") return val.toLocaleString();
   if (typeof val === "object" && val !== null && "value" in val)
-    return String((val as any).value);
-  return String(val);
+    return stringifyValue((val as { value: unknown }).value);
+  return stringifyValue(val);
 }

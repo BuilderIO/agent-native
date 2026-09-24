@@ -24,6 +24,7 @@ vi.mock("../server/lib/event-guest-notifications.js", () => ({
   sendEventGuestNotificationNote: vi.fn(),
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-event";
 
 describe("delete-event", () => {
@@ -35,20 +36,117 @@ describe("delete-event", () => {
     removeEventFromCalendarMock.mockResolvedValue(undefined);
   });
 
-  it("returns a terminal already-absent result for a Google 404", async () => {
-    deleteEventMock.mockRejectedValue(
-      new Error("Google API error (404): Not Found"),
+  it.each([404, 410])(
+    "returns a terminal already-absent result for a Google %s",
+    async (status) => {
+      deleteEventMock.mockRejectedValue(
+        new Error(`Google API error (${status}): Gone`),
+      );
+
+      await expect(
+        action.run({ id: "google-gone", scope: "single" }),
+      ).resolves.toEqual({
+        success: true,
+        alreadyAbsent: true,
+        id: "google-gone",
+        accountEmail: "owner@example.com",
+        scope: "single",
+        removedOnly: false,
+      });
+    },
+  );
+
+  it("treats a removed calendar copy as already absent", async () => {
+    removeEventFromCalendarMock.mockRejectedValue(
+      new Error("Google API error (410): Resource has been deleted"),
     );
 
     await expect(
-      action.run({ id: "google-gone", scope: "single" }),
+      action.run({
+        id: "google-gone",
+        accountEmail: "owner@example.com",
+        removeOnly: true,
+      }),
     ).resolves.toEqual({
       success: true,
       alreadyAbsent: true,
       id: "google-gone",
       accountEmail: "owner@example.com",
       scope: "single",
-      removedOnly: false,
+      removedOnly: true,
     });
+  });
+
+  it("rejects namespaced shared-calendar events before any mutation", async () => {
+    await expect(
+      action.run({
+        id: "google-google-calendar:opaque-source-shared-event",
+        scope: "single",
+      }),
+    ).rejects.toThrow("Shared Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects overlaid-calendar events before any mutation", async () => {
+    await expect(
+      action.run({
+        id: "overlay-person@example.com-overlay-event",
+        scope: "single",
+      }),
+    ).rejects.toThrow("Overlay Google calendar events are read-only");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an account that conflicts with the opaque event identity", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      action.run({
+        id,
+        accountEmail: "zulu@example.com",
+        scope: "single",
+      }),
+    ).rejects.toThrow("does not match");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+  });
+
+  it("gates only a delete that reaches the guests", async () => {
+    const gate = action.needsApproval;
+    if (typeof gate !== "function") throw new Error("expected a predicate");
+
+    expect(await gate({ id: "google-a" } as never)).toBe(false);
+    expect(await gate({ id: "google-a", sendUpdates: "none" } as never)).toBe(
+      false,
+    );
+    expect(await gate({ id: "google-a", sendUpdates: "all" } as never)).toBe(
+      true,
+    );
+    expect(
+      await gate({ id: "google-a", notificationMessage: "Sorry!" } as never),
+    ).toBe(true);
+    // A blank note sends no companion email, so it is not a reason to stop.
+    expect(
+      await gate({ id: "google-a", notificationMessage: "   " } as never),
+    ).toBe(false);
+    // removeOnly forces sendUpdates to none, so no guest hears about it.
+    expect(
+      await gate({
+        id: "google-a",
+        sendUpdates: "all",
+        removeOnly: "true",
+      } as never),
+    ).toBe(false);
   });
 });

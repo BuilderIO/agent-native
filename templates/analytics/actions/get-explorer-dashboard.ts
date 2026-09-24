@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -34,6 +34,7 @@ export default defineAction({
       orgId: dash.orgId,
       visibility: dash.visibility,
       createdAt: dash.createdAt,
+      createdBy: dash.createdBy,
       updatedAt: dash.updatedAt,
       updatedBy: dash.updatedBy,
       role: dash.role,

@@ -96,7 +96,27 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app-shell"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["clsx", "react", "tailwind-merge"],
+      "dependencies": [
+        "@radix-ui/react-collapsible",
+        "@radix-ui/react-scroll-area",
+        "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
+        "clsx",
+        "react",
+        "tailwind-merge"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/clipboard",
+      "label": "Clipboard helper",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["clipboard"],
+      "entrypoints": ["./clipboard"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/clipboard.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -109,7 +129,9 @@
       "sourceEntries": ["src/collab-ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
         "clsx",
         "react",
         "tailwind-merge",
@@ -199,7 +221,9 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@assistant-ui/react",
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-popover",
+        "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
@@ -208,9 +232,12 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "react-dom",
+        "sonner",
         "tailwind-merge"
       ],
       "protectedImports": [
@@ -219,6 +246,16 @@
         "@agent-native/toolkit/ui/skeleton"
       ],
       "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/agentkit",
+      "label": "AgentKit UI facade",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["agentkit"],
+      "entrypoints": ["./agentkit"],
+      "strategy": "protected-seam",
+      "seam": "@agent-native/toolkit/agentkit",
+      "protectedImports": ["@agent-native/toolkit/agentkit"]
     },
     {
       "id": "toolkit/conformance",
@@ -267,11 +304,14 @@
       "sourceEntries": ["src/design-tweaks"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-dialog",
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-select",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",
+        "cmdk",
         "clsx",
         "react",
         "tailwind-merge"
@@ -381,6 +421,7 @@
         }
       ],
       "dependencies": [
+        "@radix-ui/react-dropdown-menu",
         "@tabler/icons-react",
         "@radix-ui/react-popover",
         "@radix-ui/react-tooltip",
@@ -406,6 +447,7 @@
         "highlight.js",
         "lowlight",
         "react",
+        "react-dom",
         "tailwind-merge",
         "tiptap-markdown",
         "y-protocols",
@@ -442,6 +484,27 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/onboarding"],
       "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["react"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/marketing",
+      "label": "Marketing home shell",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["marketing"],
+      "entrypoints": ["./marketing", "./marketing/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/marketing"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-slot",
+        "class-variance-authority",
+        "culori",
+        "clsx",
+        "react",
+        "tailwind-merge"
+      ],
+      "protectedImports": ["@agent-native/toolkit/utils"],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -560,6 +623,30 @@
       "sourceEntries": ["src/utils.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": ["clsx", "tailwind-merge"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/streaming-text-smoothing",
+      "label": "Streaming text smoothing",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["streaming-text-smoothing"],
+      "entrypoints": ["./streaming-text-smoothing"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/streaming-text-smoothing.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/markdown-block-split",
+      "label": "Streaming Markdown block splitting",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["markdown-block-split"],
+      "entrypoints": ["./markdown-block-split"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/markdown-block-split.ts"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
       "verification": ["pnpm typecheck"]
     },
     {

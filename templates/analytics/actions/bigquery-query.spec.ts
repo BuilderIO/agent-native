@@ -8,6 +8,10 @@ vi.mock("../server/lib/bigquery", () => ({
   runQuery: mocks.runQuery,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: vi.fn(),
+}));
+
 const { default: bigqueryQuery } = await import("./bigquery-query");
 
 describe("bigquery-query compatibility action", () => {
@@ -23,11 +27,17 @@ describe("bigquery-query compatibility action", () => {
   });
 
   it("delegates to the canonical BigQuery implementation", async () => {
-    mocks.runQuery.mockResolvedValue([{ total: 42 }]);
+    const result = {
+      rows: [{ total: 42 }],
+      totalRows: 1,
+      schema: [],
+      bytesProcessed: 0,
+    };
+    mocks.runQuery.mockResolvedValue(result);
 
     await expect(
       bigqueryQuery.run({ sql: "SELECT 42 AS total" }),
-    ).resolves.toEqual([{ total: 42 }]);
+    ).resolves.toEqual(result);
     expect(mocks.runQuery).toHaveBeenCalledWith("SELECT 42 AS total", {
       signal: undefined,
     });

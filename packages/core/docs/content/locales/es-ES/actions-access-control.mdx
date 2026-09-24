@@ -1,25 +1,26 @@
 ---
 title: "Acceso y autorización"
-description: "Quién puede llamar a una acción: las opciones de exposición (agentTool, toolCallable), el alcance basado en ctx, accessFilter/assertAccess y la guarda authorize."
+description: "Quién puede llamar a una acción: las opciones de exposición (agentTool, mcpTool, toolCallable), el alcance basado en ctx, accessFilter/assertAccess y la guarda authorize."
 ---
 
 # Acceso y autorización
 
-Cinco opciones deciden quién puede llamar a una acción: el agente, el frontend, una extensión, un invocador de API externo, o nadie sin la aprobación previa de un humano. La mayoría de las acciones nunca necesitan tocar ninguna de ellas, ya que los valores por defecto ya se ajustan al uso normal de UI y agente.
+Seis opciones deciden quién puede llamar a una acción: el agente, el frontend, una extensión, un invocador de API externo, o nadie sin la aprobación previa de un humano. La mayoría de las acciones nunca necesitan tocar ninguna de ellas, ya que los valores por defecto ya se ajustan al uso normal de UI y agente.
 
 ### Opciones de exposición {#exposure-flags}
 
-Las cinco opciones tienen por defecto el valor más permisivo, así que solo configuras una cuando necesitas restringir una superficie específica. La tabla de abajo es un resumen rápido. Las secciones posteriores añaden el detalle concreto que necesita cada opción.
+Las seis tienen por defecto el valor más permisivo — `mcpTool` heredando `agentTool` —, así que solo configuras una cuando necesitas restringir una superficie específica. La tabla de abajo es un resumen rápido. Las secciones posteriores añaden el detalle concreto que necesita cada opción.
 
 | Opción          | Predeterminado        | Valor restrictivo → quién puede seguir llamando                                        | Uso típico                                                                              |
 | --------------- | --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `agentTool`     | `true`                | `false` → solo UI, HTTP y CLI (oculta para el modelo, MCP y A2A)                       | Acciones solo de UI o programáticas que no deberían ocupar una plaza de herramienta     |
+| `mcpTool`       | `agentTool`           | `false` → solo el agente de tu propia app (oculta para MCP y A2A)                      | Acciones que necesitan una pantalla o una sesión de la app al otro lado                 |
 | `toolCallable`  | `true`                | `false` → todo **excepto** el puente del iframe aislado de extensiones (403)           | Cambios sensibles de cuenta u organización (eliminar cuenta, cambiar membresía)         |
 | `publicAgent`   | desactivado (privado) | `{ expose: true }` → añade la acción a las superficies **públicas** de MCP/A2A/OpenAPI | Herramientas seguras de lectura o ingesta que no requieren autenticación                |
 | `needsApproval` | `false`               | `true` → el agente **se pausa**, y un humano debe aprobar la llamada específica        | Efectos secundarios de consecuencia (enviar un correo, cobrar una tarjeta, eliminar)    |
 | `authorize`     | ninguno               | una función de guarda → solo los invocadores que acepta, en **todas** las superficies  | Operaciones restringidas a un rol (RBAC por app, operaciones solo para administradores) |
 
-Estas opciones son independientes, así que configurar una no cambia las demás. `agentTool` controla qué ve el modelo, consulta [Ocultar del modelo](#agent-tool) más abajo. `toolCallable` controla solo el iframe de extensiones, consulta [Bloquear iframes de extensión](#tool-callable) más abajo. `publicAgent` añade una superficie pública opcional, y una ruta web pública nunca implica exposición pública de la herramienta, consulta [Exponer a agentes públicos](#public-agent) más abajo. `needsApproval` controla la ejecución después de que la llamada ya se ha hecho, consulta [Requerir aprobación humana](#needs-approval) más abajo. `authorize` decide si este invocador puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run()`, consulta [Restringir invocadores por rol](#authorize) más abajo.
+Estas opciones son independientes, con una excepción: un `mcpTool` sin declarar hereda `agentTool`. `agentTool` controla qué ve el modelo, consulta [Ocultar del modelo](#agent-tool) más abajo. `mcpTool` restringe eso solo a los agentes externos, consulta [Ocultar de los agentes externos](#mcp-tool) más abajo. `toolCallable` controla solo el iframe de extensiones, consulta [Bloquear iframes de extensión](#tool-callable) más abajo. `publicAgent` añade una superficie pública opcional, y una ruta web pública nunca implica exposición pública de la herramienta, consulta [Exponer a agentes públicos](#public-agent) más abajo. `needsApproval` controla la ejecución después de que la llamada ya se ha hecho, consulta [Requerir aprobación humana](#needs-approval) más abajo. `authorize` decide si este invocador puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run()`, consulta [Restringir invocadores por rol](#authorize) más abajo.
 
 ## Ocultar del modelo {#agent-tool}
 
@@ -38,6 +39,44 @@ export default defineAction({
 ```
 
 Usa esto cuando añadas una acción solo de UI o puramente programática, o cuando la UI deje de usar una acción que de otro modo seguiría expuesta al modelo.
+
+## Ocultar de los agentes externos {#mcp-tool}
+
+`agentTool` es todo o nada: una acción es una herramienta para todos los agentes, o para ninguno. `mcpTool` divide eso en dos, de modo que una acción puede seguir siendo una herramienta normal para el agente de tu propia app sin llegar nunca a Claude, Cursor o una app hermana a través de MCP y A2A:
+
+```ts
+export default defineAction({
+  description: "Open the record inspector beside the current selection.",
+  mcpTool: false, // needs a live screen on the other end
+  schema: z.object({ recordId: z.string() }),
+  run: async ({ recordId }) => {
+    /* ... */
+  },
+});
+```
+
+Úsalo para acciones cuyo resultado solo significa algo junto con la UI de tu app, una sesión abierta o la selección actual delante del invocador. `mcpTool` solo puede restringir `agentTool`, nunca ampliarlo: una acción con `agentTool: false` permanece oculta en todas partes. Gobierna la superficie de herramientas externa en sí, no lo que tu propio agente puede hacer mientras responde una pregunta de `ask_app`: esa ejecución es de tu agente, y conserva toda su lista de herramientas.
+
+Si no la declaras, `mcpTool` sigue a `agentTool` en lugar de tomar un `true` fijo, así que ocultar una acción al agente la oculta también a los agentes externos y una opción sigue siendo una sola decisión.
+
+El valor opuesto tiene un segundo cometido. A los agentes externos se les sirve por defecto un catálogo pequeño y curado en lugar de todo tu registro de acciones, y `mcpTool: true` es la forma en que una acción se declara parte de él:
+
+```ts
+export default defineAction({
+  description: "List the databases connected to this workspace.",
+  mcpTool: true, // served to external agents, not just discoverable
+  http: { method: "GET" },
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+Es el mismo catálogo que la lista `mcp: { connectorCatalog: [...] }` del plugin, declarado en la acción en lugar de en un array aparte que hay que mantener sincronizado a medida que se renombran las acciones. Ambas formas funcionan, y una app puede migrar una acción a la vez. Todo lo que queda fuera sigue siendo localizable mediante `tool-search`.
+
+Combinar las dos opciones al revés — `agentTool: false` con `mcpTool: true` — hace que una acción sea **solo de MCP**: los agentes externos la reciben y el agente de tu propia app nunca la ve. Úsalo para la exportación, la sincronización o el traspaso que necesita una herramienta externa y que tu propio agente no tiene motivo para llamar.
+
+Pertenecer al catálogo no es permiso. Un invocador externo todavía tiene que pasar la comprobación de scope de OAuth, la política `externalAgents` y, para la ruta A2A directa sin modelo, la aceptación explícita de `publicAgent` de más abajo.
 
 ## Bloquear iframes de extensión {#tool-callable}
 

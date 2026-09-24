@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   convertMarkdownPrefixToBullet,
+  exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
   isBulletRow,
+  removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 
@@ -88,6 +90,273 @@ describe("styled bullet editing", () => {
       "",
     );
     expect((newRow as HTMLElement).style.fontSize).toBe("22px");
+  });
+
+  it("removes a fresh empty bullet on the first Backspace", () => {
+    const { list } = setup();
+    const thirdText = list.children[2].children[1] as HTMLElement;
+    const textNode = thirdText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const result = removeEmptyBulletAtCaret(list);
+
+    expect(result).toEqual({ handled: true, editingElement: null });
+    expect(list.children.length).toBe(3);
+    const selection = window.getSelection();
+    expect(selection?.anchorNode).toBe(thirdText.firstChild);
+    expect(selection?.anchorOffset).toBe(textNode.length);
+  });
+
+  it("turns an empty bullet Enter into a root-level line", () => {
+    const { root, list } = setup();
+    const thirdText = list.children[2].children[1] as HTMLElement;
+    const textNode = thirdText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const line = exitEmptyBulletAtCaret(list);
+
+    expect(line).not.toBeNull();
+    expect(list.children.length).toBe(3);
+    expect(line?.parentElement).toBe(
+      root.querySelector("[data-fmd-autofit-content]"),
+    );
+    expect(line?.previousElementSibling).toBe(list);
+    expect(isBulletRow(line as HTMLElement)).toBe(false);
+    expect(line?.textContent).toBe(ZERO_WIDTH_SPACE);
+    expect(line?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+  });
+
+  it("keeps later bullets after an exited middle bullet", () => {
+    const { root, list } = setup();
+    const firstText = list.children[0].children[1] as HTMLElement;
+    const textNode = firstText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const line = exitEmptyBulletAtCaret(list);
+    const content = root.querySelector(
+      "[data-fmd-autofit-content]",
+    ) as HTMLElement;
+    const trailingList = line?.nextElementSibling as HTMLElement;
+
+    expect(line).not.toBeNull();
+    expect(Array.from(content.children)).toEqual([list, line, trailingList]);
+    expect(list.children[0].textContent).toContain("First point");
+    expect(isBulletList(trailingList)).toBe(true);
+    expect(trailingList.children[0].textContent).toContain("Second point");
+    expect(trailingList.children[1].textContent).toContain("Third point");
+  });
+
+  it.each(["ul", "ol"] as const)(
+    "preserves native %s list structure after exiting an empty item",
+    (tag) => {
+      const startAttribute = tag === "ol" ? ' start="4"' : "";
+      document.body.innerHTML =
+        `<div class="slide-content"><${tag}${startAttribute}><li>First</li>` +
+        `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></${tag}></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+      const children = Array.from(root.children);
+
+      expect(line).not.toBeNull();
+      expect(children.map((child) => child.tagName)).toEqual([
+        tag.toUpperCase(),
+        "DIV",
+        tag.toUpperCase(),
+      ]);
+      expect(children[0].children[0].textContent).toBe("First");
+      expect(children[2].children[0].textContent).toBe("Third");
+      if (tag === "ol") {
+        expect(children[2].getAttribute("start")).toBe("6");
+      }
+    },
+  );
+
+  it.each([
+    [
+      "preceding",
+      "",
+      `<li value="10">First</li><li>${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "12",
+    ],
+    [
+      "exiting",
+      "",
+      `<li>First</li><li value="10">${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "11",
+    ],
+    [
+      "preceding reversed",
+      " reversed",
+      `<li value="10">First</li><li>${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "8",
+    ],
+    [
+      "exiting reversed",
+      " reversed",
+      `<li>First</li><li value="10">${ZERO_WIDTH_SPACE}</li><li>Third</li>`,
+      "9",
+    ],
+  ] as const)(
+    "preserves %s li value numbering after exiting an empty item",
+    (_name, attributes, items, trailingStart) => {
+      document.body.innerHTML = `<div class="slide-content"><ol${attributes}>${items}</ol></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+
+      expect(line).not.toBeNull();
+      expect(line?.nextElementSibling?.getAttribute("start")).toBe(
+        trailingStart,
+      );
+    },
+  );
+
+  it.each([
+    [
+      "sibling text",
+      `<li><span>${ZERO_WIDTH_SPACE}</span><span>Keep me</span></li>`,
+    ],
+    [
+      "image",
+      `<li><span>${ZERO_WIDTH_SPACE}</span><img alt="kept image" /></li>`,
+    ],
+  ] as const)("does not treat native items with %s as empty", (_name, item) => {
+    document.body.innerHTML =
+      `<div class="slide-content"><ul><li>First</li>${item}` +
+      "<li>Third</li></ul></div>";
+    const list = document.querySelector("ul") as HTMLElement;
+    const placeholder = list.children[1].firstElementChild?.firstChild as Text;
+    placeCaret(placeholder, placeholder.length);
+
+    expect(exitEmptyBulletAtCaret(list)).toBeNull();
+    expect(removeEmptyBulletAtCaret(list)).toBeNull();
+    expect(list.children.length).toBe(3);
+  });
+
+  it.each([
+    ["an image", `<img alt="kept image" />`],
+    ["nested content", `<span><svg aria-label="kept icon"></svg></span>`],
+  ] as const)("does not treat styled rows with %s as empty", (_name, item) => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span>${item}</div>` +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const placeholder = list.children[0].children[1].firstChild as Text;
+    placeCaret(placeholder, placeholder.length);
+
+    expect(exitEmptyBulletAtCaret(list)).toBeNull();
+    expect(removeEmptyBulletAtCaret(list)).toBeNull();
+    expect(list.children.length).toBe(1);
+  });
+
+  it.each([
+    ["default", " reversed", "3", "1"],
+    ["explicit", ' reversed start="8"', "8", "6"],
+  ] as const)(
+    "preserves %s reversed ordered-list numbering after exiting an empty item",
+    (_name, attributes, leadingStart, trailingStart) => {
+      document.body.innerHTML =
+        `<div class="slide-content"><ol${attributes}><li>First</li>` +
+        `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></ol></div>`;
+      const root = document.querySelector(".slide-content") as HTMLElement;
+      const list = root.firstElementChild as HTMLElement;
+      const emptyText = list.children[1].firstChild as Text;
+      placeCaret(emptyText, emptyText.length);
+
+      const line = exitEmptyBulletAtCaret(list);
+      const children = Array.from(root.children);
+
+      expect(line).not.toBeNull();
+      expect(children[0].getAttribute("start")).toBe(leadingStart);
+      expect(children[2].getAttribute("start")).toBe(trailingStart);
+    },
+  );
+
+  it("preserves the implicit reversed start when Backspace removes an item", () => {
+    document.body.innerHTML =
+      `<div class="slide-content"><ol reversed><li>First</li>` +
+      `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></ol></div>`;
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.firstElementChild as HTMLElement;
+    const emptyText = list.children[1].firstChild as Text;
+    placeCaret(emptyText, emptyText.length);
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(list.getAttribute("start")).toBe("3");
+    expect(list.children[0].textContent).toBe("First");
+    expect(list.children[1].textContent).toBe("Third");
+  });
+
+  it("preserves a tolerated child when Enter exits its only bullet", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      '<div class="kept">Keep me</div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    const line = exitEmptyBulletAtCaret(list);
+
+    expect(line).not.toBeNull();
+    expect(root.querySelector(".bullets")).toBeNull();
+    expect(root.querySelector(".kept")?.textContent).toBe("Keep me");
+    expect(line?.nextElementSibling?.className).toBe("kept");
+  });
+
+  it("preserves a tolerated child when Backspace removes its only bullet", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      '<div class="kept">Keep me</div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(root.querySelector(".kept")?.textContent).toBe("Keep me");
+    expect(list.children.length).toBe(1);
+  });
+
+  it("collapses a one-item list when only a stray break remains", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      "<br></div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    const result = removeEmptyBulletAtCaret(list);
+
+    expect(result?.handled).toBe(true);
+    expect(result?.editingElement).not.toBeNull();
+    expect(root.querySelector(".bullets")).toBeNull();
+    expect(root.firstElementChild?.textContent).toBe(ZERO_WIDTH_SPACE);
   });
 
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
@@ -214,6 +483,50 @@ describe("styled bullet editing", () => {
     const list = document.querySelector(".bullets") as HTMLElement;
     expect(isBulletList(list)).toBe(true);
   });
+
+  // ENG-13998: reproduces the exact agent-generated markup from the bug
+  // report \u2014 a label row plus glyph-marker rows in one shot \u2014 to prove
+  // findEnclosingList correctly resolves the whole column as one list. This
+  // is necessary but not sufficient for Shift+Arrow/Shift+click to extend a
+  // text selection across rows: slide-text-targets.ts's
+  // findSlideRichTextOwner (called before findSmartBlock's own loop that
+  // would reach findEnclosingList) stops earlier, at the single clicked row,
+  // because a bullet row satisfies isTextLeaf and isTextLeaf short-circuits
+  // canEnterRichTextEdit's hasUnsafeRichTextDescendant check \u2014 so each row
+  // becomes its own isolated contentEditable root and only within-row
+  // selection is structurally possible today.
+  it("resolves the enclosing list for realistic agent-generated bullet HTML", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="fmd-slide"><div style="border-top:2px solid var(--deck-accent);padding-top:12px;display:flex;flex-direction:column;gap:10px;">' +
+      '<div style="font-size:12px;color:var(--deck-accent);">AE</div>' +
+      '<div style="display:flex;gap:10px;align-items:baseline;"><span style="color:var(--deck-accent);">\u2022</span><span style="font-size:15px;">Inbound Code + Content</span></div>' +
+      '<div style="display:flex;gap:10px;align-items:baseline;"><span style="color:var(--deck-accent);">\u2022</span><span style="font-size:15px;">Expansion is the bigger half</span></div>' +
+      '<div style="display:flex;gap:10px;padding-left:24px;"><span>\u2014</span><span style="color:#9aa3ad;font-size:13px">~75% of H2 numbers</span></div>' +
+      "</div></div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(
+      "div[style*='flex-direction']",
+    ) as HTMLElement;
+    expect(isBulletList(list)).toBe(true);
+
+    const firstRowText = list.children[1].children[1] as HTMLElement;
+    expect(findEnclosingList(firstRowText, root)).toBe(list);
+    const subBulletText = list.children[3].children[1] as HTMLElement;
+    expect(findEnclosingList(subBulletText, root)).toBe(list);
+  });
+
+  it("recognizes an empty CSS-shape marker as a bullet row", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="width:8px;height:8px;border-radius:50%;background:#000;"></span><span>First point</span></div>' +
+      '<div><span style="width:8px;height:8px;border-radius:50%;background:#000;"></span><span>Second point</span></div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = document.querySelector(".bullets") as HTMLElement;
+    expect(isBulletList(list)).toBe(true);
+    const secondText = list.children[1].children[1] as HTMLElement;
+    expect(findEnclosingList(secondText, root)).toBe(list);
+  });
 });
 
 describe("markdown prefix autoformat", () => {
@@ -268,6 +581,24 @@ describe("markdown prefix autoformat", () => {
     expect(insertBulletAfterCaret(el)).toBe(true);
     expect(el.children.length).toBe(2);
     expect(isBulletRow(el.children[1] as HTMLElement)).toBe(true);
+  });
+
+  it("replaces a one-item markdown bullet with a root-level line on Enter", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div style="font-size: 28px;">- </div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    const line = exitEmptyBulletAtCaret(el);
+
+    expect(line).not.toBeNull();
+    expect(root.firstElementChild).toBe(line);
+    expect(isBulletRow(line as HTMLElement)).toBe(false);
+    expect(line?.style.fontSize).toBe("28px");
+    expect(line?.textContent).toBe(ZERO_WIDTH_SPACE);
   });
 
   it("does not convert once the block is already a bullet row", () => {

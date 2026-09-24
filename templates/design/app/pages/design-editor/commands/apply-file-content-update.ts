@@ -1,24 +1,28 @@
-import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
-import {
-  isShaderWriteInFlight,
-  waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
+  canWriteCollabText,
   resolveScreenCollabSyncTarget,
   writeCollabText,
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
-import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
+import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
+
+export type ApplyFileContentUpdateResult =
+  | ApplyLocalContentUpdateResult
+  | { status: "deferred" };
 
 export interface ApplyFileContentUpdateArgs {
   acknowledgeAuthoritativeClipboardMutation: (args: {
@@ -34,8 +38,14 @@ export interface ApplyFileContentUpdateArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
+      historyBeforeContent?: string;
+      sourceBaseContent?: string;
+      identityMigrationSourceContent?: string;
+      shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
@@ -47,39 +57,47 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
+      sourceBaseContent?: string;
+      identityMigrationSourceContent?: string;
+      shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
   cancelQueuedFileContentSave: (fileId: string) => void;
   clearPendingLocalFileContent: (
     fileId: string,
     expectedContent?: string,
   ) => void;
-  createFileContentSaveRequest: (
+  queueFileContentSave: (
     fileId: string,
     content: string,
-    syncCollab: boolean,
-  ) => FileContentSaveRequest;
+    options: {
+      expectedVersionHash: string;
+      syncCollab?: boolean;
+      immediate?: boolean;
+      identityMigrationSourceContent?: string;
+    },
+  ) => unknown;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
-  lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
     baseUpdatedAt?: string | null,
+    identityMigrationSourceContent?: string,
   ) => void;
   overviewIsSynced: boolean;
   overviewPresenceFileId: string | null;
   overviewYdoc: Y.Doc | null;
   queryClient: QueryClient;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
-  saveFileContent: (pending: FileContentSaveRequest) => void;
   suppressContentHistoryRef: RefObject<boolean>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
@@ -93,18 +111,16 @@ export function runApplyFileContentUpdate(
     canEditDesignRef,
     cancelQueuedFileContentSave,
     clearPendingLocalFileContent,
-    createFileContentSaveRequest,
     files,
     getScreenContent,
     id,
-    lastAckedFileContentHashRef,
     markPendingLocalFileContent,
     overviewIsSynced,
     overviewPresenceFileId,
     overviewYdoc,
     queryClient,
+    queueFileContentSave,
     recordContentHistoryEntry,
-    saveFileContent,
     suppressContentHistoryRef,
     t,
   }: ApplyFileContentUpdateArgs,
@@ -114,50 +130,58 @@ export function runApplyFileContentUpdate(
     refreshPreview?: boolean;
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
+    immediateSave?: boolean;
+    awaitSave?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
+    historyBeforeContent?: string;
+    sourceBaseContent?: string;
+    identityMigrationSourceContent?: string;
+    shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
   } = {},
-) {
-  if (!canEditDesignRef.current) return;
-  if (fileId === activeFile?.id) {
-    applyLocalContentUpdate(nextContent, options);
-    return;
-  }
-  // Cross-pipeline write race guard — same hazard commitVisualStyles
-  // already defends against (see its withShaderWriteLock note): a shader
-  // apply/remove/knob-commit for this same file runs a separate
-  // read-source-file -> apply-source-edit round trip, and the overview
-  // writeLiveDoc rewrite below replays FULL content into the connected
-  // overviewYdoc. Racing the two corrupts the doc (server-side diff vs
-  // synchronous untracked full rewrite). Defer the whole update until the
-  // in-flight shader write settles; the common no-shader case stays fully
-  // synchronous.
-  if (isShaderWriteInFlight(fileId)) {
-    void waitForShaderWriteToSettle(fileId).then(() => {
-      applyFileContentUpdate(fileId, nextContent, options);
+): ApplyFileContentUpdateResult {
+  if (!canEditDesignRef.current) return { status: "refused" };
+  // Raw whole-document snapshots cannot be safely replayed after a shader
+  // round trip: the callback may belong to a different active Screen by then.
+  if (isShaderWriteInFlight(fileId) && !options.shaderWriteCompletion) {
+    toast.error(t("designEditor.toasts.saveConflict"), {
+      id: `design-source-shader-conflict:${fileId}`,
     });
-    return;
+    return { status: "refused" };
+  }
+  if (fileId === activeFile?.id) {
+    return applyLocalContentUpdate(nextContent, options);
   }
   const previousFile = files.find((file) => file.id === fileId);
   const previousContent =
-    getScreenContent(fileId) ?? previousFile?.content ?? "";
+    options.historyBeforeContent ??
+    getScreenContent(fileId) ??
+    previousFile?.content ??
+    "";
+  let prepared: ReturnType<typeof prepareAcceptedSourceContent>;
   try {
-    assertDesignHtmlEditIntegrity({
+    prepared = prepareAcceptedSourceContent(nextContent, {
+      fileId,
       previousContent,
-      nextContent,
-      fileType: previousFile?.fileType ?? "html",
+      fileType: previousFile?.fileType,
     });
   } catch (error) {
     toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
       id: `design-source-integrity:${fileId}`,
     });
-    return;
+    return { status: "refused" };
   }
+  const acceptedContent = prepared.content;
+  const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
+  const identityMigrationSourceContent =
+    options.identityMigrationSourceContent ??
+    (needsIdentityMigration ? nextContent : undefined);
+
   acknowledgeAuthoritativeClipboardMutation({
     fileId,
-    nextContent,
+    nextContent: acceptedContent,
     publication: options.clipboardMutation,
   });
   const shouldRecordHistory =
@@ -165,23 +189,23 @@ export function runApplyFileContentUpdate(
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&
-    previousContent !== nextContent
+    previousContent !== acceptedContent
   ) {
     recordContentHistoryEntry({
       fileId,
       before: previousContent,
-      after: nextContent,
+      after: acceptedContent,
     });
   }
-  if (options.updatedAt) {
+  if (options.updatedAt && !needsIdentityMigration) {
     clearPendingLocalFileContent(fileId);
-    // Server-persisted content (see the matching note in
-    // applyLocalContentUpdate) — refresh the acked-hash base for the
-    // guarded update-file saves.
-    lastAckedFileContentHashRef.current[fileId] =
-      sourceContentHash(nextContent);
   } else {
-    markPendingLocalFileContent(fileId, nextContent, previousFile?.updatedAt);
+    markPendingLocalFileContent(
+      fileId,
+      acceptedContent,
+      options.updatedAt ?? previousFile?.updatedAt,
+      identityMigrationSourceContent,
+    );
   }
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
@@ -193,46 +217,52 @@ export function runApplyFileContentUpdate(
         file.id === fileId
           ? {
               ...file,
-              content: nextContent,
+              content: acceptedContent,
               ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
             }
           : file,
       ),
     };
   });
-  // §gesture-persistence — mirror applyLocalContentUpdate's collab-doc
-  // write. This screen isn't the active file, but overview mode can still
-  // hold a LIVE connected Yjs doc for it via the presence-only
-  // `overviewYdoc` subscription (keyed on `overviewPresenceFileId`, the
-  // selected/worked screen in overview — see its declaration doc comment).
-  // Before this fix, per-screen gesture commits only ever wrote SQL and
-  // relied entirely on the server-side `syncCollab: true` -> applyText
-  // round-trip to keep that connected doc in step; any gap between the
-  // SQL write and the next collab poll/state fetch left the connected
-  // client holding pre-edit Yjs text, which a subsequent doc connect
-  // (Code panel open) could read back as the seed snapshot. Writing the
-  // ydoc directly here — the same untracked-full-rewrite pattern used
-  // throughout this file — closes that gap the same way the active-file
-  // path already does, and lets syncCollab be skipped for the
-  // server-side round-trip since the client push already covers it.
+  // Overview presence owns a live document only for the selected Screen.
+  // A lagging document must receive the server delta before authoring edits.
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,
-    overviewDocConnected: !!(overviewYdoc && overviewIsSynced),
+    overviewDocConnected:
+      !needsIdentityMigration &&
+      canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
   if (writeLiveDoc && overviewYdoc) {
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),
-      nextContent,
+      acceptedContent,
       TAB_ID,
     );
   }
-  if (options.persist === false) {
+  let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
+  if (options.persist === false && !needsIdentityMigration) {
     cancelQueuedFileContentSave(fileId);
   } else {
-    saveFileContent(
-      createFileContentSaveRequest(fileId, nextContent, syncCollab),
-    );
+    const completion = queueFileContentSave(fileId, acceptedContent, {
+      expectedVersionHash: sourceContentHash(
+        needsIdentityMigration
+          ? nextContent
+          : (options.sourceBaseContent ?? previousContent),
+      ),
+      syncCollab,
+      immediate: true,
+      identityMigrationSourceContent,
+    });
+    if (completion instanceof Promise) saveCompletion = completion;
   }
+  return {
+    status: "accepted",
+    content: acceptedContent,
+    nodeIdMap: prepared.nodeIdMap,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
+  };
 }

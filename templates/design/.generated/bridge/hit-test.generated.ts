@@ -140,18 +140,80 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function wrappedFlexMainAxis(parent) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") {
+        return null;
+      }
+      if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
+        return null;
+      }
+      return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
     function isAutoLayoutElement(el) {
       if (!el) return false;
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
-    function isAbsolutePrimitiveContainer(el) {
-      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
-      var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "rectangle" && primitive !== "rect" && primitive !== "frame")
+    var BRIDGE_REPLACED_TAGS = {
+      img: true,
+      video: true,
+      picture: true,
+      audio: true,
+      canvas: true,
+      svg: true,
+      path: true,
+      input: true,
+      textarea: true,
+      select: true,
+      br: true,
+      hr: true,
+      iframe: true
+    };
+    var BRIDGE_ADOPTING_PRIMITIVES = {
+      frame: true,
+      rectangle: true,
+      rect: true
+    };
+    function isFreeformRelativeContainer(el) {
+      if (!el || el === document.body || el === document.documentElement) {
         return false;
+      }
+      if (isAutoLayoutElement(el)) return false;
+      if (window.getComputedStyle(el).position === "static") return false;
+      var children = el.children;
+      if (children.length === 0) return false;
+      for (var i = 0; i < children.length; i += 1) {
+        if (isOverlayElement(children[i])) continue;
+        var childPosition = window.getComputedStyle(children[i]).position;
+        if (childPosition !== "absolute" && childPosition !== "fixed") {
+          return false;
+        }
+      }
+      return true;
+    }
+    function isAbsolutePrimitiveContainer(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
+      if (isAutoLayoutElement(el)) return false;
+      var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitive) {
+        if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+      } else if (!hasAbsolutePositionedChild(el)) {
+        return false;
+      }
       var cs = window.getComputedStyle(el);
+      if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
+    }
+    function hasAbsolutePositionedChild(el) {
+      var kids = el.children;
+      for (var i = 0; i < kids.length; i += 1) {
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+      }
+      return false;
     }
     function absolutePrimitiveContainerTargetForPoint(clientX, clientY) {
       var hits = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
@@ -160,7 +222,7 @@ export const hitTestBridgeScript: string = `"use strict";
         var cursor = hits[i];
         var candidate = null;
         while (cursor && cursor !== document.body) {
-          if (isAbsolutePrimitiveContainer(cursor)) {
+          if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
             candidate = cursor;
             break;
           }
@@ -190,21 +252,63 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getNodeId(el) {
       if (!el) return "";
-      return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.id || "";
+      return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.getAttribute("data-loc") || el.id || "";
+    }
+    function escapeAttribute(value) {
+      var text = String(value);
+      if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(text);
+      }
+      return text.replace(/[\\0-\\x1f\\x7f\\\\"]/g, function(character) {
+        if (character === "\\\\" || character === '"') return "\\\\" + character;
+        return "\\\\" + character.charCodeAt(0).toString(16) + " ";
+      });
+    }
+    function isUniqueRenderedNodeId(nodeId, expectedElement) {
+      if (!nodeId) return false;
+      var selectors = [
+        '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-code-layer-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-layer-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-builder-id="' + escapeAttribute(nodeId) + '"]',
+        '[data-loc="' + escapeAttribute(nodeId) + '"]',
+        '[id="' + escapeAttribute(nodeId) + '"]'
+      ];
+      var matches = document.querySelectorAll(selectors.join(","));
+      return matches.length === 1 && matches[0] === expectedElement;
+    }
+    function getAnchorNodeProvenance(nodeId, anchor) {
+      if (!anchor || isTemplateCloneElement(anchor)) return void 0;
+      var candidate = window.__agentNativeSourceProvenance;
+      if (!candidate || typeof candidate !== "object") return void 0;
+      var versionHash = typeof candidate.versionHash === "string" && candidate.versionHash ? candidate.versionHash : void 0;
+      var uniqueNodeId = nodeId && Array.isArray(candidate.uniqueNodeIds) && candidate.uniqueNodeIds.indexOf(nodeId) !== -1 && isUniqueRenderedNodeId(nodeId, anchor) ? nodeId : void 0;
+      if (!versionHash && !uniqueNodeId) return void 0;
+      var provenance = {};
+      if (versionHash) provenance.versionHash = versionHash;
+      if (uniqueNodeId) provenance.uniqueNodeId = uniqueNodeId;
+      return provenance;
+    }
+    function layerNameForElement(el) {
+      if (!el || !el.getAttribute) return "";
+      var attributes = [
+        "data-agent-native-layer-name",
+        "data-layer-name",
+        "layer-name"
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        var value = el.getAttribute(attributes[i]);
+        var trimmed = value && value.trim ? value.trim() : "";
+        if (trimmed) return trimmed;
+      }
+      return "";
     }
     function isTemplateCloneElement(el) {
       var node = el;
       while (node && node !== document.documentElement) {
-        if (getNodeId(node)) return false;
         var parent = node.parentElement;
         if (!parent) return false;
-        var siblings = parent.children;
-        for (var i = 0; i < siblings.length; i += 1) {
-          var sib = siblings[i];
-          if (sib !== node && sib.tagName && sib.tagName.toLowerCase() === "template" && sib.hasAttribute("x-for")) {
-            return true;
-          }
-        }
+        if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
         node = parent;
       }
       return false;
@@ -232,6 +336,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
+      if (el === document.body || el === document.documentElement) return "";
       if (isTemplateCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;
@@ -254,10 +359,18 @@ export const hitTestBridgeScript: string = `"use strict";
           if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
           var lookup = child._x_lookup;
           if (lookup) {
-            for (var key in lookup) {
-              if (Object.prototype.hasOwnProperty.call(lookup, key)) {
-                var item = lookup[key];
-                if (item) generated.push(item);
+            var map = lookup;
+            if (typeof map.forEach === "function" && typeof map.get === "function") {
+              map.forEach(function(item2) {
+                if (item2) generated.push(item2);
+              });
+            } else {
+              var record = lookup;
+              for (var key in record) {
+                if (Object.prototype.hasOwnProperty.call(record, key)) {
+                  var item = record[key];
+                  if (item) generated.push(item);
+                }
               }
             }
           }
@@ -304,7 +417,10 @@ export const hitTestBridgeScript: string = `"use strict";
     function nearestChildInsertionTarget(container, clientX, clientY) {
       var children = draggableElementChildren(container);
       if (!children.length) return null;
-      var axis = parentFlowAxis(container);
+      var wrappedFlexAxis = wrappedFlexMainAxis(container);
+      var axis = wrappedFlexAxis || parentFlowAxis(container);
+      var containerStyles = window.getComputedStyle(container);
+      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -313,11 +429,15 @@ export const hitTestBridgeScript: string = `"use strict";
         if (rect.width <= 0 || rect.height <= 0) continue;
         var center = axis === "x" ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
         var pointer = axis === "x" ? clientX : clientY;
-        var distance = Math.abs(pointer - center);
+        var distance = multiTrackGrid || wrappedFlexAxis ? Math.hypot(
+          clientX - (rect.left + rect.width / 2),
+          clientY - (rect.top + rect.height / 2)
+        ) : Math.abs(pointer - center);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = children[j];
-          placement = pointer < center ? "before" : "after";
+          var placementPointer = axis === "x" ? clientX : clientY;
+          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -328,10 +448,36 @@ export const hitTestBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
-    function resolveHitTarget(clientX, clientY) {
+    function screenRootFlowInsertionTargetForPoint(clientX, clientY) {
+      if (!isAutoLayoutElement(document.body)) return null;
+      var bodyRect = document.body.getBoundingClientRect();
+      if (bodyRect.width <= 0 || bodyRect.height <= 0 || clientX < bodyRect.left || clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
+      clientY < bodyRect.top || clientY > bodyRect.bottom) {
+        return null;
+      }
+      return nearestChildInsertionTarget(document.body, clientX, clientY);
+    }
+    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
       var cursor = hit;
+      if (forceNestedAutoLayout) {
+        while (cursor && cursor !== document.body) {
+          if (isOverlayElement(cursor) || isLayerInteractionBlocked(cursor)) {
+            return null;
+          }
+          if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+            return nearestChildInsertionTarget(cursor, clientX, clientY) || {
+              anchor: cursor,
+              placement: "inside",
+              axis: parentFlowAxis(cursor),
+              dropMode: "flow-insert"
+            };
+          }
+          cursor = cursor.parentElement;
+        }
+        cursor = hit;
+      }
       while (cursor && cursor !== document.body) {
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
@@ -349,6 +495,15 @@ export const hitTestBridgeScript: string = `"use strict";
               axis: parentFlowAxis(parent),
               dropMode: "flow-insert"
             };
+          }
+          var wrappedParentAxis = wrappedFlexMainAxis(parent);
+          if (wrappedParentAxis) {
+            var wrappedParentSlot = nearestChildInsertionTarget(
+              parent,
+              clientX,
+              clientY
+            );
+            if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
           var childRect = cursor.getBoundingClientRect();
@@ -391,7 +546,7 @@ export const hitTestBridgeScript: string = `"use strict";
             dropMode: "flow-insert"
           };
         }
-        if (isAbsolutePrimitiveContainer(cursor)) {
+        if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
           return {
             anchor: cursor,
             placement: "inside",
@@ -401,6 +556,11 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
+      var screenRootTarget = screenRootFlowInsertionTargetForPoint(
+        clientX,
+        clientY
+      );
+      if (screenRootTarget) return screenRootTarget;
       var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
         clientX,
         clientY
@@ -419,6 +579,43 @@ export const hitTestBridgeScript: string = `"use strict";
         blockCursor = blockCursor.parentElement;
       }
       return null;
+    }
+    function ignoreAutoLayoutHitTarget(target, ignoreAutoLayout = false) {
+      if (!ignoreAutoLayout || !target || target.dropMode !== "flow-insert") {
+        return target;
+      }
+      var container = target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+      if (!container || !isAutoLayoutElement(container)) return target;
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: parentFlowAxis(container),
+        dropMode: "absolute-container"
+      };
+    }
+    function applyHitTestSizeGuard(target, clientX, clientY, sourceElementSize, modifiers) {
+      if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
+        return target;
+      }
+      var container = target.anchor;
+      if (container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+        return target;
+      }
+      var crect = container.getBoundingClientRect();
+      if (crect.width >= sourceElementSize.width && crect.height >= sourceElementSize.height) {
+        return target;
+      }
+      var parent = container.parentElement;
+      if (!parent) return null;
+      var pAxis = parentFlowAxis(parent);
+      var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
+      var pointer = pAxis === "x" ? clientX : clientY;
+      return {
+        anchor: container,
+        placement: pointer < center ? "before" : "after",
+        axis: pAxis,
+        dropMode: "flow-insert"
+      };
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
@@ -460,9 +657,17 @@ export const hitTestBridgeScript: string = `"use strict";
     function reviewAnchorElementAtPoint(clientX, clientY) {
       var element = elementFromEditorPoint(clientX, clientY);
       if (!element) return null;
-      var identifiedAncestor = element.closest(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
-      );
+      var identifiedAncestor = null;
+      var current = element;
+      while (current && current !== document.body && current !== document.documentElement) {
+        if (current.matches(
+          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]"
+        )) {
+          identifiedAncestor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
       if (identifiedAncestor && identifiedAncestor !== document.body && identifiedAncestor !== document.documentElement) {
         return identifiedAncestor;
       }
@@ -516,6 +721,51 @@ export const hitTestBridgeScript: string = `"use strict";
     } else {
       scheduleReviewLayout();
     }
+    var NON_SELECTABLE_TAGS = [
+      "script",
+      "style",
+      "template",
+      "link",
+      "meta",
+      "title",
+      "noscript",
+      "br"
+    ];
+    var MIN_SELECTABLE_EXTENT_PX = 4;
+    function collectSelectableElementInfos() {
+      var nodes = Array.prototype.slice.call(
+        document.body ? document.body.querySelectorAll("*") : []
+      );
+      var infos = [];
+      nodes.forEach(function(node) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 || isEditorInjectedElement(node) || isTemplateCloneElement(node) || node.ownerSVGElement) {
+          return;
+        }
+        var rect = node.getBoundingClientRect();
+        if (rect.width < MIN_SELECTABLE_EXTENT_PX || rect.height < MIN_SELECTABLE_EXTENT_PX) {
+          var cs = window.getComputedStyle(node);
+          if (cs.display === "none" || cs.visibility === "hidden") return;
+        }
+        var padX = rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var padY = rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+        var nodeId = getNodeId(node);
+        infos.push({
+          tagName: node.tagName.toLowerCase(),
+          sourceId: nodeId || void 0,
+          // Not minted here: a whole-document sweep must stay read-only, and the
+          // host resolves an id-less node through this structural selector.
+          selector: nodeId ? void 0 : buildSourceEquivalentSelector(node) || void 0,
+          layerName: layerNameForElement(node) || void 0,
+          boundingRect: {
+            x: rect.left - padX,
+            y: rect.top - padY,
+            width: rect.width + padX * 2,
+            height: rect.height + padY * 2
+          }
+        });
+      });
+      return infos;
+    }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
@@ -537,9 +787,7 @@ export const hitTestBridgeScript: string = `"use strict";
               correlationId: reviewPointCorrelationId,
               nodeId: reviewPointNodeId || void 0,
               targetSelector: reviewPointSelector || void 0,
-              layerName: reviewPointElement?.getAttribute(
-                "data-agent-native-layer-name"
-              ) || void 0,
+              layerName: layerNameForElement(reviewPointElement) || void 0,
               tagName: reviewPointElement?.tagName?.toLowerCase() || void 0
             },
             "*"
@@ -617,16 +865,55 @@ export const hitTestBridgeScript: string = `"use strict";
         hideInsertionGuide();
         return;
       }
+      if (e.data.type === "agent-native:collect-selectable-rects") {
+        if (window.__agentNativeEditorChrome) {
+          return;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:selectable-rects-result",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            payload: collectSelectableElementInfos()
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type !== "agent-native:hit-test") return;
       var correlationId = e.data.correlationId;
       var x = Number(e.data.x);
       var y = Number(e.data.y);
       if (!correlationId) return;
-      var result = resolveHitTarget(x, y);
+      var sourceElementSize = e.data.sourceElementSize;
+      var validSourceElementSize = sourceElementSize && Number.isFinite(sourceElementSize.width) && Number.isFinite(sourceElementSize.height) && sourceElementSize.width > 0 && sourceElementSize.height > 0 ? {
+        width: sourceElementSize.width,
+        height: sourceElementSize.height
+      } : void 0;
+      var result = ignoreAutoLayoutHitTarget(
+        applyHitTestSizeGuard(
+          resolveHitTarget(
+            x,
+            y,
+            e.data.modifiers?.forceNestedAutoLayout === true
+          ),
+          x,
+          y,
+          validSourceElementSize,
+          e.data.modifiers
+        ),
+        e.data.modifiers?.ignoreAutoLayout === true
+      );
       if (e.data.preview) showInsertionGuideFor(result);
       var anchorNodeId = result ? getNodeId(result.anchor) : "";
       var pendingNodeId = result && !anchorNodeId ? getOrMintPendingNodeId(result.anchor) : "";
-      var anchorSelector = pendingNodeId ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
+      var targetAnchorProvenance = getAnchorNodeProvenance(
+        anchorNodeId,
+        result ? result.anchor : null
+      );
+      var needsSourceSelector = Boolean(pendingNodeId) || Boolean(
+        anchorNodeId && targetAnchorProvenance && targetAnchorProvenance.versionHash && !targetAnchorProvenance.uniqueNodeId
+      );
+      var anchorSelector = needsSourceSelector ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
       var placement = result ? result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
@@ -637,11 +924,13 @@ export const hitTestBridgeScript: string = `"use strict";
             type: "agent-native:hit-test-result",
             correlationId,
             anchorNodeId,
+            targetAnchorProvenance,
             pendingNodeId: pendingNodeId || void 0,
             anchorSelector: anchorSelector || void 0,
             placement,
             axis,
             dropMode,
+            layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,

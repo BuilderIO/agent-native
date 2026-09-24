@@ -61,6 +61,10 @@ function responseType(
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTIONS;
     case AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION:
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.ACTION_RESULT;
+    case AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS:
+      return AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS;
+    case AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL:
+      return AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOL_RESULT;
     case AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND:
       return AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND_RESULT;
     default:
@@ -79,7 +83,9 @@ describe("createAgentNativeHostTools", () => {
     expect(Object.keys(tools)).toEqual([
       AGENT_NATIVE_HOST_TOOL_NAMES.viewHostScreen,
       AGENT_NATIVE_HOST_TOOL_NAMES.listHostActions,
+      AGENT_NATIVE_HOST_TOOL_NAMES.listHostWebMcpTools,
       AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction,
+      AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool,
       AGENT_NATIVE_HOST_TOOL_NAMES.sendHostCommand,
     ]);
     expect(tools[AGENT_NATIVE_HOST_TOOL_NAMES.viewHostScreen]).toMatchObject({
@@ -123,11 +129,36 @@ describe("createAgentNativeHostTools", () => {
           ],
         };
       }
+      if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS) {
+        return {
+          type: responseType(type),
+          ok: true,
+          tools: [
+            {
+              name: "get-order",
+              description: "Read an order",
+              origin: "https://shop.example",
+              inputSchema: { type: "object" },
+            },
+          ],
+        };
+      }
       if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION) {
         return {
           type: responseType(type),
           ok: true,
           result: { selected: (message.args as { rowId?: string }).rowId },
+        };
+      }
+      if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL) {
+        return {
+          type: responseType(type),
+          ok: true,
+          result: JSON.stringify({
+            name: message.name,
+            origin: message.origin,
+            args: message.args,
+          }),
         };
       }
       if (type === AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND) {
@@ -165,11 +196,34 @@ describe("createAgentNativeHostTools", () => {
     ]);
 
     await expect(
+      tools[AGENT_NATIVE_HOST_TOOL_NAMES.listHostWebMcpTools].execute(),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        name: "get-order",
+        origin: "https://shop.example",
+      }),
+    ]);
+
+    await expect(
       tools[AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction].execute({
         name: "select-row",
         args: { rowId: "row-1" },
       }),
     ).resolves.toEqual({ selected: "row-1" });
+
+    await expect(
+      tools[AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool].execute({
+        name: "get-order",
+        origin: "https://shop.example",
+        args: { id: "order-1" },
+      }),
+    ).resolves.toBe(
+      JSON.stringify({
+        name: "get-order",
+        origin: "https://shop.example",
+        args: { id: "order-1" },
+      }),
+    );
 
     await expect(
       tools[AGENT_NATIVE_HOST_TOOL_NAMES.sendHostCommand].execute({
@@ -188,9 +242,18 @@ describe("createAgentNativeHostTools", () => {
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_ACTIONS,
       }),
       expect.objectContaining({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS,
+      }),
+      expect.objectContaining({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_ACTION,
         name: "select-row",
         args: { rowId: "row-1" },
+      }),
+      expect.objectContaining({
+        type: AGENT_NATIVE_HOST_MESSAGE_TYPES.RUN_WEBMCP_TOOL,
+        name: "get-order",
+        origin: "https://shop.example",
+        args: { id: "order-1" },
       }),
       expect.objectContaining({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.COMMAND,

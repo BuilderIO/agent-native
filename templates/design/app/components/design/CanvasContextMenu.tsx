@@ -9,8 +9,8 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 
@@ -26,9 +26,11 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import { IconText } from "./inspector/design-icons";
+import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
 
 // LIVE-VERIFIED (real Figma, UI3) canvas context menus:
@@ -117,6 +119,8 @@ export interface CanvasContextMenuPoint {
   clientY: number;
   canvasX?: number;
   canvasY?: number;
+  /** The screen canvasX/canvasY are local to, when opened over one. */
+  screenId?: string;
 }
 
 export interface CanvasContextMenuHandle {
@@ -374,7 +378,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
-  reprompt: "Regenerate…",
+  reprompt: "Edit with AI…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -423,61 +427,95 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleCommentsHide: "Hide comments",
 };
 
-const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
+// Platform-agnostic bindings, rendered through formatShortcutLabel at draw
+// time: a Mac glyph written in here renders verbatim to Windows users.
+const DEFAULT_SHORTCUT_BINDINGS: Record<
+  keyof CanvasContextMenuShortcuts,
+  string
+> = {
   pasteHere: "",
-  selectAll: "⌘A",
-  zoomToFit: "⇧1",
-  zoomToSelection: "⇧2",
+  selectAll: "$mod+a",
+  zoomToFit: "shift+1",
+  zoomToSelection: "shift+2",
   zoomIn: "+",
   zoomOut: "-",
-  copy: "⌘C",
-  paste: "⌘V",
-  pasteOver: "⇧⌘V",
-  pasteToReplace: "⇧⌘R",
-  duplicate: "⌘D",
-  delete: "⌫",
-  bringForward: "⌘]",
+  copy: "$mod+c",
+  paste: "$mod+v",
+  pasteOver: "$mod+shift+v",
+  pasteToReplace: "$mod+shift+r",
+  duplicate: "$mod+d",
+  delete: "backspace",
+  bringForward: "$mod+]",
   bringToFront: "]",
-  sendBackward: "⌘[",
+  sendBackward: "$mod+[",
   sendToBack: "[",
-  group: "⌘G",
-  ungroup: "⇧⌘G",
-  frameSelection: "⌥⌘G",
-  addAutoLayout: "⇧A",
-  createComponent: "⌥⌘K",
+  group: "$mod+g",
+  ungroup: "$mod+shift+g",
+  frameSelection: "$mod+alt+g",
+  addAutoLayout: "shift+a",
+  createComponent: "$mod+alt+k",
   goToMainComponent: "",
   swapInstance: "",
-  detachInstance: "⌥⌘B",
-  rename: "⌘R",
-  toggleLock: "⇧⌘L",
-  toggleHide: "⇧⌘H",
-  copyProps: "⌥⌘C",
-  pasteProps: "⌥⌘V",
+  detachInstance: "$mod+alt+b",
+  rename: "$mod+r",
+  toggleLock: "$mod+shift+l",
+  toggleHide: "$mod+shift+h",
+  copyProps: "$mod+alt+c",
+  pasteProps: "$mod+alt+v",
   copyAnimation: "",
   pasteAnimation: "",
   copyAsCode: "",
   copyAsSvg: "",
-  copyAsPng: "⇧⌘C",
+  copyAsPng: "$mod+shift+c",
   rotateClockwise: "",
-  flipHorizontal: "⇧H",
-  flipVertical: "⇧V",
-  toggleUi: "⇧\\",
-  toggleComments: "⇧C",
+  flipHorizontal: "shift+h",
+  flipVertical: "shift+v",
+  toggleUi: "$mod+\\",
+  toggleComments: "shift+c",
 };
+
+function defaultShortcutLabels(
+  applePlatform: boolean,
+): CanvasContextMenuShortcuts {
+  const labels = {} as CanvasContextMenuShortcuts;
+  for (const action of Object.keys(
+    DEFAULT_SHORTCUT_BINDINGS,
+  ) as (keyof CanvasContextMenuShortcuts)[]) {
+    labels[action] = formatShortcutLabel(
+      DEFAULT_SHORTCUT_BINDINGS[action],
+      applePlatform,
+    );
+  }
+  return labels;
+}
 
 type ActionCallbackMap = Partial<
   Record<CanvasContextMenuAction, CanvasContextMenuActionHandler>
 >;
+
+export function dispatchContextMenuAt(
+  target: HTMLElement,
+  point: CanvasContextMenuPoint,
+) {
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: point.clientX,
+      clientY: point.clientY,
+    }),
+  );
+}
 
 // design-editor menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 // design row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
-  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
 // Submenu trigger mirrors item styles + chevron sizing
 const MENU_SUB_TRIGGER_CLASS =
-  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-white [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-layer-hover-color)] focus:text-foreground data-[state=open]:bg-[var(--design-editor-layer-hover-color)] data-[state=open]:text-foreground [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
 // Separator: 1px, full-width flush, design-editor muted line
 const MENU_SEPARATOR_CLASS =
   "mx-0 my-[3px] h-px bg-[var(--design-editor-control-border)] opacity-80";
@@ -511,7 +549,7 @@ export const CanvasContextMenu = forwardRef<
     canPasteOver = hasClipboard && selectedCount > 0,
     canPasteToReplace = hasClipboard && selectedCount > 0,
     canReorder = selectedCount > 0,
-    canGroup = selectedCount > 1,
+    canGroup = selectedCount > 0,
     canUngroup = false,
     canFrameSelection = selectedCount > 0,
     canAddAutoLayout = selectedCount > 0,
@@ -586,9 +624,10 @@ export const CanvasContextMenu = forwardRef<
     () => ({ ...DEFAULT_LABELS, ...labelsProp }),
     [labelsProp],
   );
+  const applePlatform = useApplePlatform();
   const shortcuts = useMemo(
-    () => ({ ...DEFAULT_SHORTCUTS, ...shortcutsProp }),
-    [shortcutsProp],
+    () => ({ ...defaultShortcutLabels(applePlatform), ...shortcutsProp }),
+    [applePlatform, shortcutsProp],
   );
   const hiddenActionSet = useMemo(
     () => new Set(hiddenActions),
@@ -600,14 +639,13 @@ export const CanvasContextMenu = forwardRef<
   );
   const [point, setPoint] = useState<CanvasContextMenuPoint | null>(null);
   const [open, setOpen] = useState(false);
-  const [manualPoint, setManualPoint] = useState<CanvasContextMenuPoint | null>(
-    null,
-  );
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const imperativePointRef = useRef<CanvasContextMenuPoint | null>(null);
+  const preventContextMenuFocusRestoreRef = useRef(false);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       setOpen(nextOpen);
-      if (!nextOpen) setManualPoint(null);
       onOpenChange?.(nextOpen);
     },
     [onOpenChange],
@@ -618,8 +656,11 @@ export const CanvasContextMenu = forwardRef<
     () => ({
       openAt(nextPoint) {
         setPoint(nextPoint);
-        setManualPoint(nextPoint);
-        setOpen(true);
+        imperativePointRef.current = nextPoint;
+        if (triggerRef.current) {
+          dispatchContextMenuAt(triggerRef.current, nextPoint);
+        }
+        imperativePointRef.current = null;
       },
       close() {
         handleOpenChange(false);
@@ -734,24 +775,19 @@ export const CanvasContextMenu = forwardRef<
     return <>{children}</>;
   }
 
-  const manualContentStyle = manualPoint
-    ? ({
-        position: "fixed",
-        left: manualPoint.clientX,
-        top: manualPoint.clientY,
-        transform: "none",
-        zIndex: 250,
-      } satisfies CSSProperties)
-    : undefined;
-
   const hasSelection = selectedCount > 0;
 
   return (
     <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger asChild>
         <div
+          ref={triggerRef}
           className={cn("contents", className)}
           onContextMenuCapture={(event) => {
+            if (imperativePointRef.current) {
+              setPoint(imperativePointRef.current);
+              return;
+            }
             const canvasPoint = getCanvasPoint?.({
               clientX: event.clientX,
               clientY: event.clientY,
@@ -769,7 +805,11 @@ export const CanvasContextMenu = forwardRef<
       </ContextMenuTrigger>
       <ContextMenuContent
         className={cn(MENU_CONTENT_CLASS, contentClassName)}
-        style={manualContentStyle}
+        onCloseAutoFocus={(event) => {
+          if (!preventContextMenuFocusRestoreRef.current) return;
+          event.preventDefault();
+          preventContextMenuFocusRestoreRef.current = false;
+        }}
       >
         {layerCandidates.length > 0 && onSelectLayer ? (
           <>
@@ -813,6 +853,7 @@ export const CanvasContextMenu = forwardRef<
                         key={`reprompt:${candidate.key}`}
                         candidate={candidate}
                         onSelect={(event) => {
+                          preventContextMenuFocusRestoreRef.current = true;
                           onRepromptLayer(candidate, {
                             action: "reprompt",
                             point,
@@ -835,8 +876,9 @@ export const CanvasContextMenu = forwardRef<
                   }
                   label={labels.reprompt}
                   onSelect={(event) => {
+                    preventContextMenuFocusRestoreRef.current = true;
                     const candidate = layerCandidates[0];
-                    if (!onReprompt && onRepromptLayer && candidate) {
+                    if (onRepromptLayer && candidate) {
                       onRepromptLayer(candidate, {
                         action: "reprompt",
                         point,

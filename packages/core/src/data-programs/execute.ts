@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -100,6 +101,7 @@ export interface RunDataProgramArgs {
   triggeredBy: DataProgramTriggeredBy;
   forceRefresh?: boolean;
   timeoutMs?: number;
+  evaluator?: SandboxCodeEvaluator;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,13 +112,18 @@ export interface RunDataProgramArgs {
 
 let _actionsSupplier: (() => Record<string, ActionEntry>) | undefined;
 let _initializedAppId: string | undefined;
+let _configuredEvaluator: SandboxCodeEvaluator | undefined;
 
 export function initDataPrograms(opts: {
   appId: string;
   getActions: () => Record<string, ActionEntry>;
+  evaluator?: SandboxCodeEvaluator;
 }): void {
   _actionsSupplier = opts.getActions;
   _initializedAppId = opts.appId;
+  if (opts.evaluator === "run" || _configuredEvaluator === undefined) {
+    _configuredEvaluator = opts.evaluator ?? "node";
+  }
 }
 
 /** The appId passed to the most recent `initDataPrograms()` call, if any. */
@@ -128,6 +135,7 @@ export function getInitializedDataProgramsAppId(): string | undefined {
 export function _resetDataProgramsRuntimeForTests(): void {
   _actionsSupplier = undefined;
   _initializedAppId = undefined;
+  _configuredEvaluator = undefined;
 }
 
 function defaultTimeoutFor(triggeredBy: DataProgramTriggeredBy): number {
@@ -263,6 +271,7 @@ async function executeProgramCode(
   fullCode: string,
   timeoutMs: number,
   ctx: RunDataProgramArgs["ctx"],
+  evaluator: SandboxCodeEvaluator | undefined,
 ): Promise<
   | {
       ok: true;
@@ -296,6 +305,7 @@ async function executeProgramCode(
       getActions,
       extraBridgeTools: new Set(),
       context: buildActionRunContext(ctx),
+      evaluator: evaluator ?? _configuredEvaluator ?? "node",
     });
 
     const logsTail = truncateLogs(result.stdout, result.stderr);
@@ -375,6 +385,7 @@ export async function runDataProgram(
       `${prelude}\n${args.code}`,
       timeoutMs,
       args.ctx,
+      args.evaluator,
     );
     if (!outcome.ok) {
       return failure(outcome.code, outcome.message);
@@ -511,6 +522,7 @@ async function runForegroundProgram(
     `${prelude}\n${program.code}`,
     timeoutMs,
     args.ctx,
+    args.evaluator,
   );
   const finishedAt = Date.now();
 

@@ -20,12 +20,12 @@ import {
   isElectron,
   encodeOAuthState,
   resolveOAuthRedirectUri,
+  wrapNetlifyPreviewGoogleOAuthState,
   safeReturnPath,
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -53,7 +53,13 @@ export default defineEventHandler(async (event: H3Event) => {
     // Use the framework-standard callback path. The local Google OAuth client
     // is documented/configured for `/_agent-native/google/callback`; using a
     // custom `/api/auth/...` callback causes redirect_uri_mismatch locally.
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -87,6 +93,7 @@ export default defineEventHandler(async (event: H3Event) => {
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const params = new URLSearchParams({
       client_id: credentials.clientId,
@@ -98,7 +105,7 @@ export default defineEventHandler(async (event: H3Event) => {
       prompt: "consent",
       include_granted_scopes: "true",
       scope: GOOGLE_CALENDAR_SCOPES.join(" "),
-      state,
+      state: oauthState,
     });
     const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
 
@@ -106,7 +113,10 @@ export default defineEventHandler(async (event: H3Event) => {
     // this route (popup, direct nav, etc.). Only return JSON when the
     // caller explicitly wants the URL string.
     if (q.json === "1") return { url };
-    return sendRedirect(event, url, 302);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: url },
+    });
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err?.message ?? "Unknown error" };

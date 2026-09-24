@@ -1,4 +1,4 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 import DesignEditorRoute from "../pages/DesignEditor";
 
@@ -12,5 +12,5 @@ export default function DesignRoute() {
 }
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.designEditor }];
+  return [{ title: enUSMessages.routeTitles.designEditor }];
 }

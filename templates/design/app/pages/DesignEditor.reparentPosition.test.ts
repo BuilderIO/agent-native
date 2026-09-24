@@ -127,4 +127,13 @@ describe("nested-container reparent position resolution", () => {
       computeReparentedChildPosition(sourcePosition, targetPosition),
     ).toEqual({ x: -336, y: -424 });
   });
+
+  it("includes inline relative ancestor left/top in the screen-root walk", () => {
+    const html = `<!DOCTYPE html><html><body>
+      <div data-agent-native-node-id="frame" style="position:relative;left:300px;top:200px;width:400px;height:400px;">
+        <div data-agent-native-node-id="source" style="position:absolute;left:40px;top:20px;width:80px;height:40px;"></div>
+      </div>
+    </body></html>`;
+    expect(resolvePosition(parse(html), "source")).toEqual({ x: 340, y: 220 });
+  });
 });

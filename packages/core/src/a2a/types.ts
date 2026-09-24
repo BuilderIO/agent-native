@@ -1,4 +1,4 @@
-// A2A Protocol types (spec v0.3) + framework config types
+// A2A Protocol types (spec v0.3/v1.0) + framework config types
 import type { PublicAgentActionConfig } from "../action.js";
 
 export type {
@@ -72,6 +72,15 @@ export interface Task {
   metadata?: Record<string, unknown>;
 }
 
+/** Trusted task metadata used to propagate a blocked integration across A2A. */
+export interface A2AConnectionRequestMetadata {
+  version: 1;
+  provider: string;
+  reason: "connect" | "grant" | "reauthorize" | "admin_required";
+  appId?: string;
+  detail?: string;
+}
+
 // --- Agent Card ---
 
 export interface AgentSkill {
@@ -97,6 +106,9 @@ export interface AgentCapabilities {
   streaming?: boolean;
   pushNotifications?: boolean;
   stateTransitionHistory?: boolean;
+  /** The app supports the Agent-Native identity connect handoff. */
+  connect?: boolean;
+  extendedAgentCard?: boolean;
 }
 
 export interface AgentSecurityScheme {
@@ -107,12 +119,40 @@ export interface AgentSecurityScheme {
   name?: string;
 }
 
+/** Protocol version advertised by an A2A agent card. */
+export type A2AProtocolVersion = "0.3" | "1.0" | (string & {});
+
+/** A JSON-RPC interface advertised by an A2A v1.0 agent card. */
+export interface AgentInterface {
+  url: string;
+  protocolBinding: string;
+  protocolVersion: A2AProtocolVersion;
+  tenant?: string;
+}
+
+/** A v0.3 additional interface, retained for card compatibility. */
+export interface AgentAdditionalInterface {
+  url: string;
+  transport?: string;
+  protocolBinding?: string;
+  protocolVersion?: A2AProtocolVersion;
+  tenant?: string;
+}
+
 export interface AgentCard {
   name: string;
   description: string;
-  url: string;
+  /** v0.3 primary endpoint. v1.0 cards use supportedInterfaces instead. */
+  url?: string;
   version: string;
-  protocolVersion: "0.3";
+  /** v0.3 protocol selector. */
+  protocolVersion?: A2AProtocolVersion;
+  /** v0.3 primary transport selector. */
+  preferredTransport?: string;
+  /** v0.3 transport alternatives. */
+  additionalInterfaces?: AgentAdditionalInterface[];
+  /** v1.0 protocol/transport alternatives; the first JSON-RPC entry wins. */
+  supportedInterfaces?: AgentInterface[];
   capabilities: AgentCapabilities;
   skills: AgentSkill[];
   securitySchemes?: Record<string, AgentSecurityScheme>;
@@ -257,6 +297,8 @@ export interface A2AConfig {
   handler?: A2AHandler;
   apiKeyEnv?: string;
   streaming?: boolean;
+  /** Advertise the existing identity-hub connect handoff in the agent card. */
+  connect?: boolean;
   /** Route async A2A work through the app's durable background worker when available. */
   durableBackgroundRuns?: boolean;
   /** Execute a persisted, human-approved A2A tool call. */

@@ -8,9 +8,13 @@ import {
   resourcePut,
 } from "../../resources/store.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
-import { classifyJobResource } from "../frontmatter.js";
+import {
+  classifyJobResource,
+  patchJobFrontmatterFields,
+  type JobFrontmatterPatch,
+} from "../frontmatter.js";
 import { deleteAutomationRuns } from "../run-history.js";
-import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
+import { parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
@@ -46,7 +50,7 @@ export default defineAction({
       });
     }
 
-    const { meta, body } = parseJobFrontmatter(resource.content);
+    const { meta } = parseJobFrontmatter(resource.content);
     if (classifyJobResource(resource.content).kind === "automation") {
       throw Object.assign(new Error(`Job "${name}" is an automation.`), {
         statusCode: 400,
@@ -63,6 +67,7 @@ export default defineAction({
       return { deleted: true, name };
     }
 
+    const fields: JobFrontmatterPatch = {};
     if (timezone !== undefined) {
       if (!isValidTimezone(timezone)) {
         throw Object.assign(new Error(`Unknown timezone "${timezone}".`), {
@@ -70,6 +75,7 @@ export default defineAction({
         });
       }
       meta.timezone = timezone;
+      fields.timezone = timezone;
     }
     if (
       enabled === undefined &&
@@ -89,19 +95,24 @@ export default defineAction({
         );
       }
       meta.schedule = schedule;
+      fields.schedule = schedule;
     }
-    if (enabled !== undefined) meta.enabled = enabled;
+    if (enabled !== undefined) {
+      meta.enabled = enabled;
+      fields.enabled = enabled;
+    }
     if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
       meta.nextRun = nextOccurrence(
         meta.schedule,
         undefined,
         meta.timezone,
       ).toISOString();
+      fields.nextRun = meta.nextRun;
     }
     await resourcePut(
       resource.owner,
       resource.path,
-      buildJobContent(meta, body),
+      patchJobFrontmatterFields(resource.content, fields),
     );
 
     return {

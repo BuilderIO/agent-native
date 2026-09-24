@@ -38,11 +38,13 @@ const state = vi.hoisted(() => ({
     },
   ),
   getAllSettings: vi.fn(async () => ({})),
+  getUserSetting: vi.fn(async () => ({ ids: ["dashboard-01"] })),
   listOrgSettings: vi.fn(async () => ({})),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
   getAllSettings: state.getAllSettings,
+  getUserSetting: state.getUserSetting,
   listOrgSettings: state.listOrgSettings,
 }));
 
@@ -65,6 +67,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     state.listDashboardSummaries.mockClear();
     state.loadDashboardCatalogDashboards.mockClear();
     state.getAllSettings.mockClear();
+    state.getUserSetting.mockClear();
     state.listOrgSettings.mockClear();
   });
 
@@ -92,6 +95,16 @@ describe("searchAnalyticsQueryCatalog", () => {
         archivedAt: null,
         hiddenAt: null,
         hiddenBy: null,
+        ...(index === 29
+          ? {
+              certification: {
+                status: "certified",
+                certifiedAt: "2026-08-03T00:00:00.000Z",
+                certifiedBy: "admin@example.com",
+                certifiedForUpdatedAt: "2026-08-02T00:00:00.000Z",
+              },
+            }
+          : {}),
       };
     });
 
@@ -113,14 +126,19 @@ describe("searchAnalyticsQueryCatalog", () => {
     );
     expect(state.loadCalls[0]).toHaveLength(24);
     expect(state.loadCalls[0]).toContain("dashboard-01");
-    expect(state.loadCalls[0]).not.toContain("dashboard-30");
+    expect(state.loadCalls[0]).toContain("dashboard-30");
     expect(results[0]).toMatchObject({
       kind: "dashboard-panel",
       origin: "saved-dashboard",
       dashboardId: "dashboard-01",
       panelId: "revenue-panel",
       dashboardTitle: "Closed Won Revenue",
+      favorite: true,
     });
+    expect(state.getUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      "favorites",
+    );
     expect(state.getAllSettings).toHaveBeenCalledTimes(1);
     expect(state.listOrgSettings).not.toHaveBeenCalled();
   });

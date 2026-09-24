@@ -7,12 +7,13 @@ docs/superpowers
 
 # Local bridge and data artifacts
 /bridge/
-/data/
+**/data/
 
 .idea/
 
 /*.png
 tmp/
+/.tmp/
 
 # Playwright MCP logs
 .playwright-mcp/
@@ -35,12 +36,6 @@ node-compile-cache/
 
 # Application state data files (ephemeral, may contain secrets)
 **/application-state/*.json
-
-# SQLite databases (local data, never commit)
-**/data/*.db
-**/data/*.db-journal
-**/data/*.db-wal
-**/data/*.db-shm
 
 # React Router generated types
 .react-router/
@@ -74,6 +69,7 @@ templates/slides/data/exports/
 
 # Playwright/vitest test run state
 test-results/
+playwright-report/
 e2e/.auth/
 **/.auth/
 **/.auth-debug/
@@ -81,10 +77,6 @@ e2e/.auth/
 
 # Wrangler local state
 .wrangler
-
-# Wrangler configs copied at deploy time (from top-level wrangler-*.toml)
-templates/*/wrangler.toml
-wrangler.toml
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 # Local editor runtime state.
@@ -102,6 +94,7 @@ advisor-plans/
 
 # Local scratch files from ad hoc repo/video tooling
 **/scratch/
+.tmp/
 .video-bakeoff/
 
 # Regenerable plan artifacts. Keep plans/*/.plan-state.json tracked: it carries
@@ -112,12 +105,19 @@ plans/*/preview.html
 db-exec
 
 # Environment files (may contain secrets)
+# Every mode-specific variant too: `.env.production` and friends were not
+# matched by the old explicit list, and `ship:push` stages the whole snapshot.
+# Patterns without a slash match at any depth, so this covers templates/,
+# packages/ and templates/ alike. The .example files stay tracked.
 .env
-.env.local
-.env.*.local
-templates/*/.env
-templates/*/.env.local
-templates/*/.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+# Editor and tooling backups of the above. `.env` was ignored but `.env.bak`
+# was not, so a routine push could have committed a file full of production
+# credentials.
+*.bak
+*.orig
 test-reports/
 *.tsbuildinfo
 

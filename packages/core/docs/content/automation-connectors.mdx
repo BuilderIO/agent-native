@@ -7,7 +7,7 @@ description: "Invoke pre-configured external workflow systems like n8n and Zapie
 
 Reach for workflow connectors when you already have an automation platform — n8n, Zapier, or a similar workflow system — that should run a specific, pre-configured job on request, and hand a result back safely. An action passes a workflow ID and structured input; the workflow runs; the result (or a callback later) comes back through an authenticated, size-bounded path. Neither side ever sees a raw secret or an arbitrary URL.
 
-This is deliberately narrower than a general-purpose HTTP client or a chat integration. Agent Native's automation connector runtime supports exactly two directions:
+This is deliberately narrower than a general-purpose HTTP client or a chat integration. Agent-Native's automation connector runtime supports exactly two directions:
 
 - Invoke a **configured external workflow** from an action.
 - Receive an **authenticated callback** from a configured workflow.
@@ -97,11 +97,11 @@ The callback returns an acknowledgement quickly. Never run an agent loop inside 
 
 ## n8n {#n8n}
 
-n8n is runtime-backed through configured Webhook workflows. Agent Native does **not** host or provision n8n.
+n8n is runtime-backed through configured Webhook workflows. Agent-Native does **not** host or provision n8n.
 
-Configure an n8n Webhook node with an explicit URL and one of n8n's supported authentication modes (Header, Basic, or JWT), then register that static URL/origin and the matching Agent Native secret reference. n8n supports immediate responses, final-node responses, and responses via a Respond to Webhook node; model the selected behavior as asynchronous or synchronous in the workflow definition.
+Configure an n8n Webhook node with an explicit URL and one of n8n's supported authentication modes (Header, Basic, or JWT), then register that static URL/origin and the matching Agent-Native secret reference. n8n supports immediate responses, final-node responses, and responses via a Respond to Webhook node; model the selected behavior as asynchronous or synchronous in the workflow definition.
 
-For callbacks from n8n into Agent Native, configure an Agent Native callback URL and a shared-secret or HMAC adapter. Include a stable event ID header whenever n8n can retry delivery.
+For callbacks from n8n into Agent-Native, configure an Agent-Native callback URL and a shared-secret or HMAC adapter. Include a stable event ID header whenever n8n can retry delivery.
 
 See the [n8n Webhook documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/).
 
@@ -111,7 +111,7 @@ Zapier is currently **blueprint-only** in the integration catalog. There is no g
 
 Zapier REST Hook triggers are an app-integration contract: an app implements subscribe and unsubscribe endpoints, stores Zapier's unique target URL, and delivers events to that URL. A static inbound webhook is not a public Zapier REST Hook integration.
 
-Zapier MCP is a separately configured remote MCP connection with a Zapier account and its own authorization flow. It is not interchangeable with an Agent Native workflow callback credential.
+Zapier MCP is a separately configured remote MCP connection with a Zapier account and its own authorization flow. It is not interchangeable with an Agent-Native workflow callback credential.
 
 See [Zapier REST Hook triggers](https://docs.zapier.com/integrations/build/hook-trigger) and [Zapier MCP](https://docs.zapier.com/mcp/home).
 

@@ -296,6 +296,7 @@ export function ComposeBubbleToolbar({
           <input
             autoFocus
             type="url"
+            aria-label={t("mail.compose.enterLinkUrl")}
             placeholder={t("mail.compose.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
@@ -309,6 +310,7 @@ export function ComposeBubbleToolbar({
             className="bg-transparent border-none outline-none text-popover-foreground text-sm w-48 px-1 py-0.5 placeholder:text-muted-foreground"
           />
           <button
+            type="button"
             onClick={handleSetLink}
             className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium"
           >
@@ -331,6 +333,7 @@ export function ComposeBubbleToolbar({
             <>
               <textarea
                 autoFocus
+                aria-label={t("mail.compose.aiAssist")}
                 placeholder={t("mail.compose.aiAssistPlaceholder")}
                 value={aiPrompt}
                 rows={2}
@@ -352,6 +355,7 @@ export function ComposeBubbleToolbar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
                     onClick={() => void handleAiAssist()}
                     className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
                   >
@@ -390,6 +394,8 @@ export function ComposeBubbleToolbar({
               <Tooltip key={title}>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
+                    aria-label={title}
                     onClick={action}
                     className={cn(
                       "p-1.5 rounded transition-colors",
@@ -409,6 +415,8 @@ export function ComposeBubbleToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("mail.compose.aiAssist")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

@@ -6,9 +6,8 @@
  * Usage (from the design template root):
  *   pnpm exec tsx app/components/design/bridge/codegen.ts
  *
- * Called automatically by:
- *   - The freshness guard test (bridge.guard.spec.ts)
- *   - The project build script (see scripts.build in package.json)
+ * Run after editing a bridge and before building the app. The freshness guard
+ * (bridge.guard.spec.ts) verifies generated output but does not write it.
  *
  * Mechanism
  * ---------

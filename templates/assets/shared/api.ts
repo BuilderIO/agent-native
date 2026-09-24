@@ -1,3 +1,17 @@
+import {
+  isValidWorkspaceAppIdFormat,
+  normalizeTrackingDimension,
+} from "@agent-native/core/shared";
+
+export function normalizeCallerAppId(value: unknown): string | undefined {
+  const normalized = normalizeTrackingDimension(value);
+  return normalized &&
+    normalized.length <= 64 &&
+    isValidWorkspaceAppIdFormat(normalized)
+    ? normalized
+    : undefined;
+}
+
 export const IMAGE_CATEGORIES = [
   "hero",
   "landing",
@@ -13,6 +27,8 @@ export const IMAGE_CATEGORIES = [
 ] as const;
 
 export const MAX_ASSET_UPLOAD_FILES = 20;
+// Leave 256 KiB for multipart framing under the hosted 4 MiB request limit.
+export const MAX_ASSET_UPLOAD_BATCH_BYTES = 4 * 1024 * 1024 - 256 * 1024;
 
 export const ASPECT_RATIOS = [
   "1:1",
@@ -198,6 +214,22 @@ export interface PresetReference {
   required: boolean;
 }
 
+export type AssetAccessRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
+
+/**
+ * True when this role may approve, not only draft: save a candidate into the
+ * kit, organize it, or change its settings. Mirrors `assertCanApprove` on the
+ * server — see `server/lib/library-access.ts` for the rule itself.
+ */
+export function canApproveWithRole(role: unknown): boolean {
+  return role === "editor" || role === "admin" || role === "owner";
+}
+
 export interface ImageLibrarySummary {
   id: string;
   title: string;
@@ -244,7 +276,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
-  intent?: "subject" | string;
+  intent?: "subject" | (string & {});
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;
@@ -289,6 +321,7 @@ export interface AssetVariantState {
   slots: Array<{
     slotId: string;
     runId?: string;
+    ownerEmail?: string | null;
     status: "pending" | "ready" | "failed";
     assetId?: string;
     previewUrl?: string;
@@ -321,6 +354,18 @@ export interface GenerationPresetSummary {
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface TemplateSummary extends Omit<
+  GenerationPresetSummary,
+  "libraryId"
+> {
+  libraryId: string | null;
+  scope: "global" | "library";
+  visibility: "private" | "org" | "public";
+  ownerEmail: string;
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
+  libraryTitle?: string | null;
 }
 
 export interface GenerationSessionSummary {

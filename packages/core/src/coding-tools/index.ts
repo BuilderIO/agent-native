@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { AgentFileMutationProof } from "../agent/types.js";
 
 export interface CodingCommandResult {
   code: number | null;
@@ -10,6 +12,12 @@ export interface CodingCommandResult {
   stderr: string;
   timedOut: boolean;
   durationMs?: number;
+  /**
+   * The command exited but something it started outlived it and still holds the
+   * output pipe, so the captured output stops here rather than at end-of-stream.
+   * Distinct from a clean finish — the caller is not looking at the whole story.
+   */
+  outputStillOpen?: boolean;
 }
 
 /**
@@ -96,6 +104,10 @@ interface EditOperation {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
+/** How long `close` may lag `exit` before we settle on the exit code anyway. */
+const CLOSE_GRACE_MS = 500;
+/** How long a signalled process group has to exit before it is SIGKILLed. */
+const SIGKILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_FILE_READ_CHARS = 120_000;
 
 /**
@@ -120,6 +132,16 @@ export function createCodingToolRegistry(
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const maxFileReadChars =
     options.maxFileReadChars ?? DEFAULT_MAX_FILE_READ_CHARS;
+  const fileMutationProofs = new WeakMap<object, AgentFileMutationProof>();
+  const recordFileMutation = (
+    args: object,
+    filePath: string,
+    content: string,
+  ) =>
+    fileMutationProofs.set(args, {
+      path: (path.relative(cwd, filePath) || filePath).replaceAll("\\", "/"),
+      contentSha256: createHash("sha256").update(content).digest("hex"),
+    });
 
   return {
     bash: {
@@ -286,6 +308,10 @@ export function createCodingToolRegistry(
       },
     },
     edit: {
+      fileMutationProof: (args) =>
+        typeof args === "object" && args !== null
+          ? fileMutationProofs.get(args)
+          : undefined,
       tool: {
         description:
           "Edit an existing UTF-8 text file by replacing exact text. Prefer this over write for changes to existing files. Read the file first so oldText matches byte-for-byte, including whitespace and indentation. oldText must occur EXACTLY ONCE in the file: include enough surrounding context to make it unique. The edit fails (and the file is left unchanged) if oldText is not found or matches more than once, unless replaceAll is true, which replaces every occurrence. To apply several edits to one file in a single call, pass edits as a JSON array of {oldText, newText, replaceAll} objects; they apply in order, and any failure aborts the whole call.",
@@ -371,6 +397,7 @@ export function createCodingToolRegistry(
           }
 
           fs.writeFileSync(filePath, content, "utf8");
+          recordFileMutation(args, filePath, content);
 
           // Emit structured diff metadata so the UI can render a real diff.
           const truncated =
@@ -389,6 +416,10 @@ export function createCodingToolRegistry(
       },
     },
     write: {
+      fileMutationProof: (args) =>
+        typeof args === "object" && args !== null
+          ? fileMutationProofs.get(args)
+          : undefined,
       tool: {
         description:
           "Create a new UTF-8 text file, or fully overwrite an existing one with the given content. Missing parent directories are created. For changes to an existing file, prefer edit; only use write when you intend to replace the entire file. Default to ASCII content unless the file already uses other characters or there is a clear reason not to.",
@@ -430,6 +461,7 @@ export function createCodingToolRegistry(
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
           const existed = fs.existsSync(filePath);
           fs.writeFileSync(filePath, content, "utf8");
+          recordFileMutation(args, filePath, content);
           const bytes = Buffer.byteLength(content, "utf8");
           const lines = content.split("\n").length;
 
@@ -459,17 +491,41 @@ export async function runCodingCommand(
     signal?: AbortSignal;
   } = {},
 ): Promise<CodingCommandResult> {
+  // `detached` puts the child in its own process group so `abort` can signal
+  // everything it spawned. Without it a timeout signals only the `sh -c`
+  // wrapper, which a backgrounding command has usually already outlived.
   const child = spawn(command, {
     cwd,
     shell: true,
     stdio: ["pipe", "pipe", "pipe"],
+    detached: true,
     env: { ...process.env, FORCE_COLOR: "0" },
   });
   let stdout = "";
   let stderr = "";
   let timedOut = false;
+  let outputStillOpen = false;
   const startMs = Date.now();
-  const abort = () => child.kill("SIGTERM");
+  const killGroup = (signal: NodeJS.Signals) => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, signal);
+      else child.kill(signal);
+    } catch {
+      // The group is already gone, or we never got a pid. Fall back to the
+      // direct child; if that also throws the process is already reaped.
+      try {
+        child.kill(signal);
+      } catch {
+        /* already exited */
+      }
+    }
+  };
+  let sigkillTimer: NodeJS.Timeout | undefined;
+  const abort = () => {
+    killGroup("SIGTERM");
+    sigkillTimer ??= setTimeout(() => killGroup("SIGKILL"), SIGKILL_GRACE_MS);
+    sigkillTimer.unref?.();
+  };
   const timer = setTimeout(() => {
     timedOut = true;
     abort();
@@ -491,9 +547,34 @@ export async function runCodingCommand(
     else options.signal.addEventListener("abort", abort, { once: true });
   }
   try {
+    // `close` fires only once every inherited pipe is closed, so a command that
+    // leaves a grandchild running (`npm run dev &`) never reaches it. Treat
+    // `exit` as authoritative and allow `close` a short grace to deliver
+    // buffered output, then settle on what we have.
     const code = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", resolve);
+      let settled = false;
+      let graceTimer: NodeJS.Timeout | undefined;
+      const settle = (value: number | null) => {
+        if (settled) return;
+        settled = true;
+        if (graceTimer) clearTimeout(graceTimer);
+        resolve(value);
+      };
+      child.once("error", (err) => {
+        if (settled) return;
+        settled = true;
+        if (graceTimer) clearTimeout(graceTimer);
+        reject(err);
+      });
+      child.once("close", (closeCode: number | null) => settle(closeCode));
+      child.once("exit", (exitCode: number | null) => {
+        if (settled) return;
+        graceTimer = setTimeout(() => {
+          outputStillOpen = true;
+          settle(exitCode);
+        }, CLOSE_GRACE_MS);
+        graceTimer.unref?.();
+      });
     });
     return {
       code,
@@ -501,9 +582,15 @@ export async function runCodingCommand(
       stderr,
       timedOut,
       durationMs: Date.now() - startMs,
+      ...(outputStillOpen ? { outputStillOpen: true } : {}),
     };
   } finally {
     clearTimeout(timer);
+    // Deliberately NOT clearing `sigkillTimer`. It exists only when abort ran,
+    // and the exit-grace path can settle before the 1s escalation fires — a
+    // descendant that ignored SIGTERM would then outlive the call untouched.
+    // Letting it run costs nothing: it is unref'd, and `killGroup` on an
+    // already-dead group is a caught no-op.
     options.signal?.removeEventListener("abort", abort);
   }
 }
@@ -563,6 +650,9 @@ export function formatCodingCommandResult(
       ? ""
       : `exitCode: ${result.code}`,
     result.timedOut ? "timedOut: true" : "",
+    result.outputStillOpen
+      ? "note: the command exited but a process it started is still running and holding the output stream, so the output below may be incomplete"
+      : "",
     result.stdout ? `stdout:\n${result.stdout}` : "",
     result.stderr ? `stderr:\n${result.stderr}` : "",
   ].filter(Boolean);
@@ -589,6 +679,68 @@ export function truncateBashOutput(
   if (value.length <= max) return value;
   const omitted = value.length - max;
   return `${value.slice(0, headChars)}\n\n...[${omitted} chars omitted]\n\n${value.slice(value.length - tailChars)}`;
+}
+
+/**
+ * Strip shell quoting so a policy regex sees the word the shell will actually
+ * run. Bash removes quotes before the command word exists, so `git 'checkout'`
+ * and `gi''t checkout` both execute `git checkout` while matching no rule
+ * written against the literal text — every denylist entry is otherwise one pair
+ * of quotes away from being bypassed.
+ *
+ * `unanalyzable` reports constructs whose executed text this pass cannot
+ * recover, so no rule matched against the canonical form can be trusted:
+ * `$'…'` ANSI-C escapes (`$'\x67it'` → `git`) and command substitution
+ * (`$(printf git) $(printf checkout) main` runs the forbidden operation while
+ * the string contains neither token). Callers must escalate rather than clear a
+ * command when this is set. Substitution inside single quotes is literal, so it
+ * does not set the flag.
+ *
+ * ponytail: plain parameter expansion (`$VAR`, `${VAR}`) can also build a token
+ * at runtime and is NOT flagged — doing so would make ordinary `cd $TMPDIR`
+ * commands require approval. Closing that needs a real shell parser, which is
+ * the upgrade path if this boundary ever has to hold against a determined
+ * attacker rather than a misbehaving model.
+ */
+export function canonicalizeShellCommand(command: string): {
+  canonical: string;
+  unanalyzable: boolean;
+} {
+  let canonical = "";
+  let unanalyzable = false;
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]!;
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else canonical += ch;
+      continue;
+    }
+    if (ch === "\\") {
+      const next = command[i + 1];
+      if (next === undefined) continue;
+      // Backslash-newline is a line continuation: both characters vanish.
+      if (next !== "\n") canonical += next;
+      i += 1;
+      continue;
+    }
+    // Substitution expands inside double quotes as well as unquoted.
+    if (ch === "`" || (ch === "$" && command[i + 1] === "(")) {
+      unanalyzable = true;
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else canonical += ch;
+      continue;
+    }
+    if (ch === "$" && command[i + 1] === "'") unanalyzable = true;
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    canonical += ch;
+  }
+  return { canonical, unanalyzable };
 }
 
 export function isReadOnlyShellCommand(command: string): boolean {

@@ -14,6 +14,11 @@ const agentEngineKeyMock = vi.hoisted(() => ({
   setAgentEngineProvider: vi.fn(),
 }));
 
+const deferredUiModuleLoads = vi.hoisted(() => ({
+  builderConnectPopover: false,
+  providerSetupForm: false,
+}));
+
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
@@ -53,6 +58,7 @@ vi.mock("../i18n.js", () => ({
         "agentPanel.addOwnKeys": "Custom keys",
         "agentChat.common.waiting": "Waiting",
         "agentChat.common.connect": "Connect",
+        "agentChat.common.continue": "Continue",
         "agentChat.common.retry": "Retry",
         "agentChat.common.details": "Details",
         "agentChat.common.dismiss": "Dismiss",
@@ -60,7 +66,7 @@ vi.mock("../i18n.js", () => ({
         "agentChat.recovery.copyDebug": "Copy debug info",
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.credentialRejected":
-          "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+          "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
           "This run can be continued in a new chat.",
         "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
@@ -112,54 +118,65 @@ vi.mock("../i18n.js", () => ({
   },
 }));
 
-vi.mock("../settings/ProviderSetupForm.js", () => ({
-  AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
-    const [providerOpen, setProviderOpen] = React.useState(false);
-    const [apiKey, setApiKey] = React.useState("");
-    return (
-      <div>
-        <button
-          type="button"
-          aria-label="Choose a provider"
-          onClick={() => setProviderOpen((open) => !open)}
-        >
-          Choose a provider
-        </button>
-        {providerOpen ? (
-          <div>
-            <button type="button">OpenRouter</button>
-            <button type="button">Ollama</button>
-          </div>
-        ) : null}
+vi.mock("../settings/ProviderSetupForm.js", () => {
+  deferredUiModuleLoads.providerSetupForm = true;
+  return {
+    AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
+      const [providerOpen, setProviderOpen] = React.useState(false);
+      const [apiKey, setApiKey] = React.useState("");
+      return (
         <div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
           <button
             type="button"
-            onClick={() => {
-              void agentEngineKeyMock.saveAgentEngineProviderSettings({
-                provider: "anthropic",
-                key: "ANTHROPIC_API_KEY",
-                apiKey,
-                scope: "user",
-              });
-              void agentEngineKeyMock.setAgentEngineProvider({
-                provider: "anthropic",
-                model: "mock-model",
-              });
-              onConnected?.();
-            }}
+            aria-label="Choose a provider"
+            onClick={() => setProviderOpen((open) => !open)}
           >
-            Save
+            Choose a provider
           </button>
+          {providerOpen ? (
+            <div>
+              <button type="button">OpenRouter</button>
+              <button type="button">Ollama</button>
+            </div>
+          ) : null}
+          <div>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void agentEngineKeyMock.saveAgentEngineProviderSettings({
+                  provider: "anthropic",
+                  key: "ANTHROPIC_API_KEY",
+                  apiKey,
+                  scope: "org",
+                });
+                void agentEngineKeyMock.setAgentEngineProvider({
+                  provider: "anthropic",
+                  model: "mock-model",
+                });
+                onConnected?.();
+              }}
+            >
+              Save
+            </button>
+          </div>
         </div>
-      </div>
-    );
-  },
-}));
+      );
+    },
+  };
+});
+
+vi.mock("../settings/BuilderConnectPopover.js", () => {
+  deferredUiModuleLoads.builderConnectPopover = true;
+  return {
+    BuilderConnectPopover: ({ children }: { children: React.ReactNode }) =>
+      children,
+  };
+});
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: () => ({
@@ -173,6 +190,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 
 import { AgentNativeI18nProvider } from "../i18n.js";
 import {
+  BuilderSetupCard,
   BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
@@ -205,6 +223,64 @@ describe("run recovery surfaces", () => {
     vi.unstubAllGlobals();
   });
 
+  it("loads provider setup modules only when a setup surface is reached", async () => {
+    expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent connection was interrupted.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(deferredUiModuleLoads.builderConnectPopover).toBe(false);
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(deferredUiModuleLoads.builderConnectPopover).toBe(true);
+    });
+    expect(deferredUiModuleLoads.providerSetupForm).toBe(false);
+
+    const customKeysButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Custom keys"));
+    await act(async () => {
+      customKeysButton?.click();
+    });
+
+    await vi.waitFor(() => {
+      expect(deferredUiModuleLoads.providerSetupForm).toBe(true);
+    });
+    expect(container.textContent).toContain("Choose a provider");
+  });
+
   it("shows an explicit failure state when Copy debug cannot write clipboard", async () => {
     clipboardMock.writeClipboardText.mockResolvedValue(false);
 
@@ -217,8 +293,7 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message:
-                "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+              message: "The agent connection was interrupted.",
               errorCode: "connection_error",
               runId: "run-123",
               details: "attempted_runs: run-1, run-2",
@@ -234,9 +309,6 @@ describe("run recovery surfaces", () => {
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Debug-Informationen kopieren");
-      expect(container.textContent).toContain(
-        "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
-      );
     });
     const copyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Debug-Informationen kopieren"),
@@ -296,6 +368,45 @@ describe("run recovery surfaces", () => {
     expect(newChatButton?.textContent).toBe("");
   });
 
+  it("gives Continue vertical padding and leaves icon actions unframed", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent connection was interrupted.",
+              errorCode: "connection_error",
+              runId: "run-123",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const continueButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Continue");
+    const actionGroup = continueButton?.nextElementSibling;
+    const actionClasses = actionGroup?.className.split(/\s+/) ?? [];
+
+    expect(continueButton?.className).toContain("py-2");
+    expect(actionClasses).toEqual(
+      expect.arrayContaining(["flex", "shrink-0", "items-center"]),
+    );
+    expect(actionClasses).not.toContain("border");
+    expect(actionClasses).not.toContain("bg-background/60");
+    expect(actionClasses).not.toContain("p-0.5");
+    expect(actionGroup?.querySelectorAll("button")).toHaveLength(3);
+  });
+
   it("shows Connect AI instead of recovery warnings for desktop relay failures", async () => {
     await act(async () => {
       root.render(
@@ -330,6 +441,32 @@ describe("run recovery surfaces", () => {
     expect(
       container.querySelector('button[aria-label="Copy debug info"]'),
     ).toBeNull();
+  });
+
+  it("keeps Builder credential failures in reconnect recovery", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Invalid token",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Reconnect Builder.io");
+    expect(container.textContent).not.toContain("Connect AI");
+    expect(container.textContent).not.toContain("Custom keys");
   });
 
   it("shows the searchable provider setup while disclosing API keys", async () => {
@@ -393,6 +530,60 @@ describe("run recovery surfaces", () => {
     expect(actions?.className).not.toContain("flex-col");
   });
 
+  it("keeps retry available on the shared provider setup card", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onRetry={onRetry} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton?.click();
+      retryButton?.click();
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps provider setup dismissible when requested", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onDismiss={onDismiss} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const dismissButton = container.querySelector(
+      'button[aria-label="Dismiss"]',
+    );
+    expect(dismissButton).toBeTruthy();
+
+    await act(async () => {
+      dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
@@ -416,7 +607,17 @@ describe("run recovery surfaces", () => {
     });
   });
 
-  it("shows the AI setup flow without a direct retry button for a rejected provider key", async () => {
+  // Prod, 2026-08-26 (slides): this exact shape — a 401 whose body is the
+  // gateway's absent-credential sentence — reached users whose own key was
+  // fine, because the rejected credential belonged to the workspace. They got
+  // a setup panel for a connection already marked good and no way forward. The
+  // retry premise ("replays the same rejected credential") stopped being true
+  // once a 401 started fingerprinting and skipping that credential, so the
+  // setup flow and a retry now ship together.
+  //
+  // The setup state keeps the retry action available below the card.
+  it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
+    const onRetry = vi.fn();
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -431,7 +632,7 @@ describe("run recovery surfaces", () => {
               details: '401 {"error":{"type":"authentication_error"}}',
             }}
             onContinue={vi.fn()}
-            onRetry={vi.fn()}
+            onRetry={onRetry}
             onDismiss={vi.fn()}
           />
         </AgentNativeI18nProvider>,
@@ -440,10 +641,63 @@ describe("run recovery surfaces", () => {
 
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
-    const buttonLabels = Array.from(container.querySelectorAll("button")).map(
-      (button) => button.textContent?.trim() ?? "",
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
     );
-    expect(buttonLabels).not.toContain("Retry");
+    expect(retryButton).toBeTruthy();
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  // Review feedback on #3721: the restored retry on a rejected-credential card
+  // can hand the reader straight into `missing_credentials` — the rejected
+  // credential is skipped for a backing-off window, so the very next run has
+  // nothing to use. Gating this card's retry on connecting a provider here
+  // assumed that was the only way out, which is false when the fix is an admin
+  // repairing the shared credential or the window simply expiring. That put the
+  // same dead end back, one step later.
+  it("offers retry on the missing-provider card without connecting first", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "No LLM provider is connected.",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    // Once per card: a retry that is always offered must still not be able to
+    // spam the run.
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("renders missing-provider errors as inline setup and retries on click", async () => {
@@ -545,7 +799,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 
-  it("keeps invalid provider keys on the authentication recovery path", async () => {
+  it("renders invalid provider keys as setup without the warning", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -566,8 +820,9 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("The agent hit an error");
+    expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).not.toContain("The agent hit an error");
   });
 
   it("dismisses the recovery card after saving a provider key", async () => {
@@ -584,7 +839,7 @@ describe("run recovery surfaces", () => {
           <RunErrorRecoveryCard
             info={{
               message:
-                "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+                "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
               errorCode: "authentication_error",
             }}
             onContinue={vi.fn()}
@@ -594,6 +849,9 @@ describe("run recovery surfaces", () => {
         </AgentNativeI18nProvider>,
       );
     });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
 
     const addKeysButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Custom keys"),
@@ -628,7 +886,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       key: "ANTHROPIC_API_KEY",
       apiKey: "sk-test",
-      scope: "user",
+      scope: "org",
     });
     expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
       provider: "anthropic",
@@ -636,5 +894,48 @@ describe("run recovery surfaces", () => {
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps a long unbroken error message instead of overflowing the card", async () => {
+    const longUnbrokenMessage =
+      "400 " +
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message:
+            "messages.0.content.0.pdf.source.base64.data: The PDF specified is password protected.",
+        },
+        request_id:
+          "req_011Cf4z4ndjZtcUm5pPTkjPAreallyreallyreallyreallyreallylongtoken",
+      });
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: longUnbrokenMessage,
+              errorCode: "invalid_request_error",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const messageParagraph = Array.from(container.querySelectorAll("p")).find(
+      (paragraph) => paragraph.textContent === longUnbrokenMessage,
+    );
+
+    expect(messageParagraph).toBeTruthy();
+    expect(messageParagraph?.className).toContain("break-words");
   });
 });

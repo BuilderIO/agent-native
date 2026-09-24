@@ -8,6 +8,7 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
@@ -55,12 +56,12 @@ export async function run(args: Record<string, string>): Promise<string> {
   }
 
   const requestedModel = model ?? entry.defaultModel;
-  // A static registry entry can't carry the runtime `preserveCustomModels`
-  // flag, so resolve the OpenAI-compatible-endpoint capability here and pass it
-  // through — otherwise a gateway model (e.g. an Ollama id) is rewritten to the
-  // engine default on save.
+  // A static registry entry cannot carry runtime endpoint state, so resolve
+  // both gateway and provider model capabilities before saving the selection.
+  const acceptsCustomModels = await resolveEngineAcceptsCustomModels(entry);
   const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const resolvedModel = normalizeModelForEngine(entry, requestedModel, {
+    acceptsCustomModels,
     preserveCustomModels,
   });
 

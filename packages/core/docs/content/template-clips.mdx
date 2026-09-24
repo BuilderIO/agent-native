@@ -1,119 +1,69 @@
 ---
 title: "Clips"
-description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation, with the agent as a first-class editor across every clip you capture."
-search: "Clips screen recording meeting notes dictation Loom import video sharing transcript library"
+description: "Clips is an agent-native screen recording app that replaces Loom. The agent transcribes, titles, and summarizes every recording, edits it non-destructively when you ask, and makes shared clips readable by any agent."
+search: "Clips screen recording Loom import video sharing transcript library non-destructive editing"
 ---
 
 # Clips
 
-A capture-everything app: screen recordings, meeting notes from your calendar, and Fn-hold voice dictation. The agent transcribes, titles, summarizes, and indexes all of it — then lets you ask "find the clip where we discussed the rollout plan" and searches across every transcript you've ever made.
+Clips is an agent-native screen recording app. Record your screen and the agent transcribes, titles, summarizes, and indexes it into one searchable library, so you can ask "find the clip where we discussed the rollout plan" and search across every recording you've ever made. It replaces Loom with one app, so every recording you make lives in one searchable place you own, instead of a separate tool with its own transcript.
 
-<WireframeBlock id="doc-block-18mhx3h">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Engineering clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKRs review</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Onboarding flow</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug repro</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Agent-readable</span><span>Transcript + frames ready for share links</span><div style='flex:1'></div><button>Share</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Transcript search</strong><div class='wf-box'>Matched chapter 03:12 · rollout risks and owner handoff</div><div class='wf-box'>Meeting summary and action items</div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Cards columns={1}>
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app: async screen recordings, calendar-synced meeting notes, and push-to-talk voice dictation — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a clip's share link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images, no raw video needed. See [Sharing, Teams, and Agent-Readable Clips](/docs/template-clips-sharing-and-teams) for how that works.
+### [Try it out now →](https://clips.agent-native.com)
 
-<Diagram id="doc-block-pqnd4p" title="Capture, transcribe, reuse" summary={"Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."}>
+See Clips live and record something real.
 
-```html
-<div class="diagram-clips">
-  <div class="diagram-col">
-    <div class="diagram-node">Screen recording</div>
-    <div class="diagram-node">Calendar meeting</div>
-    <div class="diagram-node">Fn-hold dictation</div>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    One library<br /><small class="diagram-muted"
-      >recordings + transcripts (SQL)</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Agent</span
-    ><small class="diagram-muted">title · summary · chapters</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-col">
-    <div class="diagram-pill">Search</div>
-    <div class="diagram-pill">Share</div>
-    <div class="diagram-pill">Agent-readable links</div>
-  </div>
-</div>
-```
+</Cards>
 
-```css
-.diagram-clips {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-clips .diagram-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.diagram-clips .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-clips .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf7739806a54c0e9e2852504c7ff922?alt=media&token=e13e8900-a337-4ff2-8ba6-13ca6764912a&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief tour of the clips application."
+  caption="A brief tour of the clips application."
+  autoplay={true}
+  loop={true}
+/>
 
-</Diagram>
+The agent is a first-class editor across every recording, and everything you capture is yours, not a SaaS vendor's. Clips also makes a shared recording readable by any agent, not only its own. Pasting a clip's share link into Claude, ChatGPT, or another assistant lets it read the transcript and see timestamped screen frames without downloading raw video. See [Clips in a Multi-App Workspace](/docs/template-clips-integrations) for how that works.
 
-## Recording, importing, and meetings
+## What it replaces
 
-- **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
-- **Import public Loom videos.** On the web, select **Record → Import Loom**, then paste a Loom share or embed URL. Clips saves a copy in your library and imports the public transcript when one is available.
-- **Capture meetings from your calendar.** Connect Google Calendar, see upcoming meetings in the sidebar, and hit record on any one. You get a live transcript plus AI summary, bullet notes, and action items the moment it ends.
-- **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current. See [AI Pipeline, Editing, and Insights](/docs/template-clips-ai-and-editing) for how that pipeline works and how to edit the result.
-- **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
-- **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
+<Comparison>
 
-Recording from your phone, from a browser tab you're debugging, or picking up the last few minutes you forgot to record? See [Capturing Everywhere](/docs/template-clips-capture-everywhere).
+### Before
 
-## Dictation
+- Loom for screen recordings
+- A separate tool, or manual work, for transcripts, titles, and summaries
+- Re-recording or re-uploading a clip just to get AI cleanup on it
+- No way for an outside agent to actually understand what's in a recording
 
-- **Push-to-talk dictation.** Hold Fn on your machine, speak, and the cleaned-up text drops into whatever app you're using. Every dictation is kept in a searchable history with originals and AI-cleaned versions side by side.
-- **Dictate from your phone**, too — see [Capturing Everywhere](/docs/template-clips-capture-everywhere) for the mobile companion app.
-- **Edit through chat.** "Fix the mis-transcribed word at 1:42." "Turn that ramble into bullet points." The agent edits the transcript and the UI updates live.
+### After
 
-## Getting started
+- One recorder, with Loom import for anything you've already got there
+- The agent titles, summarizes, and chapters every recording automatically
+- Trim, remove filler words, or combine clips just by asking
+- Share links that any agent can read, not only Clips' own
 
-Live demo: [clips.agent-native.com](https://clips.agent-native.com).
+</Comparison>
 
-1. **Open Library.** Browse screen recordings, meeting recordings, dictations, folders, and spaces from one place.
-2. **Record or import.** Capture a screen recording, start from a calendar meeting, or use push-to-talk dictation.
-3. **Let the agent clean it up.** Generate a title, summary, chapters, action items, or cleaned-up transcript text.
-4. **Search and reuse.** Ask for the clip, quote, action item, or decision you need, then share the result with the right visibility.
+## Clips in a multi-app workspace
 
-### Useful prompts
+If you run Clips alongside other apps in [Dispatch](/docs/template-dispatch), a recording stops being something you only watch by hand. Other apps can pull ready transcripts into Brain, hand a CRM automation a durable call-evidence link, or ask Clips' agent a question directly, the same way you would in chat. See [Clips in a Multi-App Workspace](/docs/template-clips-integrations) for how this works.
 
-- "Summarize this clip for a product update."
-- "Find the meeting where we discussed the rollout plan."
-- "Pull three customer quotes from this transcript."
-- "Create action items from the last sales call."
-- "Clean up this dictation and turn it into a Linear ticket."
+## What you can do with it
+
+- **Record your screen or import from Loom.** Try "record my screen" or paste a public Loom link to bring it into your library. See [Create a clip](/docs/template-clips-features#create-a-clip).
+- **Edit non-destructively through chat.** Try "remove the ums and uhs" or "trim the first 10 seconds." See [Non-destructive editing](/docs/template-clips-features#non-destructive-editing).
+- **Share and protect what you record.** Set visibility, a password, or an expiry date, and let any agent read a shared clip's transcript. See [Share](/docs/template-clips-features#share).
 
 ## What's next
 
-- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — the desktop app, the mobile companion, Rewind quick-save, Screen Memory, and the Chrome extension.
-- [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — visibility, passwords, organizations, and pasting a clip link into an agent.
-- [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — transcription, non-destructive editing, and view analytics.
-- [**Extending Clips**](/docs/template-clips-developers) — for anyone customizing or extending the template.
+- [**Features**](/docs/template-clips-features) — recording, importing, editing, sharing, and insights, with setup steps for each
+- [**Talk to the Agent**](/docs/template-clips-agent) — prompts by task and how the agent sees your screen
+- [**Clips in a Multi-App Workspace**](/docs/template-clips-integrations) — agent-readable clips, Brain export, and CRM call evidence
+- [**Developer Guide**](/docs/template-clips-developers) — quick start, actions, data model, and routes
+- [**Embed Clips**](/docs/template-clips-embed) — add anonymous recording to another product
 - [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
 - [**Context Awareness**](/docs/context-awareness) — how the agent knows the current clip and playhead
 - [**Agent Teams**](/docs/agent-teams) — delegate transcript cleanup to a specialist sub-agent

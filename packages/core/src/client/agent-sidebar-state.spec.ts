@@ -85,6 +85,12 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(getInitialAgentSidebarOpen(false)).toBe(false);
   });
 
+  it("opens from the explicit sidebar URL hint", () => {
+    window.history.replaceState(null, "", "/?agentSidebar=open");
+
+    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+  });
+
   it("does not auto-open default-closed sidebars from saved state", () => {
     window.localStorage.setItem(SIDEBAR_OPEN_KEY, "true");
     expect(getInitialAgentSidebarOpen(false)).toBe(false);

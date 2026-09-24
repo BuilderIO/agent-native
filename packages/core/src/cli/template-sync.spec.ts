@@ -122,7 +122,7 @@ describe("isMergeExcluded", () => {
       "learnings.md",
       "changelog/pending-thing.md",
       "dist/index.js",
-      "data/app.db",
+      "data/pglite",
       ".git/config",
       ".agent-native/template-baseline/x.tar.gz",
     ]) {
@@ -323,6 +323,13 @@ describe("materializeTemplate", () => {
         null,
         2,
       )}\n`,
+    );
+    // Real workspaces always have this by the time an app is scaffolded in —
+    // scaffoldWorkspaceRoot copies it from the workspace-root template first.
+    // workspacifyApp needs it to record the node-pty/node-gyp packageExtension.
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
     );
 
     // Mirrors scaffoldOneAppIntoWorkspace's transform order exactly.

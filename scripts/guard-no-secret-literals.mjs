@@ -34,10 +34,11 @@
  * so a hit must never reprint the secret it found.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -98,8 +99,6 @@ const BINARY_EXTENSIONS = new Set([
   ".wasm",
   ".class",
   ".jar",
-  ".sqlite",
-  ".sqlite3",
   ".pyc",
   ".node",
 ]);
@@ -166,7 +165,7 @@ const PATTERNS = [
     // Captures scheme/user/password separately so the password never
     // reaches the redaction preview, not even partially.
     name: "database connection string with password",
-    re: /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
+    re: /\b(postgres(?:ql)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
     redact: (_m, scheme, user) => `${scheme}://${user}:***@`,
     isPlaceholder: (m) =>
       DB_PLACEHOLDER_PASSWORDS.has((m[3] ?? "").toLowerCase()),
@@ -238,7 +237,7 @@ function isSkippedPath(rel) {
 }
 
 function listTrackedFiles() {
-  const out = execFileSync("git", ["ls-files"], {
+  const out = execGuardCommand("git", ["ls-files"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,

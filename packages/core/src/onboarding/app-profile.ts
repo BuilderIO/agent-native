@@ -6,9 +6,19 @@ const LLM_CAPABILITY: OnboardingCapability = {
   label: "AI model",
   required: true,
   builderIncluded: true,
-  keySummary:
-    "One model key or local connection: Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama",
+  keySummary: "Connect your own AI model",
+  keySummaryKey: "agentChat.onboarding.capability.llm.keySummary",
   why: "The agent uses a language model to understand requests and produce answers.",
+};
+
+const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
+  id: "system-one",
+  label: "Decision model (Jev)",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Jev decision model key",
+  why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request. Use Builder-managed access when available, or add a direct JEV_API_KEY.",
 };
 
 const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
@@ -26,9 +36,35 @@ const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary:
-    "Builder file storage or an S3-compatible bucket, credentials, and public base URL",
+  keySummary: "File uploads and storage",
+  keySummaryKey: "agentChat.onboarding.capability.fileStorage.keySummary",
   why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
+};
+
+const VOICE_INPUT_CAPABILITY: OnboardingCapability = {
+  id: "voice-input",
+  label: "Voice input",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Voice input",
+  labelKey: "agentChat.onboarding.capability.voiceInput.label",
+  keySummaryKey: "agentChat.onboarding.capability.voiceInput.keySummary",
+  whyKey: "agentChat.onboarding.capability.voiceInput.why",
+  why: "Voice input turns spoken requests into text; typing always works without it.",
+};
+
+const EMBEDDINGS_CAPABILITY: OnboardingCapability = {
+  id: "embeddings",
+  label: "Embeddings",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Embeddings",
+  labelKey: "agentChat.onboarding.capability.embeddings.label",
+  keySummaryKey: "agentChat.onboarding.capability.embeddings.keySummary",
+  whyKey: "agentChat.onboarding.capability.embeddings.why",
+  why: "Embeddings improve semantic search. Keyword search still works without them.",
 };
 
 const PROFILES: Record<string, OnboardingAppProfile> = {
@@ -61,19 +97,36 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     capabilities: [
       {
         id: "media-generation",
-        label: "Image and video generation",
+        label: "Image generation",
         required: true,
         builderIncluded: true,
-        keySummary: "Gemini for video, or OpenAI / Gemini for images",
-        why: "These providers create the images and videos requested in the app.",
+        keySummary: "Image generation",
+        labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
+        whyKey: "agentChat.onboarding.capability.assetsImageGeneration.why",
+        why: "Image generation is the core workflow for creating on-brand assets.",
+      },
+      {
+        id: "video-generation",
+        label: "Video generation",
+        required: false,
+        builderIncluded: false,
+        keySummary: "Gemini API key",
+        labelKey: "agentChat.onboarding.capability.assetsVideoGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsVideoGeneration.keySummary",
+        whyKey: "agentChat.onboarding.capability.assetsVideoGeneration.why",
+        why: "Video generation is optional; the core Assets workflow is image generation.",
       },
       DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "file-storage",
         label: "Media storage",
-        required: true,
+        required: false,
+        suggested: true,
         builderIncluded: true,
-        keySummary: "S3-compatible endpoint, bucket, access key, and secret",
+        keySummary: "Media storage",
         why: "Generated files need a durable place to live before they can be shared.",
       },
     ],
@@ -83,14 +136,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Brain",
     capabilities: [
       LLM_CAPABILITY,
-      {
-        id: "embeddings",
-        label: "Embeddings",
-        required: false,
-        builderIncluded: true,
-        keySummary: "Gemini, Cohere, or Voyage key",
-        why: "Embeddings improve semantic search. Keyword search still works without them.",
-      },
+      EMBEDDINGS_CAPABILITY,
       {
         id: "source-connections",
         label: "Source connections",
@@ -136,18 +182,24 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       LLM_CAPABILITY,
       {
         id: "video-storage",
-        label: "Video storage",
+        label: "Object storage",
         required: true,
         builderIncluded: true,
-        keySummary: "S3 endpoint, bucket, access key, and secret",
-        why: "Recorded videos need durable storage before they can be played back or shared.",
+        keySummary: "Object storage",
+        labelKey: "agentChat.onboarding.capability.clipsObjectStorage.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.clipsObjectStorage.label",
+        whyKey: "agentChat.onboarding.capability.clipsObjectStorage.why",
+        why: "Recorded videos need durable object storage before they can be played back or shared.",
       },
       {
         id: "transcription",
         label: "Transcription",
         required: false,
         builderIncluded: true,
-        keySummary: "Groq or Google Speech key",
+        keySummary: "Speech-to-text provider key",
+        keySummaryKey:
+          "agentChat.onboarding.capability.clipsTranscription.keySummary",
         why: "Transcription powers captions, titles, summaries, and searchable chapters. Native capture still works without it.",
       },
     ],
@@ -197,6 +249,19 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       LLM_CAPABILITY,
       DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
+        id: "image-generation",
+        label: "Image generation",
+        required: false,
+        suggested: true,
+        builderIncluded: true,
+        keySummary: "Image generation",
+        labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
+        whyKey: "agentChat.onboarding.capability.assetsImageGeneration.why",
+        why: "Image generation is the core workflow for creating on-brand assets.",
+      },
+      {
         id: "assets-library",
         label: "Assets library",
         required: false,
@@ -241,13 +306,13 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appId: "factory",
     appName: "Factory",
     capabilities: [
+      LLM_CAPABILITY,
       {
         id: "builder-executor",
         label: "Builder executor",
         required: true,
         builderIncluded: true,
-        keySummary:
-          "Connect Builder for managed agent runs (free tier available)",
+        keySummary: "Connect Builder for managed agent runs",
         why: "The executor runs approved code and review workflows for Factory items.",
       },
       {
@@ -275,21 +340,6 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
       },
     ],
   },
-  macros: {
-    appId: "macros",
-    appName: "Macros",
-    capabilities: [
-      LLM_CAPABILITY,
-      {
-        id: "transcription",
-        label: "Transcription",
-        required: false,
-        builderIncluded: true,
-        keySummary: "Groq or Google Speech key",
-        why: "Voice input uses transcription. Text entry always works without it.",
-      },
-    ],
-  },
   mail: {
     appId: "mail",
     appName: "Mail",
@@ -300,8 +350,8 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Gmail",
         required: true,
         builderIncluded: false,
-        keySummary: "Google OAuth client ID and secret",
-        why: "Mail needs OAuth access to read, send, and organize the mailbox.",
+        keySummary: "Connect Gmail with OAuth",
+        why: "Mail uses the workspace's managed Google connection; no key is pasted here.",
       },
       {
         id: "attachment-storage",
@@ -346,8 +396,12 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         id: "image-generation",
         label: "Image generation",
         required: false,
+        suggested: true,
         builderIncluded: true,
-        keySummary: "Gemini or OpenAI key",
+        keySummary: "Image generation",
+        labelKey: "agentChat.onboarding.capability.assetsImageGeneration.label",
+        keySummaryKey:
+          "agentChat.onboarding.capability.assetsImageGeneration.label",
         why: "Only needed when slides generate images instead of using uploaded assets.",
       },
       {
@@ -403,25 +457,53 @@ export function resolveOnboardingAppId(explicit?: string): string {
 export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
   const resolvedId = resolveOnboardingAppId(appId);
   const profile = PROFILES[resolvedId] ?? FALLBACK_PROFILE;
-  const capabilities = profile.capabilities.some(
-    (capability) => capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id,
-  )
-    ? profile.capabilities.map((capability) =>
-        capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id
-          ? {
-              ...FILE_UPLOAD_STORAGE_CAPABILITY,
-              // Assets and other domain-specific profiles can still make
-              // storage required while sharing the framework-wide contract.
-              required: capability.required,
-              builderIncluded: capability.builderIncluded,
-            }
-          : { ...capability },
-      )
-    : profile.capabilities.flatMap((capability, index) =>
-        index === 0
-          ? [{ ...capability }, { ...FILE_UPLOAD_STORAGE_CAPABILITY }]
-          : [{ ...capability }],
-      );
+  const appCapabilities = profile.capabilities.filter(
+    (capability) =>
+      capability.id !== "llm" &&
+      capability.id !== FILE_UPLOAD_STORAGE_CAPABILITY.id &&
+      capability.id !== "video-storage" &&
+      capability.id !== VOICE_INPUT_CAPABILITY.id &&
+      capability.id !== EMBEDDINGS_CAPABILITY.id,
+  );
+  const configuredLlm = profile.capabilities.find(
+    (capability) => capability.id === "llm",
+  );
+  const configuredStorage = profile.capabilities.find(
+    (capability) =>
+      capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id ||
+      capability.id === "video-storage",
+  );
+  const configuredVoiceInput = profile.capabilities.find(
+    (capability) => capability.id === VOICE_INPUT_CAPABILITY.id,
+  );
+  const configuredEmbeddings = profile.capabilities.find(
+    (capability) => capability.id === EMBEDDINGS_CAPABILITY.id,
+  );
+  const storageRequired = resolvedId === "clips";
+  const capabilities = [
+    {
+      ...(configuredLlm ?? LLM_CAPABILITY),
+      required: true,
+      suggested: false,
+    },
+    { ...SYSTEM_ONE_CAPABILITY },
+    {
+      ...(configuredStorage ?? FILE_UPLOAD_STORAGE_CAPABILITY),
+      required: storageRequired,
+      suggested: !storageRequired,
+    },
+    {
+      ...(configuredVoiceInput ?? VOICE_INPUT_CAPABILITY),
+      required: false,
+      suggested: true,
+    },
+    {
+      ...(configuredEmbeddings ?? EMBEDDINGS_CAPABILITY),
+      required: false,
+      suggested: true,
+    },
+    ...appCapabilities.map((capability) => ({ ...capability })),
+  ];
   return {
     ...profile,
     capabilities,

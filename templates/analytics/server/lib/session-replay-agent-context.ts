@@ -9,6 +9,9 @@ import {
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
+  SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
+  SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
+  SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
 } from "../../shared/session-replay-agent-access.js";
 import {
   isFailedSessionReplayNetworkStatus,
@@ -697,7 +700,7 @@ export async function createSessionReplayAgentLink({
       token: grant.token,
     }),
     contextUrl: buildAgentAccessApiUrl({
-      endpoint: "/api/session-replay/agent-context.json",
+      endpoint: SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
       resourceId: recording.id,
       origin: resolvedOrigin,
       basePath,
@@ -734,14 +737,14 @@ export async function buildSessionReplayAgentContext({
   const resolvedOrigin = appOrigin(origin);
   const basePath = appBasePath();
   const contextUrl = buildAgentAccessApiUrl({
-    endpoint: "/api/session-replay/agent-context.json",
+    endpoint: SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
     resourceId: recording.id,
     origin: resolvedOrigin,
     basePath,
     token,
   });
   const eventsUrl = buildAgentAccessApiUrl({
-    endpoint: "/api/session-replay/agent-events.json",
+    endpoint: SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
     resourceId: recording.id,
     origin: resolvedOrigin,
     basePath,
@@ -749,7 +752,7 @@ export async function buildSessionReplayAgentContext({
     extraParams: [["limit", 10000]],
   });
   const diagnosticsUrl = buildAgentAccessApiUrl({
-    endpoint: "/api/session-replay/agent-diagnostics.json",
+    endpoint: SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
     resourceId: recording.id,
     origin: resolvedOrigin,
     basePath,

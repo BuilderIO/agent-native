@@ -8,6 +8,7 @@ import {
   personalContentSpaceId,
   systemIdsForContentSpace,
 } from "./_content-spaces.js";
+import { nextAppendPosition } from "./_position-utils.js";
 
 type Db = any;
 
@@ -16,6 +17,14 @@ export function favoritesSystemIds(userEmail: string) {
     personalContentSpaceId(normalizeContentSpaceEmail(userEmail)),
     "favorites",
   );
+}
+
+export function favoriteMembershipId(userEmail: string, documentId: string) {
+  const favoritesDatabaseId = favoritesSystemIds(userEmail).databaseId;
+  return `content_database_item_${createHash("sha256")
+    .update(`${favoritesDatabaseId}:${documentId}`)
+    .digest("hex")
+    .slice(0, 32)}`;
 }
 
 export async function favoriteDocumentIds(
@@ -47,7 +56,12 @@ export async function setFavoriteMembership(args: {
   const email = normalizeContentSpaceEmail(args.userEmail);
   const favoritesDatabaseId = favoritesSystemIds(email).databaseId;
   const [existing] = await args.db
-    .select({ id: schema.contentDatabaseItems.id })
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+      createdAt: schema.contentDatabaseItems.createdAt,
+      updatedAt: schema.contentDatabaseItems.updatedAt,
+    })
     .from(schema.contentDatabaseItems)
     .where(
       and(
@@ -62,19 +76,28 @@ export async function setFavoriteMembership(args: {
         .delete(schema.contentDatabaseItems)
         .where(eq(schema.contentDatabaseItems.id, existing.id));
     }
-    return false;
+    return {
+      favorite: false,
+      changed: Boolean(existing),
+      membershipId:
+        existing?.id ?? favoriteMembershipId(email, args.documentId),
+      previous: existing ?? null,
+    };
   }
-  if (existing) return true;
+  if (existing)
+    return {
+      favorite: true,
+      changed: false,
+      membershipId: existing.id,
+      previous: existing,
+    };
 
   const [position] = await args.db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId));
-  const id = `content_database_item_${createHash("sha256")
-    .update(`${favoritesDatabaseId}:${args.documentId}`)
-    .digest("hex")
-    .slice(0, 32)}`;
-  await args.db
+  const id = favoriteMembershipId(email, args.documentId);
+  const inserted = await args.db
     .insert(schema.contentDatabaseItems)
     .values({
       id,
@@ -82,10 +105,16 @@ export async function setFavoriteMembership(args: {
       orgId: null,
       databaseId: favoritesDatabaseId,
       documentId: args.documentId,
-      position: Number(position?.max ?? -1) + 1,
+      position: nextAppendPosition(position?.max),
       createdAt: args.now,
       updatedAt: args.now,
     })
-    .onConflictDoNothing();
-  return true;
+    .onConflictDoNothing()
+    .returning({ id: schema.contentDatabaseItems.id });
+  return {
+    favorite: true,
+    changed: inserted.length > 0,
+    membershipId: id,
+    previous: null,
+  };
 }

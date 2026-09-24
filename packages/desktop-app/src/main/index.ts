@@ -121,10 +121,14 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
+  type DesktopEnvironmentLaneState,
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -142,6 +146,7 @@ import {
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type Session,
   type WebContents,
 } from "electron";
 
@@ -176,7 +181,13 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
+import {
+  isBetaLaneEmail,
+  resolveDesktopEnvironmentLane,
+  withDesktopEnvironmentLane,
+} from "../../shared/environment-lane";
 import * as AppStore from "./app-store";
+import { isDesktopEnvironmentLanePreference } from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
   AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV,
@@ -185,6 +196,7 @@ import {
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
 import {
+  CLI_STATUS_TTL_MS,
   cachedCliStatus,
   createCliStatusCache,
   type CliStatusCache,
@@ -192,7 +204,9 @@ import {
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import {
   isCodeAgentRunnerInFlight,
+  resolveExecutable,
   resolveCodeAgentRunnerInvocation,
+  withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
@@ -201,6 +215,11 @@ import {
   CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
+import {
+  isPermanentCodeAgentWorktreeReclaimError,
+  nextCodeAgentWorktreeReclaimAttempt,
+  type CodeAgentWorktreeReclaimOutcome,
+} from "./code-agent-worktree-reclaim.js";
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
   claimCodeAgentWorktreeRun,
@@ -234,6 +253,7 @@ import { contentFilesWebviewDenialReason } from "./content-files-webview-access.
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { captureDesktopBrowserScreenshot } from "./desktop-browser-screenshot";
 import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
@@ -250,10 +270,13 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import {
+  forwardDesktopNavigationShortcutInput,
+  type DesktopNavigationShortcutInput,
+} from "./desktop-navigation-shortcuts.js";
+import {
   desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
-  runDesktopStartupStep,
 } from "./desktop-startup.js";
 import {
   HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
@@ -315,6 +338,7 @@ initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
   appDataPath: app.getPath("appData"),
+  defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
     app.commandLine.getSwitchValue("user-data-dir"),
     process.argv,
@@ -357,28 +381,63 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 
 const IS_DEV = !app.isPackaged;
 
+function desktopRendererEntryPath(): string {
+  return path.join(__dirname, "../renderer/index.html");
+}
+
+function isDesktopRendererEntryUrl(url: string): boolean {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    return url.startsWith(process.env["ELECTRON_RENDERER_URL"]);
+  }
+  try {
+    return (
+      path.resolve(fileURLToPath(new URL(url))) ===
+      path.resolve(desktopRendererEntryPath())
+    );
+    // coercion-ok: malformed navigation URLs are not the renderer entry.
+  } catch {
+    return false;
+  }
+}
+
+function loadDesktopRenderer(window: BrowserWindow): void {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    return;
+  }
+  void window.loadFile(desktopRendererEntryPath());
+}
+
 function isDesktopSsoEnabled(): boolean {
   return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
 }
 
 // ---------- User-Agent marker ----------
 // Tag every request from this Electron app so the server can distinguish
-// Agent Native desktop from other Electron-based webviews (Builder.io's
+// Agent-Native desktop from other Electron-based webviews (Builder.io's
 // Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
-// Open Agent Native" screen whose deep link can't fire.
+// Open Agent-Native" screen whose deep link can't fire.
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
-app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
+const desktopReleaseChannelMarker =
+  DESKTOP_RELEASE_CHANNEL === "nightly"
+    ? ` AgentNativeDesktopNightly/${app.getVersion()}`
+    : "";
+app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}${desktopReleaseChannelMarker}`;
 // ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
+const DESKTOP_DEEP_LINK_PROTOCOLS = new Set([
+  "agentnative",
+  "agentnative-nightly",
+]);
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
-    path.resolve(process.argv[1]),
+    app.getAppPath(),
   ]);
 } else {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
@@ -389,51 +448,48 @@ let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let desktopComputerMcpBridgeInitialization: Promise<void> | null = null;
+let restoreDesktopComputerMcpBridgeAfterUpdate = false;
 let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 let desktopWorkspaceApps: AppConfig[] = [];
 let desktopWorkspaceAppsGeneration = 0;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
+const desktopWebviewHealthHandlers = new WeakSet<Electron.WebContents>();
+
+function installDesktopWebviewHealthLogging(
+  contents: Electron.WebContents,
+): void {
+  if (desktopWebviewHealthHandlers.has(contents)) return;
+  desktopWebviewHealthHandlers.add(contents);
+  const appId = () => desktopWebviewAppIds.get(contents) ?? null;
+
+  contents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    console.error("[desktop-webview] render process gone", {
+      appId: appId(),
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
+  contents.on("unresponsive", () => {
+    console.warn("[desktop-webview] renderer unresponsive", { appId: appId() });
+  });
+  contents.on("responsive", () => {
+    console.info("[desktop-webview] renderer responsive", { appId: appId() });
+  });
+}
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
-
-type DesktopNavigationShortcutInput = {
-  type: string;
-  key: string;
-  code?: string;
-  meta?: boolean;
-  control?: boolean;
-  shift?: boolean;
-  alt?: boolean;
-};
 
 function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
 ): boolean {
-  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
-
-  const key = input.key.toLowerCase();
-  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
-  const isBracketLeft =
-    input.code === "BracketLeft" || key === "[" || key === "{";
-  const isBracketRight =
-    input.code === "BracketRight" || key === "]" || key === "}";
-  const isBracketShortcut =
-    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
-  if (!isNumericShortcut && !isBracketShortcut) return false;
-
-  event.preventDefault();
-  const win = mainWindow;
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
-  win.webContents.send("shortcut:keydown", {
-    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
-    code: input.code,
-    shiftKey: Boolean(input.shift),
-    altKey: Boolean(input.alt),
-    ctrlKey: Boolean(input.control),
-    metaKey: Boolean(input.meta),
+  return forwardDesktopNavigationShortcutInput(event, input, (payload) => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send("shortcut:keydown", payload);
   });
-  return true;
 }
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -533,15 +589,47 @@ export interface CodeAgentTranscriptSubscription {
 }
 
 function isDeepLinkArg(arg: string): boolean {
-  return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
+  return [...DESKTOP_DEEP_LINK_PROTOCOLS].some((protocol) =>
+    arg.startsWith(`${protocol}:`),
+  );
+}
+
+function isDesktopDeepLinkUrl(url: string): boolean {
+  try {
+    return DESKTOP_DEEP_LINK_PROTOCOLS.has(new URL(url).protocol.slice(0, -1));
+  } catch {
+    // coercion-ok: malformed protocol candidates are not desktop deep links.
+    return false;
+  }
+}
+
+function queueOrHandleDeepLink(url: string): void {
+  if (app.isReady()) {
+    void handleDeepLink(url);
+  } else {
+    pendingDeepLink = url;
+  }
 }
 
 function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   const deepLink = argv.find(isDeepLinkArg);
   if (deepLink) {
-    void handleDeepLink(deepLink);
+    queueOrHandleDeepLink(deepLink);
   } else {
     focusMainWindow();
+  }
+}
+
+// Windows/Linux: a cold start (the app was not already running) delivers the
+// deep link as a plain argv entry instead of firing 'open-url' (macOS-only)
+// or 'second-instance' (only reached by an already-running primary
+// instance), so nothing else observes it before the window loads. Queue it
+// into pendingDeepLink the same way the macOS open-url cold-start path below
+// does, for app.whenReady() to drain into handleDeepLink().
+function capturePendingDeepLinkFromArgv(argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    pendingDeepLink = deepLink;
   }
 }
 
@@ -553,6 +641,7 @@ if (IS_DEV) {
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
   // Skip the lock in dev; keep the deep-link handler for parity.
   app.on("second-instance", handleSecondInstance);
+  capturePendingDeepLinkFromArgv(process.argv);
   // Quit immediately when electron-vite SIGTERMs us so the old process and its
   // Dock tile vanish at once, before the relaunched instance paints its window.
   const exitNow = () => app.exit(0);
@@ -564,6 +653,7 @@ if (IS_DEV) {
     app.quit();
   } else {
     app.on("second-instance", handleSecondInstance);
+    capturePendingDeepLinkFromArgv(process.argv);
   }
 }
 
@@ -610,6 +700,50 @@ function getCookieNameForApp(id: string | null | undefined): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return slug ? `an_session_${slug}` : "an_session";
+}
+
+function resolveCookieNameForOrigin(
+  baseCookieName: string,
+  origin: string,
+): string {
+  if (baseCookieName === "an_session") return baseCookieName;
+  const appSlug = baseCookieName
+    .replace(/^an_session_/, "")
+    .replace(/^beta_/, "");
+  const isBetaOrigin = new URL(origin).hostname.split(".")[0] === "beta";
+  return getCookieNameForApp(isBetaOrigin ? `beta-${appSlug}` : appSlug);
+}
+
+function getBetterAuthPrefixForCookieName(cookieName: string): string {
+  const appSlug = cookieName.replace(/^an_session_/, "");
+  return appSlug ? `an_${appSlug}` : "an";
+}
+
+function resolveAlternateCookieNameMap(
+  baseCookieName: string,
+  primaryOrigin: string,
+  alternateOrigin: string,
+): Record<string, string> {
+  if (baseCookieName === "an_session") return {};
+  const primaryCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    primaryOrigin,
+  );
+  const alternateCookieName = resolveCookieNameForOrigin(
+    baseCookieName,
+    alternateOrigin,
+  );
+  const primaryBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(primaryCookieName);
+  const alternateBetterAuthPrefix =
+    getBetterAuthPrefixForCookieName(alternateCookieName);
+  return {
+    [primaryCookieName]: alternateCookieName,
+    [`${primaryBetterAuthPrefix}.session_token`]: `${alternateBetterAuthPrefix}.session_token`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_token`]: `__Secure-${alternateBetterAuthPrefix}.session_token`,
+    [`${primaryBetterAuthPrefix}.session_data`]: `${alternateBetterAuthPrefix}.session_data`,
+    [`__Secure-${primaryBetterAuthPrefix}.session_data`]: `__Secure-${alternateBetterAuthPrefix}.session_data`,
+  };
 }
 
 function desktopTemplateGatewayOverridesDevUrls(): boolean {
@@ -720,6 +854,7 @@ function cacheDesktopWorkspaceApps(
   generation: number,
 ): void {
   if (generation !== desktopWorkspaceAppsGeneration) return;
+  if (result.unavailable) return;
   desktopWorkspaceApps = result.enabled ? result.apps : [];
 }
 
@@ -761,7 +896,11 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+  options?: {
+    forCleanup?: boolean;
+    allowDisabled?: boolean;
+    appConfigs?: AppConfig[];
+  },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
 
@@ -796,6 +935,7 @@ function resolveDesktopIdentityApp(
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
+        allowDisabled: appId === "dispatch" && isCanonical,
         canonical: isCanonical,
       })
     ) {
@@ -805,9 +945,9 @@ function resolveDesktopIdentityApp(
   }
   if (!isDesktopIdentityOriginEligible(origin)) return null;
 
-  const primaryCookieName = getCookieNameForApp(appId);
-  const appSlug = primaryCookieName.replace(/^an_session_/, "");
-  const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  const baseCookieName = getCookieNameForApp(appId);
+  const primaryCookieName = resolveCookieNameForOrigin(baseCookieName, origin);
+  const betterAuthPrefix = getBetterAuthPrefixForCookieName(primaryCookieName);
   const betterAuthCookieNames = [
     `${betterAuthPrefix}.session_token`,
     `__Secure-${betterAuthPrefix}.session_token`,
@@ -821,15 +961,26 @@ function resolveDesktopIdentityApp(
     ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
+  const alternateOrigins = resolveEnvironmentLaneOrigins(origin);
+  const alternateCookieNameMap = Object.fromEntries(
+    alternateOrigins.map((alternateOrigin) => [
+      alternateOrigin,
+      resolveAlternateCookieNameMap(baseCookieName, origin, alternateOrigin),
+    ]),
+  );
   return {
     id: appId,
     origin,
-    alternateOrigins: resolveEnvironmentLaneOrigins(origin),
+    alternateOrigins,
+    alternateCookieNameMap,
     session: session.fromPartition(`persist:app-${appId}`),
     cookieNames,
     cookieNamesToClear: [
       ...new Set([
         ...cookieNames,
+        ...Object.values(alternateCookieNameMap).flatMap((mapping) =>
+          Object.values(mapping),
+        ),
         "an.session_token",
         "__Secure-an.session_token",
         "an.session_data",
@@ -861,6 +1012,10 @@ function listDesktopIdentityApps(
       }),
     )
     .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function resolveDesktopIdentityAuthority(): DesktopIdentityApp | null {
+  return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });
 }
 
 function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
@@ -1091,7 +1246,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     buttons: ["Add Shortcut", "Cancel"],
     defaultId: 0,
     cancelId: 1,
-    message: "Add Agent Native app shortcut?",
+    message: "Add Agent-Native app shortcut?",
     detail: [
       `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
       `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
@@ -1222,11 +1377,15 @@ function reloadAllWebviews() {
 // macOS: deep links arrive via open-url (both when app is running and on cold launch)
 app.on("open-url", (event, url) => {
   event.preventDefault();
-  if (app.isReady()) {
-    handleDeepLink(url);
-  } else {
-    pendingDeepLink = url;
+  if (isDesktopDeepLinkUrl(url)) {
+    const parsed = new URL(url);
+    console.info("[main] received desktop deep link", {
+      protocol: parsed.protocol,
+      host: parsed.host,
+      ready: app.isReady(),
+    });
   }
+  queueOrHandleDeepLink(url);
 });
 
 // --------------- Run completion / attention notifications ---------------
@@ -1296,10 +1455,22 @@ app.on("browser-window-focus", () => {
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
 async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const initialization = desktopComputerMcpBridgeInitialization;
+  if (initialization) {
+    try {
+      await initialization;
+    } catch (error) {
+      console.warn(
+        "[computer-control] bridge initialization failed before close:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
   const computerBridge = desktopComputerMcpBridge;
   const browserBridge = desktopBrowserControlBridge;
   desktopComputerMcpBridge = null;
   desktopBrowserControlBridge = null;
+  browserNativeHostManifestPath = null;
 
   const closePromises: Promise<void>[] = [];
   if (computerBridge) closePromises.push(computerBridge.close());
@@ -1313,11 +1484,19 @@ registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
   prepareForUpdate: async () => {
+    restoreDesktopComputerMcpBridgeAfterUpdate = Boolean(
+      desktopComputerMcpBridge ||
+      desktopBrowserControlBridge ||
+      desktopComputerMcpBridgeInitialization,
+    );
     await closeDesktopComputerMcpBridge();
     await disposeMultiFrontierAppIntegration();
   },
   restoreAfterUpdateFailure: async () => {
-    await initializeDesktopComputerMcpBridge();
+    if (restoreDesktopComputerMcpBridgeAfterUpdate) {
+      restoreDesktopComputerMcpBridgeAfterUpdate = false;
+      await ensureDesktopComputerMcpBridge();
+    }
     if (multiFrontierDisposePromise) {
       initializeMultiFrontierAppIntegrationForRuntime();
     }
@@ -1338,7 +1517,7 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
-  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   return broker?.getStatus() ?? "idle";
 });
 
@@ -1346,7 +1525,7 @@ ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
-  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker.refreshStatus(resolveDesktopIdentityAuthority());
   return broker.isAvailable();
 });
 
@@ -1374,7 +1553,7 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
 
   const broker = ensureDesktopIdentityBroker();
   if (broker) {
-    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker.refreshStatus(resolveDesktopIdentityAuthority());
     mainWindow?.webContents.send(
       IPC.IDENTITY_STATUS_CHANGED,
       broker.getStatus(),
@@ -1383,28 +1562,210 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   return true;
 });
 
-ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
+// ---------- Hosted origin warmup ----------
+// The hosted apps run on serverless functions, and their first request after
+// an idle period pays a container cold start. Measured against production:
+// /_agent-native/auth/session takes 4-7s cold and 0.17s warm, it is sent
+// `no-store`, and the app's whole first render blocks on it — which is most
+// of the ~12s a cold tab click used to cost. Paying it in the background,
+// before the user clicks, is what makes the click feel instant.
+const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
+const WARM_ORIGIN_TIMEOUT_MS = 12_000;
+const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
+const WARM_ORIGIN_FANOUT_POLL_MS = 500;
+const WARM_ORIGIN_RETRY_MS = 30_000;
+const warmedOriginAt = new Map<string, number>();
+let originWarmupInFlight: Promise<void> | null = null;
+let originWarmupRerunRequested = false;
+let originWarmupRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleWarmupRetry(): void {
+  if (originWarmupRetryTimer || appIsQuitting) return;
+  originWarmupRetryTimer = setTimeout(() => {
+    originWarmupRetryTimer = null;
+    warmDesktopAppOrigins();
+  }, WARM_ORIGIN_RETRY_MS);
+}
+
+async function warmDesktopAppOrigin(
+  origin: string,
+  appSession: Session,
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WARM_ORIGIN_TIMEOUT_MS);
+  try {
+    await appSession.fetch(
+      new URL("/_agent-native/auth/session", origin).href,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    warmedOriginAt.set(origin, Date.now());
+  } catch (error) {
+    // coercion-ok: a failed warmup leaves the origin unmarked, so the next
+    // pass retries it. The tab still loads; it just pays the cold start.
+    console.debug("[desktop-warmup] origin warmup failed", {
+      origin,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function warmDesktopAppOrigins(): void {
+  if (appIsQuitting) return;
+  // A pass already targeting the old lane cannot serve a lane that changed
+  // underneath it, so coalesce the request and recompute once it settles
+  // rather than dropping it.
+  if (originWarmupInFlight) {
+    originWarmupRerunRequested = true;
+    return;
+  }
+  if (!isDesktopSsoEnabled()) return;
+  if (desktopIdentityBroker?.getStatus() !== "signed-in") return;
+
+  const lane = resolveDesktopEnvironmentLaneState().lane;
+  const now = Date.now();
+  const targets: { origin: string; session: Session }[] = [];
+  for (const app of listDesktopIdentityApps()) {
+    const origin = withDesktopEnvironmentLane(app.origin, lane);
+    const warmedAt = warmedOriginAt.get(origin) ?? 0;
+    if (now - warmedAt < WARM_ORIGIN_TTL_MS) continue;
+    targets.push({ origin, session: app.session });
+  }
+  if (targets.length === 0) return;
+
+  originWarmupInFlight = (async () => {
+    // The signed-in transition fires while runModernIdentityFanout is still
+    // running its unawaited serial child-session loop. Warming every origin
+    // underneath that reintroduces exactly the concurrent hosted-origin
+    // session work it serializes to avoid, so wait it out first.
+    for (
+      let waited = 0;
+      waited < WARM_ORIGIN_FANOUT_WAIT_MS &&
+      desktopIdentityBroker?.hasPendingAppSessionWork();
+      waited += WARM_ORIGIN_FANOUT_POLL_MS
+    ) {
+      if (appIsQuitting) return;
+      await new Promise((resolve) =>
+        setTimeout(resolve, WARM_ORIGIN_FANOUT_POLL_MS),
+      );
+    }
+    if (desktopIdentityBroker?.hasPendingAppSessionWork()) {
+      // Still minting after the cap. Overlapping it is the exact hazard this
+      // wait exists for, so abandon this pass. A single bounded retry is
+      // scheduled rather than re-arming immediately, which would spin the
+      // wait in a loop for as long as the work stays stuck.
+      scheduleWarmupRetry();
+      return;
+    }
+    for (const target of targets) {
+      if (appIsQuitting) break;
+      // Serial on purpose. runModernIdentityFanout already documents that
+      // parallel child session work against the hosted origins turns a valid
+      // parent session into a batch of opaque 500s; a warmup must not be the
+      // thing that reintroduces it.
+      await warmDesktopAppOrigin(target.origin, target.session);
+    }
+  })()
+    .catch(() => {})
+    .finally(() => {
+      originWarmupInFlight = null;
+      if (originWarmupRerunRequested && !appIsQuitting) {
+        originWarmupRerunRequested = false;
+        warmDesktopAppOrigins();
+      }
+    });
+}
+
+function resolveDesktopEnvironmentLaneState(): DesktopEnvironmentLaneState {
+  const preference =
+    AppStore.loadDesktopAppPreferences().desktopEnvironmentLane;
+  const email =
+    isDesktopSsoEnabled() && desktopIdentityBroker?.getStatus() === "signed-in"
+      ? (desktopIdentityBroker.getVerifiedEmail() ?? null)
+      : null;
+  return {
+    preference,
+    lane: resolveDesktopEnvironmentLane({ preference, email }),
+    eligible: isBetaLaneEmail(email),
+  };
+}
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      preference: "production",
+      lane: "production",
+      eligible: false,
+    } satisfies DesktopEnvironmentLaneState;
+  }
+  // The broker is otherwise created lazily by the first webview status
+  // request, which lands after the shell has already resolved a lane — a
+  // persisted Builder session would load production once before switching.
+  if (isDesktopSsoEnabled()) {
+    const broker = ensureDesktopIdentityBroker();
+    await broker?.refreshStatus(resolveDesktopIdentityAuthority());
+  }
+  return resolveDesktopEnvironmentLaneState();
+});
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
   if (
     !isShellIdentityIpc(event) ||
-    !isDesktopSsoEnabled() ||
-    typeof appId !== "string" ||
-    !appId.trim()
+    !isDesktopEnvironmentLanePreference(preference)
   ) {
-    return false;
+    return resolveDesktopEnvironmentLaneState();
   }
-  const broker = ensureDesktopIdentityBroker();
-  return broker?.ensureAppSession(appId.trim()) ?? false;
+  AppStore.saveDesktopAppPreferences({ desktopEnvironmentLane: preference });
+  // The focus handler will not fire: the window is already focused and the
+  // renderer just reloads in place, so the newly selected lane would stay
+  // cold until something else happened to trigger a warmup.
+  warmDesktopAppOrigins();
+  return resolveDesktopEnvironmentLaneState();
 });
+
+ipcMain.handle(
+  IPC.IDENTITY_APP_SESSION_ENSURE,
+  async (event, appId, options) => {
+    if (
+      !isShellIdentityIpc(event) ||
+      !isDesktopSsoEnabled() ||
+      typeof appId !== "string" ||
+      !appId.trim()
+    ) {
+      return false;
+    }
+    const broker = ensureDesktopIdentityBroker();
+    const preserveExistingSession =
+      typeof options === "object" &&
+      options !== null &&
+      (options as { preserveExistingSession?: unknown })
+        .preserveExistingSession === true;
+    return (
+      broker?.ensureAppSession(appId.trim(), { preserveExistingSession }) ??
+      false
+    );
+  },
+);
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   const status = broker.getStatus();
+  if (status === "signed-in") {
+    const recovered = await broker.retryAppSessionFanout();
+    if (recovered) {
+      mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "signed-in");
+    }
+    return recovered;
+  }
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp =
-    resolveDesktopIdentityApp(activeAppId) ??
-    resolveDesktopIdentityApp("dispatch");
+  const identityApp = resolveDesktopIdentityAuthority();
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
 });
@@ -1486,7 +1847,10 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
     // links may still complete through the system browser exchange path.
-    resolveApp: resolveDesktopIdentityApp,
+    resolveApp: (appId) =>
+      resolveDesktopIdentityApp(appId, {
+        allowDisabled: appId === "dispatch",
+      }),
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),
@@ -1513,6 +1877,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
       if (status === "idle" || status === "sign-in-required") {
         clearDesktopWorkspaceApps();
       }
+      if (status === "signed-in") warmDesktopAppOrigins();
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
           mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
@@ -1574,6 +1939,37 @@ function createWindow(): BrowserWindow {
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
+  win.webContents.on("will-navigate", (event, url) => {
+    if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
+    let protocol: string;
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      return;
+    }
+    if (protocol !== "file:") return;
+    event.preventDefault();
+    loadDesktopRenderer(win);
+  });
+  win.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, _errorDescription, url, isMainFrame) => {
+      if (
+        IS_DEV ||
+        !isMainFrame ||
+        errorCode !== -6 ||
+        isDesktopRendererEntryUrl(url)
+      ) {
+        return;
+      }
+      try {
+        if (new URL(url).protocol !== "file:") return;
+      } catch {
+        return;
+      }
+      loadDesktopRenderer(win);
+    },
+  );
   win.webContents.on("did-finish-load", () => {
     // A reloaded renderer has no status yet, so the dedup cache must not
     // suppress the next send as an unchanged repeat.
@@ -1583,14 +1979,16 @@ function createWindow(): BrowserWindow {
   });
 
   // In dev, load from the Vite dev server; in prod, load built files
-  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Shift+I
-  } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  loadDesktopRenderer(win);
+  // DevTools will be opened for the active webview via Cmd+Shift+I
 
   mainWindow = win;
+  // Coming back to the window is the strongest available signal that a tab
+  // click is imminent, and it costs nothing while the app is in the
+  // background. The TTL keeps repeated focus events from re-warming.
+  win.on("focus", () => {
+    warmDesktopAppOrigins();
+  });
   win.on("closed", () => {
     disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
@@ -1809,7 +2207,7 @@ ipcMain.on(
   },
 );
 
-function getActiveWebviewContents() {
+function getActiveWebviewContents(options: { trackedOnly?: boolean } = {}) {
   const allContents = webContents.getAllWebContents();
   const liveWebviewContents = (contents?: Electron.WebContents | null) => {
     if (!contents) return undefined;
@@ -1823,12 +2221,15 @@ function getActiveWebviewContents() {
   const webviewContents = allContents.filter((wc) => liveWebviewContents(wc));
 
   const activeTarget =
-    activeWebviewContentsId &&
-    liveWebviewContents(webContents.fromId(activeWebviewContentsId));
+    activeWebviewContentsId !== undefined
+      ? liveWebviewContents(webContents.fromId(activeWebviewContentsId))
+      : undefined;
 
-  if (activeWebviewContentsId && !activeTarget) {
+  if (activeWebviewContentsId !== undefined && !activeTarget) {
     activeWebviewContentsId = undefined;
   }
+
+  if (options.trackedOnly) return activeTarget;
 
   // Fall back to the currently focused guest, then to the active app by URL.
   return (
@@ -1845,6 +2246,37 @@ function getActiveWebviewContents() {
       })) ||
     webviewContents[0]
   );
+}
+
+async function captureActiveDesktopBrowserScreenshot() {
+  const contents = getActiveWebviewContents({ trackedOnly: true });
+  if (!contents) {
+    throw new Error("No active inline browser surface is available.");
+  }
+  return captureDesktopBrowserScreenshot(
+    contents,
+    () => activeWebviewContentsId === contents.id,
+  );
+}
+
+function reloadWebviewContents(contents?: Electron.WebContents): boolean {
+  if (!contents) return false;
+  try {
+    if (contents.isDestroyed() || contents.getType() !== "webview") {
+      return false;
+    }
+    contents.reloadIgnoringCache();
+    return true;
+  } catch (error) {
+    console.debug("[desktop] webview reload skipped", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
+}
+
+function reloadActiveWebview(): boolean {
+  return reloadWebviewContents(getActiveWebviewContents());
 }
 
 function getDesktopShortcutSettings(): DesktopShortcutSettings {
@@ -2141,6 +2573,8 @@ const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
 let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
+let remoteConnectorStartPromise: Promise<CodeAgentRemoteConnectorStatus> | null =
+  null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
 let remoteConnectorStartedAt: string | undefined;
@@ -3300,7 +3734,20 @@ function resolveRemoteConnectorCliInvocation(): {
   };
 }
 
-function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
+async function startRemoteCodeAgentConnector(): Promise<CodeAgentRemoteConnectorStatus> {
+  if (remoteConnectorStartPromise) return remoteConnectorStartPromise;
+  const startPromise = startRemoteCodeAgentConnectorInternal();
+  remoteConnectorStartPromise = startPromise;
+  try {
+    return await startPromise;
+  } finally {
+    if (remoteConnectorStartPromise === startPromise) {
+      remoteConnectorStartPromise = null;
+    }
+  }
+}
+
+async function startRemoteCodeAgentConnectorInternal(): Promise<CodeAgentRemoteConnectorStatus> {
   if (!remoteConnectorEnabled || appIsQuitting)
     return getRemoteConnectorStatus();
   if (remoteConnectorProcess && !remoteConnectorProcess.killed) {
@@ -3324,6 +3771,10 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   const invocation = resolveRemoteConnectorCliInvocation();
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
+    await ensureDesktopComputerMcpBridge();
+    if (!remoteConnectorEnabled || appIsQuitting) {
+      return getRemoteConnectorStatus();
+    }
     const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
@@ -3386,13 +3837,13 @@ function scheduleRemoteConnectorRestart(): void {
   remoteConnectorRestartTimer = setTimeout(() => {
     remoteConnectorRestartTimer = null;
     remoteConnectorNextRestartAt = undefined;
-    startRemoteCodeAgentConnector();
+    void startRemoteCodeAgentConnector();
   }, delay);
 }
 
-function setRemoteConnectorEnabled(
+async function setRemoteConnectorEnabled(
   enabled: boolean,
-): CodeAgentRemoteConnectorControlResult {
+): Promise<CodeAgentRemoteConnectorControlResult> {
   remoteConnectorEnabled = enabled;
   try {
     AppStore.saveRemoteConnectorSettings({ enabled });
@@ -3417,7 +3868,7 @@ function setRemoteConnectorEnabled(
     return { ok: true, status: getRemoteConnectorStatus() };
   }
   remoteConnectorRestartCount = 0;
-  return { ok: true, status: startRemoteCodeAgentConnector() };
+  return { ok: true, status: await startRemoteCodeAgentConnector() };
 }
 
 function parseRemoteConnectorPairRequest(
@@ -3573,7 +4024,7 @@ async function pairRemoteCodeAgentConnector(
 
     return {
       ok: true,
-      status: startRemoteCodeAgentConnector(),
+      status: await startRemoteCodeAgentConnector(),
       deviceId,
       message: "Remote control paired.",
     };
@@ -3614,7 +4065,8 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
-  reclaimTerminalCodeAgentWorktrees(goalId);
+  resumeQueuedCodeAgentWorktreeRuns();
+  ensureCodeAgentWorktreeSweepScheduled();
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -3639,7 +4091,6 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
   reconcileInterruptedCodeAgentRun(runId, "read");
-  reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
   const run = desktopCodeBackgroundAgentController.get(
     runId,
   ) as BackgroundAgentRun | null;
@@ -3778,6 +4229,18 @@ function isQueuedCodeAgentWorktreeRun(
     (getRecordString(record, "status") === "queued" ||
       getRecordString(record, "phase") === "queued"),
   );
+}
+
+function resumeQueuedCodeAgentWorktreeRuns(): void {
+  const worktreeIds = new Set<string>();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
+    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
+    if (worktreeId) worktreeIds.add(worktreeId);
+  }
+  for (const worktreeId of worktreeIds) {
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
 }
 
 function reconcileManagedCodeAgentWorktreeLeases(): void {
@@ -3970,23 +4433,112 @@ function cleanupDueManagedCodeAgentWorktrees(): void {
   }
 }
 
+const CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+let codeAgentWorktreeSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function nextCodeAgentWorktreeSweepDelay(): number {
+  const now = Date.now();
+  let delay = CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS;
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isTerminalCodeAgentRun(record)) continue;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const worktree = isObject(metadata?.worktree)
+      ? metadata.worktree
+      : undefined;
+    const nextAttemptAt = firstStringValue(worktree?.reclaimNextAttemptAt);
+    if (!nextAttemptAt) continue;
+    const dueAt = new Date(nextAttemptAt).getTime();
+    if (Number.isFinite(dueAt)) delay = Math.min(delay, dueAt - now);
+  }
+  return Math.max(1000, delay);
+}
+
+function scheduleCodeAgentWorktreeSweep(): void {
+  if (codeAgentWorktreeSweepTimer) clearTimeout(codeAgentWorktreeSweepTimer);
+  codeAgentWorktreeSweepTimer = setTimeout(() => {
+    codeAgentWorktreeSweepTimer = null;
+    try {
+      reclaimTerminalCodeAgentWorktrees();
+    } finally {
+      scheduleCodeAgentWorktreeSweep();
+    }
+  }, nextCodeAgentWorktreeSweepDelay());
+  codeAgentWorktreeSweepTimer.unref?.();
+}
+
+function ensureCodeAgentWorktreeSweepScheduled(): void {
+  if (!codeAgentWorktreeSweepTimer) scheduleCodeAgentWorktreeSweep();
+}
+
+function scheduleCodeAgentWorktreeReclaimRetry(
+  runId: string,
+  worktree: Record<string, unknown>,
+  updates: Record<string, unknown> = {},
+  error?: string,
+): CodeAgentWorktreeReclaimOutcome {
+  const { attempts, nextAttemptAt } = nextCodeAgentWorktreeReclaimAttempt(
+    new Date(),
+    worktree.reclaimAttempts,
+  );
+  touchCodeAgentRunRecord(runId, {
+    metadata: {
+      worktree: {
+        ...worktree,
+        ...updates,
+        reclaimAttempts: attempts,
+        reclaimNextAttemptAt: nextAttemptAt,
+        ...(error ? { lastCleanupError: error } : {}),
+      },
+    },
+  });
+  scheduleCodeAgentWorktreeSweep();
+  return { status: "retry", error, nextAttemptAt };
+}
+
 function reclaimTerminalCodeAgentWorktree(
   record: Record<string, unknown> | null,
-): void {
-  if (!record || !isTerminalCodeAgentRun(record)) return;
+): CodeAgentWorktreeReclaimOutcome {
+  if (!record || !isTerminalCodeAgentRun(record)) {
+    return { status: "reclaimed" };
+  }
   const metadata = isObject(record.metadata) ? record.metadata : undefined;
   if (metadata?.retainWorktree === true || metadata?.keepWorktree === true) {
-    return;
+    return { status: "reclaimed" };
   }
   const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
   if (!worktree || worktree.retain === true || worktree.keep === true) {
-    return;
+    return { status: "reclaimed" };
+  }
+  if (worktree.state === "recoverable") {
+    return {
+      status: "recoverable",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The worktree was kept for recovery.",
+    };
+  }
+  if (worktree.reclaimStatus === "permanently-failed") {
+    return {
+      status: "permanently-failed",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The Code Agent worktree could not be reclaimed.",
+    };
+  }
+  const reclaimNextAttemptAt = firstStringValue(worktree.reclaimNextAttemptAt);
+  if (
+    reclaimNextAttemptAt &&
+    new Date(reclaimNextAttemptAt).getTime() > Date.now()
+  ) {
+    return { status: "retry", nextAttemptAt: reclaimNextAttemptAt };
   }
   const sourcePath = firstStringValue(worktree.sourcePath);
   const worktreePath = firstStringValue(worktree.path);
   const branch = firstStringValue(worktree.branch);
   const baseCommit = firstStringValue(worktree.baseCommit);
-  if (!sourcePath || !worktreePath || !branch) return;
+  if (!sourcePath || !worktreePath || !branch) {
+    return { status: "reclaimed" };
+  }
 
   const runId = getRecordString(record, "id");
   const managedId = firstStringValue(worktree.id);
@@ -4008,36 +4560,63 @@ function reclaimTerminalCodeAgentWorktree(
           },
         });
         void startNextQueuedCodeAgentWorktreeRun(released.id);
+        return { status: "reclaimed" };
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+        touchCodeAgentRunRecord(runId, {
+          metadata: {
+            worktree: {
+              ...worktree,
+              reclaimStatus: "permanently-failed",
+              lastCleanupError: message,
+            },
+          },
+        });
+        console.warn(
+          `[code-agents] Permanently failed to release worktree for run ${runId}:`,
+          message,
+        );
+        return { status: "permanently-failed", error: message };
+      }
       console.warn(
-        `[code-agents] Could not release worktree for run ${runId}:`,
-        error instanceof Error ? error.message : error,
+        `[code-agents] Could not release worktree for run ${runId}; retrying:`,
+        message,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     }
-    return;
+    return { status: "reclaimed" };
   }
 
   // Older runs predate the registry. Keep their worktrees recoverable for the
   // same retention window and only remove them after checking for dirty files.
-  if (!runId) return;
+  if (!runId) return { status: "reclaimed" };
   const cleanupAfter = firstStringValue(worktree.cleanupAfter);
   if (!cleanupAfter) {
+    const nextAttemptAt = new Date(
+      Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+    ).toISOString();
     touchCodeAgentRunRecord(runId, {
       metadata: {
         worktree: {
           ...worktree,
           policy: "ephemeral",
           state: "cleanup-pending",
-          cleanupAfter: new Date(
-            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
-          ).toISOString(),
+          cleanupAfter: nextAttemptAt,
         },
       },
     });
-    return;
+    return { status: "retry", nextAttemptAt };
   }
-  if (new Date(cleanupAfter).getTime() > Date.now()) return;
+  if (new Date(cleanupAfter).getTime() > Date.now()) {
+    return { status: "retry", nextAttemptAt: cleanupAfter };
+  }
   if (
     listRawCodeAgentRunRecords().some(({ record: candidate }) => {
       if (candidate === record || !isActiveDesktopCodeAgentRun(candidate))
@@ -4054,7 +4633,7 @@ function reclaimTerminalCodeAgentWorktree(
       );
     })
   ) {
-    return;
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree);
   }
 
   try {
@@ -4069,20 +4648,23 @@ function reclaimTerminalCodeAgentWorktree(
         })
       : true;
     if (hasUncommittedChanges || hasCommittedChanges) {
+      const message = !baseCommit
+        ? "The worktree base could not be verified; it was kept for recovery."
+        : hasCommittedChanges
+          ? "Worktree contains commits after its base; it was kept for recovery."
+          : "Worktree has uncommitted changes; it was kept for recovery.";
       touchCodeAgentRunRecord(runId, {
         metadata: {
           worktree: {
             ...worktree,
             state: "recoverable",
-            lastCleanupError: !baseCommit
-              ? "The worktree base could not be verified; it was kept for recovery."
-              : hasCommittedChanges
-                ? "Worktree contains commits after its base; it was kept for recovery."
-                : "Worktree has uncommitted changes; it was kept for recovery.",
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: message,
           },
         },
       });
-      return;
+      return { status: "recoverable", error: message };
     }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
@@ -4090,8 +4672,15 @@ function reclaimTerminalCodeAgentWorktree(
       branch,
     });
     if (!result.worktreeRemoved || !result.branchRemoved) {
+      const message = "Git did not fully remove the worktree and branch.";
       console.warn(
-        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
+        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying.`,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     } else {
       touchCodeAgentRunRecord(runId, {
@@ -4099,15 +4688,38 @@ function reclaimTerminalCodeAgentWorktree(
           worktree: {
             ...worktree,
             state: "removed",
+            reclaimStatus: undefined,
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: undefined,
           },
         },
       });
+      return { status: "reclaimed" };
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            reclaimStatus: "permanently-failed",
+            lastCleanupError: message,
+          },
+        },
+      });
+      console.warn(
+        `[code-agents] Permanently failed to reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
+        message,
+      );
+      return { status: "permanently-failed", error: message };
+    }
     console.warn(
-      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
-      error instanceof Error ? error.message : error,
+      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying:`,
+      message,
     );
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree, {}, message);
   }
 }
 
@@ -4116,18 +4728,6 @@ function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
     reclaimTerminalCodeAgentWorktree(record);
   }
   cleanupDueManagedCodeAgentWorktrees();
-}
-
-function resumeQueuedCodeAgentWorktreeRuns(): void {
-  const worktreeIds = new Set<string>();
-  for (const { record } of listRawCodeAgentRunRecords()) {
-    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
-    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
-    if (worktreeId) worktreeIds.add(worktreeId);
-  }
-  for (const worktreeId of worktreeIds) {
-    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
-  }
 }
 
 function reconcileInterruptedCodeAgentRuns(
@@ -4284,14 +4884,6 @@ function backgroundRunToDesktopRun(record: BackgroundAgentRun): CodeAgentRun {
     artifactRoot: record.artifactRoot,
     cwd: record.cwd,
   };
-  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
-  const worktreePath = firstStringValue(worktree?.path);
-  if (worktree && worktreePath && !fs.existsSync(worktreePath)) {
-    metadata.worktree = {
-      ...worktree,
-      state: "recoverable",
-    };
-  }
   if (record.permissionMode) metadata.permissionMode = record.permissionMode;
   const activeProcess = activeCodeAgentProcesses.get(record.id);
   if (activeProcess) {
@@ -5138,8 +5730,11 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
   if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
   const helperPath = desktopComputerHelperPath();
   if (!fs.existsSync(helperPath)) {
-    console.warn("[computer-control] bundled macOS helper is unavailable.");
-    return;
+    const error = new Error(
+      "The bundled macOS computer-control helper is unavailable.",
+    );
+    console.warn("[computer-control]", error.message);
+    throw error;
   }
   const helper = new SwiftDesktopHelperClient(helperPath);
   const broker = new ComputerControlBroker({
@@ -5188,12 +5783,15 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[browser-control] Chrome native host installation failed:",
       error instanceof Error ? error.message : "unknown error",
     );
+    broker.close();
+    throw error;
   }
   const bridge = new DesktopComputerMcpBridge({
     broker,
     permissionStatus: () => getComputerPermissionStatus(systemPreferences),
     screenObserver,
     browserBridge,
+    captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
     browserNativeHostInstalled: () =>
       Boolean(
         browserNativeHostManifestPath &&
@@ -5243,7 +5841,23 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       "[computer-control] authenticated loopback bridge could not start:",
       error instanceof Error ? error.message : "unknown error",
     );
+    throw error;
   }
+}
+
+function ensureDesktopComputerMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopComputerMcpBridge) {
+    return Promise.resolve();
+  }
+  const initialization =
+    desktopComputerMcpBridgeInitialization ??
+    (desktopComputerMcpBridgeInitialization =
+      initializeDesktopComputerMcpBridge());
+  return initialization.finally(() => {
+    if (desktopComputerMcpBridgeInitialization === initialization) {
+      desktopComputerMcpBridgeInitialization = null;
+    }
+  });
 }
 
 function desktopComputerChildEnv(
@@ -5469,6 +6083,21 @@ function persistCodeAgentChildEvent(
   guardCodeAgentPersistence({ runId, source }, persist);
 }
 
+const LOCAL_CODE_AGENT_EXECUTABLES = [
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+] as const;
+
+function getCodeAgentChildEnvironment(
+  ...sources: Array<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const source of sources) Object.assign(environment, source);
+  return withResolvedExecutablePaths(environment, LOCAL_CODE_AGENT_EXECUTABLES);
+}
+
 async function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
@@ -5559,12 +6188,14 @@ async function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
-    const runMetadata = isObject(runRecord?.metadata) ? runRecord.metadata : {};
-    const isDesktopAppCreation =
-      runMetadata.kind === "desktop-create-app" ||
-      runMetadata.kind === "desktop-local-code-change";
+    await ensureDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] bridge unavailable for code-agent run:",
+        error instanceof Error ? error.message : error,
+      );
+    });
     const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
-      includeWorkspaceApps: !isDesktopAppCreation,
+      includeWorkspaceApps: true,
     });
     if (mcpEnvironment.remoteConfig.state === "unavailable") {
       appendCodeAgentStatusEvent(
@@ -5584,14 +6215,16 @@ async function spawnCodeAgentRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...mcpEnvironment.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        mcpEnvironment.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -5787,13 +6420,15 @@ function spawnCodeAgentApprovalRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -6109,7 +6744,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     getCodeAgentGoal(getRecordString(currentRunRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
   if (goal.surfaceKind === "native") {
-    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+    void spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
   }
   return {
     ok: true,
@@ -6285,7 +6920,7 @@ async function controlDesktopCodeBackgroundAgentRun(
       source: "desktop",
       command: "resume",
     });
-    spawnCodeAgentRunner(input.runId, cwd);
+    void spawnCodeAgentRunner(input.runId, cwd);
     return {
       ok: true,
       runId: input.runId,
@@ -6733,7 +7368,7 @@ async function createCodeAgentRun(
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
+      void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
@@ -6770,8 +7405,19 @@ async function createCodeAgentRun(
 }
 
 function listCodeAgentWorktrees(input?: unknown): CodeAgentWorktreeListResult {
-  const cwd = typeof input === "string" ? input : undefined;
-  const sourcePath = resolveCodeAgentsTerminalCwd({ cwd });
+  const requestedPath = typeof input === "string" ? input : undefined;
+  const sourcePath = requestedPath
+    ? resolveUsableDirectory(requestedPath)
+    : defaultCodeAgentProjectPath(readCodeAgentProjectsState());
+  ensureCodeAgentWorktreeSweepScheduled();
+  if (!sourcePath) {
+    return {
+      status: "unavailable",
+      sourcePath: normalizeRememberedCodeAgentPath(requestedPath) ?? "",
+      worktrees: [],
+      error: "The selected project folder is unavailable.",
+    };
+  }
   cleanupDueManagedCodeAgentWorktrees();
   return listNamedCodeAgentWorktrees({
     registryPath: codeAgentWorktreeRegistryFile(),
@@ -7557,7 +8203,7 @@ function readCodeAgentProjectsState(): {
   const projects = rawProjects
     .map((item): CodeAgentProjectFolder | null => {
       if (!isObject(item) || typeof item.path !== "string") return null;
-      const dir = resolveUsableDirectory(item.path);
+      const dir = normalizeRememberedCodeAgentPath(item.path);
       if (!dir) return null;
       const project: CodeAgentProjectFolder = {
         id: typeof item.id === "string" ? item.id : projectFolderId(dir),
@@ -7574,9 +8220,31 @@ function readCodeAgentProjectsState(): {
     .filter((item): item is CodeAgentProjectFolder => Boolean(item));
   const selectedPath =
     typeof raw?.selectedPath === "string"
-      ? (resolveUsableDirectory(raw.selectedPath) ?? undefined)
+      ? (normalizeRememberedCodeAgentPath(raw.selectedPath) ?? undefined)
       : undefined;
   return { selectedPath, projects };
+}
+
+function normalizeRememberedCodeAgentPath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const expanded = expandPathCandidate(value);
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  return isFilesystemRoot(resolved) ? null : resolved;
+}
+
+function defaultCodeAgentProjectPath(state: { selectedPath?: string }): string {
+  return (
+    state.selectedPath ??
+    normalizeRememberedCodeAgentPath(
+      firstStringValue(
+        process.env.AGENT_NATIVE_PROJECT_ROOT,
+        process.env.CODE_AGENTS_PROJECT_ROOT,
+        IS_DEV ? process.cwd() : undefined,
+      ),
+    ) ??
+    getHomeDirectory()
+  );
 }
 
 function writeCodeAgentProjectsState(state: {
@@ -7617,8 +8285,8 @@ function upsertCodeAgentProject(
 
 function listCodeAgentProjects(): CodeAgentProjectListResult {
   try {
-    const defaultPath = resolveCodeAgentsTerminalCwd({});
     const state = readCodeAgentProjectsState();
+    const defaultPath = defaultCodeAgentProjectPath(state);
     const defaultProject = normalizeProjectFolder(defaultPath);
     const projects = [
       defaultProject,
@@ -7643,8 +8311,8 @@ function listMultiFrontierWorkspaces(): {
   selectedPath?: string;
   workspaces: Array<{ id: string; path: string }>;
 } {
-  const defaultPath = resolveCodeAgentsTerminalCwd({});
   const state = readCodeAgentProjectsState();
+  const defaultPath = defaultCodeAgentProjectPath(state);
   const projects = [
     normalizeProjectFolder(defaultPath),
     ...state.projects.filter((project) => project.path !== defaultPath),
@@ -7671,7 +8339,7 @@ function initializeMultiFrontierAppIntegrationForRuntime(): void {
   multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
     ipcMain,
     storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    loginCwd: getHomeDirectory(),
     listWorkspaces: listMultiFrontierWorkspaces,
     resolveDirectory: resolveUsableDirectory,
   });
@@ -8838,13 +9506,39 @@ const contentFilesChangeTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+const contentFilesWatcherRetryTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const contentFilesWatcherUnavailable = new Set<string>();
 
 function stopContentFilesWatcher(folderId: string): void {
   const timer = contentFilesChangeTimers.get(folderId);
   if (timer) clearTimeout(timer);
   contentFilesChangeTimers.delete(folderId);
+  const retryTimer = contentFilesWatcherRetryTimers.get(folderId);
+  if (retryTimer) clearTimeout(retryTimer);
+  contentFilesWatcherRetryTimers.delete(folderId);
+  contentFilesWatcherUnavailable.delete(folderId);
   contentFilesWatchers.get(folderId)?.close();
   contentFilesWatchers.delete(folderId);
+}
+
+function scheduleContentFilesWatcherRetry(grant: ContentFilesGrant): void {
+  if (contentFilesWatcherRetryTimers.has(grant.id)) return;
+  const retry = () => {
+    contentFilesWatcherRetryTimers.delete(grant.id);
+    if (!getContentFilesGrant(grant.id)) return;
+    watchContentFilesGrant(grant);
+    if (!contentFilesWatchers.has(grant.id)) {
+      const timer = setTimeout(retry, 1_000);
+      timer.unref?.();
+      contentFilesWatcherRetryTimers.set(grant.id, timer);
+    }
+  };
+  const timer = setTimeout(retry, 1_000);
+  timer.unref?.();
+  contentFilesWatcherRetryTimers.set(grant.id, timer);
 }
 
 function contentFilesChangeRevision(): string {
@@ -8895,21 +9589,34 @@ function watchContentFilesGrant(grant: ContentFilesGrant): void {
         }, 120),
       );
     });
+    const wasUnavailable = contentFilesWatcherUnavailable.delete(grant.id);
     watcher.on("error", () => {
-      if (
-        grant.kind === "temporary" &&
-        !resolveUsableContentFolder(grant.path)
-      ) {
-        stopContentFilesWatcher(grant.id);
+      const missing = !resolveUsableContentFolder(grant.path);
+      stopContentFilesWatcher(grant.id);
+      if (grant.kind === "temporary" && missing) {
         clearContentFilesGrant(grant.id);
         emitContentFilesChange(grant.id, true);
+        return;
       }
+      if (!contentFilesWatcherUnavailable.has(grant.id)) {
+        contentFilesWatcherUnavailable.add(grant.id);
+        emitContentFilesChange(grant.id, missing);
+      }
+      scheduleContentFilesWatcherRetry(grant);
     });
     contentFilesWatchers.set(grant.id, watcher);
+    if (wasUnavailable) emitContentFilesChange(grant.id, false, "attached");
   } catch {
-    if (grant.kind === "temporary" && !resolveUsableContentFolder(grant.path)) {
+    const missing = !resolveUsableContentFolder(grant.path);
+    if (grant.kind === "temporary" && missing) {
       emitContentFilesChange(grant.id, true);
+      return;
     }
+    if (!contentFilesWatcherUnavailable.has(grant.id)) {
+      contentFilesWatcherUnavailable.add(grant.id);
+      emitContentFilesChange(grant.id, missing);
+    }
+    scheduleContentFilesWatcherRetry(grant);
   }
 }
 
@@ -9263,8 +9970,11 @@ export function attachTemporaryContentFilesWorkingCopy(
   for (const folderIds of contentFilesChangeSubscribers.values()) {
     folderIds.add(id);
   }
+  const wasUnavailable = contentFilesWatcherUnavailable.has(id);
   watchContentFilesGrant(grant);
-  emitContentFilesChange(id, false, "attached");
+  if (!wasUnavailable && contentFilesWatchers.has(id)) {
+    emitContentFilesChange(id, false, "attached");
+  }
   return grant;
 }
 
@@ -9482,7 +10192,9 @@ async function contentReadRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9501,7 +10213,9 @@ async function contentWriteRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9516,7 +10230,9 @@ async function collectContentMarkdownFiles(
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(folder, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return files;
   }
 
@@ -10169,6 +10885,7 @@ async function readContentFilesForRequest(
   try {
     const grant = getRequiredContentFilesGrant(request.folderId);
     const root = await contentReadRoot(grant.path);
+    await assertUsableContentFolder(root.folder);
     const identities: Record<string, string> = {};
     const sources = await collectContentMarkdownFiles(
       root.folder,
@@ -10766,17 +11483,6 @@ async function openCodexLoginTerminal(): Promise<CodeAgentTerminalResult> {
   });
 }
 
-function readPackageMetadata(packagePath: string): {
-  name?: string;
-  version?: string;
-} {
-  const pkg = readJsonObjectFile(packagePath);
-  return {
-    name: firstStringValue(pkg?.name),
-    version: firstStringValue(pkg?.version),
-  };
-}
-
 const RESERVED_CODE_AGENT_COMMANDS = new Set([
   ...CODE_AGENT_GOALS.flatMap((goal) => [
     goal.id,
@@ -10804,7 +11510,20 @@ const RESERVED_CODE_AGENT_COMMANDS = new Set([
 
 function listCodeAgentProjectPacks(input?: unknown): CodeAgentCodePackResult {
   try {
-    const root = resolveCodeAgentsTerminalCwd(input);
+    const requestedPath =
+      typeof input === "string"
+        ? input
+        : isObject(input)
+          ? firstStringValue(input.cwd)
+          : undefined;
+    if (!requestedPath) return { status: "ok" };
+    const root = resolveUsableDirectory(requestedPath);
+    if (!root) {
+      return {
+        status: "unavailable",
+        error: "The selected project folder is unavailable.",
+      };
+    }
     const commandsRoot = path.join(root, ".agents", "commands");
     const skillsRoot = path.join(root, ".agents", "skills");
     const commands = fs.existsSync(commandsRoot)
@@ -10930,6 +11649,12 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
   const codex = getLocalCodexCliStatus();
   const claude = getLocalClaudeCliStatus();
+  const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+  const opencode = getLocalCliAvailability(
+    "opencode",
+    "OpenCode",
+    localOpenCodeCliAvailabilityCache,
+  );
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
@@ -10937,6 +11662,8 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
     ...(claude.authenticated ? [claude.label] : []),
+    ...(pi.available ? [pi.label] : []),
+    ...(opencode.available ? [opencode.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -11024,7 +11751,7 @@ function ensureCodeAgentLlmProvider(): {
     return {
       ok: false,
       error:
-        "Agent Native could not read the saved code provider keys. Reconnect the provider in Settings.",
+        "Agent-Native could not read the saved code provider keys. Reconnect the provider in Settings.",
     };
   }
   return {
@@ -11044,10 +11771,14 @@ interface CliRun {
 }
 
 function runCliSync(command: string, args: string[]): CliRun {
-  const result = spawnSync(command, args, {
-    encoding: "utf-8",
-    timeout: CLI_PROBE_TIMEOUT_MS,
-  });
+  const result = spawnSync(
+    resolveExecutable(command, process.env) ?? command,
+    args,
+    {
+      encoding: "utf-8",
+      timeout: CLI_PROBE_TIMEOUT_MS,
+    },
+  );
   return {
     status: result.status,
     stdout: result.stdout ?? "",
@@ -11059,7 +11790,7 @@ function runCliSync(command: string, args: string[]): CliRun {
 function runCliAsync(command: string, args: string[]): Promise<CliRun> {
   return new Promise((resolve) => {
     execFile(
-      command,
+      resolveExecutable(command, process.env) ?? command,
       args,
       { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
       (error, stdout, stderr) => {
@@ -11092,9 +11823,13 @@ interface LocalCodexCliStatus {
   error?: string;
 }
 
+type CliStatusReadOptions = { refresh?: boolean };
+
 const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
 
-function getLocalCodexCliStatus(): LocalCodexCliStatus {
+function getLocalCodexCliStatus(
+  options?: CliStatusReadOptions,
+): LocalCodexCliStatus {
   return cachedCliStatus(
     localCodexCliStatusCache,
     () => {
@@ -11113,6 +11848,9 @@ function getLocalCodexCliStatus(): LocalCodexCliStatus {
         await runCliAsync("codex", ["login", "status"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11185,7 +11923,9 @@ interface LocalClaudeCliStatus {
 
 const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
 
-function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+function getLocalClaudeCliStatus(
+  options?: CliStatusReadOptions,
+): LocalClaudeCliStatus {
   return cachedCliStatus(
     localClaudeCliStatusCache,
     () => {
@@ -11204,6 +11944,9 @@ function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
         await runCliAsync("claude", ["auth", "status", "--json"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11267,6 +12010,7 @@ function getLocalCliAvailability(
   command: string,
   label: string,
   cache: CliStatusCache<LocalCliAvailability>,
+  options?: CliStatusReadOptions,
 ): LocalCliAvailability {
   return cachedCliStatus(
     cache,
@@ -11282,6 +12026,9 @@ function getLocalCliAvailability(
         label,
         await runCliAsync(command, ["--version"]),
       ),
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11387,6 +12134,7 @@ function pushCodeAgentModelOptions(
     engineLabel: string;
     supportedModels: readonly string[];
     configured: boolean;
+    description?: string;
     statusLabel?: string;
     isSubscription?: boolean;
   },
@@ -11397,6 +12145,7 @@ function pushCodeAgentModelOptions(
       engineLabel: options.engineLabel,
       model,
       label: model,
+      ...(options.description ? { description: options.description } : {}),
       configured: options.configured,
       ...(options.statusLabel ? { statusLabel: options.statusLabel } : {}),
       ...(options.isSubscription ? { isSubscription: true } : {}),
@@ -11404,20 +12153,30 @@ function pushCodeAgentModelOptions(
   }
 }
 
-function getCodeAgentModelList(): CodeAgentModelListResult {
+function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
   try {
-    const settings = AppStore.getCodeAgentProviderSettingsStatus();
+    const refreshLocalCliStatus = isObject(input) && input.refresh === true;
+    const cliStatusOptions = refreshLocalCliStatus
+      ? { refresh: true }
+      : undefined;
+    const codex = getLocalCodexCliStatus(cliStatusOptions);
+    const settings = getCodeAgentProviderSettings();
     const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
-    const codex = getLocalCodexCliStatus();
-    const claude = getLocalClaudeCliStatus();
-    const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+    const claude = getLocalClaudeCliStatus(cliStatusOptions);
+    const pi = getLocalCliAvailability(
+      "pi",
+      "Pi",
+      localPiCliAvailabilityCache,
+      cliStatusOptions,
+    );
     const opencode = getLocalCliAvailability(
       "opencode",
       "OpenCode",
       localOpenCodeCliAvailabilityCache,
+      cliStatusOptions,
     );
     const anthropicConfigured = Boolean(
       providerStatusById(settings, "anthropic")?.configured,
@@ -11472,11 +12231,10 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       }
     }
     if (claude.available) {
-      models.push({
+      pushCodeAgentModelOptions(models, {
         engine: CLAUDE_CLI_ENGINE_NAME,
         engineLabel: "Anthropic",
-        model: ANTHROPIC_MODEL_CONFIG.defaultModel,
-        label: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
         description: "Run locally through your signed-in Claude subscription.",
         configured: claude.authenticated,
         ...(claude.authenticated
@@ -11551,13 +12309,6 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
 
 function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
   try {
-    const cwd = resolveCodeAgentsTerminalCwd({});
-    const repoRoot = resolveRepositoryRoot(cwd);
-    const corePackagePath = path.join(repoRoot, "packages/core/package.json");
-    const corePackage = fs.existsSync(corePackagePath)
-      ? readPackageMetadata(corePackagePath)
-      : {};
-    const cliEntry = path.join(repoRoot, "packages/core/dist/cli/index.js");
     return {
       status: "ok",
       platform: process.platform,
@@ -11565,18 +12316,6 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       storeRoot: codeAgentStoreRoot(),
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
-      codePack: {
-        name: corePackage.name ?? "@agent-native/core",
-        version: corePackage.version,
-        root: fs.existsSync(path.join(repoRoot, "packages/core"))
-          ? path.join(repoRoot, "packages/core")
-          : repoRoot,
-        packagePath: fs.existsSync(corePackagePath)
-          ? corePackagePath
-          : undefined,
-        cliEntry,
-        available: fs.existsSync(cliEntry),
-      },
       llmProvider: getCodeAgentLlmProviderStatus(),
       computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
@@ -11738,7 +12477,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   });
   const cwd =
     getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  void spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
     run: readDesktopCodeAgentRun(runId) ?? undefined,
@@ -11965,6 +12704,7 @@ registerCodeAgentsIpc({
   controlCodeAgentRun,
   getCodeAgentHostMetadata,
   getBundledChromeExtensionPath,
+  prepareBrowserSetup: ensureDesktopComputerMcpBridge,
   getCodeAgentProviderSettings,
   updateCodeAgentProviderSettings,
   connectDesktopBuilderProvider,
@@ -11979,12 +12719,6 @@ registerCodeAgentsIpc({
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,
 });
-
-const codeAgentWorktreeSweepTimer = setInterval(
-  cleanupDueManagedCodeAgentWorktrees,
-  60 * 60 * 1000,
-);
-codeAgentWorktreeSweepTimer.unref?.();
 
 registerQuickPromptIpc({
   createCodeAgentRun,
@@ -12035,6 +12769,20 @@ function handleDesktopProtocolUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+    const recognizedRoute =
+      parsed.host === "oauth-complete" ||
+      (parsed.host === "open" &&
+        ["app", "goal", "command", "run"].some((key) =>
+          parsed.searchParams.has(key),
+        )) ||
+      (parsed.host === "shortcuts" && parsed.pathname === "/upsert");
+    if (!recognizedRoute) {
+      console.warn("[main] ignored unsupported desktop deep link route", {
+        host: parsed.host,
+        pathname: parsed.pathname,
+      });
+      return false;
+    }
     void handleDeepLink(url);
     return true;
   } catch {
@@ -12241,7 +12989,9 @@ registerAppsIpc({
   },
 });
 
-registerDesktopChatIpc();
+registerDesktopChatIpc({
+  captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
+});
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
@@ -12406,7 +13156,7 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("host", "agent-native-desktop");
-  authUrl.searchParams.set("client_id", "Agent Native Desktop");
+  authUrl.searchParams.set("client_id", "Agent-Native Desktop");
   authUrl.searchParams.set("redirect_url", callback.toString());
   authUrl.searchParams.set("preview_url", callback.origin);
   authUrl.searchParams.set("framework", "agent-native");
@@ -12517,7 +13267,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       res.end(
         desktopBuilderCallbackPage(
           "success",
-          "You can close this tab and return to Agent Native Desktop.",
+          "You can close this tab and return to Agent-Native Desktop.",
         ),
       );
       finish({
@@ -12752,7 +13502,7 @@ function openOAuthWindow(
     },
   });
 
-  oauthWin.loadURL(url);
+  void oauthWin.loadURL(url);
 
   // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
   // Firebase, and Firebase signs the user into Google via `window.open()`.
@@ -12818,7 +13568,7 @@ function openOAuthWindow(
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -12836,7 +13586,7 @@ function openOAuthWindow(
     (event: Electron.Event, navUrl: string) => {
       if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
         event.preventDefault();
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     },
@@ -13121,7 +13871,20 @@ function handleWindowOpenForContents(
   contents: Electron.WebContents,
   url: string,
 ) {
-  if (handleDesktopProtocolUrl(url)) {
+  const isTrustedShell = Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed() &&
+    contents.id === mainWindow.webContents.id,
+  );
+  if (isTrustedShell && handleDesktopProtocolUrl(url)) {
+    return { action: "deny" as const };
+  }
+
+  if (isDesktopDeepLinkUrl(url)) {
+    console.warn("[main] denied desktop deep link from embedded content", {
+      appId: desktopWebviewAppIds.get(contents) ?? null,
+    });
     return { action: "deny" as const };
   }
 
@@ -13163,11 +13926,17 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
-    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
-    if (handleDesktopProtocolUrl(url)) {
+    if (isDesktopDeepLinkUrl(url)) {
       event.preventDefault();
+      console.warn(
+        "[main] denied desktop deep-link navigation from embedded content",
+        {
+          appId: desktopWebviewAppIds.get(contents) ?? null,
+        },
+      );
       return;
     }
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (openOAuthFromWebviewNavigation(url, contents)) {
       event.preventDefault();
       return;
@@ -13214,6 +13983,7 @@ app.on("web-contents-created", (_event, contents) => {
         installSentryWebContentsInstrumentation(webviewContents, {
           role: "app-webview",
         });
+        installDesktopWebviewHealthLogging(webviewContents);
         installWebviewReloadGuard(webviewContents);
         installWebviewOAuthNavigationHandler(webviewContents);
 
@@ -13225,6 +13995,7 @@ app.on("web-contents-created", (_event, contents) => {
     return;
   }
 
+  installDesktopWebviewHealthLogging(contents);
   installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
 
@@ -13253,6 +14024,14 @@ app.on("web-contents-created", (_event, contents) => {
     if (key === "w") {
       event.preventDefault();
       win.webContents.send("shortcut:close-tab");
+      return;
+    }
+
+    // Cmd+R reloads the guest that received the key instead of asking the
+    // shell renderer to rediscover the active tab.
+    if (key === "r" && !input.alt) {
+      event.preventDefault();
+      reloadWebviewContents(contents);
       return;
     }
 
@@ -13290,13 +14069,9 @@ app.on("web-contents-created", (_event, contents) => {
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
+    // Forward other Cmd+ shortcuts: F, L, T, Shift+T, \
     const isShortcut =
-      key === "f" ||
-      key === "l" ||
-      key === "r" ||
-      key === "t" ||
-      isAgentSidebarToggleShortcut;
+      key === "f" || key === "l" || key === "t" || isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -13390,7 +14165,7 @@ function installApplicationMenu() {
       ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
         ? [
             {
-              label: "Sign Out of Agent Native",
+              label: "Sign Out of Agent-Native",
               click: () =>
                 void desktopIdentityBroker?.signOut(
                   listDesktopIdentityCleanupApps(),
@@ -13585,7 +14360,7 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
@@ -13593,17 +14368,12 @@ app.whenReady().then(async () => {
     ensureDesktopIdentityBroker();
   }
 
-  const shouldContinueStartup = await runDesktopStartupStep({
-    start: initializeDesktopComputerMcpBridge,
-    isShuttingDown: () => appIsQuitting,
-    abort: closeDesktopComputerMcpBridge,
-  });
-  if (!shouldContinueStartup) return;
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
+    const deepLink = pendingDeepLink;
     pendingDeepLink = null;
+    void handleDeepLink(deepLink);
   }
 
   // Webviews now run in per-app persisted partitions (persist:app-<id>), so
@@ -13957,16 +14727,6 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  for (const { record } of listRawCodeAgentRunRecords()) {
-    reclaimTerminalCodeAgentWorktree(record);
-  }
-  reconcileManagedCodeAgentWorktreeLeases();
-  resumeQueuedCodeAgentWorktreeRuns();
-  const initialWorktreeCleanup = setTimeout(
-    cleanupDueManagedCodeAgentWorktrees,
-    0,
-  );
-  initialWorktreeCleanup.unref?.();
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.
@@ -13990,13 +14750,9 @@ app.whenReady().then(async () => {
     }
 
     // Cmd+R — refresh active webview, not the shell
-    if (key === "r") {
+    if (key === "r" && !input.alt) {
       _event.preventDefault();
-      win.webContents.send("shortcut:keydown", {
-        key: "r",
-        shiftKey: input.shift,
-        ctrlKey: input.control,
-      });
+      reloadActiveWebview();
       return;
     }
 
@@ -14039,15 +14795,6 @@ app.whenReady().then(async () => {
       win.webContents.send("shortcut:close-tab");
     }
   });
-
-  // Broadcast window maximized state changes to the renderer
-  const broadcastMaximized = (isMaximized: boolean) =>
-    win.webContents.send(IPC.WINDOW_MAXIMIZED_CHANGED, isMaximized);
-
-  win.on("maximize", () => broadcastMaximized(true));
-  win.on("unmaximize", () => broadcastMaximized(false));
-  win.on("enter-full-screen", () => broadcastMaximized(true));
-  win.on("leave-full-screen", () => broadcastMaximized(false));
 
   // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {

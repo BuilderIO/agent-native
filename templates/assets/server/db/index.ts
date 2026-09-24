@@ -17,3 +17,13 @@ for (const type of ["asset-library", "image-library"] as const) {
     getDb,
   });
 }
+
+registerShareableResource({
+  type: "asset-template",
+  resourceTable: schema.assetTemplates,
+  sharesTable: schema.assetTemplateShares,
+  displayName: "Template",
+  titleColumn: "title",
+  getResourcePath: (template) => `/templates/${template.id}`,
+  getDb,
+});

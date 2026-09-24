@@ -80,7 +80,7 @@ const COMMAND_FORCE_SETTLE_MS = 250;
 const APP_SERVER_INITIALIZE_PARAMS = {
   clientInfo: {
     name: "agent-native-desktop",
-    title: "Agent Native Desktop",
+    title: "Agent-Native Desktop",
     version: "1",
   },
   capabilities: {
@@ -372,15 +372,22 @@ export class CodexSubscriptionAdapter {
         }
       }
     } catch (error) {
-      if (this.status.telemetry.state === "stale") return this.status;
-      this.publish(
-        unavailableStatus(
-          "Codex subscription telemetry could not be refreshed.",
-          probe,
-          this.plan,
-          "error",
-        ),
-      );
+      // A respawn can keep failing (crash-looping app-server, stale
+      // socket/lockfile, CLI/app-server version mismatch) while telemetry is
+      // already stale. Only the softer "stale" message is worth keeping in
+      // that case, but cleanup and the retry itself must still run every
+      // time, or a second consecutive failure permanently kills the
+      // reconnect loop (and the manual Refresh button with it).
+      if (this.status.telemetry.state !== "stale") {
+        this.publish(
+          unavailableStatus(
+            "Codex subscription telemetry could not be refreshed.",
+            probe,
+            this.plan,
+            "error",
+          ),
+        );
+      }
       this.clearSessionCache();
       this.closeClient();
       this.scheduleRestart();

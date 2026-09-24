@@ -23,6 +23,7 @@ const snapshot: SlideStyleSnapshot = {
   slideWidth: 1280,
   slideHeight: 720,
   color: "rgb(255, 255, 255)",
+  fontFamily: "'Poppins', sans-serif",
   backgroundColor: "rgba(0, 0, 0, 0)",
   fontSize: 18,
   fontWeight: "700",
@@ -46,6 +47,7 @@ describe("element style clipboard", () => {
   it("copies appearance without copying geometry or stacking order", () => {
     expect(copiedElementStyleFromSnapshot(snapshot)).toEqual({
       color: "rgb(255, 255, 255)",
+      fontFamily: "'Poppins', sans-serif",
       backgroundColor: "rgba(0, 0, 0, 0)",
       fontSize: "18px",
       fontWeight: "700",

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { docSourceSlugFromFilename } from "../lib/docs-source";
@@ -70,8 +70,9 @@ export default defineAction({
       .describe("Search term or phrase to find in documentation"),
   }),
   http: false,
+  requiresAuth: false,
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   run: async ({ query }) => {
     const sections = await loadDocSections();
     const lower = query.toLowerCase();

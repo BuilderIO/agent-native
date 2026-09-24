@@ -1,5 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import type { CodeLayerNode } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -23,6 +23,7 @@ export interface DistributeSelectionArgs {
   commitNodePositions: (
     baseContent: string,
     positions: ReadonlyMap<string, { x: number; y: number }>,
+    source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   getActiveFileSelectedNodeIds: (content: string) => string[];
@@ -100,9 +101,10 @@ export function runDistributeSelection(
 
   if (!activeFile) return;
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
   if (nodeIds.length < 3) return;
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedNodes = nodeIds
     .map((nodeId) => nodesById.get(nodeId))
@@ -110,5 +112,5 @@ export function runDistributeSelection(
   if (selectedNodes.length < 3) return;
   const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
   const positions = computeDistributedPositions(selectedRects, axis);
-  commitNodePositions(baseContent, positions);
+  commitNodePositions(baseContent, positions, source);
 }

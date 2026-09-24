@@ -8,7 +8,7 @@ order: 18
 roadmap_status: "partially_implemented"
 summary: "Use an editable Task and Project system built from ordinary Content rather than a second hidden engine."
 example_workflow: "A product team installs the blessed project Template, captures tasks from the keyboard, assigns owners, links subtasks and dependencies, and uses My Tasks while every task remains an ordinary editable Page."
-works_today: "Pages, Databases, status and person Properties, relations, Board and Calendar Views, Templates, Comments, and agent Actions already let teams assemble useful project systems."
+works_today: "Pages, Collections, status and person Properties, relations, Board and Calendar Views, Templates, Comments, and agent Actions already let teams assemble useful project systems."
 remains: "The blessed Template needs fast capture, polished defaults, task and subtask Views, My Tasks, activity, dependencies, permissions, and end-to-end Builder dogfooding without introducing a separate task engine."
 required_capabilities:
   [
@@ -41,4 +41,4 @@ Use an editable Task and Project system built from ordinary Content rather than 
 - **Subtasks and dependencies:** Store hierarchy and blocking relationships through typed Relations with cycle protection.
 - **My Tasks:** Queries assigned work across authorized memberships without inventing a private task datastore.
 - **Project status:** Combines explicit owner judgment with useful rollups rather than pretending a formula can manage the project.
-- **Ordinary Pages:** Lets every Task retain rich content, Properties, Discussion, Versions, and the ability to join other Databases.
+- **Ordinary Pages:** Lets every Task retain rich content, Properties, Discussion, Versions, and the ability to join other Collections.

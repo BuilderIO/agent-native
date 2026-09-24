@@ -6,6 +6,7 @@
 export { buildFrameworkCore } from "./framework-core.js";
 export { buildFrameworkCoreCompact } from "./framework-core-compact.js";
 export {
+  RESPONSE_TYPOGRAPHY_GUIDANCE,
   sharedRule8,
   SHARED_RULE_9,
   sharedRule13,

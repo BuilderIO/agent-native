@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";

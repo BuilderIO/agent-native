@@ -53,10 +53,17 @@ export interface ListInboxEmailsParams {
   labelMap: Map<string, string>;
 }
 
+export interface ListInboxEmailsError {
+  email: string;
+  error: string;
+  isQuotaError?: boolean;
+  retryAfterMs?: number;
+}
+
 export interface ListInboxEmailsSuccess {
   ok: true;
   emails: EmailMessage[];
-  errors: Array<{ email: string; error: string }>;
+  errors: ListInboxEmailsError[];
   nextPageTokens?: Record<string, string>;
   resultSizeEstimate?: number;
 }
@@ -72,25 +79,39 @@ export type ListInboxEmailsResult =
   | ListInboxEmailsSuccess
   | ListInboxEmailsFailure;
 
-export function isGmailQuotaError(message: string): boolean {
-  return /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
-    message,
-  );
+// Quota/cooldown errors must be identified by the `isQuotaError` flag that
+// google-auth.ts sets from `error instanceof GmailQuotaCooldownError` — never
+// by matching the message text. The message is deliberately jargon-free for
+// the agent (no "quota"/"429"/"rate limit") so a regex here would silently
+// stop matching and every cooldown would surface as a hard failure (502)
+// instead of a graceful 429 + Retry-After. That mismatch is exactly what
+// produced the "frequent 502s switching labels" report: the label view has
+// no cached data to fall back to, so every switch during an active 90s
+// cooldown hit this misclassification.
+export function isGmailQuotaError(error: ListInboxEmailsError): boolean {
+  return error.isQuotaError === true;
 }
 
 export function retryAfterSecondsFromErrors(
-  errors: Array<{ error: string }>,
+  errors: Array<{ retryAfterMs?: number }>,
 ): number {
-  let retryAfter = 60;
-  for (const { error } of errors) {
-    const match = error.match(/retry in\s+(\d+)s/i);
-    if (!match) continue;
-    const seconds = Number(match[1]);
-    if (Number.isFinite(seconds) && seconds > retryAfter) {
-      retryAfter = seconds;
+  // Worst case across accounts: whichever cooldown clears last. Only fall
+  // back to the 60s default when no error carried a real duration.
+  let retryAfterMs: number | undefined;
+  for (const { retryAfterMs: ms } of errors) {
+    if (
+      typeof ms === "number" &&
+      (retryAfterMs === undefined || ms > retryAfterMs)
+    ) {
+      retryAfterMs = ms;
     }
   }
-  return Math.min(retryAfter, 5 * 60);
+  // ceil (not round) + a 1s floor: a sub-second remaining cooldown must
+  // never advertise 0s, which reads as "try again immediately".
+  return Math.min(
+    Math.max(1, Math.ceil((retryAfterMs ?? 60_000) / 1000)),
+    5 * 60,
+  );
 }
 
 /**
@@ -148,7 +169,7 @@ export async function listInboxEmails(
     errors.length > 0 &&
     everySelectedAccountFailed
   ) {
-    const isQuotaError = errors.every((e) => isGmailQuotaError(e.error));
+    const isQuotaError = errors.every((e) => isGmailQuotaError(e));
     return {
       ok: false,
       message: errors.map((e) => `${e.email}: ${e.error}`).join("; "),

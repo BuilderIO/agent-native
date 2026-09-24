@@ -130,6 +130,14 @@ export function isGoogleNotFoundError(error: unknown): boolean {
   );
 }
 
+export function isGoogleEventAbsentError(error: unknown): boolean {
+  return (
+    isGoogleNotFoundError(error) ||
+    (error instanceof GoogleApiError && error.status === 410) ||
+    (error instanceof Error && /^Google API error \(410\):/.test(error.message))
+  );
+}
+
 export async function googleFetch(
   url: string,
   accessToken: string,
@@ -364,6 +372,7 @@ export function calendarListEvents(
     timeMax?: string;
     q?: string;
     singleEvents?: boolean;
+    showDeleted?: boolean;
     orderBy?: string;
     maxResults?: number;
     pageToken?: string;
@@ -372,6 +381,23 @@ export function calendarListEvents(
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs({ ...params, supportsAttachments: true })}`,
+    accessToken,
+  );
+}
+
+export function calendarListCalendars(
+  accessToken: string,
+  params: { maxResults?: number; pageToken?: string } = {},
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/users/me/calendarList${qs(params)}`,
+    accessToken,
+  );
+}
+
+export function calendarGetCalendar(accessToken: string, calendarId: string) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}`,
     accessToken,
   );
 }

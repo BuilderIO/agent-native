@@ -17,13 +17,17 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { ForbiddenError } from "../sharing/access.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 
 /**
  * The serializable half of an app-role declaration. Kept free of database
  * imports so the same object can be passed to `defineAppRoles` on the server
  * and to `<TeamPage appRoles={...} />` in the browser bundle.
  */
-export interface AppRolesDescriptor<R extends string = string> {
+export interface AppRolesDescriptor<
+  R extends string = string,
+  P extends string = string,
+> {
   /**
    * Stable identifier for the app these roles belong to. Comes from app source,
    * never from a request: the REST layer resolves a descriptor out of the
@@ -49,6 +53,10 @@ export interface AppRolesDescriptor<R extends string = string> {
   defaultRole?: R;
   /** Optional human labels for the role picker. Falls back to the raw value. */
   roleLabels?: Partial<Record<R, string>>;
+  /** Permission keys are declared by app code; values are default role grants. */
+  permissions?: Partial<Record<P, readonly R[]>>;
+  /** Optional human labels for permission controls. Falls back to the raw key. */
+  permissionLabels?: Partial<Record<P, string>>;
   /**
    * Column header for the role in `<TeamPage appRoles={...} />`. Defaults to
    * `appId`. Owned by the app rather than the framework's i18n catalogs — the
@@ -68,7 +76,7 @@ export interface AppRolesDescriptor<R extends string = string> {
  * exactly the same shape as a legitimate denial.
  */
 export type AppRoleLookup<R extends string = string> =
-  | { status: "assigned"; role: R; orgId: string }
+  | { status: "assigned"; roles: R[]; orgId: string }
   | { status: "unassigned"; orgId: string }
   | { status: "not-a-member"; orgId: string }
   | { status: "no-identity" }
@@ -79,8 +87,17 @@ export interface AppRoleCaller {
   orgId?: string | null;
 }
 
-export interface AppRoles<R extends string = string> {
-  descriptor: AppRolesDescriptor<R>;
+export interface AppAuthorizationContext {
+  appId: string;
+  roles: string[];
+  permissions: Record<string, string[]>;
+}
+
+export interface AppRoles<
+  R extends string = string,
+  P extends string = string,
+> {
+  descriptor: AppRolesDescriptor<R, P>;
   appId: string;
   roles: readonly R[];
   /** Resolve without throwing on denial — for UI and for building richer guards. */
@@ -91,18 +108,25 @@ export interface AppRoles<R extends string = string> {
   requireAny: (
     ...allowed: R[]
   ) => (args: unknown, ctx?: ActionRunContext) => Promise<void>;
+  requirePermission: (
+    ...permissions: P[]
+  ) => (args: unknown, ctx?: ActionRunContext) => Promise<void>;
+  assertPermission: (
+    permissions: readonly P[],
+    caller?: AppRoleCaller,
+  ) => Promise<void>;
 }
 
-const registry = new Map<string, AppRolesDescriptor<string>>();
+const registry = new Map<string, AppRolesDescriptor<string, string>>();
 
 /** Descriptor for a registered app id, or undefined. Used by the REST layer. */
 export function getRegisteredAppRoles(
   appId: string,
-): AppRolesDescriptor<string> | undefined {
+): AppRolesDescriptor<string, string> | undefined {
   return registry.get(appId);
 }
 
-export function listRegisteredAppRoles(): AppRolesDescriptor<string>[] {
+export function listRegisteredAppRoles(): AppRolesDescriptor<string, string>[] {
   return [...registry.values()];
 }
 
@@ -139,9 +163,10 @@ function callerIdentity(caller?: AppRoleCaller): {
  * });
  * ```
  */
-export function defineAppRoles<const R extends string>(
-  descriptor: AppRolesDescriptor<R>,
-): AppRoles<R> {
+export function defineAppRoles<
+  const R extends string,
+  const P extends string = string,
+>(descriptor: AppRolesDescriptor<R, P>): AppRoles<R, P> {
   const appId = descriptor.appId.trim();
   if (!appId) throw new Error("defineAppRoles: appId is required");
   if (!descriptor.roles.length) {
@@ -155,9 +180,24 @@ export function defineAppRoles<const R extends string>(
       `defineAppRoles(${appId}): defaultRole "${descriptor.defaultRole}" is not in roles`,
     );
   }
+  for (const [permission, roles] of Object.entries(
+    descriptor.permissions ?? {},
+  ) as [string, readonly R[]][]) {
+    if (
+      !permission.trim() ||
+      roles.some((role) => !descriptor.roles.includes(role))
+    ) {
+      throw new Error(
+        `defineAppRoles(${appId}): invalid role grant for permission "${permission}"`,
+      );
+    }
+  }
 
   const existing = registry.get(appId);
-  if (existing && existing !== (descriptor as AppRolesDescriptor<string>)) {
+  if (
+    existing &&
+    existing !== (descriptor as unknown as AppRolesDescriptor<string, string>)
+  ) {
     // Two vocabularies behind one appId means the REST layer and the guards can
     // disagree about which roles exist, and the settings UI would offer roles
     // no guard accepts.
@@ -165,7 +205,10 @@ export function defineAppRoles<const R extends string>(
       `defineAppRoles: appId "${appId}" is already declared with a different descriptor`,
     );
   }
-  registry.set(appId, descriptor as AppRolesDescriptor<string>);
+  registry.set(
+    appId,
+    descriptor as unknown as AppRolesDescriptor<string, string>,
+  );
 
   const resolve = (caller?: AppRoleCaller) =>
     resolveAppRole(descriptor, caller);
@@ -175,10 +218,48 @@ export function defineAppRoles<const R extends string>(
     caller?: AppRoleCaller,
   ): Promise<R> => {
     const lookup = await resolve(caller);
-    if (lookup.status === "assigned" && allowed.includes(lookup.role)) {
-      return lookup.role;
+    if (lookup.status === "assigned") {
+      const matched = lookup.roles.find((role) => allowed.includes(role));
+      if (matched) return matched;
     }
     throw new ForbiddenError(denialMessage(appId, allowed, lookup));
+  };
+
+  const assertPermission = async (
+    permissions: readonly P[],
+    caller?: AppRoleCaller,
+  ) => {
+    if (!permissions.length)
+      throw new Error(
+        `defineAppRoles(${appId}): requirePermission() needs at least one permission`,
+      );
+    const unknown = permissions.filter(
+      (permission) => !(permission in (descriptor.permissions ?? {})),
+    );
+    if (unknown.length)
+      throw new Error(
+        `defineAppRoles(${appId}): unknown permission(s) ${unknown.join(", ")}`,
+      );
+    const identity = callerIdentity(caller);
+    if (!identity.email || !identity.orgId)
+      throw new ForbiddenError(
+        `Requires ${appId} permission ${permissions.join(" or ")}`,
+      );
+    const lookup = await resolve(caller);
+    if (lookup.status !== "assigned")
+      throw new ForbiddenError(
+        `Requires ${appId} permission ${permissions.join(" or ")}`,
+      );
+    const overrides = await getAppPermissionOverrides(appId, identity.orgId);
+    const grants = permissions.flatMap(
+      (permission) =>
+        overrides[permission] ?? descriptor.permissions?.[permission] ?? [],
+    );
+    if (!lookup.roles.some((role) => grants.includes(role))) {
+      throw new ForbiddenError(
+        `Requires ${appId} permission ${permissions.join(" or ")}`,
+      );
+    }
   };
 
   return {
@@ -210,6 +291,25 @@ export function defineAppRoles<const R extends string>(
         });
       };
     },
+    requirePermission: (...permissions: P[]) => {
+      if (!permissions.length)
+        throw new Error(
+          `defineAppRoles(${appId}): requirePermission() needs at least one permission`,
+        );
+      const unknown = permissions.filter(
+        (permission) => !(permission in (descriptor.permissions ?? {})),
+      );
+      if (unknown.length)
+        throw new Error(
+          `defineAppRoles(${appId}): unknown permission(s) ${unknown.join(", ")}`,
+        );
+      return async (_args: unknown, ctx?: ActionRunContext) =>
+        assertPermission(permissions, {
+          userEmail: ctx?.userEmail,
+          orgId: ctx?.orgId,
+        });
+    },
+    assertPermission,
   };
 }
 
@@ -221,7 +321,7 @@ function denialMessage<R extends string>(
   const need = `Requires ${appId} role ${allowed.join(" or ")}`;
   switch (lookup.status) {
     case "assigned":
-      return `${need} (have ${lookup.role})`;
+      return `${need} (have ${lookup.roles.join(", ")})`;
     case "unassigned":
       return `${need} (no ${appId} role assigned)`;
     case "not-a-member":
@@ -249,37 +349,89 @@ export async function resolveAppRole<R extends string>(
   if (!email) return { status: "no-identity" };
   if (!orgId) return { status: "no-org" };
 
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT r.role AS "appRole"
-          FROM org_members m
-          LEFT JOIN app_member_roles r
-            ON r.org_id = m.org_id
-           AND r.app_id = ?
-           AND LOWER(r.email) = LOWER(m.email)
-          WHERE m.org_id = ? AND LOWER(m.email) = ?
-          LIMIT 1`,
-    args: [descriptor.appId, orgId, normalizeEmail(email)],
-  });
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = (
+      await getDbExec().execute({
+        sql: `SELECT array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles,
+                     o.identity_authority AS "identityAuthority",
+                     o.identity_id AS "identityId"
+              FROM org_members m
+              LEFT JOIN organizations o ON o.id = m.org_id
+              LEFT JOIN app_member_roles r
+                ON r.org_id = m.org_id
+               AND r.app_id = ?
+               AND LOWER(r.email) = LOWER(m.email)
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL
+              GROUP BY o.identity_authority, o.identity_id`,
+        args: [descriptor.appId, orgId, normalizeEmail(email)],
+      })
+    ).rows as Array<Record<string, unknown>>;
+  } catch (error) {
+    if (!isMissingOrganizationTableError(error)) throw error;
+    rows = (
+      await getDbExec().execute({
+        sql: `SELECT array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles
+              FROM org_members m
+              LEFT JOIN app_member_roles r
+                ON r.org_id = m.org_id
+               AND r.app_id = ?
+               AND LOWER(r.email) = LOWER(m.email)
+              WHERE m.org_id = ? AND LOWER(m.email) = ?
+                AND m.federation_removal_pending_at IS NULL
+              GROUP BY m.org_id, m.email`,
+        args: [descriptor.appId, orgId, normalizeEmail(email)],
+      })
+    ).rows as Array<Record<string, unknown>>;
+  }
 
-  const row = rows[0] as { appRole?: unknown; approle?: unknown } | undefined;
+  const row = rows[0] as
+    | {
+        roles?: unknown;
+        appRoles?: unknown;
+        approles?: unknown;
+        identityAuthority?: unknown;
+        identity_authority?: unknown;
+        identityId?: unknown;
+        identity_id?: unknown;
+      }
+    | undefined;
   if (!row) return { status: "not-a-member", orgId };
 
-  const raw = row.appRole ?? row.approle;
-  if (raw === null || raw === undefined) return { status: "unassigned", orgId };
+  const identityAuthority = String(
+    (row as any).identityAuthority ?? (row as any).identity_authority ?? "",
+  ).trim();
+  const identityId = String(
+    (row as any).identityId ?? (row as any).identity_id ?? "",
+  ).trim();
+  if (identityAuthority || identityId) {
+    const { validateFederatedOrganizationMembershipForCurrentRequest } =
+      await import("./federation.js");
+    const membership =
+      await validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId,
+        email,
+      });
+    if (!membership.active) return { status: "not-a-member", orgId };
+  }
 
-  const role = String(raw) as R;
+  const raw = row.roles ?? row.appRoles ?? row.approles;
+  const roles = Array.isArray(raw) ? (raw.map(String) as R[]) : [];
   // A stored value outside the declared vocabulary is a role that was removed
   // from the app's declaration while assignments still referenced it. Treating
   // it as unassigned keeps a retired role from satisfying a guard that no
   // longer knows what it meant.
-  if (!descriptor.roles.includes(role)) return { status: "unassigned", orgId };
-
-  return { status: "assigned", role, orgId };
+  const validRoles = [
+    ...new Set(roles.filter((role) => descriptor.roles.includes(role))),
+  ];
+  if (!validRoles.length) return { status: "unassigned", orgId };
+  return { status: "assigned", roles: validRoles, orgId };
 }
 
 export interface AppMemberRoleRow {
   email: string;
-  role: string;
+  roles: string[];
 }
 
 /** Every assignment for current members of one app in one org. */
@@ -288,17 +440,19 @@ export async function listAppMemberRoles(
   orgId: string,
 ): Promise<AppMemberRoleRow[]> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT r.email, r.role
+    sql: `SELECT MIN(r.email) AS email, array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles
           FROM app_member_roles r
           INNER JOIN org_members m
             ON m.org_id = r.org_id
            AND LOWER(m.email) = LOWER(r.email)
-          WHERE r.org_id = ? AND r.app_id = ?`,
+           AND m.federation_removal_pending_at IS NULL
+          WHERE r.org_id = ? AND r.app_id = ?
+          GROUP BY LOWER(r.email)`,
     args: [orgId, appId],
   });
   return rows.map((r: any) => ({
     email: String(r.email),
-    role: String(r.role),
+    roles: Array.isArray(r.roles) ? r.roles.map(String) : [],
   }));
 }
 
@@ -314,6 +468,44 @@ const nanoid = (): string =>
  * Callers must have already established that the target is an org member and
  * that the actor may manage the org; this function does not re-check either.
  */
+export async function setAppMemberRoles(opts: {
+  appId: string;
+  orgId: string;
+  email: string;
+  roles: readonly string[];
+  updatedBy: string;
+}): Promise<void> {
+  const exec = getDbExec();
+  const email = normalizeEmail(opts.email);
+
+  if (!exec.transaction)
+    throw new Error(
+      "Atomic app role replacement requires database transactions",
+    );
+  const roles = [...new Set(opts.roles)];
+  const now = Date.now();
+  await exec.transaction(async (tx) => {
+    await tx.execute({
+      sql: `DELETE FROM app_member_roles WHERE org_id = ? AND app_id = ? AND LOWER(email) = ?`,
+      args: [opts.orgId, opts.appId, email],
+    });
+    for (const role of roles)
+      await tx.execute({
+        sql: `INSERT INTO app_member_roles (id, org_id, app_id, email, role, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          nanoid(),
+          opts.orgId,
+          opts.appId,
+          email,
+          role,
+          opts.updatedBy,
+          now,
+        ],
+      });
+  });
+}
+
+/** @deprecated Use setAppMemberRoles instead. */
 export async function setAppMemberRole(opts: {
   appId: string;
   orgId: string;
@@ -321,35 +513,108 @@ export async function setAppMemberRole(opts: {
   role: string | null;
   updatedBy: string;
 }): Promise<void> {
-  const exec = getDbExec();
-  const email = normalizeEmail(opts.email);
+  await setAppMemberRoles({
+    ...opts,
+    roles: opts.role === null ? [] : [opts.role],
+  });
+}
 
-  if (opts.role === null) {
+export async function getAppPermissionOverrides(
+  appId: string,
+  orgId: string,
+): Promise<Record<string, string[]>> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT permission, roles_json FROM app_permission_overrides WHERE app_id = ? AND org_id = ?`,
+    args: [appId, orgId],
+  });
+  return Object.fromEntries(
+    rows.map((row: any) => [
+      String(row.permission),
+      JSON.parse(String(row.roles_json)),
+    ]),
+  );
+}
+
+/** Resolve the app authorization snapshot once for an agent turn. */
+export async function resolveAppAuthorizationContext(
+  appId: string,
+  caller: AppRoleCaller,
+): Promise<AppAuthorizationContext | null> {
+  const descriptor = getRegisteredAppRoles(appId);
+  if (!descriptor || !caller.userEmail || !caller.orgId) return null;
+  const roleResult = await resolveAppRole(descriptor, caller);
+  const roles = roleResult.status === "assigned" ? roleResult.roles : [];
+  const overrides = await getAppPermissionOverrides(appId, caller.orgId);
+  const permissions = Object.fromEntries(
+    Object.entries(descriptor.permissions ?? {}).map(
+      ([permission, defaults]) => [
+        permission,
+        overrides[permission] ?? [...(defaults ?? [])],
+      ],
+    ),
+  );
+  return { appId, roles, permissions };
+}
+
+export async function setAppPermissionRoles(opts: {
+  appId: string;
+  orgId: string;
+  permission: string;
+  roles: readonly string[] | null;
+  updatedBy: string;
+}): Promise<void> {
+  const exec = getDbExec();
+  if (opts.roles === null) {
     await exec.execute({
-      sql: `DELETE FROM app_member_roles
-            WHERE org_id = ? AND app_id = ? AND LOWER(email) = ?`,
-      args: [opts.orgId, opts.appId, email],
+      sql: `DELETE FROM app_permission_overrides WHERE org_id = ? AND app_id = ? AND permission = ?`,
+      args: [opts.orgId, opts.appId, opts.permission],
     });
     return;
   }
-
-  const now = Date.now();
   await exec.execute({
-    sql: `INSERT INTO app_member_roles
-            (id, org_id, app_id, email, role, updated_by, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (org_id, app_id, LOWER(email)) DO UPDATE SET
-            role = excluded.role,
-            updated_by = excluded.updated_by,
-            updated_at = excluded.updated_at`,
+    sql: `INSERT INTO app_permission_overrides (org_id, app_id, permission, roles_json, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (org_id, app_id, permission) DO UPDATE SET roles_json = excluded.roles_json, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
     args: [
-      nanoid(),
       opts.orgId,
       opts.appId,
-      email,
-      opts.role,
+      opts.permission,
+      JSON.stringify([...new Set(opts.roles)]),
       opts.updatedBy,
-      now,
+      Date.now(),
     ],
   });
+}
+
+export async function applyInvitationAppRoles(opts: {
+  appRolesJson: string | null;
+  orgId: string;
+  email: string;
+  updatedBy: string;
+}): Promise<void> {
+  if (!opts.appRolesJson) return;
+  const assignments = JSON.parse(opts.appRolesJson) as unknown;
+  if (
+    !assignments ||
+    typeof assignments !== "object" ||
+    Array.isArray(assignments)
+  )
+    throw new Error("Invitation app roles are invalid");
+  for (const [appId, roles] of Object.entries(assignments)) {
+    const descriptor = getRegisteredAppRoles(appId);
+    if (
+      !descriptor ||
+      !Array.isArray(roles) ||
+      roles.some(
+        (role) => typeof role !== "string" || !descriptor.roles.includes(role),
+      )
+    ) {
+      throw new Error(`Invitation contains invalid roles for app ${appId}`);
+    }
+    await setAppMemberRoles({
+      appId,
+      orgId: opts.orgId,
+      email: opts.email,
+      roles,
+      updatedBy: opts.updatedBy,
+    });
+  }
 }

@@ -19,6 +19,12 @@ export interface AuthCookieNamespace {
   isFirstPartyCookieDomain: boolean;
 }
 
+export function frameworkSessionHintCookieName(
+  sessionCookieName: string,
+): string {
+  return `${sessionCookieName}_hint`;
+}
+
 export function resolveAuthCookieNamespace(
   env: Record<string, string | undefined> = process.env,
   cwd = process.cwd(),
@@ -27,6 +33,8 @@ export function resolveAuthCookieNamespace(
     env === process.env
       ? isConfiguredWorkspaceRuntime()
       : isWorkspaceModeFromEnv(env);
+  const isolatedWorkspaceRealm =
+    isWorkspaceMode && isConfiguredWorkspaceAuthMode(env) === "isolated";
   const configuredCookieDomain = normalizeCookieDomain(env.COOKIE_DOMAIN);
   const isFirstPartyCookieDomain =
     normalizeDomainForCompare(configuredCookieDomain) ===
@@ -48,13 +56,23 @@ export function resolveAuthCookieNamespace(
     env.NODE_ENV !== "production" && !isWorkspaceMode && !frameworkCookieDomain;
 
   const explicitAppSlug = slugifyAppName(env.APP_NAME || "");
+  const workspaceAppSlug = isolatedWorkspaceRealm
+    ? slugifyAppName(
+        firstConfiguredValue(
+          env.AGENT_NATIVE_WORKSPACE_APP_ID,
+          env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+          env.APP_NAME,
+        ) || "",
+      )
+    : "";
   const localAppSlug = localIsolatedRealm
     ? slugifyAppName(env.npm_package_name || readPackageJsonName(cwd))
     : "";
   const firstPartyUrlAppSlug = firstPartyIsolatedRealm
     ? readFirstPartyAppSlugFromUrl(env)
     : "";
-  const appSlug = explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
+  const appSlug =
+    workspaceAppSlug || explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
 
   if (firstPartyIsolatedRealm && !appSlug) {
     throw new Error(
@@ -68,13 +86,16 @@ export function resolveAuthCookieNamespace(
   const frameworkCookieName = frameworkCookieDomain
     ? "an_session"
     : isWorkspaceMode
-      ? "an_session_workspace"
+      ? isolatedWorkspaceRealm && appSlug
+        ? `an_session_${appSlug}`
+        : "an_session_workspace"
       : appSlug
         ? `an_session_${appSlug}`
         : "an_session";
 
   const isolatedBetterAuthPrefix =
-    !!appSlug && (localIsolatedRealm || firstPartyIsolatedRealm);
+    !!appSlug &&
+    (localIsolatedRealm || firstPartyIsolatedRealm || isolatedWorkspaceRealm);
 
   const frameworkCookieNamesToClear = new Set<string>([
     frameworkCookieName,
@@ -106,6 +127,17 @@ function isConfiguredWorkspaceRuntime(): boolean {
   return (
     workspace.isWorkspace === true || typeof workspace.appsJson === "string"
   );
+}
+
+function isConfiguredWorkspaceAuthMode(
+  env: Record<string, string | undefined>,
+): "shared" | "isolated" | undefined {
+  if (env === process.env) return getAppConfig().workspace.authMode;
+  const value = firstConfiguredValue(
+    env.AGENT_NATIVE_WORKSPACE_AUTH_MODE,
+    env.VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE,
+  )?.toLowerCase();
+  return value === "shared" || value === "isolated" ? value : undefined;
 }
 
 function isWorkspaceModeFromEnv(

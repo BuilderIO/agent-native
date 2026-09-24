@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
+export { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
 
 type PackageJson = {
   name?: string;
@@ -40,19 +44,11 @@ const rootDir = path.resolve(
 const registry = "https://registry.npmjs.org";
 const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
+export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 30 * 60_000;
 const availabilityTimeoutMs = Number(
-  process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ?? 5 * 60_000,
+  process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
+    DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
 );
-export const NPM_PUBLISH_PACKAGE_NAMES = [
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-] as const;
 const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 async function readJson<T>(filePath: string): Promise<T> {
@@ -559,6 +555,23 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
   );
 }
 
+// Written from `getPublishPackages()`'s already-filtered list (excludes
+// private and non-allowlisted packages), not reconstructed from
+// `packages/*` directory names, so a reader of this output can't be handed a
+// package that was never actually eligible to publish.
+async function writePublishedPackagesOutput(
+  packages: PublishPackage[],
+): Promise<void> {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) {
+    return;
+  }
+  const payload = JSON.stringify(
+    packages.map((pkg) => ({ name: pkg.name, version: pkg.version })),
+  );
+  await appendFile(outputPath, `published-packages=${payload}\n`);
+}
+
 async function main() {
   const packages = await getPublishPackages();
   const packagesNeedingTags: PublishPackage[] = [];
@@ -575,7 +588,6 @@ async function main() {
         console.log(
           `${pkg.name} is already published on npm, but ${tagName(pkg)} is missing on origin`,
         );
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
       continue;
@@ -606,7 +618,6 @@ async function main() {
     // at the end with a summary of what broke.
     try {
       if (await publishPackage(pkg)) {
-        await waitForPackageAvailability(pkg);
         packagesNeedingTags.push(pkg);
       }
     } catch (error) {
@@ -630,6 +641,13 @@ async function main() {
     }
   }
 
+  // npm publishes stay serial to avoid overlapping OIDC handshakes. Registry
+  // reads can settle together, so one slow package cannot consume the whole
+  // stable-release coordinator deadline before later packages are published.
+  await Promise.all(
+    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+  );
+
   if (packagesNeedingTags.length === 0) {
     console.log("No unpublished packages found");
   } else {
@@ -643,6 +661,8 @@ async function main() {
       console.log(`New tag:  ${tagName(pkg)}`);
     }
   }
+
+  await writePublishedPackagesOutput(packagesNeedingTags);
 
   if (failures.length > 0) {
     throw new Error(

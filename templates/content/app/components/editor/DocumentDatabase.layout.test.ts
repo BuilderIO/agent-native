@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 function readDatabaseSource() {
   return [
     "./database/DatabaseView.tsx",
+    "./database/ContentTable.tsx",
     "./database/settings.tsx",
     "./database/shared.tsx",
     "./database/view-config.ts",
@@ -29,7 +30,7 @@ describe("document database layout", () => {
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );
     expect(source).toContain(
-      "flex max-w-full flex-wrap items-center justify-end gap-1",
+      "flex min-h-8 max-w-full flex-wrap items-center justify-end gap-1",
     );
     expect(source).toContain(
       "group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
@@ -40,8 +41,8 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("setPreviewTitleFocusDocumentId");
-    expect(source).toContain("titleInputRef.current?.focus()");
-    expect(source).toContain("titleInputRef.current?.select()");
+    expect(source).toContain("onTitleFocused={onTitleFocused}");
+    expect(source).toContain("focusTitle={focusTitle}");
     expect(source).toContain("const newDatabaseRowLabel =");
     expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
     expect(source).toContain("label={newRowLabel}");
@@ -117,17 +118,17 @@ describe("document database layout", () => {
   });
 
   it("keeps preview property popovers inside the side preview sheet", () => {
-    const source = readDatabaseSource();
-
-    expect(source).toContain("popoversPortalled={false}");
+    expect(
+      readFileSync(new URL("./DocumentEditor.tsx", import.meta.url), "utf8"),
+    ).toContain("popoversPortalled={false}");
   });
 
   it("uses compact icon-led database toolbar controls", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
-    expect(source).toContain('aria-label="Search"');
-    expect(source).toContain(': "Database settings"');
+    expect(source).toContain('label="Search"');
+    expect(source).toContain(': "Collection settings"');
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
@@ -137,7 +138,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("type DatabaseSettingsPanel");
     expect(source).toContain("function DatabaseSettingsPanelSheet");
-    expect(source).toContain("Database settings");
+    expect(source).toContain("Collection settings");
     expect(source).toContain("function DatabaseSettingsLayoutPanel");
     expect(source).toContain(
       "function DatabaseSettingsPropertyVisibilityPanel",
@@ -239,6 +240,23 @@ describe("document database layout", () => {
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
+  it("does not publish an export context before database data is available", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("useMemo<DatabaseExportContext | null>");
+    expect(source).toContain("data\n        ? {");
+    expect(source).toContain("onExportContextChange?.(exportContext)");
+
+    const editorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    expect(editorSource).toContain("databaseExportContextFingerprintRef");
+    expect(editorSource).toContain(
+      "onExportContextChange={handleDatabaseExportContextChange}",
+    );
+  });
+
   it("uses pill view tabs without a separate active chevron", () => {
     const source = readDatabaseSource();
 
@@ -259,7 +277,7 @@ describe("document database layout", () => {
     );
   });
 
-  it("uses drag reordering instead of explicit move actions for views and columns", () => {
+  it("keeps drag reordering and keyboard column movement available", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function reorderDatabaseView(");
@@ -277,8 +295,8 @@ describe("document database layout", () => {
     expect(source).not.toContain("Move right");
     expect(source).not.toContain("Move up");
     expect(source).not.toContain("Move down");
-    expect(source).not.toContain("onMoveLeft");
-    expect(source).not.toContain("onMoveRight");
+    expect(source).toContain("onMoveLeft");
+    expect(source).toContain("onMoveRight");
   });
 
   it("keeps calendar cells calm and unclipped", () => {
@@ -330,7 +348,9 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain('data-database-scroll-surface="table"');
-    expect(source).toContain("min-w-0 max-w-full overflow-x-auto");
+    expect(source).toContain('horizontalOverflowAffordance = "edges"');
+    expect(source).toContain("min-h-0 min-w-0 max-w-full flex-1");
+    expect(source).toContain("overflow-auto");
     expect(source).toContain("group/footer grid border-b border-border/30");
     expect(source).toContain(
       "aria-label={`Calculate ${property.definition.name}`}",
@@ -343,7 +363,8 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
     const selectionBarIndex = source.indexOf("<DatabaseSelectionBar");
     const scrollSurfaceIndex = source.indexOf(
-      'data-database-scroll-surface="table"',
+      "<ContentTableSurface",
+      selectionBarIndex,
     );
 
     expect(selectionBarIndex).toBeGreaterThan(-1);

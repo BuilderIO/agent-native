@@ -20,7 +20,7 @@ describe("normalizeSlidePadding", () => {
     const html =
       '<div class="fmd-slide" style="display: flex; font-family: Poppins;"></div>';
     expect(normalizeSlidePadding(html)).toBe(
-      '<div class="fmd-slide" style="padding: 80px 110px; display: flex; font-family: Poppins;"></div>',
+      '<div class="fmd-slide" style="padding: 64px 80px; display: flex; font-family: Poppins;"></div>',
     );
   });
 
@@ -46,7 +46,7 @@ describe("normalizeSlidePadding", () => {
   it("adds a style attribute when the canonical wrapper has no inline style", () => {
     const html = '<div class="fmd-slide"></div>';
     expect(normalizeSlidePadding(html)).toBe(
-      '<div class="fmd-slide" style="padding: 80px 110px;"></div>',
+      '<div class="fmd-slide" style="padding: 64px 80px;"></div>',
     );
   });
 });

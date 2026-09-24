@@ -32,7 +32,7 @@ export function gmailSearchClause(q: string | undefined): string {
 export function gmailLabelSearchClause(label: string): string {
   const value = label.trim().replace(/\s+/g, "-").replace(/"/g, '\\"');
   if (!value) return "";
-  return /[/"()]/.test(value) ? `label:"${value}"` : `label:${value}`;
+  return /["()]/.test(value) ? `label:"${value}"` : `label:${value}`;
 }
 
 export function gmailAppLabelSearchClause(label: string): string {
@@ -84,6 +84,16 @@ export function buildGmailEmailSearchQuery({
 
   const viewQuery = VIEW_QUERIES[view] ?? `label:${view}`;
   return [viewQuery, searchClause].filter(Boolean).join(" ");
+}
+
+export function filterLabelMessages(
+  emails: EmailMessage[],
+  label: string,
+): EmailMessage[] {
+  return emails.filter(
+    (message) =>
+      !message.isTrashed && mailLabelsInclude(message.labelIds, label),
+  );
 }
 
 function threadKey(message: EmailMessage): string {

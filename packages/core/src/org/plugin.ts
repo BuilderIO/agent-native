@@ -7,6 +7,7 @@ import {
 } from "h3";
 
 import { runMigrations } from "../db/migrations.js";
+import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -16,7 +17,20 @@ import {
 import {
   listAppRolesHandler,
   setAppRoleHandler,
+  getAppPermissionsHandler,
+  setAppPermissionsHandler,
+  resetAppPermissionHandler,
 } from "./app-roles-handlers.js";
+import {
+  listSSOProvidersHandler,
+  createSSOProviderHandler,
+  verifySSOProviderHandler,
+  deleteSSOProviderHandler,
+  getSCIMHandler,
+  createSCIMHandler,
+  deleteSCIMHandler,
+} from "./enterprise-auth-handlers.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
@@ -25,6 +39,7 @@ import {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  retryPendingFederatedRemovalHandler,
   changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
@@ -57,8 +72,12 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   POST   /_agent-native/org/federation-removal/retry  — retry the caller's pending self-cleanup
  *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
  *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
+ *   GET    /_agent-native/org/app-permissions/:appId      — effective permission grants
+ *   PUT    /_agent-native/org/app-permissions/:appId      — override permission grants
+ *   DELETE /_agent-native/org/app-permissions/:appId      — reset permission grants
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
@@ -75,6 +94,7 @@ export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
 
   return async (nitroApp: any) => {
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
     await migrate(nitroApp);
@@ -114,6 +134,83 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
+    // /app-permissions/:appId — organization admins may inspect, remap, or
+    // reset the role grants for a code-declared permission.
+    app.use(
+      `${ORG_PREFIX}/app-permissions`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (!/^\/[^/]+\/?$/.test(tail)) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (method === "GET") return getAppPermissionsHandler(event);
+        if (method === "PUT") return setAppPermissionsHandler(event);
+        if (method === "DELETE") return resetAppPermissionHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
+    // Organization-managed SSO provider catalog. Better Auth owns the actual
+    // callback endpoints under /_agent-native/auth/ba; these routes are the
+    // owner/admin setup surface and never return provider secrets.
+    app.use(
+      `${ORG_PREFIX}/sso/providers`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return listSSOProvidersHandler(event);
+          if (method === "POST") return createSSOProviderHandler(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (/^\/[^/]+\/verify\/?$/.test(tail)) {
+          if (method !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return verifySSOProviderHandler(event);
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return deleteSSOProviderHandler(event);
+        }
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
+
+    // Administer framework-managed SCIM connection credentials. Inbound SCIM
+    // protocol requests are handled by Better Auth at /auth/ba/scim/v2.
+    app.use(
+      `${ORG_PREFIX}/scim`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return getSCIMHandler(event);
+          if (method === "POST") return createSCIMHandler(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return deleteSCIMHandler(event);
+        }
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
+
     // /members, /members/:email, /members/:email/role — dispatch by path-
     // tail + method in a single handler so H3's prefix-based `app.use`
     // doesn't route a DELETE for /members/alice@example.com to the
@@ -149,6 +246,19 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return removeMemberHandler(event);
+      }),
+    );
+
+    // POST /federation-removal/retry — the caller is already excluded from
+    // normal org context; this route only permits authority-confirmed self cleanup.
+    app.use(
+      `${ORG_PREFIX}/federation-removal/retry`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return retryPendingFederatedRemovalHandler(event);
       }),
     );
 

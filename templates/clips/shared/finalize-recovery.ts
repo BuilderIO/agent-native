@@ -10,7 +10,7 @@ export type RecoveredReadyRecording = {
   id: string;
   recordingId: string;
   status: "ready";
-  videoUrl: string;
+  videoUrl?: string;
   durationMs?: number;
   width?: number;
   height?: number;
@@ -71,7 +71,9 @@ export function isStoredButUnservableFinalizeError(value: unknown): boolean {
       : value instanceof Error
         ? value.message
         : value && typeof value === "object" && "message" in value
-          ? String((value as { message?: unknown }).message ?? "")
+          ? typeof (value as { message?: unknown }).message === "string"
+            ? (value as { message: string }).message
+            : ""
           : "";
   return /\bstored-but-unservable\b/i.test(message);
 }
@@ -95,6 +97,11 @@ export function publicRecordingStatusUrl(
   recordingId: string,
 ): string {
   const url = absoluteUploadUrl(uploadUrl);
+  if (url.pathname.endsWith("/api/clip-intake")) {
+    url.searchParams.set("recordingId", recordingId);
+    url.searchParams.set("operation", "status");
+    return maybeRelativeUrl(url, uploadUrl);
+  }
   const match = url.pathname.match(/^(.*)\/api\/uploads\/[^/]+\/chunk$/);
   const basePath = match?.[1] ?? "";
   url.pathname = `${basePath}/api/public-recording`;
@@ -130,7 +137,10 @@ function optionalBoolean(value: unknown): boolean | undefined {
 export function readyRecordingFromPublicPayload(
   payload: unknown,
   fallbackRecordingId: string,
-  options: { acceptPendingVerification?: boolean } = {},
+  options: {
+    acceptPendingVerification?: boolean;
+    acceptReadyWithoutVideoUrl?: boolean;
+  } = {},
 ): ProbeResult {
   const root =
     payload && typeof payload === "object"
@@ -176,7 +186,10 @@ export function readyRecordingFromPublicPayload(
 
   const videoUrl =
     typeof recording.videoUrl === "string" ? recording.videoUrl : "";
-  if (status !== "ready" || !videoUrl) {
+  if (
+    status !== "ready" ||
+    (!videoUrl && !options.acceptReadyWithoutVideoUrl)
+  ) {
     return { ready: false, terminal: false, status };
   }
 
@@ -193,7 +206,7 @@ export function readyRecordingFromPublicPayload(
       id,
       recordingId: id,
       status: "ready",
-      videoUrl,
+      ...(videoUrl ? { videoUrl } : {}),
       durationMs: optionalNumber(recording.durationMs),
       width: optionalNumber(recording.width),
       height: optionalNumber(recording.height),
@@ -233,6 +246,7 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   intervalMs?: number;
   fetchTimeoutMs?: number;
   acceptPendingVerification?: boolean;
+  acceptReadyWithoutVideoUrl?: boolean;
   signal?: AbortSignal;
 }): Promise<RecoveredFinalizeRecording | null> {
   const fetchImpl = args.fetchImpl ?? fetch;
@@ -248,10 +262,19 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
   let url: string;
   let authenticatedUrl: string | null = null;
+  let acceptReadyWithoutVideoUrl = false;
   try {
     url = publicRecordingStatusUrl(args.uploadUrl, args.recordingId);
+    const isClipIntake = new URL(
+      args.uploadUrl,
+      typeof globalThis.location?.origin === "string"
+        ? globalThis.location.origin
+        : "http://localhost",
+    ).pathname.endsWith("/api/clip-intake");
+    acceptReadyWithoutVideoUrl =
+      args.acceptReadyWithoutVideoUrl ?? isClipIntake;
     authenticatedUrl =
-      args.authToken || args.preferAuthenticated
+      !isClipIntake && (args.authToken || args.preferAuthenticated)
         ? authenticatedRecordingStatusUrl(args.uploadUrl, args.recordingId)
         : null;
   } catch {
@@ -296,6 +319,7 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
             args.recordingId,
             {
               acceptPendingVerification: args.acceptPendingVerification,
+              acceptReadyWithoutVideoUrl,
             },
           );
           if (probe.ready) return probe.result;

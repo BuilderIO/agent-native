@@ -5,7 +5,7 @@ description: "Stellen Sie eine agentennative App mit der Netlify-Nitro-Voreinste
 
 # Netlify
 
-Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB gegenüber ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Legen Sie entweder die Voreinstellung in `vite.config.ts` fest:
+Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB gegenüber ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Für eine minimale Konfiguration außerhalb des generierten Scaffolds legen Sie die Voreinstellung in `vite.config.ts` fest:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,23 @@ export default defineConfig({
 });
 ```
 
+Im generierten Chat-Scaffold heißt der Import weiterhin `agentNative`. Die Konfiguration weist
+ihn mit einer Typumwandlung dem lokalen Alias `agentNativePlugins` zu und verteilt anschließend
+das zurückgegebene Plugin-Array, damit die Vite-Pakettypen übereinstimmen. Der Alias akzeptiert
+dieselben Optionen wie das obige `agentNative`-Beispiel. Füge `nitro: { preset: "netlify" }`
+zu den Optionen dieses bestehenden `agentNativePlugins({ ... })`-Aufrufs hinzu. Lass die übrigen
+Chat-spezifischen Plugins, Optionen und Aliase unverändert.
+
 … oder legen Sie `NITRO_PRESET=netlify` zur Build-Zeit fest.
+
+Für eine Standalone-App bauen Sie die Netlify-Ausgabe und stellen Assets und Funktionen bereit:
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+Legen Sie vor dem ersten Production-Deployment `DATABASE_URL` und ein stabiles `BETTER_AUTH_SECRET` in den Umgebungsvariablen der Netlify-Site fest. Verlassen Sie sich nicht auf die lokale PGlite-Datenbank; `DATABASE_URL` muss auf eine dauerhafte PostgreSQL-Datenbank zeigen, die die bereitgestellte Funktion erreichen kann.
 
 Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
 

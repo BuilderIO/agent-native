@@ -8,10 +8,7 @@ import {
 } from "../connections/catalog.js";
 import {
   getDbExec,
-  intType,
-  isPostgres,
   isUniqueViolation,
-  retryOnDdlRace,
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
@@ -90,6 +87,12 @@ export interface WorkspaceConnectionGrant {
 }
 
 export type SerializedWorkspaceConnectionGrant = WorkspaceConnectionGrant;
+
+function stringValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return JSON.stringify(value) ?? fallback;
+}
 
 export interface ListWorkspaceConnectionsOptions {
   provider?: string;
@@ -321,174 +324,16 @@ export interface WorkspaceConnectionProviderCatalogForApp {
 let _initPromise: Promise<void> | undefined;
 
 function workspaceConnectionsTable(): string {
-  return isPostgres()
-    ? "public.workspace_connections"
-    : "workspace_connections";
+  return "public.workspace_connections";
 }
 
 function workspaceConnectionGrantsTable(): string {
-  return isPostgres()
-    ? "public.workspace_connection_grants"
-    : "workspace_connection_grants";
-}
-
-function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
-  const message = String((err as { message?: unknown })?.message ?? err)
-    .toLowerCase()
-    .trim();
-  return (
-    code === "42701" ||
-    message.includes("duplicate column") ||
-    message.includes("already exists")
-  );
-}
-
-async function ensureColumn(
-  client: DbExec,
-  table: string,
-  name: string,
-  definition: string,
-): Promise<void> {
-  try {
-    await retryOnDdlRace(() =>
-      client.execute(
-        isPostgres()
-          ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-          : `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`,
-      ),
-    );
-  } catch (err) {
-    if (!isDuplicateColumnError(err)) throw err;
-  }
-}
-
-async function ensureWorkspaceConnectionColumns(
-  client: DbExec,
-  table: string,
-): Promise<void> {
-  await ensureColumn(client, table, "provider", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(client, table, "label", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(client, table, "account_id", "TEXT");
-  await ensureColumn(client, table, "account_label", "TEXT");
-  await ensureColumn(
-    client,
-    table,
-    "status",
-    "TEXT NOT NULL DEFAULT 'connected'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "scopes_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "config_json",
-    "TEXT NOT NULL DEFAULT '{}'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "allowed_apps_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "allowed_users_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "allowed_user_groups_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "credential_refs_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(client, table, "owner_email", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(client, table, "org_id", "TEXT");
-  await ensureColumn(
-    client,
-    table,
-    "created_at",
-    `${intType()} NOT NULL DEFAULT 0`,
-  );
-  await ensureColumn(
-    client,
-    table,
-    "updated_at",
-    `${intType()} NOT NULL DEFAULT 0`,
-  );
-  await ensureColumn(client, table, "last_checked_at", intType());
-  await ensureColumn(client, table, "last_used_at", intType());
-  await ensureColumn(client, table, "last_error", "TEXT");
-}
-
-async function ensureWorkspaceConnectionGrantColumns(
-  client: DbExec,
-  table: string,
-): Promise<void> {
-  await ensureColumn(
-    client,
-    table,
-    "connection_id",
-    "TEXT NOT NULL DEFAULT ''",
-  );
-  await ensureColumn(client, table, "provider", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(client, table, "app_id", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(
-    client,
-    table,
-    "scopes_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "config_json",
-    "TEXT NOT NULL DEFAULT '{}'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "credential_refs_json",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  await ensureColumn(
-    client,
-    table,
-    "granted_by_email",
-    "TEXT NOT NULL DEFAULT ''",
-  );
-  await ensureColumn(client, table, "owner_email", "TEXT NOT NULL DEFAULT ''");
-  await ensureColumn(client, table, "org_id", "TEXT");
-  await ensureColumn(
-    client,
-    table,
-    "created_at",
-    `${intType()} NOT NULL DEFAULT 0`,
-  );
-  await ensureColumn(
-    client,
-    table,
-    "updated_at",
-    `${intType()} NOT NULL DEFAULT 0`,
-  );
-  await ensureColumn(client, table, "last_used_at", intType());
+  return "public.workspace_connection_grants";
 }
 
 export async function ensureWorkspaceConnectionsTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
       const table = workspaceConnectionsTable();
       const grantsTable = workspaceConnectionGrantsTable();
 
@@ -508,10 +353,10 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             credential_refs_json TEXT NOT NULL DEFAULT '[]',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
-            created_at ${intType()} NOT NULL DEFAULT 0,
-            updated_at ${intType()} NOT NULL DEFAULT 0,
-            last_used_at ${intType()},
-            last_checked_at ${intType()},
+            created_at BIGINT NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT 0,
+            last_used_at BIGINT,
+            last_checked_at BIGINT,
             last_error TEXT
           )
         `;
@@ -527,13 +372,13 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             granted_by_email TEXT NOT NULL DEFAULT '',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
-            created_at ${intType()} NOT NULL DEFAULT 0,
-            updated_at ${intType()} NOT NULL DEFAULT 0,
-            last_used_at ${intType()}
+            created_at BIGINT NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT 0,
+            last_used_at BIGINT
           )
         `;
 
-      if (isPostgres()) {
+      {
         // PG-guard: probe information_schema / pg_indexes first (no lock) and
         // only issue DDL when the table/column/index is actually missing,
         // wrapped in a transaction-scoped lock_timeout so a contended lock
@@ -610,22 +455,22 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         await ensureColumnExists(
           "workspace_connections",
           "created_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "updated_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "last_checked_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_checked_at BIGINT`,
         );
         await ensureColumnExists(
           "workspace_connections",
           "last_used_at",
-          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
         );
         await ensureColumnExists(
           "workspace_connections",
@@ -691,17 +536,17 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         await ensureColumnExists(
           "workspace_connection_grants",
           "created_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS created_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connection_grants",
           "updated_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS updated_at ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "workspace_connection_grants",
           "last_used_at",
-          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS last_used_at ${intType()}`,
+          `ALTER TABLE workspace_connection_grants ADD COLUMN IF NOT EXISTS last_used_at BIGINT`,
         );
         await ensureIndexExists(
           "idx_workspace_connection_grants_connection_app",
@@ -717,38 +562,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // retryOnDdlRace + ensureColumn behaviour.
-      await retryOnDdlRace(() => client.execute(createConnectionsSql));
-      await ensureWorkspaceConnectionColumns(client, table);
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_scope_provider ON ${table} (org_id, owner_email, provider)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connections_updated_at ON ${table} (updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() => client.execute(createGrantsSql));
-      await ensureWorkspaceConnectionGrantColumns(client, grantsTable);
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_connection_grants_connection_app ON ${grantsTable} (connection_id, app_id)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_scope_app ON ${grantsTable} (org_id, owner_email, app_id)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
-        ),
-      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -958,11 +771,12 @@ function sanitizeCredentialRef(
 
 function parseRow(row: Record<string, unknown>): WorkspaceConnection {
   return serializeWorkspaceConnection({
-    id: String(row.id),
-    provider: String(row.provider ?? ""),
-    label: String(row.label ?? ""),
-    accountId: row.account_id == null ? null : String(row.account_id),
-    accountLabel: row.account_label == null ? null : String(row.account_label),
+    id: stringValue(row.id),
+    provider: stringValue(row.provider),
+    label: stringValue(row.label),
+    accountId: row.account_id == null ? null : stringValue(row.account_id),
+    accountLabel:
+      row.account_label == null ? null : stringValue(row.account_label),
     status: normalizeStatus(row.status),
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
@@ -978,30 +792,30 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
-    ownerEmail: String(row.owner_email ?? ""),
-    orgId: row.org_id == null ? null : String(row.org_id),
+    ownerEmail: stringValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringValue(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
     lastUsedAt: iso(row.last_used_at),
     lastCheckedAt: iso(row.last_checked_at),
-    lastError: row.last_error == null ? null : String(row.last_error),
+    lastError: row.last_error == null ? null : stringValue(row.last_error),
   });
 }
 
 function parseGrantRow(row: Record<string, unknown>): WorkspaceConnectionGrant {
   return serializeWorkspaceConnectionGrant({
-    id: String(row.id),
-    connectionId: String(row.connection_id ?? ""),
-    provider: String(row.provider ?? ""),
-    appId: String(row.app_id ?? ""),
+    id: stringValue(row.id),
+    connectionId: stringValue(row.connection_id),
+    provider: stringValue(row.provider),
+    appId: stringValue(row.app_id),
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
-    grantedByEmail: String(row.granted_by_email ?? ""),
-    ownerEmail: String(row.owner_email ?? ""),
-    orgId: row.org_id == null ? null : String(row.org_id),
+    grantedByEmail: stringValue(row.granted_by_email),
+    ownerEmail: stringValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringValue(row.org_id),
     createdAt: iso(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updated_at) ?? new Date(0).toISOString(),
     lastUsedAt: iso(row.last_used_at),
@@ -1643,9 +1457,7 @@ async function getGrantedConnectionIdsForApp(
   });
   return new Set(
     rows
-      .map((row) =>
-        String((row as Record<string, unknown>).connection_id ?? ""),
-      )
+      .map((row) => stringValue((row as Record<string, unknown>).connection_id))
       .filter(Boolean),
   );
 }
@@ -1697,6 +1509,16 @@ export async function listWorkspaceConnections(
       connection.allowedApps.length === 0 ||
       connection.allowedApps.includes(appId) ||
       grantedConnectionIds.has(connection.id),
+  );
+}
+
+export async function listWorkspaceConnectionsForUser(
+  options: ListWorkspaceConnectionsOptions = {},
+): Promise<SerializedWorkspaceConnection[]> {
+  const connections = await listWorkspaceConnections(options);
+  return filterWorkspaceConnectionsForUser(
+    connections,
+    requireWorkspaceConnectionScope(),
   );
 }
 

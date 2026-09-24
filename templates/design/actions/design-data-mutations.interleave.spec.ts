@@ -348,8 +348,19 @@ describe("design data mutation interleaving", () => {
     const first = await applyTweaks.run(params);
     const retry = await applyTweaks.run(params);
 
+    expect(first.applied).toBe(true);
+    expect(retry.applied).toBe(true);
     expect(retry.appliedTweaks).toMatchObject({ density: "compact" });
     expect(retry.selectionsHash).toBe(first.selectionsHash);
+  });
+
+  it("does not report an empty tweak snapshot as applied", async () => {
+    const result = await applyTweaks.run({
+      designId: "design_1",
+      selections: {},
+    });
+
+    expect(result.applied).toBe(false);
   });
 
   it("lets only one of two full snapshots from the same base win", async () => {

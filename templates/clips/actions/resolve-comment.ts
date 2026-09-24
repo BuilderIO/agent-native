@@ -6,7 +6,7 @@
  *   pnpm action resolve-comment --id=<id> --resolved=true
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -14,7 +14,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpired } from "../server/lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 const cliBoolean = z.preprocess((value) => {
@@ -53,7 +53,10 @@ export default defineAction({
       "viewer",
     );
     if (
-      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
     ) {
       throw new ForbiddenError("Recording has expired");
     }

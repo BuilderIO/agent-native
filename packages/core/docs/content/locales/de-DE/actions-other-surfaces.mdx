@@ -101,6 +101,8 @@ export default defineAction({
 
 Behalten Sie `link` als Fallback für die CLI und Nicht-UI-MCP-Hosts. Es ist auch das Startziel des Embeds. Die Embed-Bridge (die signierte Embed-Start-Session, Transplant- vs. Controlled-Frame-Rendering, die `ui/*`-Host-Bridge, CSP und Höhen-Clamping) gehört zu [Externe Agenten](/docs/external-agents#mcp-app-bridge).
 
+Es gibt keine automatische Prüfung, ob eine Vorlage über `view-screen`, `navigate` oder einen Create-/Read-/Update-/List-Satz für ihre primäre Ressource verfügt; das Scaffold liefert `view-screen` und `navigate` mit, und `pnpm guard:external-result-contract` lehnt „Warte auf den Nutzer“-Formulierungen in `description` oder `nextRequiredAction` einer extern zugänglichen Action ab und verlangt einen Deep Link für eine neue, extern zugängliche `create-*`-Action. Das Vorhandensein ist ein Review-Punkt.
+
 ## Standard-Actions {#standard-actions}
 
 Jedes Template sollte diese zwei für [Kontextbewusstsein](/docs/context-awareness) enthalten.

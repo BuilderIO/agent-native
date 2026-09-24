@@ -31,11 +31,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.tmp/
 
 # Data
-data/*.db
-data/*.db-shm
-data/*.db-wal
+**/data/
+data/pglite/
 data/uploads/
 data/settings.json
 data/.sessions.json

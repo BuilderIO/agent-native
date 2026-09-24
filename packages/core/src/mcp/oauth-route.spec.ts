@@ -30,8 +30,23 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 const getOrgDomainMock = vi.fn(async () => "builder.io");
+const getActiveOrgSettingMock = vi.fn(async () => ({ orgId: "org_123" }));
+const listOrgMembershipsForEventMock = vi.fn(async () => [
+  {
+    orgId: "org_123",
+    orgName: "Builder",
+    allowedDomain: "builder.io",
+    role: "owner",
+    identityAuthority: null,
+    identityId: null,
+  },
+]);
 vi.mock("../org/context.js", () => ({
   getOrgDomain: (...args: any[]) => getOrgDomainMock(...args),
+  listOrgMembershipsForEvent: (...args: any[]) =>
+    listOrgMembershipsForEventMock(...args),
+  getActiveOrgSettingForEvent: (...args: any[]) =>
+    getActiveOrgSettingMock(...args),
 }));
 
 const clients = new Map<string, any>();
@@ -174,6 +189,16 @@ describe("MCP OAuth route", () => {
       email: "steve@example.com",
       orgId: "org_123",
     });
+    listOrgMembershipsForEventMock.mockResolvedValue([
+      {
+        orgId: "org_123",
+        orgName: "Builder",
+        allowedDomain: "builder.io",
+        role: "owner",
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
   });
 
   it("serves protected-resource and authorization-server metadata", async () => {
@@ -813,6 +838,249 @@ describe("MCP OAuth route", () => {
       scopes: ["mcp:read", "mcp:apps"],
       clientId: client.client_id,
     });
+  });
+
+  it("honors the active organization when choosing the default", async () => {
+    getActiveOrgSettingMock.mockResolvedValue({ orgId: "org_456" });
+    listOrgMembershipsForEventMock.mockResolvedValue([
+      {
+        orgId: "org_123",
+        orgName: "Builder",
+        allowedDomain: "builder.io",
+        role: "owner",
+        identityAuthority: null,
+        identityId: null,
+      },
+      {
+        orgId: "org_456",
+        orgName: "Acme",
+        allowedDomain: "acme.example",
+        role: "member",
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    expect(await consent.text()).toContain(
+      '<option value="org_456" selected>Acme',
+    );
+  });
+
+  it("lets multi-organization users choose the organization bound to the connection", async () => {
+    listOrgMembershipsForEventMock.mockResolvedValue([
+      {
+        orgId: "org_123",
+        orgName: "Builder",
+        allowedDomain: "builder.io",
+        role: "owner",
+        identityAuthority: null,
+        identityId: null,
+      },
+      {
+        orgId: "org_456",
+        orgName: "Acme",
+        allowedDomain: "acme.example",
+        role: "member",
+        identityAuthority: null,
+        identityId: null,
+      },
+    ]);
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read",
+          state: "state-multi-org",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentHtml = await consent.text();
+    expect(consentHtml).toContain('value="org_456"');
+    expect(consentHtml).toContain("<select");
+    expect(consentHtml.indexOf("<form")).toBeLessThan(
+      consentHtml.indexOf("<select"),
+    );
+    const consentToken =
+      consentHtml.match(/name="consent_token" value="([^\"]+)"/)?.[1] ?? "";
+
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read",
+          state: "state-multi-org",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          organization_id: "org_456",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    expect(codes.get(code)).toMatchObject({
+      orgId: "org_456",
+      orgDomain: "builder.io",
+    });
+    expect(listOrgMembershipsForEventMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "steve@example.com",
+      "org_456",
+    );
+  });
+
+  it("rejects an organization the user does not belong to", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^\"]+)"/,
+      )?.[1] ?? "";
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          organization_id: "org_not_owned",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_request",
+    });
+    expect(codes.size).toBe(0);
+  });
+
+  it("rejects forged Personal selection when organizations are available", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            redirect_uris: ["http://localhost:5555/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^\"]+)"/,
+      )?.[1] ?? "";
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          organization_id: "",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_request",
+    });
+    expect(codes.size).toBe(0);
   });
 
   it("renders a friendly confirmation page (not a bare 302) for deep-link clients", async () => {

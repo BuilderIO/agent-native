@@ -13,24 +13,23 @@ describe("scoping", () => {
     vi.resetModules();
   });
 
-  describe("buildScopingSqlite", () => {
+  describe("buildScopingPostgres", () => {
     it("activates scoping in dev mode when a user is set (was previously inactive — now scopes always when user is present)", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("AGENT_USER_EMAIL", "user+qa@test.com");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "scoped_t" }] };
-          }
-          return {
-            rows: [{ name: "id" }, { name: "owner_email" }, { name: "data" }],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "settings", column_name: "key" },
+          { table_name: "application_state", column_name: "session_id" },
+          { table_name: "oauth_tokens", column_name: "owner" },
+          { table_name: "sessions", column_name: "email" },
+          { table_name: "custom_table", column_name: "owner_email" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       expect(ctx.active).toBe(true);
       expect(ctx.userEmail).toBe("user+qa@test.com");
       expect(ctx.setup.length).toBeGreaterThan(0);
@@ -39,87 +38,35 @@ describe("scoping", () => {
     it("throws when there is no request user (no inactive fallback — would silently land writes with the dev sentinel owner_email)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn(),
+        unsafe: vi.fn(),
       };
 
-      await expect(buildScopingSqlite(mockClient)).rejects.toThrow(
+      await expect(buildScopingPostgres(mockClient)).rejects.toThrow(
         "require an authenticated user identity",
       );
-      expect(mockClient.execute).not.toHaveBeenCalled();
+      expect(mockClient.unsafe).not.toHaveBeenCalled();
     });
 
     it("builds scoping views for core tables in prod mode", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "alice+qa@test.com");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
-      // Mock SQLite client that returns tables with their columns
+      // Mock PostgreSQL client that returns tables with their columns
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return {
-              rows: [
-                { name: "settings" },
-                { name: "application_state" },
-                { name: "oauth_tokens" },
-                { name: "sessions" },
-                { name: "custom_table" },
-              ],
-            };
-          }
-          // PRAGMA table_info responses
-          if (sql.includes("settings")) {
-            return {
-              rows: [
-                { name: "key" },
-                { name: "value" },
-                { name: "updated_at" },
-              ],
-            };
-          }
-          if (sql.includes("application_state")) {
-            return {
-              rows: [
-                { name: "session_id" },
-                { name: "key" },
-                { name: "value" },
-                { name: "updated_at" },
-              ],
-            };
-          }
-          if (sql.includes("oauth_tokens")) {
-            return {
-              rows: [
-                { name: "provider" },
-                { name: "account_id" },
-                { name: "owner" },
-                { name: "tokens" },
-                { name: "updated_at" },
-              ],
-            };
-          }
-          if (sql.includes("sessions")) {
-            return {
-              rows: [
-                { name: "token" },
-                { name: "email" },
-                { name: "created_at" },
-              ],
-            };
-          }
-          if (sql.includes("custom_table")) {
-            return {
-              rows: [{ name: "id" }, { name: "owner_email" }, { name: "data" }],
-            };
-          }
-          return { rows: [] };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "settings", column_name: "key" },
+          { table_name: "application_state", column_name: "session_id" },
+          { table_name: "oauth_tokens", column_name: "owner" },
+          { table_name: "sessions", column_name: "email" },
+          { table_name: "custom_table", column_name: "owner_email" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       expect(ctx.active).toBe(true);
       expect(ctx.userEmail).toBe("alice+qa@test.com");
 
@@ -160,44 +107,23 @@ describe("scoping", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "alice+qa@test.com");
       vi.stubEnv("AGENT_ORG_ID", "org-123");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return {
-              rows: [
-                { name: "notes" },
-                { name: "org_only_table" },
-                { name: "plain_table" },
-              ],
-            };
-          }
-          if (sql.includes("notes")) {
-            return {
-              rows: [
-                { name: "id" },
-                { name: "owner_email" },
-                { name: "org_id" },
-                { name: "content" },
-              ],
-            };
-          }
-          if (sql.includes("org_only_table")) {
-            return {
-              rows: [{ name: "id" }, { name: "org_id" }, { name: "data" }],
-            };
-          }
-          if (sql.includes("plain_table")) {
-            return {
-              rows: [{ name: "id" }, { name: "data" }],
-            };
-          }
-          return { rows: [] };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "notes", column_name: "id" },
+          { table_name: "notes", column_name: "owner_email" },
+          { table_name: "notes", column_name: "org_id" },
+          { table_name: "notes", column_name: "content" },
+          { table_name: "org_only_table", column_name: "id" },
+          { table_name: "org_only_table", column_name: "org_id" },
+          { table_name: "org_only_table", column_name: "data" },
+          { table_name: "plain_table", column_name: "id" },
+          { table_name: "plain_table", column_name: "data" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       expect(ctx.active).toBe(true);
       expect(ctx.orgId).toBe("org-123");
 
@@ -228,25 +154,18 @@ describe("scoping", () => {
     it("scopes resources by the nonstandard owner column", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "reader+qa@test.com");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "resources" }] };
-          }
-          return {
-            rows: [
-              { name: "id" },
-              { name: "path" },
-              { name: "owner" },
-              { name: "content" },
-            ],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "resources", column_name: "id" },
+          { table_name: "resources", column_name: "path" },
+          { table_name: "resources", column_name: "owner" },
+          { table_name: "resources", column_name: "content" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       const resourcesView = ctx.setup.find((s) => s.includes('"resources"'));
       expect(resourcesView).toBeDefined();
       expect(resourcesView).toContain(`"owner" = 'reader+qa@test.com'`);
@@ -257,25 +176,18 @@ describe("scoping", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "alice+qa@test.com");
       delete process.env.AGENT_ORG_ID;
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "notes" }] };
-          }
-          return {
-            rows: [
-              { name: "id" },
-              { name: "owner_email" },
-              { name: "org_id" },
-              { name: "content" },
-            ],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "notes", column_name: "id" },
+          { table_name: "notes", column_name: "owner_email" },
+          { table_name: "notes", column_name: "org_id" },
+          { table_name: "notes", column_name: "content" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       expect(ctx.orgId).toBeNull();
 
       // Should scope by owner_email but NOT org_id
@@ -288,25 +200,18 @@ describe("scoping", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "legacy-owner@test.com");
       vi.stubEnv("AGENT_ORG_ID", "org-current");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "decks" }] };
-          }
-          return {
-            rows: [
-              { name: "id" },
-              { name: "owner_email" },
-              { name: "org_id" },
-              { name: "title" },
-            ],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "decks", column_name: "id" },
+          { table_name: "decks", column_name: "owner_email" },
+          { table_name: "decks", column_name: "org_id" },
+          { table_name: "decks", column_name: "title" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       const decksView = ctx.setup.find((s) => s.includes('"decks"'));
 
       expect(decksView).toContain(`"owner_email" = 'legacy-owner@test.com'`);
@@ -319,27 +224,20 @@ describe("scoping", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "tools+qa@test.com");
       vi.stubEnv("AGENT_ORG_ID", "org-tools-qa");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "tool_data" }] };
-          }
-          return {
-            rows: [
-              { name: "tool_id" },
-              { name: "collection" },
-              { name: "scope" },
-              { name: "owner_email" },
-              { name: "org_id" },
-              { name: "data" },
-            ],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "tool_data", column_name: "tool_id" },
+          { table_name: "tool_data", column_name: "collection" },
+          { table_name: "tool_data", column_name: "scope" },
+          { table_name: "tool_data", column_name: "owner_email" },
+          { table_name: "tool_data", column_name: "org_id" },
+          { table_name: "tool_data", column_name: "data" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       const toolDataView = ctx.setup.find((s) => s.includes('"tool_data"'));
 
       expect(toolDataView).toContain(
@@ -354,39 +252,32 @@ describe("scoping", () => {
     it("refuses to scope DB scripts to the local fallback identity", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("AGENT_USER_EMAIL", "local@localhost");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn(),
+        unsafe: vi.fn(),
       };
 
-      await expect(buildScopingSqlite(mockClient)).rejects.toThrow(
+      await expect(buildScopingPostgres(mockClient)).rejects.toThrow(
         "require an authenticated user identity",
       );
-      expect(mockClient.execute).not.toHaveBeenCalled();
+      expect(mockClient.unsafe).not.toHaveBeenCalled();
     });
 
     it("escapes single quotes in email for SQL safety", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "o'malley+qa@test.com");
-      const { buildScopingSqlite } = await import("./scoping.js");
+      const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockImplementation((sql: string) => {
-          if (sql.includes("sqlite_master")) {
-            return { rows: [{ name: "sessions" }] };
-          }
-          return {
-            rows: [
-              { name: "token" },
-              { name: "email" },
-              { name: "created_at" },
-            ],
-          };
-        }),
+        unsafe: vi.fn().mockResolvedValue([
+          { table_name: "sessions", column_name: "token" },
+          { table_name: "sessions", column_name: "email" },
+          { table_name: "sessions", column_name: "created_at" },
+        ]),
       };
 
-      const ctx = await buildScopingSqlite(mockClient);
+      const ctx = await buildScopingPostgres(mockClient);
       const sessionsView = ctx.setup.find((s) => s.includes('"sessions"'));
       // Single quote should be escaped as ''
       expect(sessionsView).toContain("o''malley+qa@test.com");
@@ -404,18 +295,18 @@ describe("scoping", () => {
       ): Promise<any[]> {
         return [{ table_name: "tasks", column_name: "owner_email" }];
       };
-      const ctx = await buildScopingPostgres(mockPgSql);
+      const ctx = await buildScopingPostgres({ unsafe: mockPgSql });
       expect(ctx.active).toBe(true);
       expect(ctx.userEmail).toBe("user+qa@test.com");
     });
 
-    it("throws when there is no request user (matches sqlite path — refuses to run unscoped against a multi-user database)", async () => {
+    it("throws when there is no request user (matches postgres path — refuses to run unscoped against a multi-user database)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
       const { buildScopingPostgres } = await import("./scoping.js");
 
       const mockPgSql = vi.fn();
-      await expect(buildScopingPostgres(mockPgSql)).rejects.toThrow(
+      await expect(buildScopingPostgres({ unsafe: mockPgSql })).rejects.toThrow(
         "require an authenticated user identity",
       );
       expect(mockPgSql).not.toHaveBeenCalled();
@@ -428,7 +319,7 @@ describe("scoping", () => {
 
       const mockPgSql = vi.fn();
 
-      await expect(buildScopingPostgres(mockPgSql)).rejects.toThrow(
+      await expect(buildScopingPostgres({ unsafe: mockPgSql })).rejects.toThrow(
         "require an authenticated user identity",
       );
       expect(mockPgSql).not.toHaveBeenCalled();
@@ -447,7 +338,7 @@ describe("scoping", () => {
         ];
       };
 
-      const ctx = await buildScopingPostgres(mockPgSql);
+      const ctx = await buildScopingPostgres({ unsafe: mockPgSql });
       const tasksView = ctx.setup.find((s) => s.includes('"tasks"'));
       expect(tasksView).toBeDefined();
       expect(tasksView).toContain("CREATE OR REPLACE TEMPORARY VIEW");
@@ -474,7 +365,7 @@ describe("scoping", () => {
         ];
       };
 
-      const ctx = await buildScopingPostgres(mockPgSql);
+      const ctx = await buildScopingPostgres({ unsafe: mockPgSql });
       expect(ctx.active).toBe(true);
       expect(ctx.userEmail).toBe("bob+qa@test.com");
 
@@ -503,7 +394,7 @@ describe("scoping", () => {
         ];
       };
 
-      const ctx = await buildScopingPostgres(mockPgSql);
+      const ctx = await buildScopingPostgres({ unsafe: mockPgSql });
       const bookingsView = ctx.setup.find((s) => s.includes('"bookings"'));
 
       expect(bookingsView).toBeDefined();
@@ -526,7 +417,7 @@ describe("scoping", () => {
         ];
       };
 
-      const ctx = await buildScopingPostgres(mockPgSql);
+      const ctx = await buildScopingPostgres({ unsafe: mockPgSql });
       const decksView = ctx.setup.find((s) => s.includes('"decks"'));
 
       expect(decksView).toContain(`"owner_email" = 'legacy-pg@test.com'`);

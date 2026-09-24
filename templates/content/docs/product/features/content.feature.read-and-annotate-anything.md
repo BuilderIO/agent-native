@@ -35,4 +35,4 @@ Read comfortably, mark exact material, preserve revision context, and find those
 - **Precise selectors:** Anchor to text ranges, pages, regions, timestamps, transcript ranges, and the source revision being viewed.
 - **Annotations rail:** Reveals highlights only when opened and supports search, filtering, grouping, re-anchoring, and orphan repair.
 - **Carry-forward:** Moves a filtered set of relevant Annotations to another named Version without pretending every old anchor still exists.
-- **Speech:** Adds dictation and read-aloud through shared Agent Native capabilities rather than a Reader-only AI system.
+- **Speech:** Adds dictation and read-aloud through shared Agent-Native capabilities rather than a Reader-only AI system.

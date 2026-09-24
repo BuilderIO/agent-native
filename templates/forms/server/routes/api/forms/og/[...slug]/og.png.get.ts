@@ -26,7 +26,12 @@ function textByteLength(value: string): number {
 }
 
 function isResvgRuntimeUnavailableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error ?? "");
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error ?? "");
   return (
     /@resvg\/resvg-js|resvgjs\.[\w-]+\.node|native binding/i.test(message) &&
     /cannot find|no such module|err_module_not_found|dlopen|invalid elf|wrong architecture|not a valid win32|native binding/i.test(

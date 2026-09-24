@@ -21,8 +21,8 @@ things dominate it: **how much data crosses the wire**, and **how many
 round-trips and table scans it takes**. On a hosted/serverless SQL backend each
 query is a network round-trip, and an unindexed filter scans the whole — often
 shared and growing — table. So default to **projected columns**, **indexed
-hot-path queries**, and **parallel/batched** fetches. These rules are
-provider-agnostic: they hold on SQLite, Postgres, or any managed SQL backend.
+hot-path queries**, and **parallel/batched** fetches. These rules hold on local
+PGlite or hosted Postgres.
 
 This skill is about the data and load path. See the `storing-data` skill for the schema
 and migration mechanics it references, and the `real-time-sync` skill for how updates
@@ -47,7 +47,6 @@ A list/index query should select only the columns the list actually renders.
       id: docs.id,
       title: docs.title,
       updatedAt: docs.updatedAt,
-      // substr/length work on both SQLite and Postgres
       preview: sql<string>`substr(${docs.content}, 1, 400)`,
     })
     .from(docs)
@@ -59,6 +58,40 @@ A list/index query should select only the columns the list actually renders.
   dropped column is provably unused on the list path. If the list genuinely
   renders a heavy column (a thumbnail, an inline preview the UI shows), keep it —
   don't break behavior to chase a payload win.
+
+## 1b. Never put a heavy column in a `WHERE`
+
+Projecting a blob out of the `SELECT` is only half the job. A **predicate** on a
+large text/JSON column is worse, because Postgres must fetch and detoast that
+value for every row the scan touches — **before `LIMIT` applies**. The column
+does not even have to be selected.
+
+Measured in production on the agent chat sidebar list (~20 rows of title +
+timestamp), from one predicate on the message-history blob:
+
+| request | with the predicate | without |
+| --- | --- | --- |
+| `limit=20` | 2207ms | 222ms |
+| `limit=5` | 3166ms | 220ms |
+
+**`limit=5` costing more than `limit=20` is the fingerprint.** If asking for
+less data costs more, something in the `WHERE` is scanning what `LIMIT` cannot
+bound. Diagnose it from the browser console on the live page — fetch the
+endpoint with and without the suspect filter — rather than reading the plan.
+
+A marker you match with a hardcoded string belongs in its own indexed column:
+add it, backfill once in a migration, then filter on the column. **A legacy
+compensator on a read path is a backfill you have not done yet, and you pay for
+it on every request until you do.**
+
+Searching a blob against a user-supplied term is different and legitimate —
+full-text search over message history has no cheaper form. `guard:no-blob-column-predicate`
+draws exactly that line: it flags a hardcoded literal and ignores a bound
+parameter.
+
+Related: a `LOWER(col) = ?` access predicate cannot use a plain btree on `col`.
+Add the matching expression index — see `org/migrations.ts` for the pattern —
+or the list scans the whole shared table.
 
 ## 2. Index the hot paths
 
@@ -80,14 +113,14 @@ on. The recurring ones:
 - **Status-filtered lists** → match the real `WHERE`, e.g. `(owner_email, status)`
   or `(status, <sort>)`.
 
-Keep index DDL **dialect-agnostic and idempotent**:
+Keep index DDL **PostgreSQL-compatible and idempotent**:
 
 ```sql
 CREATE INDEX IF NOT EXISTS forms_owner_org_updated_idx ON forms (owner_email, org_id, updated_at)
 ```
 
-No `DESC`, no partial `WHERE`, no provider-specific syntax — it then runs on
-SQLite and Postgres alike, is safe to re-run, and applies on next startup.
+No `DESC` or partial `WHERE`; keep the index DDL idempotent and apply it through
+the migration path.
 Indexes mostly bite **as data grows** and on **unbounded child tables** (a
 seq-scan of 10 rows is instant; of a shared, ever-growing log it is not), so
 index the growing tables first.

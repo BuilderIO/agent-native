@@ -4,6 +4,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+const contextMenuMock = vi.hoisted(() => ({
+  onCloseAutoFocus: undefined as
+    | ((event: { preventDefault: () => void }) => void)
+    | undefined,
+}));
+
 vi.mock("@/lib/utils", () => ({
   cn: (...values: unknown[]) => values.filter(Boolean).join(" "),
 }));
@@ -16,38 +22,60 @@ vi.mock("@/components/ui/context-menu", () => {
     children?: React.ReactNode;
     className?: string;
   }) => <div className={className}>{children}</div>;
+  const Content = ({
+    children,
+    className,
+    onCloseAutoFocus,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+    onCloseAutoFocus?: (event: { preventDefault: () => void }) => void;
+  }) => {
+    contextMenuMock.onCloseAutoFocus = onCloseAutoFocus;
+    return <div className={className}>{children}</div>;
+  };
   const Item = ({
     children,
+    className,
     disabled,
     onSelect,
   }: {
     children?: React.ReactNode;
+    className?: string;
     disabled?: boolean;
     onSelect?: (event: Event) => void;
   }) => (
     <button
       type="button"
+      className={className}
       disabled={disabled}
       onClick={(event) => onSelect?.(event.nativeEvent)}
     >
       {children}
     </button>
   );
+  const SubTrigger = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <button className={className}>{children}</button>;
   return {
     ContextMenu: Container,
-    ContextMenuContent: Container,
+    ContextMenuContent: Content,
     ContextMenuGroup: Container,
     ContextMenuItem: Item,
     ContextMenuSeparator: () => <hr />,
     ContextMenuShortcut: Container,
     ContextMenuSub: Container,
     ContextMenuSubContent: Container,
-    ContextMenuSubTrigger: Container,
+    ContextMenuSubTrigger: SubTrigger,
     ContextMenuTrigger: Container,
   };
 });
 
-import { CanvasContextMenu } from "./CanvasContextMenu";
+import { CanvasContextMenu, dispatchContextMenuAt } from "./CanvasContextMenu";
 
 async function renderContextMenu(
   props: Omit<React.ComponentProps<typeof CanvasContextMenu>, "children">,
@@ -75,6 +103,20 @@ async function renderContextMenu(
     },
   };
 }
+
+describe("CanvasContextMenu imperative placement", () => {
+  it("dispatches the pointer location through the Radix trigger", () => {
+    const target = document.createElement("div");
+    const onContextMenu = vi.fn();
+    target.addEventListener("contextmenu", onContextMenu);
+
+    dispatchContextMenuAt(target, { clientX: 40, clientY: 580 });
+
+    expect(onContextMenu).toHaveBeenCalledWith(
+      expect.objectContaining({ clientX: 40, clientY: 580 }),
+    );
+  });
+});
 
 describe("CanvasContextMenu Copy as PNG", () => {
   it("routes the existing item to the dedicated PNG callback", async () => {
@@ -173,7 +215,7 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
-describe("CanvasContextMenu regenerate", () => {
+describe("CanvasContextMenu edit with AI", () => {
   const candidate = {
     key: "hero",
     label: "Hero",
@@ -198,10 +240,13 @@ describe("CanvasContextMenu regenerate", () => {
       onReprompt,
     });
 
-    await act(async () => view.findButton("Regenerate")?.click());
+    await act(async () => view.findButton("Edit with AI")?.click());
     expect(onReprompt).toHaveBeenCalledWith(
       expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
     );
+    const closeEvent = { preventDefault: vi.fn() };
+    contextMenuMock.onCloseAutoFocus?.(closeEvent);
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
     await view.cleanup();
   });
 
@@ -229,6 +274,57 @@ describe("CanvasContextMenu regenerate", () => {
       expect.objectContaining({ action: "reprompt" }),
     );
     await view.cleanup();
+  });
+
+  it("reprompts the exact candidate when the hit stack has one layer", async () => {
+    const onReprompt = vi.fn();
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onReprompt,
+      onRepromptLayer,
+    });
+
+    await act(async () => view.findButton("Edit with AI")?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      candidate,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    expect(onReprompt).not.toHaveBeenCalled();
+    await view.cleanup();
+  });
+
+  it("uses the theme-aware layer hover token for items and submenu triggers", async () => {
+    const directView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const directItem = directView.findButton("Edit with AI");
+    expect(directItem?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(directItem?.className).not.toContain("focus:bg-accent");
+    await directView.cleanup();
+
+    const stackedView = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, { ...candidate, key: "parent" }],
+      canReprompt: true,
+      onRepromptLayer: vi.fn(),
+    });
+    const submenuTrigger = stackedView.findButton("Edit with AI");
+    expect(submenuTrigger?.className).toContain(
+      "focus:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).toContain(
+      "data-[state=open]:bg-[var(--design-editor-layer-hover-color)]",
+    );
+    expect(submenuTrigger?.className).not.toContain("focus:bg-accent");
+    await stackedView.cleanup();
   });
 });
 
@@ -361,6 +457,25 @@ describe("CanvasContextMenu instance cluster (Go to main / Swap / Detach)", () =
 
     const detachButton = view.findButton("Detach instance");
     expect(detachButton?.disabled).toBe(true);
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu shortcut hints", () => {
+  it("spells shortcut hints in the viewer's own modifier words", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      onBringToFront: vi.fn(),
+      onSendToBack: vi.fn(),
+      onGroup: vi.fn(),
+    });
+
+    // happy-dom reports a non-Apple platform, which is exactly the case the
+    // hardcoded ⌘/⇧ glyphs used to get wrong.
+    expect(view.findButton("Group selection")?.textContent).toContain("Ctrl+G");
+    expect(view.container.textContent).not.toContain("⌘");
+    expect(view.container.textContent).not.toContain("⇧");
+
     await view.cleanup();
   });
 });

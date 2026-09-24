@@ -2,6 +2,10 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { quantizeToStep } from "@shared/canvas-math";
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
+
+export { MAX_SANE_FRAME_DIMENSION_PX };
 
 export function frameGeometryEquals(
   a: CanvasFrameGeometry | undefined,
@@ -21,7 +25,34 @@ export function geometrySnapshotsEqual(
   return aKeys.every((key) => key in b && frameGeometryEquals(a[key], b[key]));
 }
 
-export const MAX_SANE_FRAME_DIMENSION_PX = 100000;
+/** Separate from the sanity check below on purpose: an out-of-range frame is
+ *  refused and changed fractional fields are repaired. A reference map keeps
+ *  existing fractional fields stable across later unrelated gestures. */
+export function quantizeCanvasFrameGeometryForPersist(
+  geometryById: CanvasFrameGeometryById,
+  referenceGeometryById?: CanvasFrameGeometryById,
+): CanvasFrameGeometryById {
+  let quantized: CanvasFrameGeometryById | null = null;
+  for (const [frameId, geometry] of Object.entries(geometryById)) {
+    const next: CanvasFrameGeometry = { ...geometry };
+    let changed = false;
+    const reference = referenceGeometryById?.[frameId];
+    for (const key of ["x", "y", "width", "height"] as const) {
+      const value = geometry[key];
+      if (value === undefined) continue;
+      if (value === reference?.[key]) continue;
+      const rounded = quantizeToStep(value);
+      if (rounded === value) continue;
+      next[key] = rounded;
+      changed = true;
+    }
+    if (!changed) continue;
+    if (quantized === null) quantized = { ...geometryById };
+    quantized[frameId] = next;
+  }
+  return quantized ?? geometryById;
+}
+
 export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
 
 export function isSaneCanvasFrameGeometryForPersist(

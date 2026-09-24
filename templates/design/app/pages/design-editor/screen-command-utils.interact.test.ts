@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { designEditorCommandFromSearchParams } from "./screen-command-utils";
 
 describe("DesignEditor Interact URL command", () => {
+  it("restores the canonical editorView query from a visual-edit URL", () => {
+    expect(
+      designEditorCommandFromSearchParams(
+        "design-123",
+        new URLSearchParams("editorView=overview"),
+      ),
+    ).toMatchObject({ designId: "design-123", editorView: "overview" });
+  });
+
   it("restores explicit Interact mode for a focused screen", () => {
     expect(
       designEditorCommandFromSearchParams(

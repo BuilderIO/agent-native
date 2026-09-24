@@ -4,6 +4,7 @@ import {
   DEFAULT_DESIGN_SYSTEM,
   getDesignSystemImageStyleReferenceUrls,
   mergeDesignSystemData,
+  resolveDeckDesignSystem,
 } from "./use-deck-design-system";
 
 describe("mergeDesignSystemData", () => {
@@ -39,6 +40,26 @@ describe("mergeDesignSystemData", () => {
     expect(merged.logos).toEqual([]);
   });
 
+  it("falls back to the default when a leaf value has the wrong runtime type", () => {
+    // DesignSystemCard's firstFontName() calls `.split()` on
+    // typography.headingFont with no type guard. An interrupted generation
+    // that persisted an object here must not survive the merge -- it would
+    // crash the whole Design Systems list, not just this row.
+    const merged = mergeDesignSystemData({
+      typography: { headingFont: {}, bodyWeight: 450 },
+      borders: { radius: ["14px"] },
+    });
+
+    expect(merged.typography.headingFont).toBe(
+      DEFAULT_DESIGN_SYSTEM.typography.headingFont,
+    );
+    expect(typeof merged.typography.headingFont).toBe("string");
+    expect(merged.typography.bodyWeight).toBe(
+      DEFAULT_DESIGN_SYSTEM.typography.bodyWeight,
+    );
+    expect(merged.borders.radius).toBe(DEFAULT_DESIGN_SYSTEM.borders.radius);
+  });
+
   it("normalizes design-system image style reference urls", () => {
     expect(
       getDesignSystemImageStyleReferenceUrls({
@@ -56,5 +77,24 @@ describe("mergeDesignSystemData", () => {
       "https://cdn.example.com/style-1.png",
       "https://cdn.example.com/style-2.png",
     ]);
+  });
+});
+
+describe("resolveDeckDesignSystem", () => {
+  it("reports no design system for a deck that has none linked", () => {
+    const resolved = resolveDeckDesignSystem(null, undefined);
+
+    expect(resolved.designSystem).toBeUndefined();
+    expect(resolved.designSystemTitle).toBeNull();
+  });
+
+  it("reports no design system when a linked one cannot be parsed", () => {
+    const resolved = resolveDeckDesignSystem("ds-1", {
+      title: "Brand",
+      data: "{not json",
+    });
+
+    expect(resolved.designSystem).toBeUndefined();
+    expect(resolved.designSystemTitle).toBe("Brand");
   });
 });

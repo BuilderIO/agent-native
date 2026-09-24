@@ -21,6 +21,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -160,7 +161,7 @@ function AppContent() {
         changelogKey="brain"
       >
         <CommandMenu.Group heading={t("root.commandNavigate")}>
-          <CommandMenu.Item onSelect={() => navigate("/")}>
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
             {t("navigation.askBrain")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/search")}>
@@ -222,16 +223,25 @@ export default function Root() {
       },
     }),
   );
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
 
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        isPublicPath={isMarketingPath}
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >
-        <DbSyncSetup />
-        <AppContent />
+        {isMarketingPath ? (
+          <Outlet />
+        ) : (
+          <>
+            <DbSyncSetup />
+            <AppContent />
+          </>
+        )}
       </AppProviders>
     </AppToolkitProvider>
   );

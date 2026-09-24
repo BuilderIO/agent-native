@@ -20,6 +20,8 @@ import {
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   resolveRestoredStrokeStyle,
+  strokeHiddenByColor,
+  strokeIsVisible,
   strokeShowPatch,
 } from "./position-helpers";
 
@@ -117,5 +119,31 @@ describe("outline position <-> offset round trip", () => {
 
   it("zero width never reads back as center", () => {
     expect(readStrokeOutlinePosition("0px", "0px")).toBe("outside");
+  });
+});
+
+describe("whether a stroke row should exist at all", () => {
+  it("does not count a width a stylesheet left behind with style none", () => {
+    // Tailwind-style preflight plus an unset outline: paints nothing, and its
+    // colour resolves to currentColor, so a row here wears the text colour.
+    expect(strokeIsVisible("1.5px", "none")).toBe(false);
+    expect(strokeIsVisible("0px", "solid")).toBe(false);
+  });
+
+  it("does not count a width with no style at all, such as a scaled inert outline", () => {
+    expect(strokeIsVisible("5.68px", undefined)).toBe(false);
+    expect(strokeIsVisible("5.68px", "")).toBe(false);
+    expect(strokeIsVisible("2px", "none hidden none none")).toBe(false);
+    expect(strokeIsVisible("2px", "none solid none none")).toBe(true);
+  });
+
+  it("counts a real stroke", () => {
+    expect(strokeIsVisible("1px", "solid")).toBe(true);
+    expect(strokeIsVisible("2px", "dashed")).toBe(true);
+  });
+
+  it("still counts one hidden through the eye icon, which zeroes alpha only", () => {
+    expect(strokeIsVisible("1px", "solid")).toBe(true);
+    expect(strokeHiddenByColor("rgba(0, 0, 0, 0)")).toBe(true);
   });
 });

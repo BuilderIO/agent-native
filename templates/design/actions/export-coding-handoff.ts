@@ -6,6 +6,7 @@ import {
   getRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
@@ -64,7 +65,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ id, origin, format }) => {
+  run: async ({ id, origin, format }, ctx) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
 
@@ -109,6 +110,19 @@ export default defineAction({
       title: design.title,
       fileCount: snapshot.files.length,
     });
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        export_format: "coding_handoff",
+        file_count: snapshot.files.length,
+      },
+      ctx,
+    );
 
     return {
       designId: id,

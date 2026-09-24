@@ -4,6 +4,8 @@ description: "Deploy an Agent-Native app to Azure Static Web Apps with Nitro's a
 search: "Azure Static Web Apps deployment Nitro preset"
 ---
 
+<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
+
 # Azure Static Web Apps
 
 Nitro provides the `azure-swa` preset for Azure Static Web Apps. It packages
@@ -19,11 +21,11 @@ export default defineConfig({
 Build the provider output:
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 ```
 
 Deploy the generated output with the Azure Static Web Apps CLI or your CI
-workflow. Use a persistent external SQL database and configure
+workflow. Use a persistent external PostgreSQL database and configure
 `DATABASE_URL`, `BETTER_AUTH_SECRET`, and app secrets in the Azure environment.
 
 See [Nitro's Azure provider guide](https://nitro.build/deploy/providers/azure)

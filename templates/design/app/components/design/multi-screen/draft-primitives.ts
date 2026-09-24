@@ -10,7 +10,10 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 
-import { DEFAULT_LINE_STROKE_WIDTH_PX } from "../canvas-primitive-style";
+import {
+  DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_SHAPE_FILL,
+} from "../canvas-primitive-style";
 import { boardPointToScreenLocalPoint } from "./coordinate-transforms";
 import { getFrameCenter, getScreenPreviewViewport } from "./frame-geometry";
 import type {
@@ -25,8 +28,8 @@ import type {
   ResolvedScreenMetadata,
 } from "./types";
 
-const DRAFT_FRAME_WIDTH = 320;
-const DRAFT_FRAME_HEIGHT = 640;
+const DRAFT_FRAME_WIDTH = 1440;
+const DRAFT_FRAME_HEIGHT = 1024;
 const DRAFT_RECT_WIDTH = 100;
 const DRAFT_RECT_HEIGHT = 100;
 const DRAFT_TEXT_WIDTH = 180;
@@ -156,18 +159,24 @@ export function createDraftPrimitive({
       points: pathPoints,
       stroke: toolProps?.stroke,
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+      startPoint: toolProps?.startPoint,
+      endPoint: toolProps?.endPoint,
     };
   }
+  const isFrame = tool === "frame";
   return {
     id,
-    kind:
-      tool === "frame"
-        ? "frame"
-        : tool === "ellipse" || tool === "polygon" || tool === "star"
-          ? tool
-          : "rectangle",
+    kind: isFrame
+      ? "frame"
+      : tool === "ellipse" || tool === "polygon" || tool === "star"
+        ? tool
+        : "rectangle",
     geometry,
-    fill: toolProps?.fill,
+    // Figma materializes a real, removable solid Fill layer on every newly
+    // drawn shape — frames stay transparent by default (matching
+    // shared/board-file.ts's own kind==="frame" split) so this must not
+    // apply to them.
+    fill: isFrame ? toolProps?.fill : (toolProps?.fill ?? DEFAULT_SHAPE_FILL),
     stroke: toolProps?.stroke,
     strokeWidth: toolProps?.strokeWidth,
   };
@@ -213,6 +222,17 @@ function createDraftId(tool: DraftCreationTool) {
   return `draft-${tool}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+}
+
+/** Same id-generation contract as the host's uniqueLayerId (crypto.randomUUID,
+ *  falling back to a timestamp+random string) — kept local to avoid a
+ *  multi-screen/ -> pages/design-editor/ import for one generator. Never
+ *  "draft-…"-prefixed: this is the id that ends up permanently in the saved
+ *  document, not the ephemeral bookkeeping id createDraftId mints above. */
+function createStableInsertId(kind: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${kind}-${crypto.randomUUID()}`
+    : `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
@@ -286,14 +306,23 @@ export function draftPrimitiveToInsert(
       };
   return {
     kind: draft.kind,
-    nodeId: draft.id,
+    // Never the draft's own bookkeeping id: createDraftPrimitive's id is
+    // "draft-<tool>-…" for the host's own in-flight tracking (the overlay's
+    // data-draft-id, selectedDraftIds, …) and was previously written
+    // straight into the committed document as its permanent
+    // data-agent-native-node-id — every drawn shape stayed "draft-" prefixed
+    // forever instead of getting a real stable id the moment it commits.
+    nodeId: createStableInsertId(draft.kind),
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,
+    penPath: scaledPenPath,
     text: draft.text,
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
+    startPoint: draft.startPoint,
+    endPoint: draft.endPoint,
     autoSize: draft.autoSize,
   };
 }

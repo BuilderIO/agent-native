@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { renderedText } from "../lib/app";
 import {
@@ -8,12 +8,14 @@ import {
 } from "../lib/authed";
 import {
   assertNoChatFailure,
-  COMPOSER,
+  formatChatRequestDiagnostics,
   MISSING_FINAL_RESPONSE,
+  readComposerRuntimeState,
   sendPromptAndAwaitTurn,
+  VISIBLE_COMPOSER,
   watchChatRequests,
 } from "../lib/chat";
-import { chatSites, originFor } from "../lib/fleet";
+import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
 
 /**
  * One real agent turn per chat-bearing app, on luna.
@@ -47,6 +49,28 @@ const PROMPT = `Reply with exactly ${NONCE} and nothing else. Do not use any too
 
 const sites = chatSites();
 
+async function expectComposerVisible(
+  page: Page,
+  siteHost: string,
+): Promise<void> {
+  await expect(
+    page.locator(VISIBLE_COMPOSER.input).first(),
+    `${siteHost} rendered no agent composer for a signed-in user`,
+  ).toBeVisible({ timeout: 60_000 });
+}
+
+async function withChatDiagnostics<T>(
+  chat: ReturnType<typeof watchChatRequests>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n${formatChatRequestDiagnostics(chat.log)}`,
+    );
+  }
+}
 test.describe.configure({ mode: "parallel" });
 
 for (const site of sites) {
@@ -65,69 +89,92 @@ for (const site of sites) {
 
         // The sidebar is collapsed by default on some entry paths; asking for
         // it explicitly is what guarantees a composer to type into.
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
+
+        await withChatDiagnostics(chat, async () => {
+          await expectComposerVisible(page, site.host);
+
+          await sendPromptAndAwaitTurn(page, PROMPT);
+
+          // Order matters: prove what was billed before judging the output, so a
+          // turn that succeeded on the wrong model still fails the run.
+          chat.assertOnlyLuna();
+          await assertNoChatFailure(page, `${site.host} (chat turn)`);
+
+          // The product's own signal that a turn ended with nothing to show.
+          await expect(
+            page.locator(MISSING_FINAL_RESPONSE),
+            `${site.host} ended the turn without a final assistant message`,
+          ).toHaveCount(0);
+
+          const transcript = await renderedText(
+            page,
+            `${site.host} transcript`,
+          );
+          const echoes = transcript.split(NONCE).length - 1;
+          expect(
+            echoes,
+            `${site.host} shows ${echoes} occurrence(s) of ${NONCE}. One is the user's own message; a second is the only evidence the assistant actually replied.`,
+          ).toBeGreaterThanOrEqual(2);
+
+          // Reported repeatedly: the turn completes, but returning to the app
+          // loses the active thread or leaves the transcript blank. Reload the
+          // real page so localStorage restoration and the server read path both
+          // have to recover the thread that just completed.
+          await page.reload({
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          });
+          // The first mount consumes `agentSidebar=open` with replaceState, and
+          // the sidebar is intentionally closed by default on a plain reload.
+          // Reopen it through the supported URL contract before testing thread
+          // restoration; otherwise this assertion only tests a hidden panel.
+          const restoreUrl = new URL(page.url());
+          restoreUrl.searchParams.set("agentSidebar", "open");
+          await page.goto(restoreUrl.toString(), {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          });
+          try {
+            await expect(
+              page.locator(VISIBLE_COMPOSER.input).first(),
+              `${site.host} did not restore the composer after reloading a completed chat`,
+            ).toBeVisible({ timeout: 60_000 });
+          } catch (error) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+            );
+          }
+          await expect
+            .poll(
+              async () => {
+                const restoredTranscript = await page
+                  .locator("body")
+                  .innerText();
+                return restoredTranscript.split(NONCE).length - 1;
+              },
+              {
+                timeout: 60_000,
+                message: `${site.host} did not restore both the user prompt and assistant response after reload`,
+              },
+            )
+            .toBeGreaterThanOrEqual(2);
+          await assertNoChatFailure(page, `${site.host} (restored chat turn)`);
+          await expect(
+            page.locator(MISSING_FINAL_RESPONSE),
+            `${site.host} restored a completed thread with a missing-final marker`,
+          ).toHaveCount(0);
+          await expect(
+            page.locator(VISIBLE_COMPOSER.stop),
+            `${site.host} restored a completed thread in the stuck "Thinking" state`,
+          ).toBeHidden();
         });
-
-        await expect(
-          page.locator(COMPOSER.input).first(),
-          `${site.host} rendered no agent composer for a signed-in user`,
-        ).toBeVisible({ timeout: 60_000 });
-
-        await sendPromptAndAwaitTurn(page, PROMPT);
-
-        // Order matters: prove what was billed before judging the output, so a
-        // turn that succeeded on the wrong model still fails the run.
-        chat.assertOnlyLuna();
-        await assertNoChatFailure(page, `${site.host} (chat turn)`);
-
-        // The product's own signal that a turn ended with nothing to show.
-        await expect(
-          page.locator(MISSING_FINAL_RESPONSE),
-          `${site.host} ended the turn without a final assistant message`,
-        ).toHaveCount(0);
-
-        const transcript = await renderedText(page, `${site.host} transcript`);
-        const echoes = transcript.split(NONCE).length - 1;
-        expect(
-          echoes,
-          `${site.host} shows ${echoes} occurrence(s) of ${NONCE}. One is the user's own message; a second is the only evidence the assistant actually replied.`,
-        ).toBeGreaterThanOrEqual(2);
-
-        // Reported repeatedly: the turn completes, but returning to the app
-        // loses the active thread or leaves the transcript blank. Reload the
-        // real page so localStorage restoration and the server read path both
-        // have to recover the thread that just completed.
-        await page.reload({
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        await expect(
-          page.locator(COMPOSER.input).first(),
-          `${site.host} did not restore the composer after reloading a completed chat`,
-        ).toBeVisible({ timeout: 60_000 });
-        await expect
-          .poll(
-            async () => {
-              const restoredTranscript = await page.locator("body").innerText();
-              return restoredTranscript.split(NONCE).length - 1;
-            },
-            {
-              timeout: 60_000,
-              message: `${site.host} did not restore both the user prompt and assistant response after reload`,
-            },
-          )
-          .toBeGreaterThanOrEqual(2);
-        await assertNoChatFailure(page, `${site.host} (restored chat turn)`);
-        await expect(
-          page.locator(MISSING_FINAL_RESPONSE),
-          `${site.host} restored a completed thread with a missing-final marker`,
-        ).toHaveCount(0);
-        await expect(
-          page.locator(COMPOSER.stop),
-          `${site.host} restored a completed thread in the stuck "Thinking" state`,
-        ).toBeHidden();
       } finally {
         await context.close();
       }
@@ -141,29 +188,32 @@ for (const site of sites) {
       try {
         const page = await context.newPage();
         const chat = watchChatRequests(page);
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
+        await withChatDiagnostics(chat, async () => {
+          await expectComposerVisible(page, site.host);
+
+          await sendPromptAndAwaitTurn(page, PROMPT);
+
+          // `toBeHidden()` also passes for an element that never existed, so a
+          // turn that never started would satisfy the assertion below without
+          // exercising anything. Prove a turn actually left the browser first.
+          chat.assertOnlyLuna();
+
+          await expect(
+            page.locator(VISIBLE_COMPOSER.stop),
+            `${site.host} still shows the stop button after the turn ended — the composer is stuck in the "Thinking" state users reported`,
+          ).toBeHidden();
+          await expect(
+            page.locator(VISIBLE_COMPOSER.send).first(),
+            `${site.host} left the composer with neither a send nor a stop control after the turn`,
+          ).toBeVisible();
         });
-        await expect(page.locator(COMPOSER.input).first()).toBeVisible({
-          timeout: 60_000,
-        });
-
-        await sendPromptAndAwaitTurn(page, PROMPT);
-
-        // `toBeHidden()` also passes for an element that never existed, so a
-        // turn that never started would satisfy the assertion below without
-        // exercising anything. Prove a turn actually left the browser first.
-        chat.assertOnlyLuna();
-
-        await expect(
-          page.locator(COMPOSER.stop),
-          `${site.host} still shows the stop button after the turn ended — the composer is stuck in the "Thinking" state users reported`,
-        ).toBeHidden();
-        await expect(
-          page.locator(COMPOSER.send).first(),
-          `${site.host} left the composer with neither a send nor a stop control after the turn`,
-        ).toBeVisible();
       } finally {
         await context.close();
       }
@@ -178,11 +228,14 @@ for (const site of sites) {
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        const send = page.locator(COMPOSER.send).first();
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
+        const send = page.locator(VISIBLE_COMPOSER.send).first();
         await expect(send).toBeVisible({ timeout: 60_000 });
 
         const badge = page.locator(

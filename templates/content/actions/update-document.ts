@@ -1,8 +1,12 @@
-import { defineAction } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -10,28 +14,53 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commitCanonicalDocumentBodyMutation } from "../server/lib/canonical-document-body-mutation.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import {
+  migratePersonalDatabaseViewOverrides,
+  personalDatabaseViewSettingKey,
+} from "./_content-database-personal-view.js";
 import {
   favoriteDocumentIds,
+  favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "./_document-edit-mutation.js";
+import {
+  assertDocumentMutationAccess,
+  resolveDocumentAccessForMutation,
+} from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { settlePreviewDocumentDraft } from "./_preview-document-draft-settlement.js";
+import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -70,17 +99,6 @@ function isFavoriteOnlyUpdate(args: {
     args.icon === undefined
   );
 }
-
-function nanoid(size = 12): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
-}
-
-const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -188,6 +206,51 @@ function canCommentRole(role: string) {
   );
 }
 
+async function setFavoriteAndOrder(args: {
+  db: ReturnType<typeof getDb>;
+  userEmail: string;
+  documentId: string;
+  favorite: boolean;
+  now: string;
+}) {
+  const favoritesDatabaseId = favoritesSystemIds(args.userEmail).databaseId;
+  const settingName = personalDatabaseViewSettingKey(favoritesDatabaseId);
+  return mutateContentUserSettingTransaction(
+    (callback) => args.db.transaction(callback),
+    args.userEmail,
+    settingName,
+    async (tx, current) => {
+      const migrated = migratePersonalDatabaseViewOverrides(
+        current,
+        favoritesDatabaseId,
+        "favorites",
+      );
+      const activeViewId = migrated?.activeViewId ?? "default";
+      const membership = await setFavoriteMembership({
+        db: tx as unknown as ReturnType<typeof getDb>,
+        userEmail: args.userEmail,
+        documentId: args.documentId,
+        favorite: args.favorite,
+        now: args.now,
+      });
+      return {
+        value: applyContentPersonalNavigationPatch(
+          migrated,
+          {
+            sidebarOrder: {
+              operation: args.favorite ? "prepend" : "remove",
+              viewId: activeViewId,
+              itemId: membership.membershipId,
+            },
+          },
+          [{ id: activeViewId, sorts: [], filters: [], filterMode: "and" }],
+        ) as unknown as Record<string, unknown>,
+        result: membership,
+      };
+    },
+  );
+}
+
 function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
@@ -289,7 +352,8 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 
 export default defineAction({
   description:
-    "Update an existing document's title, content, icon, or favorite status.",
+    "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
+  deferLoading: false,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -297,7 +361,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Content Document",
     description:
-      "Delegate a sparse update to an existing Content document while preserving omitted fields.",
+      "Delegate a sparse metadata update to an existing Content document while preserving omitted fields. For body changes, use get-document followed by edit-document with its revision protocol.",
   },
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
@@ -326,13 +390,56 @@ export default defineAction({
     // `updatedAt` instead of a blind overwrite — this is how the browser
     // editor's autosave avoids clobbering a document that a concurrent
     // process (e.g. the Notion auto-pull) updated after the editor's last
-    // snapshot but before this save landed. Agent/CLI callers that omit it
-    // keep today's last-write-wins behavior unchanged.
+    // snapshot but before this save landed. External body edits are rejected
+    // below and must use edit-document's revision and receipt protocol.
     baseUpdatedAt: z
       .string()
       .optional()
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
+      ),
+    baseRevision: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque body revision from get-document; guards browser content saves without treating metadata changes as body conflicts",
+      ),
+    baseTitle: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title from the caller's base snapshot for a title update",
+      ),
+    historySessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Browser editor session ID used to group related title and body saves",
+      ),
+    editorSessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Stable browser-tab identity for recovery-draft ordering"),
+    editorEditGeneration: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
+      ),
+    editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotContent: z.string().max(500_000).optional(),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
       ),
     contextPackId: z
       .string()
@@ -379,6 +486,59 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (
+      (args.editorSessionId === undefined) !==
+      (args.editorEditGeneration === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSessionId and editorEditGeneration must be provided together.",
+        { errorCode: "INVALID_EDITOR_EDIT_IDENTITY", statusCode: 400 },
+      );
+    }
+    if (
+      (args.editorSnapshotTitle === undefined) !==
+      (args.editorSnapshotContent === undefined)
+    ) {
+      throw new ActionContractError(
+        "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+        { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+      );
+    }
+    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
+      throw new ActionContractError(
+        "Favorite changes must be submitted separately from document field changes.",
+        {
+          errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+          statusCode: 400,
+        },
+      );
+    }
+    if (
+      args.title !== undefined &&
+      args.content !== undefined &&
+      args.baseRevision !== undefined &&
+      args.baseTitle === undefined
+    ) {
+      throw new ActionContractError(
+        "Combined title and body saves require baseTitle with baseRevision.",
+        { errorCode: "BASE_TITLE_REQUIRED", statusCode: 400 },
+      );
+    }
+
+    const isExternalCaller =
+      ctx?.caller === "tool" ||
+      ctx?.caller === "mcp" ||
+      ctx?.caller === "webmcp" ||
+      ctx?.caller === "a2a";
+    if (isExternalCaller && args.content !== undefined) {
+      throw new ActionContractError(
+        "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+        {
+          errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+          statusCode: 400,
+        },
+      );
+    }
 
     // Only surface AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor
@@ -389,14 +549,15 @@ export default defineAction({
 
     const favoriteOnly = isFavoriteOnlyUpdate(args);
     const access = favoriteOnly
-      ? await resolveContentDocumentAccess(id)
-      : await assertAccess("document", id, "editor");
-    if (!access) throw new Error(`Document "${id}" not found`);
+      ? await resolveDocumentAccessForMutation(id, "id")
+      : await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 
     const db = getDb();
     const requestUserEmail = getRequestUserEmail();
+    const requestOrgId = getRequestOrgId() ?? "";
+    const actor = requireDocumentRequestActor(ctx);
     if (args.isFavorite !== undefined && !requestUserEmail) {
       throw new Error("no authenticated user");
     }
@@ -409,7 +570,7 @@ export default defineAction({
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
-    if (content !== undefined) {
+    if (content !== undefined && !args.preserveLeadingTitleHeading) {
       const titleToCheck = args.title || existing.title;
       if (titleToCheck) {
         const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
@@ -478,25 +639,19 @@ export default defineAction({
       args.title !== undefined && args.title !== existing.title;
     const contentChanged =
       content !== undefined && content !== existing.content;
-    const clearsNonEmptyContent =
-      contentChanged &&
-      content !== undefined &&
-      isEffectivelyEmptyDocumentContent(content) &&
-      !isEffectivelyEmptyDocumentContent(existing.content);
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
     const favoriteChanged =
       args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
     const descriptionChanged =
       args.description !== undefined &&
       args.description.trim() !== existing.description;
-    const documentFieldsChanged =
-      titleChanged || contentChanged || iconChanged || descriptionChanged;
     const anyChange =
       titleChanged ||
       contentChanged ||
       iconChanged ||
       favoriteChanged ||
-      descriptionChanged;
+      descriptionChanged ||
+      args.isFavorite === false;
 
     let softDeletedDatabaseIds: string[] = [];
     let creativeContext:
@@ -507,156 +662,245 @@ export default defineAction({
     // caller last reconciled. Guard the write with a compare-and-swap in that
     // case so a concurrent update (e.g. the Notion auto-pull applying a newer
     // remote edit) between the caller's snapshot and this save landing isn't
-    // silently overwritten. Title/icon/favorite-only saves are unaffected —
-    // only a save that's actually changing content is CAS-guarded.
-    const useContentCas = contentChanged && args.baseUpdatedAt !== undefined;
+    // silently overwritten. A recovery may carry unchanged content alongside
+    // a stale title, so supplying content still guards the whole write.
+    // Title/icon/favorite-only requests without content remain unaffected.
+    const useBodyRevisionCas =
+      args.content !== undefined && args.baseRevision !== undefined;
+    const useDocumentCas =
+      args.content !== undefined &&
+      args.baseRevision === undefined &&
+      args.baseUpdatedAt !== undefined;
 
-    if (anyChange) {
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-      };
+    const settlesPreviewDraft =
+      ctx?.caller === "frontend" &&
+      !!requestUserEmail &&
+      !!args.editorSessionId &&
+      args.editorEditGeneration !== undefined &&
+      (args.title !== undefined || args.content !== undefined);
 
-      if (titleChanged) updates.title = args.title;
-      if (args.description !== undefined)
-        updates.description = args.description.trim();
-      if (contentChanged) updates.content = content;
-      if (iconChanged) updates.icon = args.icon;
+    if (anyChange || settlesPreviewDraft) {
       let contentCasConflict = false;
-      await db.transaction(async (tx) => {
-        const primaryBlocksFields = contentChanged
+      let committedContentChanged = false;
+      let committedContentBefore = existing.content;
+      let committedEditorSnapshot: { title: string; content: string } | null =
+        null;
+      const mutate = async (tx: any) => {
+        await tx
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .for("update");
+        const [historyBefore] = await tx
+          .select({
+            title: schema.documents.title,
+            content: schema.documents.content,
+            bodyRevision: schema.documents.bodyRevision,
+            description: schema.documents.description,
+            icon: schema.documents.icon,
+            updatedAt: schema.documents.updatedAt,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .limit(1);
+        const lockedTitleChanged =
+          args.title !== undefined && args.title !== historyBefore.title;
+        const lockedContentChanged =
+          content !== undefined && content !== historyBefore.content;
+        const lockedDescriptionChanged =
+          args.description !== undefined &&
+          args.description.trim() !== historyBefore.description;
+        const lockedIconChanged =
+          args.icon !== undefined && args.icon !== historyBefore.icon;
+        const lockedDocumentFieldsChanged =
+          lockedTitleChanged ||
+          lockedContentChanged ||
+          lockedDescriptionChanged ||
+          lockedIconChanged;
+        const parsedBaseRevision = args.baseRevision
+          ? parseDocumentRevisionToken(args.baseRevision)
+          : null;
+        if (args.baseRevision && !parsedBaseRevision) {
+          throw new ActionContractError(
+            "baseRevision is not a valid document revision token.",
+            { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+          );
+        }
+        if (
+          lockedContentChanged &&
+          args.baseRevision &&
+          args.baseRevision !==
+            documentRevisionToken(
+              historyBefore.bodyRevision,
+              historyBefore.content,
+            )
+        ) {
+          contentCasConflict = true;
+          return;
+        }
+        if (
+          lockedTitleChanged &&
+          args.baseTitle !== undefined &&
+          historyBefore.title !== args.baseTitle
+        ) {
+          contentCasConflict = true;
+          return;
+        }
+        const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
+        const updates: Record<string, unknown> = { updatedAt };
+        if (lockedTitleChanged) updates.title = args.title;
+        if (lockedDescriptionChanged)
+          updates.description = args.description?.trim();
+        if (lockedContentChanged) {
+          updates.content = content;
+          updates.bodyRevision = historyBefore.bodyRevision + 1;
+        }
+        if (lockedIconChanged) updates.icon = args.icon;
+        if (lockedTitleChanged || lockedContentChanged) {
+          Object.assign(updates, documentEditAttribution(actor));
+        }
+        const primaryBlocksFields = lockedContentChanged
           ? await lockPrimaryBlocksFields(
               tx as unknown as ReturnType<typeof getDb>,
               id,
             )
           : [];
-        if (useContentCas) {
-          const applied = await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(
-              and(
-                eq(schema.documents.id, id),
-                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-              ),
-            )
-            .returning({ id: schema.documents.id });
-          if (!applied || applied.length === 0) {
-            contentCasConflict = true;
-            return;
-          }
-        } else if (documentFieldsChanged) {
-          await tx
-            .update(schema.documents)
-            .set(updates)
-            .where(eq(schema.documents.id, id));
-        }
-
-        if (contentChanged && content !== undefined) {
-          for (const field of primaryBlocksFields) {
-            await persistBlocksFieldIdentity({
-              db: tx as unknown as ReturnType<typeof getDb>,
-              ownerEmail: field.ownerEmail,
-              documentId: id,
-              propertyId: field.propertyId,
-              previousMarkdown: existing.content,
-              markdown: content,
-              now: updates.updatedAt as string,
-            });
-          }
-        }
-
-        if (titleChanged || contentChanged) {
-          const [latestVersion] = await tx
-            .select({ createdAt: schema.documentVersions.createdAt })
-            .from(schema.documentVersions)
-            .where(
-              and(
-                eq(schema.documentVersions.documentId, id),
-                eq(schema.documentVersions.ownerEmail, ownerEmail),
-              ),
-            )
-            .orderBy(desc(schema.documentVersions.createdAt))
-            .limit(1);
-          const shouldSnapshot =
-            clearsNonEmptyContent ||
-            !latestVersion ||
-            Date.now() - new Date(latestVersion.createdAt).getTime() >
-              SNAPSHOT_INTERVAL_MS;
-
-          if (shouldSnapshot) {
-            await tx.insert(schema.documentVersions).values({
-              id: nanoid(),
-              ownerEmail,
-              documentId: id,
-              title: existing.title,
-              content: existing.content,
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
-
-        if (favoriteChanged) {
-          await setFavoriteMembership({
-            db: tx,
-            userEmail: requestUserEmail as string,
-            documentId: id,
-            favorite: args.isFavorite as boolean,
-            now: updates.updatedAt as string,
-          });
-        }
-
-        if (titleChanged && args.title !== undefined) {
-          const [database] = await tx
-            .select({
-              id: schema.contentDatabases.id,
-              spaceId: schema.contentDatabases.spaceId,
-              systemRole: schema.contentDatabases.systemRole,
-            })
-            .from(schema.contentDatabases)
-            .where(eq(schema.contentDatabases.documentId, id));
-          if (database) {
-            const title =
-              database.systemRole === "files"
-                ? args.title.trim() || "Untitled"
-                : args.title;
-            await tx
-              .update(schema.contentDatabases)
-              .set({ title, updatedAt: updates.updatedAt as string })
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (database.systemRole === "files" && database.spaceId) {
+        const applied = await commitCanonicalDocumentBodyMutation({
+          write: async () => {
+            if (
+              (useBodyRevisionCas && lockedContentChanged) ||
+              useDocumentCas
+            ) {
+              const rows = await tx
+                .update(schema.documents)
+                .set(updates)
+                .where(
+                  and(
+                    eq(schema.documents.id, id),
+                    ...(parsedBaseRevision
+                      ? [
+                          eq(
+                            schema.documents.bodyRevision,
+                            parsedBaseRevision.revision,
+                          ),
+                        ]
+                      : [
+                          eq(
+                            schema.documents.updatedAt,
+                            args.baseUpdatedAt as string,
+                          ),
+                        ]),
+                  ),
+                )
+                .returning({ id: schema.documents.id });
+              return rows.length > 0;
+            }
+            if (lockedDocumentFieldsChanged) {
               await tx
                 .update(schema.documents)
-                .set({ title, updatedAt: updates.updatedAt as string })
+                .set(updates)
                 .where(eq(schema.documents.id, id));
-              await tx
-                .update(schema.contentSpaces)
-                .set({ name: title, updatedAt: updates.updatedAt as string })
-                .where(eq(schema.contentSpaces.id, database.spaceId));
-              const catalogReferences = await tx
-                .select({
-                  documentId: schema.contentSpaceCatalogItems.documentId,
-                })
-                .from(schema.contentSpaceCatalogItems)
-                .where(
-                  eq(schema.contentSpaceCatalogItems.spaceId, database.spaceId),
-                );
-              if (catalogReferences.length > 0) {
-                await tx
-                  .update(schema.documents)
-                  .set({ title, updatedAt: updates.updatedAt as string })
-                  .where(
-                    inArray(
-                      schema.documents.id,
-                      catalogReferences.map(
-                        (reference) => reference.documentId,
-                      ),
-                    ),
-                  );
+            }
+            return true;
+          },
+          afterWrite: async () => {
+            if (lockedContentChanged && content !== undefined) {
+              for (const field of primaryBlocksFields) {
+                await persistBlocksFieldIdentity({
+                  db: tx as unknown as ReturnType<typeof getDb>,
+                  ownerEmail: field.ownerEmail,
+                  documentId: id,
+                  propertyId: field.propertyId,
+                  previousMarkdown: historyBefore.content,
+                  markdown: content,
+                  now: updatedAt,
+                });
               }
             }
-          }
+          },
+        });
+        if (!applied) {
+          contentCasConflict = true;
+          return;
         }
-      });
+        committedContentChanged = lockedContentChanged;
+        committedContentBefore = historyBefore.content;
+
+        if (lockedTitleChanged && args.title !== undefined) {
+          await propagateDocumentTitle({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            documentId: id,
+            title: args.title,
+            updatedAt,
+          });
+        }
+        if (lockedTitleChanged || lockedContentChanged) {
+          const [after] = await tx
+            .select({
+              title: schema.documents.title,
+              content: schema.documents.content,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          committedEditorSnapshot = after;
+          await recordDocumentHistoryTransition({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail,
+            documentId: id,
+            before: historyBefore,
+            after,
+            cause: {
+              ctx,
+              historySessionId: args.historySessionId,
+              operation: "update-document",
+            },
+            now: updatedAt,
+          });
+        }
+        if (settlesPreviewDraft && committedEditorSnapshot === null) {
+          const [snapshot] = await tx
+            .select({
+              title: schema.documents.title,
+              content: schema.documents.content,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          committedEditorSnapshot = snapshot ?? null;
+        }
+        if (
+          settlesPreviewDraft &&
+          args.editorSnapshotTitle !== undefined &&
+          args.editorSnapshotContent !== undefined &&
+          committedEditorSnapshot?.title === args.editorSnapshotTitle &&
+          committedEditorSnapshot.content === args.editorSnapshotContent
+        ) {
+          await settlePreviewDocumentDraft({
+            db: tx,
+            ownerEmail: requestUserEmail as string,
+            orgId: requestOrgId,
+            documentId: id,
+            editorSessionId: args.editorSessionId as string,
+            editGeneration: args.editorEditGeneration as number,
+            now: updatedAt,
+          });
+        }
+      };
+      if (
+        (favoriteChanged || args.isFavorite === false) &&
+        !settlesPreviewDraft
+      ) {
+        await setFavoriteAndOrder({
+          db,
+          userEmail: requestUserEmail as string,
+          documentId: id,
+          favorite: args.isFavorite as boolean,
+          now: nextDocumentUpdatedAt(existing.updatedAt),
+        });
+      } else {
+        await db.transaction(mutate);
+      }
 
       if (contentCasConflict) {
         // Someone else's write landed after the caller's snapshot. Don't
@@ -692,6 +936,12 @@ export default defineAction({
               canManage: canManageRole(access.role),
               createdAt: current.createdAt,
               updatedAt: current.updatedAt,
+              revision: documentRevisionToken(
+                current.bodyRevision,
+                current.content,
+              ),
+              bodyRevision: current.bodyRevision,
+              contentHash: documentContentHash(current.content),
               source: serializeDocumentSource(current),
               softDeletedDatabaseIds: [],
             },
@@ -700,7 +950,7 @@ export default defineAction({
         );
       }
 
-      if (contentChanged) {
+      if (committedContentChanged) {
         softDeletedDatabaseIds = await reconcileInlineDatabasesForDocument(
           id,
           content ?? "",
@@ -712,13 +962,13 @@ export default defineAction({
       // through `searchAndReplace`; it keeps the SQL + reconcile delivery and
       // publishes agent presence + a lingering recent-edit highlight near the
       // first changed span. Best-effort — never fail the save on presence.
-      if (isAgentCaller && contentChanged) {
+      if (isAgentCaller && committedContentChanged) {
         try {
           agentTouchDocument(id, {
             edit: {
               descriptor: {
                 kind: "text",
-                quote: firstChangedQuote(existing.content ?? "", content ?? ""),
+                quote: firstChangedQuote(committedContentBefore, content ?? ""),
               },
               label: (args.title ?? existing.title) || undefined,
             },
@@ -759,6 +1009,21 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    if (isAgentCaller && doc.content !== existing.content) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: 1,
+          refine_type: "full_update",
+        },
+        ctx,
+      );
+    }
+
     return scopeDocumentAudit(
       {
         id: doc.id,
@@ -778,6 +1043,10 @@ export default defineAction({
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
+        revision: documentRevisionToken(doc.bodyRevision, doc.content),
+        bodyRevision: doc.bodyRevision,
+        contentHash: documentContentHash(doc.content),
+        contentFidelity: inspectNfmFidelity(doc.content),
         source: serializeDocumentSource(doc),
         softDeletedDatabaseIds,
         ...(creativeContext

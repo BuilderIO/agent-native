@@ -1,15 +1,45 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import getDesignSystem from "./get-design-system.js";
+
+// The editor re-reads get-design after saves, on sync events, and every second
+// while a generation runs. Count a signed-in viewer's view once per window,
+// not once per read. Per server instance; anonymous reads have no viewer key.
+const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
+const DESIGN_VIEW_TRACK_MAX_KEYS = 5000;
+const lastDesignViewTrackedAt = new Map<string, number>();
+
+function shouldTrackDesignView(
+  viewer: string | undefined,
+  designId: string,
+): boolean {
+  if (!viewer) return true;
+  const key = `${viewer}\u0000${designId}`;
+  const now = Date.now();
+  const last = lastDesignViewTrackedAt.get(key);
+  if (last !== undefined && now - last < DESIGN_VIEW_TRACK_WINDOW_MS) {
+    return false;
+  }
+  lastDesignViewTrackedAt.delete(key);
+  lastDesignViewTrackedAt.set(key, now);
+  if (lastDesignViewTrackedAt.size > DESIGN_VIEW_TRACK_MAX_KEYS) {
+    const oldest = lastDesignViewTrackedAt.keys().next();
+    if (!oldest.done) lastDesignViewTrackedAt.delete(oldest.value);
+  }
+  return true;
+}
 
 export default defineAction({
   description:
-    "Get a design project by ID. Returns the full design data including all associated files.",
+    "Get a design project by ID. Returns the full design data including all associated files and linked `designSystem.agentContext` when readable. Treat that context as authoritative before authoring or restyling.",
   schema: z.object({
     id: z.string().describe("Design ID"),
   }),
@@ -17,7 +47,7 @@ export default defineAction({
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) {
       const error = new Error("Design not found") as Error & {
@@ -43,6 +73,24 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id))
       .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
+    const designSystem = await loadAgentDesignSystemContext(
+      typeof row.designSystemId === "string" ? row.designSystemId : null,
+      getDesignSystem,
+    );
+
+    if (shouldTrackDesignView(ctx?.userEmail, id)) {
+      track(
+        "design_viewed",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: id,
+          output_type: "design",
+          is_owner: access.role === "owner",
+        },
+        ctx,
+      );
+    }
 
     return {
       id: row.id,
@@ -50,6 +98,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
       createdAt: row.createdAt,

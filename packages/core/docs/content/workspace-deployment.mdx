@@ -140,7 +140,7 @@ Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
 
 Wiring up a provider build command instead of deploying by hand? Add `--build-only` to the same command, for example `npx @agent-native/core@latest deploy --preset vercel --build-only`. It writes the output directly, so no `vercel.json` is required for workspace routing.
 
-Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
+Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && pnpm build` like a standalone scaffold.
 
 </Callout>
 
@@ -217,7 +217,7 @@ A **reverse proxy** is that single entry point in the picture above: it receives
 The base path is a build-time input for the client bundle and a runtime input for the server. Build each app with the same path the proxy will route to it:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 
@@ -335,8 +335,8 @@ agents.example.com {
   credentials, and cross-app A2A.
 - Set `BETTER_AUTH_URL` to the public URL for that app path. OAuth callback URLs
   should use the same public URL.
-- Do not rely on the container filesystem for production data. Use Postgres (or
-  another persistent SQL backend) for `DATABASE_URL`.
+- Do not rely on the container filesystem for production data. Use Postgres for
+  `DATABASE_URL`.
 - If Cloudflare terminates TLS in front of the VPS, configure Cloudflare to send
   normal `X-Forwarded-Proto` / `X-Forwarded-Host` headers and route the public
   host to the proxy container.

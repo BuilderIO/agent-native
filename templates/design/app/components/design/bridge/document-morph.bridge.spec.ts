@@ -78,6 +78,119 @@ async function replaceDocument(page: Page, html: string): Promise<void> {
   await page.waitForTimeout(50);
 }
 
+async function replaceDocumentWithSelection(
+  page: Page,
+  html: string,
+  selectedSelector: string,
+  selectorCandidates: string[],
+  forceFullDocument = true,
+): Promise<void> {
+  await page.evaluate(
+    ({ content, selector, candidates, force }) => {
+      window.postMessage(
+        {
+          type: "replace-document-content",
+          content,
+          selectedSelector: selector,
+          selectorCandidates: candidates,
+          forceFullDocument: force,
+        },
+        "*",
+      );
+    },
+    {
+      content: html,
+      selector: selectedSelector,
+      candidates: selectorCandidates,
+      force: forceFullDocument,
+    },
+  );
+  await page.waitForTimeout(50);
+}
+
+async function replaceSelectedSubtree(
+  page: Page,
+  html: string,
+  selectedSelector: string,
+): Promise<void> {
+  await page.evaluate(
+    ({ content, selector }) => {
+      window.postMessage(
+        {
+          type: "replace-document-content",
+          content,
+          selectedSelector: selector,
+          selectorCandidates: [selector],
+          forceFullDocument: false,
+        },
+        "*",
+      );
+    },
+    { content: html, selector: selectedSelector },
+  );
+  await page.waitForTimeout(50);
+}
+
+/** Ids of `an-main`'s direct children, in live DOM order. */
+async function mainChildOrder(page: Page): Promise<(string | null)[]> {
+  return page.evaluate(() =>
+    Array.from(
+      document.querySelectorAll(
+        '[data-agent-native-node-id="an-main"] > [data-agent-native-node-id]',
+      ),
+    ).map((el) => el.getAttribute("data-agent-native-node-id")),
+  );
+}
+
+/** Records the `sourceId` of every element-select the bridge posts upward. */
+async function captureSelections(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { __selects: string[] }).__selects = seen;
+    window.addEventListener("message", (event) => {
+      const data = (event as MessageEvent).data;
+      if (data?.type === "element-select") {
+        seen.push(String(data.payload?.sourceId ?? ""));
+      }
+    });
+  });
+}
+
+async function readSelections(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const window_ = window as unknown as { __selects: string[] };
+    const seen = window_.__selects.slice();
+    window_.__selects.length = 0;
+    return seen;
+  });
+}
+
+async function selectionOverlayVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const overlay = document.querySelector(
+      '[data-agent-native-edit-overlay="selection"]',
+    ) as HTMLElement | null;
+    return !!overlay && overlay.style.display !== "none";
+  });
+}
+
+async function selectBySelector(
+  page: Page,
+  selector: string,
+  candidates: string[],
+): Promise<void> {
+  await page.evaluate(
+    ({ selector: sel, candidates: list }) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: list },
+        "*",
+      );
+    },
+    { selector, candidates },
+  );
+  await page.waitForTimeout(50);
+}
+
 async function withBridgedPage(
   body: string,
   run: (page: Page) => Promise<void>,
@@ -219,6 +332,237 @@ describe("replace-document-content morphs instead of rebuilding the body", () =>
   );
 
   it(
+    "keeps source ownership and live state through the selected-subtree fast path",
+    { timeout: 30_000 },
+    async () => {
+      const body = (name: string, className: string) =>
+        `<section data-agent-native-node-id="workspace" data-agent-native-layer-name="${name}" class="${className}"><input data-agent-native-node-id="workspace-input" value="source"></section><aside data-agent-native-node-id="aside">Keep</aside>`;
+      await withBridgedPage(body("Frame", "card"), async (page) => {
+        const before = {
+          workspace: await identityOf(page, "workspace"),
+          input: await identityOf(page, "workspace-input"),
+          aside: await identityOf(page, "aside"),
+        };
+        await page.evaluate(() => {
+          const workspace = document.querySelector(
+            '[data-agent-native-node-id="workspace"]',
+          ) as HTMLElement & {
+            __openCount?: number;
+            __probed?: boolean;
+          };
+          workspace.__openCount = 7;
+          workspace.addEventListener("morph-probe", () => {
+            workspace.__probed = true;
+          });
+          (
+            document.querySelector(
+              '[data-agent-native-node-id="workspace-input"]',
+            ) as HTMLInputElement
+          ).value = "typed";
+        });
+
+        await replaceSelectedSubtree(
+          page,
+          documentHtml(body("Workspace", "card card--wide")),
+          '[data-agent-native-node-id="workspace"]',
+        );
+
+        const afterSubtreeEdit = await page.evaluate(() => {
+          const workspace = document.querySelector(
+            '[data-agent-native-node-id="workspace"]',
+          ) as
+            | (HTMLElement & {
+                __anSource?: boolean;
+                __anSourceMeta?: { attrs?: string[]; className?: string };
+                __openCount?: number;
+                __probed?: boolean;
+              })
+            | null;
+          workspace?.dispatchEvent(new CustomEvent("morph-probe"));
+          return {
+            sourceOwned: workspace?.__anSource === true,
+            sourceMeta: workspace?.__anSourceMeta
+              ? {
+                  attrs: workspace.__anSourceMeta.attrs,
+                  className: workspace.__anSourceMeta.className,
+                }
+              : null,
+            openCount: workspace?.__openCount ?? null,
+            listener: workspace?.__probed === true,
+            inputValue: (
+              document.querySelector(
+                '[data-agent-native-node-id="workspace-input"]',
+              ) as HTMLInputElement | null
+            )?.value,
+          };
+        });
+
+        expect({
+          workspace: await identityOf(page, "workspace"),
+          input: await identityOf(page, "workspace-input"),
+          aside: await identityOf(page, "aside"),
+        }).toEqual(before);
+        expect(afterSubtreeEdit).toMatchObject({
+          sourceOwned: true,
+          sourceMeta: {
+            attrs: expect.arrayContaining([
+              "data-agent-native-layer-name",
+              "data-agent-native-node-id",
+              "class",
+            ]),
+            className: "card card--wide",
+          },
+          openCount: 7,
+          listener: true,
+          inputValue: "typed",
+        });
+
+        await replaceDocument(
+          page,
+          documentHtml(body("Workspace", "card card--wide")),
+        );
+
+        expect(
+          await page.locator('[data-agent-native-node-id="workspace"]').count(),
+        ).toBe(1);
+        expect({
+          workspace: await identityOf(page, "workspace"),
+          input: await identityOf(page, "workspace-input"),
+          aside: await identityOf(page, "aside"),
+        }).toEqual(before);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace-input"]')
+            .inputValue(),
+        ).toBe("typed");
+      });
+    },
+  );
+
+  it(
+    "updates a root source key in place when a stable selector still matches it",
+    { timeout: 30_000 },
+    async () => {
+      const body = (id: string) =>
+        `<section data-agent-native-node-id="${id}" class="workspace"><span data-agent-native-node-id="workspace-label">Label</span></section>`;
+      await withBridgedPage(body("workspace-before"), async (page) => {
+        const before = {
+          workspace: await identityOf(page, "workspace-before"),
+          label: await identityOf(page, "workspace-label"),
+        };
+
+        await replaceSelectedSubtree(
+          page,
+          documentHtml(body("workspace-after")),
+          ".workspace",
+        );
+
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace-before"]')
+            .count(),
+        ).toBe(0);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace-after"]')
+            .count(),
+        ).toBe(1);
+        expect({
+          workspace: await identityOf(page, "workspace-after"),
+          label: await identityOf(page, "workspace-label"),
+        }).toEqual(before);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace-after"]')
+            .evaluate((element) => {
+              const source = element as HTMLElement & {
+                __anSource?: boolean;
+                __anSourceMeta?: { attrs?: string[] };
+              };
+              return {
+                sourceOwned: source.__anSource === true,
+                sourceKeyInMeta: source.__anSourceMeta?.attrs?.includes(
+                  "data-agent-native-node-id",
+                ),
+              };
+            }),
+        ).toEqual({ sourceOwned: true, sourceKeyInMeta: true });
+
+        await replaceDocument(page, documentHtml(body("workspace-after")));
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace-after"]')
+            .count(),
+        ).toBe(1);
+        expect(await identityOf(page, "workspace-after")).toBe(
+          before.workspace,
+        );
+      });
+    },
+  );
+
+  it(
+    "stamps a selected-subtree replacement when the root tag changes",
+    { timeout: 30_000 },
+    async () => {
+      const body = (tag: "article" | "section") =>
+        `<${tag} data-agent-native-node-id="workspace" class="workspace"><span data-agent-native-node-id="workspace-label">Label</span></${tag}>`;
+      await withBridgedPage(body("article"), async (page) => {
+        const original = await identityOf(page, "workspace");
+        await replaceSelectedSubtree(
+          page,
+          documentHtml(body("section")),
+          '[data-agent-native-node-id="workspace"]',
+        );
+
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace"]')
+            .evaluate((element) => {
+              const source = element as HTMLElement & {
+                __anSource?: boolean;
+                __anSourceMeta?: { attrs?: string[] };
+              };
+              return {
+                tag: element.tagName.toLowerCase(),
+                sourceOwned: source.__anSource === true,
+                sourceKeyInMeta: source.__anSourceMeta?.attrs?.includes(
+                  "data-agent-native-node-id",
+                ),
+              };
+            }),
+        ).toEqual({
+          tag: "section",
+          sourceOwned: true,
+          sourceKeyInMeta: true,
+        });
+        expect(await identityOf(page, "workspace")).not.toBe(original);
+
+        await page
+          .locator('[data-agent-native-node-id="workspace"]')
+          .evaluate((element) => {
+            (
+              element as HTMLElement & { __replacementMarker?: number }
+            ).__replacementMarker = 42;
+          });
+        await replaceDocument(page, documentHtml(body("section")));
+        expect(
+          await page.locator('[data-agent-native-node-id="workspace"]').count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="workspace"]')
+            .evaluate(
+              (element) =>
+                (element as HTMLElement & { __replacementMarker?: number })
+                  .__replacementMarker ?? null,
+            ),
+        ).toBe(42);
+      });
+    },
+  );
+
+  it(
     "patches a changed head without rebuilding the body",
     { timeout: 30_000 },
     async () => {
@@ -355,6 +699,69 @@ const ALPINE_BODY = (headingClass: string) =>
 
 describe("morphing an Alpine-managed tree", () => {
   it(
+    "keeps Alpine template clones through a selected-subtree edit",
+    { timeout: 30_000 },
+    async () => {
+      const body = (className: string) =>
+        `<div data-agent-native-node-id="an-root" x-data="{ rows: ['one', 'two'] }"><ul data-agent-native-node-id="an-list" class="${className}"><template x-for="row in rows"><li x-text="row"></li></template></ul></div>`;
+      await withAlpinePage(body("before"), async (page) => {
+        await page.evaluate(() => {
+          const win = window as Window & { __cloneRefs?: Element[] };
+          win.__cloneRefs = Array.from(
+            document.querySelectorAll(
+              '[data-agent-native-node-id="an-list"] > li',
+            ),
+          );
+          if (win.__cloneRefs.length !== 2) {
+            throw new Error(
+              `expected two x-for clones, got ${win.__cloneRefs.length}`,
+            );
+          }
+        });
+
+        await replaceSelectedSubtree(
+          page,
+          documentHtml(body("after")),
+          '[data-agent-native-node-id="an-list"]',
+        );
+
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="an-list"]')
+            .getAttribute("class"),
+        ).toBe("after");
+        expect(
+          await page.evaluate(() => {
+            const win = window as Window & { __cloneRefs?: Element[] };
+            const clones = Array.from(
+              document.querySelectorAll(
+                '[data-agent-native-node-id="an-list"] > li',
+              ),
+            );
+            return {
+              text: clones.map((clone) => clone.textContent),
+              sameNodes:
+                clones.length === win.__cloneRefs?.length &&
+                clones.every(
+                  (clone, index) => clone === win.__cloneRefs?.[index],
+                ),
+            };
+          }),
+        ).toEqual({ text: ["one", "two"], sameNodes: true });
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="an-list"]')
+            .evaluate(
+              (element) =>
+                (element as HTMLElement & { __anSource?: boolean })
+                  .__anSource === true,
+            ),
+        ).toBe(true);
+      });
+    },
+  );
+
+  it(
     "keeps x-for clones, x-text output and x-show styling through an unrelated edit",
     { timeout: 30_000 },
     async () => {
@@ -483,6 +890,46 @@ describe("morph edge cases", () => {
             .count(),
         ).toBe(1);
       });
+    },
+  );
+
+  it(
+    "continues seeding the head after replacing its first managed node",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(
+          `<!doctype html><html><head><style data-agent-native-board-surface-render>old</style></head><body>${BASE_BODY}</body></html>`,
+        );
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await replaceDocument(
+          page,
+          `<!doctype html><html><head><style data-agent-native-board-surface-render>new</style><style data-agent-native-breakpoints>@media (max-width:640px){.card{display:none}}</style></head><body>${BASE_BODY}</body></html>`,
+        );
+
+        expect(pageErrors).toEqual([]);
+        expect(
+          await page.evaluate(() =>
+            Array.from(
+              document.head.querySelectorAll(
+                "style[data-agent-native-board-surface-render], style[data-agent-native-breakpoints]",
+              ),
+            ).map((node) => node.outerHTML),
+          ),
+        ).toEqual([
+          '<style data-agent-native-board-surface-render="">new</style>',
+          '<style data-agent-native-breakpoints="">@media (max-width:640px){.card{display:none}}</style>',
+        ]);
+      } finally {
+        await browser.close();
+      }
     },
   );
 
@@ -995,6 +1442,11 @@ describe("morph findings from the sixth review round", () => {
       const body = (state: string) =>
         `<div data-agent-native-node-id="an-root" x-data="{ n: ${state} }"><span data-agent-native-node-id="an-n" x-text="n"></span></div>`;
       await withAlpinePage(body("1"), async (page) => {
+        await page.evaluate(() => {
+          (window as Window & { __rootBefore?: Element }).__rootBefore =
+            document.querySelector('[data-agent-native-node-id="an-root"]') ??
+            undefined;
+        });
         expect(
           await page.evaluate(
             () =>
@@ -1003,7 +1455,11 @@ describe("morph findings from the sixth review round", () => {
           ),
         ).toBe("1");
 
-        await replaceDocument(page, documentHtml(body("99")));
+        await replaceSelectedSubtree(
+          page,
+          documentHtml(body("99")),
+          '[data-agent-native-node-id="an-root"]',
+        );
 
         // Alpine evaluates x-data once, so patching the attribute in place
         // leaves every binding underneath on the old scope. Polled because
@@ -1019,6 +1475,45 @@ describe("morph findings from the sixth review round", () => {
             { timeout: 10_000 },
           )
           .toBe("99");
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector(
+                '[data-agent-native-node-id="an-root"]',
+              ) !==
+              (window as Window & { __rootBefore?: Element }).__rootBefore,
+          ),
+        ).toBe(true);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="an-root"]')
+            .evaluate(
+              (element) =>
+                (element as HTMLElement & { __anSource?: boolean })
+                  .__anSource === true,
+            ),
+        ).toBe(true);
+
+        await page
+          .locator('[data-agent-native-node-id="an-root"]')
+          .evaluate((element) => {
+            (
+              element as HTMLElement & { __replacementMarker?: number }
+            ).__replacementMarker = 99;
+          });
+        await replaceDocument(page, documentHtml(body("99")));
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="an-root"]')
+            .evaluate(
+              (element) =>
+                (element as HTMLElement & { __replacementMarker?: number })
+                  .__replacementMarker ?? null,
+            ),
+        ).toBe(99);
+        expect(
+          await page.locator('[data-agent-native-node-id="an-root"]').count(),
+        ).toBe(1);
       });
     },
   );
@@ -1042,6 +1537,416 @@ describe("morph findings from the sixth review round", () => {
                 ?.textContent,
           ),
         ).toBe("RUNTIME");
+      });
+    },
+  );
+});
+
+describe("a forced replacement re-anchors only stable identity", () => {
+  it(
+    "keeps a node-id selection selected through a layout-flow replacement",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await captureSelections(page);
+        await selectBySelector(page, '[data-agent-native-node-id="b"]', [
+          '[data-agent-native-node-id="b"]',
+        ]);
+        await readSelections(page);
+
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [
+              card("a", "Alpha"),
+              '<article data-agent-native-node-id="b" class="card" style="display:grid"><h3 data-agent-native-node-id="b-title">Beta</h3></article>',
+              card("c", "Gamma"),
+            ].join(""),
+          ),
+          '[data-agent-native-node-id="b"]',
+          ['[data-agent-native-node-id="b"]'],
+        );
+
+        expect(await selectionOverlayVisible(page)).toBe(true);
+        expect(await readSelections(page)).toContain("b");
+      });
+    },
+  );
+
+  it(
+    "does not hand a positional selector to the sibling that shifted into it",
+    { timeout: 30_000 },
+    async () => {
+      const positional =
+        '[data-agent-native-node-id="an-main"] > div:nth-of-type(1)';
+      await withBridgedPage(
+        '<div class="one">One</div><div class="two">Two</div>',
+        async (page) => {
+          await captureSelections(page);
+          await selectBySelector(page, positional, [positional]);
+          expect(await selectionOverlayVisible(page)).toBe(true);
+          await readSelections(page);
+
+          await replaceDocumentWithSelection(
+            page,
+            documentHtml('<div class="two">Two</div>'),
+            positional,
+            [positional],
+          );
+
+          expect(await selectionOverlayVisible(page)).toBe(false);
+          expect(await readSelections(page)).toEqual([]);
+        },
+      );
+    },
+  );
+});
+
+describe("repeat-template paint replay", () => {
+  const colors = {
+    white: "rgb(255, 255, 255)",
+    pink: "rgb(225, 29, 72)",
+    blue: "rgb(0, 0, 255)",
+  };
+  const repeatedRow = (
+    id: string,
+    className: string,
+    color: string,
+    extra = "",
+  ) =>
+    `<li data-agent-native-node-id="${id}" class="${className}" style="background-color:${color}"><span x-text="item.label"></span>${extra}</li>`;
+  const body = (primary: string, other: string, keyed = false) =>
+    `<div data-agent-native-node-id="an-repeat-root" x-data="{ items: [{id:'a',label:'Alpha'},{id:'b',label:'Beta'},{id:'c',label:'Gamma'}], otherItems: [{id:'o1',label:'Other 1'},{id:'o2',label:'Other 2'}] }"><ul id="primary"><template x-for="item in items" ${keyed ? ':key="item.id"' : ""} data-agent-native-node-id="an-primary-template">${primary}</template></ul><ul id="other"><template x-for="item in otherItems" ${keyed ? ':key="item.id"' : ""} data-agent-native-node-id="an-other-template">${other}</template></ul></div>`;
+
+  it(
+    "replays commit and Undo paint to unkeyed Alpine clones without clobbering runtime state",
+    { timeout: 30_000 },
+    async () => {
+      const initial = body(
+        repeatedRow("an-row", "source-base", colors.white),
+        repeatedRow("an-row", "other-base", colors.blue),
+      );
+      await withAlpinePage(initial, async (page) => {
+        const lookup = await page.evaluate(() => {
+          const template = document.querySelector(
+            "#primary template",
+          ) as HTMLTemplateElement & { _x_lookup?: Map<unknown, Element> };
+          return {
+            isMap: template._x_lookup instanceof Map,
+            keys: [...(template._x_lookup?.keys() || [])].map(String),
+          };
+        });
+        expect(lookup).toEqual({ isMap: true, keys: ["0", "1", "2"] });
+        await page.evaluate(() => {
+          for (const node of document.querySelectorAll<HTMLElement>(
+            "#primary > li",
+          )) {
+            node.classList.add("runtime-token", "preview-pink");
+            node.style.display = "none";
+            node.style.backgroundColor = "rgb(225, 29, 72)";
+          }
+          for (const node of document.querySelectorAll<HTMLElement>(
+            "#other > li",
+          )) {
+            node.classList.add("other-runtime-token");
+            node.style.backgroundColor = "rgb(0, 0, 255)";
+          }
+        });
+        await replaceDocument(
+          page,
+          documentHtml(
+            body(
+              repeatedRow("an-row", "source-base", colors.pink),
+              repeatedRow("an-row", "other-base", colors.blue),
+            ),
+          ),
+        );
+        expect(
+          await page.locator("#primary > li").evaluateAll((nodes) =>
+            nodes.map((node) => ({
+              color: getComputedStyle(node).backgroundColor,
+              display: (node as HTMLElement).style.display,
+              className: (node as HTMLElement).className,
+              text: node.textContent?.trim(),
+            })),
+          ),
+        ).toEqual([
+          {
+            color: colors.pink,
+            display: "none",
+            className: "source-base runtime-token preview-pink",
+            text: "Alpha",
+          },
+          {
+            color: colors.pink,
+            display: "none",
+            className: "source-base runtime-token preview-pink",
+            text: "Beta",
+          },
+          {
+            color: colors.pink,
+            display: "none",
+            className: "source-base runtime-token preview-pink",
+            text: "Gamma",
+          },
+        ]);
+        await replaceDocument(
+          page,
+          documentHtml(
+            body(
+              repeatedRow("an-row", "source-base", colors.white),
+              repeatedRow("an-row", "other-base", colors.blue),
+            ),
+          ),
+        );
+        expect(
+          await page
+            .locator("#primary > li")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => getComputedStyle(node).backgroundColor),
+            ),
+        ).toEqual([colors.white, colors.white, colors.white]);
+        expect(
+          await page
+            .locator("#primary > li")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => (node as HTMLElement).style.display),
+            ),
+        ).toEqual(["none", "none", "none"]);
+        expect(
+          await page
+            .locator("#primary > li")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => node.textContent?.trim()),
+            ),
+        ).toEqual(["Alpha", "Beta", "Gamma"]);
+        expect(
+          await page
+            .locator("#other > li")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => getComputedStyle(node).backgroundColor),
+            ),
+        ).toEqual([colors.blue, colors.blue]);
+      });
+    },
+  );
+
+  it(
+    "scopes duplicate row IDs to each sibling keyed Alpine lookup",
+    { timeout: 30_000 },
+    async () => {
+      const paired = (primary: string, other: string) =>
+        `<div data-agent-native-node-id="an-repeat-root" x-data="{ items: [{id:'a',label:'A'},{id:'b',label:'B'}], otherItems: [{id:'x',label:'X'},{id:'y',label:'Y'}] }"><ul id="siblings"><template x-for="item in items" :key="item.id" data-agent-native-node-id="an-primary-template">${primary}</template><template x-for="item in otherItems" :key="item.id" data-agent-native-node-id="an-other-template">${other}</template></ul></div>`;
+      await withAlpinePage(
+        paired(
+          repeatedRow("an-shared-row", "primary", colors.white),
+          repeatedRow("an-shared-row", "other", colors.blue),
+        ),
+        async (page) => {
+          expect(
+            await page
+              .locator("#siblings > li")
+              .evaluateAll((nodes) =>
+                nodes.map((node) => node.textContent?.trim()),
+              ),
+          ).toEqual(["A", "B", "X", "Y"]);
+          await replaceDocument(
+            page,
+            documentHtml(
+              paired(
+                repeatedRow("an-shared-row", "primary", colors.pink),
+                repeatedRow("an-shared-row", "other", colors.blue),
+              ),
+            ),
+          );
+          expect(
+            await page
+              .locator("#siblings > li")
+              .evaluateAll((nodes) =>
+                nodes.map((node) => getComputedStyle(node).backgroundColor),
+              ),
+          ).toEqual([colors.pink, colors.pink, colors.blue, colors.blue]);
+          await replaceDocument(
+            page,
+            documentHtml(
+              paired(
+                repeatedRow("an-shared-row", "primary", colors.white),
+                repeatedRow("an-shared-row", "other", colors.blue),
+              ),
+            ),
+          );
+          expect(
+            await page
+              .locator("#siblings > li")
+              .evaluateAll((nodes) =>
+                nodes.map((node) => getComputedStyle(node).backgroundColor),
+              ),
+          ).toEqual([colors.white, colors.white, colors.blue, colors.blue]);
+        },
+      );
+    },
+  );
+
+  it(
+    "maps same-row duplicate descendant IDs only through an unambiguous sibling pair",
+    { timeout: 30_000 },
+    async () => {
+      const row = (first: string, second: string) =>
+        `<li data-agent-native-node-id="an-row"><span x-text="item.label"></span><div data-agent-native-node-id="an-duplicate" class="first-target" style="background-color:${first}">first</div><div data-agent-native-node-id="an-duplicate" class="second-target" style="background-color:${second}">second</div></li>`;
+      await withAlpinePage(
+        body(
+          row(colors.white, colors.blue),
+          repeatedRow("an-other-row", "other", colors.blue),
+        ),
+        async (page) => {
+          await replaceDocument(
+            page,
+            documentHtml(
+              body(
+                row(colors.pink, colors.pink),
+                repeatedRow("an-other-row", "other", colors.blue),
+              ),
+            ),
+          );
+          const paint = () =>
+            page
+              .locator("#primary > li")
+              .evaluateAll((rows) =>
+                rows.map((row) => [
+                  getComputedStyle(row.querySelector(".first-target")!)
+                    .backgroundColor,
+                  getComputedStyle(row.querySelector(".second-target")!)
+                    .backgroundColor,
+                ]),
+              );
+          expect(await paint()).toEqual(
+            Array.from({ length: 3 }, () => [colors.pink, colors.pink]),
+          );
+          await replaceDocument(
+            page,
+            documentHtml(
+              body(
+                row(colors.white, colors.blue),
+                repeatedRow("an-other-row", "other", colors.blue),
+              ),
+            ),
+          );
+          expect(await paint()).toEqual(
+            Array.from({ length: 3 }, () => [colors.white, colors.blue]),
+          );
+        },
+      );
+    },
+  );
+
+  it(
+    "uses a newly stamped ID after a prior update inserted a sibling",
+    { timeout: 30_000 },
+    async () => {
+      const row = (paint = "") =>
+        `<li><span x-text="item.label"></span><p ${paint}>target</p></li>`;
+      const other = `<li><span x-text="item.label"></span><p style="background-color:${colors.blue}">other</p></li>`;
+      await withAlpinePage(body(row(), other), async (page) => {
+        await replaceDocument(
+          page,
+          documentHtml(
+            body(
+              `<li><span x-text="item.label"></span><p data-agent-native-node-id="an-late-id">target</p></li>`,
+              other,
+            ),
+          ),
+        );
+        await replaceDocument(
+          page,
+          documentHtml(
+            body(
+              `<li><span x-text="item.label"></span><i>inserted</i><p data-agent-native-node-id="an-late-id" style="background-color:${colors.pink}">target</p></li>`,
+              other,
+            ),
+          ),
+        );
+        expect(
+          await page
+            .locator("#primary > li p")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => getComputedStyle(node).backgroundColor),
+            ),
+        ).toEqual([colors.pink, colors.pink, colors.pink]);
+        expect(
+          await page
+            .locator("#primary > li p")
+            .evaluateAll((nodes) => nodes.map((node) => node.textContent)),
+        ).toEqual(["target", "target", "target"]);
+        expect(
+          await page
+            .locator("#other > li p")
+            .evaluateAll((nodes) =>
+              nodes.map((node) => getComputedStyle(node).backgroundColor),
+            ),
+        ).toEqual([colors.blue, colors.blue]);
+      });
+    },
+  );
+});
+
+// Peer-reported gap: a same-parent sibling reorder written WITHOUT
+// forceFullDocument (runLayerMove's applyFileContentUpdate calls) only
+// reaches the live DOM through this scoped path when a and b are both
+// selection-scoped candidates; the moment the active selection is some OTHER
+// node entirely, the scoped branch above patches only that node's own
+// subtree and returns before ever calling morphRuntimeBody — so a and b's
+// new sibling order is silently dropped from the live iframe even though the
+// write "applied".
+describe("a same-parent reorder without forceFullDocument", () => {
+  it(
+    "is dropped from the live DOM when the active selection is an unrelated sibling",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
+
+        // c is selected (unrelated to the a/b reorder below) and the write
+        // does not force a full-document replace — exactly what
+        // runLayerMove's applyFileContentUpdate(..., { refreshPreview:
+        // false }) sends today for a panel-drag sibling reorder.
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [card("b", "Beta"), card("a", "Alpha"), card("c", "Gamma")].join(
+              "",
+            ),
+          ),
+          '[data-agent-native-node-id="c"]',
+          ['[data-agent-native-node-id="c"]'],
+          false,
+        );
+
+        // This assertion documents the bug: a real sibling reorder in the
+        // written document never reaches the live DOM because the scoped
+        // morph only touched c's own (unchanged) subtree and returned.
+        expect(await mainChildOrder(page)).toEqual(["a", "b", "c"]);
+      });
+    },
+  );
+
+  it(
+    "reaches the live DOM when forceFullDocument is set (the fix runLayerMove must opt into)",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await replaceDocumentWithSelection(
+          page,
+          documentHtml(
+            [card("b", "Beta"), card("a", "Alpha"), card("c", "Gamma")].join(
+              "",
+            ),
+          ),
+          '[data-agent-native-node-id="c"]',
+          ['[data-agent-native-node-id="c"]'],
+          true,
+        );
+
+        expect(await mainChildOrder(page)).toEqual(["b", "a", "c"]);
       });
     },
   );

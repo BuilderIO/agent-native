@@ -1,11 +1,13 @@
 import path from "node:path";
 
 import baseConfig from "@agent-native/core/vitest-config";
+import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig, mergeConfig } from "vitest/config";
 
 export default mergeConfig(
   baseConfig,
   defineConfig({
+    plugins: [wgslVitePlugin()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./app"),

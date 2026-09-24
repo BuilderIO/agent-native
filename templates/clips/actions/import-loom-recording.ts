@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   writeAppState,
   writeAppStateForCurrentTab,
@@ -10,6 +10,7 @@ import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
@@ -31,6 +32,7 @@ import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
 } from "./lib/loom-import-job.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -145,7 +147,7 @@ async function fetchLoomOembed(shareUrl: string) {
 
 export default defineAction({
   description:
-    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 plus import Loom's public transcript in the background, since Loom's CDN plus a reupload can take longer than a single request should block on. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
+    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
   run: async (args, actionContext) => {
     const loomId = extractLoomVideoId(args.url);
@@ -225,11 +227,13 @@ export default defineAction({
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds),
+      folderId: args.folderId ?? existingRecording?.folderId,
+    });
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
-
-    const spaceIds = (
-      args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
-    ).filter((value, index, arr) => value && arr.indexOf(value) === index);
     const title =
       args.title?.trim() ||
       (existingRecording?.title &&
@@ -249,6 +253,9 @@ export default defineAction({
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
+    const existingEditorThumbnail = Boolean(
+      parseEdits(existingRecording?.editsJson).thumbnail,
+    );
 
     const buildRecordingValues = (
       videoSizeBytes: number,
@@ -264,7 +271,9 @@ export default defineAction({
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
       thumbnailUrl:
-        oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
+        oembed?.thumbnail_url ??
+        (existingEditorThumbnail ? existingRecording?.thumbnailUrl : null) ??
+        null,
       durationMs,
       videoFormat,
       videoSizeBytes,
@@ -480,6 +489,12 @@ export default defineAction({
       });
     }
 
+    await dispatchPostFinalizeJob({
+      recordingId: id,
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
+
     void queueBuilderMediaCompression({
       recordingId: id,
       ownerEmail,
@@ -562,7 +577,7 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl: oembed?.thumbnail_url ?? null,
+      thumbnailUrl: recordingValues.thumbnailUrl,
       durationMs,
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,

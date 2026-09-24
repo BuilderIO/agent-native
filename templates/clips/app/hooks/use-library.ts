@@ -7,6 +7,8 @@ import { isLiveRecordingUpload } from "@/lib/recording-status";
 
 export interface RecordingSummary {
   id: string;
+  /** Redaction boxes drawn but not yet burned into the file. */
+  pendingRedactions?: number;
   title: string;
   titleSource?: "default" | "context" | "upload" | "ai" | "manual";
   sourceAppName?: string | null;
@@ -20,7 +22,10 @@ export interface RecordingSummary {
   uploadProgress?: number;
   failureReason?: string | null;
   visibility: "private" | "org" | "public";
+  hasPassword: boolean;
+  expiresAt: string | null;
   ownerEmail: string;
+  ownerName?: string | null;
   folderId: string | null;
   spaceIds: string[];
   tags: string[];
@@ -91,9 +96,12 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
+  const normalizedArgs = Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value != null),
+  );
   return useActionQuery<number>(
     "list-recordings",
-    { ...args, countOnly: true } as any,
+    { ...normalizedArgs, countOnly: true } as any,
     {
       select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
       retry: false,
@@ -204,20 +212,30 @@ export function useTagRecording() {
 
 // ── Folders / spaces / organizations ──────────────────────────────────────────
 // Derived from `list-organization-state` which ships with the template. All
-// three hooks hit the same endpoint and slice — React Query dedupes identical
-// keys.
+// three hooks hit the same endpoint and slice.
 
 export function useOrganizationState(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  return useActionQuery<any>(
+  const enabled = options.enabled ?? true;
+  // Callers usually pass the id they just read from the active-org result, so
+  // an explicit `{ organizationId }` key would refetch the same org as a
+  // second, serial request. Serve the active query unless a different org is
+  // asked for.
+  const active = useActionQuery<any>("list-organization-state", undefined, {
+    enabled,
+  });
+  const needsOtherOrganization =
+    Boolean(organizationId) &&
+    active.isFetched &&
+    active.data?.organization?.id !== organizationId;
+  const other = useActionQuery<any>(
     "list-organization-state",
-    organizationId ? { organizationId } : undefined,
-    {
-      enabled: options.enabled ?? true,
-    },
+    { organizationId },
+    { enabled: enabled && needsOtherOrganization },
   );
+  return needsOtherOrganization ? other : active;
 }
 
 export function useFolders(
@@ -235,6 +253,33 @@ export function useFolders(
         )
       : all;
   return { data: { folders }, isLoading };
+}
+
+export interface FolderPathEntry {
+  id: string;
+  name: string;
+}
+
+/**
+ * Walks `parentId` from `folderId` up to the root, returning ancestors first
+ * and the folder itself last. Guards against a parentId cycle so a bad row
+ * can't hang the breadcrumb in an infinite loop.
+ */
+export function getFolderAncestorPath(
+  folders: readonly { id: string; name: string; parentId?: string | null }[],
+  folderId: string | undefined,
+): FolderPathEntry[] {
+  if (!folderId) return [];
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const path: FolderPathEntry[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(folderId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift({ id: current.id, name: current.name });
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
 }
 
 export function useSpaces(

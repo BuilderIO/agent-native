@@ -7,6 +7,7 @@ import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRequestHeader,
+  readBody,
   readMultipartFormData,
   setResponseStatus,
 } from "h3";
@@ -274,4 +275,40 @@ export const uploadFiles = defineEventHandler(async (event) => {
     ).value;
     return rest;
   });
+});
+
+export const deleteUploadedFile = defineEventHandler(async (event) => {
+  // coercion-ok: an unreadable session is intentionally treated as unauthenticated.
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  // coercion-ok: malformed JSON is reported as the existing missing-path 400.
+  const body = (await readBody(event).catch(() => null)) as {
+    path?: unknown;
+  } | null;
+  if (typeof body?.path !== "string" || !body.path) {
+    setResponseStatus(event, 400);
+    return { error: "Uploaded file path is required" };
+  }
+
+  const uploadDir = path.resolve(tenantUploadDir(session.email));
+  const candidate = path.resolve(uploadDir, body.path);
+  if (path.dirname(candidate) !== uploadDir) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid uploaded file reference" };
+  }
+
+  try {
+    await fs.promises.unlink(candidate);
+    return { deleted: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { deleted: false };
+    }
+    setResponseStatus(event, 500);
+    return { error: "Could not delete uploaded file" };
+  }
 });

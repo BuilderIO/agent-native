@@ -39,7 +39,7 @@ const replacements = {
 };
 
 const replacement = replacements[name];
-const title = `Agent Native ${name.replace(/-/g, " ")}`;
+const title = `Agent-Native ${name.replace(/-/g, " ")}`;
 const outputDir = path.join(repoRoot, "templates", name, "dist");
 const html = `<!doctype html>
 <html lang="en">
@@ -81,7 +81,7 @@ const html = `<!doctype html>
   </head>
   <body>
     <main>
-      <h1>This Agent Native app has been retired.</h1>
+      <h1>This Agent-Native app has been retired.</h1>
       <p>
         The ${escapeHtml(name)} template is no longer part of this repository.
         This static page keeps legacy Netlify projects deployable while their
@@ -92,7 +92,7 @@ const html = `<!doctype html>
           ? `<p>Use <a href="${replacement.url}">${escapeHtml(
               replacement.label,
             )}</a> instead.</p>`
-          : `<p>Visit <a href="https://agent-native.com">Agent Native</a> for the current apps.</p>`
+          : `<p>Visit <a href="https://agent-native.com">Agent-Native</a> for the current apps.</p>`
       }
     </main>
   </body>

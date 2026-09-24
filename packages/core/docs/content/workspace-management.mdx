@@ -5,6 +5,8 @@ description: "Branching, CODEOWNERS, PR review, and how Dispatch handles runtime
 
 # Workspace Governance
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 <Callout tone="info">
 
 **Developer page.** This page is for platform engineers setting up repo governance — branching, code review, CI. It covers **governance**: who reviews, approves, and owns what across many apps in one repo. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
@@ -169,14 +171,14 @@ Then add the [actions/labeler](https://github.com/actions/labeler) action — se
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
 | **App-only** (`templates/<app>/`) | Owning app team                       | Domain correctness, action schemas                                        |
 | **Framework** (`packages/core/`)  | Platform team + one affected app team | Breaking changes, performance, backwards compat                           |
-| **Schema migrations**             | Platform team + senior engineer       | Data safety, dialect agnosticism (SQLite + Postgres)                      |
+| **Schema migrations**             | Platform team + senior engineer       | Data safety, PostgreSQL compatibility                                     |
 | **Actions**                       | Owning team                           | Actions are both agent tools AND HTTP endpoints — review from both angles |
 | **Cross-app A2A**                 | Both app teams                        | If you change an A2A interface, the callers need to know                  |
 | **Dispatch vault/resources**      | Platform team                         | Secret access, grant scope, who gets what                                 |
 
 ### Concurrent Agent Work
 
-Agent-native workspaces often have multiple AI agents working on the same branch simultaneously. This is by design — the agents share a branch and push independently.
+Agent-Native workspaces often have multiple AI agents working on the same branch simultaneously. This is by design — the agents share a branch and push independently.
 
 <Callout id="doc-block-smcj91" tone="warning">
 
@@ -215,7 +217,7 @@ For the resource model and canonical paths, see [Agent Resources — Global reso
 
 ## Setup Checklist
 
-For a new workspace, after running `npx @agent-native/core@latest create`:
+For a new workspace, after running `npx --yes @agent-native/core@latest create`:
 
 **Git & GitHub:**
 

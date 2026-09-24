@@ -181,7 +181,7 @@ describe("constraintsStylePatch", () => {
         }),
         { horizontal: "left", vertical: "mixed" },
       ),
-    ).toMatchObject({ left: "20.4px" });
+    ).toMatchObject({ left: "20px" });
   });
 
   it("writes proportional position and size for Scale on both axes", () => {

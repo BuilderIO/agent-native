@@ -8,6 +8,7 @@ import {
   looksLikeTailwindUtility,
   maxWidthClassToken,
   maxWidthOverridesForStem,
+  migrateMaxWidthClassBounds,
   parseClassGroups,
   parseMaxWidthClassToken,
   planBreakpointStyleWrite,
@@ -136,6 +137,24 @@ describe("legacy prefix helpers treat scoped tokens as opaque", () => {
 });
 
 describe("max-width get/set/remove", () => {
+  it("migrates arbitrary bounds while preserving unrelated tokens", () => {
+    expect(
+      migrateMaxWidthClassBounds(
+        "relative max-[809px]:top-6 max-[1279px]:text-lg md:top-2",
+        new Map([[809, 899]]),
+      ),
+    ).toBe("relative max-[899px]:top-6 max-[1279px]:text-lg md:top-2");
+  });
+
+  it("refuses a moved same-property token that would collide", () => {
+    expect(
+      migrateMaxWidthClassBounds(
+        "max-[809px]:top-6 max-[899px]:top-8",
+        new Map([[809, 899]]),
+      ),
+    ).toBeNull();
+  });
+
   it("appends a new scoped token", () => {
     expect(setMaxWidthPropertyClass("text-sm", 809, "text-lg")).toBe(
       "text-sm max-[809px]:text-lg",

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { publishActionChangeFastPath } from "../action-change-fast-path.js";
+
 const mockExecute = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() =>
   vi.fn(
@@ -17,7 +19,12 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
-  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExistsConcurrently: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Stub auth so the handler doesn't try to read a real session cookie. Tests
@@ -812,10 +819,16 @@ describe("poll handler", () => {
           source: "action",
           actionName: "create-project",
           owner: "test@example.com",
+          nonce: "create-project-2000",
         }),
         updated_at: 2_000,
       },
     ];
+    publishActionChangeFastPath({
+      actionName: "create-project",
+      owner: "test@example.com",
+      nonce: "create-project-2000",
+    });
 
     const next = await handler({ query: { since: String(baseline.version) } });
 

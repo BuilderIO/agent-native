@@ -3,6 +3,7 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -17,19 +18,13 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
-  assets: 4,
-  chat: 3,
-};
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {};
 
-const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
-  assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865",
-};
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {};
 
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
@@ -103,21 +98,23 @@ export default function GenericTemplatePage() {
 
   if (!template) {
     return (
-      <main className="mx-auto max-w-[900px] px-6 py-20">
-        <Link
-          data-an-prefetch="viewport"
-          to={sitePathForLocale("/apps", locale)}
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconArrowLeft size={16} />
-          {t("templateDetail.allTemplates")}
-        </Link>
-        <h1 className="mt-8 text-4xl font-bold tracking-tight">
-          {t("templateDetail.notFoundTitle")}
-        </h1>
-        <p className="mt-3 text-[var(--fg-secondary)]">
-          {t("templateDetail.notFoundBody")}
-        </p>
+      <main className="mx-auto w-full max-w-site px-6 py-20">
+        <div className="mx-auto w-full max-w-[900px]">
+          <Link
+            data-an-prefetch="viewport"
+            to={sitePathForLocale("/apps", locale)}
+            className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
+          >
+            <IconArrowLeft size={16} />
+            {t("templateDetail.allTemplates")}
+          </Link>
+          <h1 className="mt-8 text-4xl font-bold tracking-tight">
+            {t("templateDetail.notFoundTitle")}
+          </h1>
+          <p className="mt-3 text-[var(--fg-secondary)]">
+            {t("templateDetail.notFoundBody")}
+          </p>
+        </div>
       </main>
     );
   }
@@ -146,12 +143,18 @@ export default function GenericTemplatePage() {
             {t("common.freeAndOpenSource")}
           </span>
         }
-        title={t("templateDetail.title", { name: template.name })}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            {t("templateDetail.title", { name: template.name })}
+            <AppStatusBadge appId={template.slug} />
+          </span>
+        }
+        customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
           hasDemoUrl ? (
             <a
-              href={template.demoUrl}
+              href={firstPartyAppUrl(template.demoUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"

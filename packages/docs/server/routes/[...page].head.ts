@@ -16,10 +16,16 @@ import {
 } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
-import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
+import { acceptsMarkdown, appendVary } from "../lib/agent-web-responses";
 import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
+const MARKDOWN_REWRITE_PREFIX = "/__agent-native-markdown";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -38,7 +44,7 @@ export default async function docsHeadHandler(event: H3Event) {
     setSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     if (asset.contentType.startsWith("text/markdown")) {
-      setHeader(event, "vary", "Accept");
+      setHeader(event, "vary", "Accept, Accept-Encoding");
       setHeader(
         event,
         "x-markdown-tokens",
@@ -50,9 +56,18 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
+  const requestUrl = getRequestURL(event);
+  appendVary(headers, ["Accept", "Accept-Encoding"]);
   // Preserve the stronger full-query key emitted by core for query-preserving
   // redirects; the normal Docs key is only for ordinary public SSR pages.
-  applyDocsSsrCacheKeyHeaders(headers);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    getRequestURL(event).pathname,
+    response.status,
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -75,14 +90,14 @@ function setSsrCacheHeaders(event: H3Event) {
 async function readHeadAssetForRequest(
   event: H3Event,
 ): Promise<{ content: string; contentType: string } | undefined> {
-  const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
-  const acceptsMarkdown =
-    getRequestHeader(event, "accept")?.includes("text/markdown") ?? false;
+  const pathname = markdownRequestPath(event).replace(/\/+$/, "") || "/";
+  const wantsMarkdown = acceptsMarkdown(getRequestHeader(event, "accept"));
   const contentTypeByPath: Record<string, string> = {
     "/llms.txt": "text/plain; charset=utf-8",
     "/llms-full.txt": "text/plain; charset=utf-8",
     "/robots.txt": "text/plain; charset=utf-8",
     "/sitemap.xml": "application/xml; charset=utf-8",
+    "/openapi.json": "application/json; charset=utf-8",
   };
   const contentType = contentTypeByPath[pathname];
   const isMarkdownPath = pathname.endsWith(".md");
@@ -90,12 +105,12 @@ async function readHeadAssetForRequest(
     ? pathname.replace(/^\//, "")
     : contentType
       ? pathname.replace(/^\//, "")
-      : acceptsMarkdown
+      : wantsMarkdown
         ? markdownRelativePathForRequest(pathname)
         : undefined;
   if (!relativePath) return undefined;
 
-  const isMarkdown = isMarkdownPath || acceptsMarkdown;
+  const isMarkdown = isMarkdownPath || wantsMarkdown;
   const content = isMarkdown
     ? await readMarkdownContent(relativePath, event)
     : readLocalFile(relativePath);
@@ -105,6 +120,15 @@ async function readHeadAssetForRequest(
     content,
     contentType: contentType ?? "text/markdown; charset=utf-8",
   };
+}
+
+function markdownRequestPath(event: H3Event): string {
+  const pathname = getRequestURL(event).pathname;
+  if (pathname === MARKDOWN_REWRITE_PREFIX) return "/";
+  if (pathname.startsWith(`${MARKDOWN_REWRITE_PREFIX}/`)) {
+    return pathname.slice(MARKDOWN_REWRITE_PREFIX.length) || "/";
+  }
+  return pathname;
 }
 
 function markdownRelativePathForRequest(pathname: string): string {

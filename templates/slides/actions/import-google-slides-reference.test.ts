@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { extractGoogleSlidesUrls } from "../shared/google-docs";
 import {
   extractGoogleSlidesPresentationId,
   googleSlidesExportError,
@@ -15,10 +16,37 @@ describe("extractGoogleSlidesPresentationId", () => {
     ).toBe("presentation_123");
   });
 
+  it("accepts account-scoped Google Slides URLs", () => {
+    expect(
+      extractGoogleSlidesPresentationId(
+        "https://docs.google.com/presentation/u/0/d/presentation_123/edit",
+      ),
+    ).toBe("presentation_123");
+  });
+
   it("continues to accept picker file IDs", () => {
     expect(extractGoogleSlidesPresentationId("presentation_123")).toBe(
       "presentation_123",
     );
+  });
+
+  it("extracts Google Slides URLs from text", () => {
+    expect(
+      extractGoogleSlidesUrls(
+        "See https://docs.google.com/presentation/d/presentation_123/edit?slide=id.p1#slide=id.p1, and also https://docs.google.com/presentation/u/0/d/presentation_456/view?usp=sharing.",
+      ),
+    ).toEqual([
+      "https://docs.google.com/presentation/d/presentation_123/edit?slide=id.p1#slide=id.p1",
+      "https://docs.google.com/presentation/u/0/d/presentation_456/view?usp=sharing",
+    ]);
+  });
+
+  it("ignores Docs and arbitrary URLs", () => {
+    expect(
+      extractGoogleSlidesUrls(
+        "https://docs.google.com/document/d/doc_1/edit https://example.com/presentation/d/presentation_123/edit",
+      ),
+    ).toEqual([]);
   });
 
   it("rejects non-Slides URLs", () => {

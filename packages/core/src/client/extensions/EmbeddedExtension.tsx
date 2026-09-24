@@ -14,6 +14,7 @@ import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-pro
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import { useAppearance } from "../appearance.js";
+import { getBrowserTabId } from "../browser-tab-id.js";
 import {
   Popover,
   PopoverContent,
@@ -470,6 +471,7 @@ export function EmbeddedExtension({
         finalHeaders.set("X-Agent-Native-Extension-Id", extensionId);
         finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
         finalHeaders.set("X-Agent-Native-Tool-Id", extensionId);
+        finalHeaders.set("X-Agent-Native-Browser-Tab", getBrowserTabId());
         const res = await fetch(agentNativePath(path), {
           ...options,
           headers: finalHeaders,
@@ -590,7 +592,9 @@ function EmbeddedToolMenu({
         { method: "DELETE" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["slot-installs", slotId],
+      });
     }
   };
 
@@ -600,7 +604,9 @@ function EmbeddedToolMenu({
       await deleteOrHideExtension({ id: extensionId, canDelete });
       invalidateExtensionRemoval(queryClient, extensionId);
     } catch {
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["extension", extensionId],
+      });
     }
   };
 

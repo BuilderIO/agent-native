@@ -16,6 +16,11 @@ use screencapturekit::audio_devices::AudioInputDevice;
 #[cfg(target_os = "macos")]
 use screencapturekit::cg::CGRect;
 #[cfg(target_os = "macos")]
+use screencapturekit::content_sharing_picker::{
+    SCContentSharingPicker, SCContentSharingPickerConfiguration, SCContentSharingPickerMode,
+    SCPickerOutcome,
+};
+#[cfg(target_os = "macos")]
 use screencapturekit::recording_output::{
     SCRecordingOutput, SCRecordingOutputCodec, SCRecordingOutputConfiguration,
     SCRecordingOutputDelegate, SCRecordingOutputFileType,
@@ -24,10 +29,13 @@ use screencapturekit::recording_output::{
 use screencapturekit::shareable_content::SCShareableContent;
 #[cfg(target_os = "macos")]
 use screencapturekit::stream::{
-    configuration::SCStreamConfiguration, content_filter::SCContentFilter,
-    output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
+    configuration::SCStreamConfiguration,
+    content_filter::{SCContentFilter, SCShareableContentStyle},
+    output_trait::SCStreamOutputTrait,
+    output_type::SCStreamOutputType,
+    sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -37,6 +45,52 @@ pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 /// is incomplete even when its init-segment `moov` is present, so uploading
 /// would silently publish a truncated clip.
 const CAPTURE_FINALIZE_INCOMPLETE_PREFIX: &str = "capture finalize incomplete: ";
+/// Prefix tagging `refuse_if_capture_stop_pending`'s error: a previous
+/// ScreenCaptureKit stop timed out and its detached worker is still running.
+/// Callers that otherwise treat an SCK start failure as "unavailable, fall
+/// back to `screencapture`" must check for this prefix first — falling back
+/// would start a second capture mechanism while the OS may still consider the
+/// old ScreenCaptureKit session live, the exact contention this guard exists
+/// to prevent.
+const CAPTURE_STOP_PENDING_PREFIX: &str = "capture stop pending: ";
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+fn has_screen_capture_permission() -> bool {
+    // SAFETY: CoreGraphics preflight takes no pointers and only returns the
+    // cached TCC decision for the calling process. It does not prompt.
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
+fn looks_like_screen_capture_permission_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("declined tcc")
+        || lower.contains("screen recording permission denied")
+        || lower.contains("window, display capture")
+}
+
+fn screen_capture_permission_message(action: &str) -> String {
+    format!(
+        "Screen Recording permission denied while {action}. Open System Settings > Privacy & Security > Screen & System Audio Recording, enable Clips, restart Clips, and try again."
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn should_skip_screencapture_fallback(sck_err: &str) -> Option<String> {
+    if !has_screen_capture_permission() || looks_like_screen_capture_permission_error(sck_err) {
+        Some(screen_capture_permission_message(
+            "starting the native screen recorder",
+        ))
+    } else {
+        None
+    }
+}
 // Keep native chunks comfortably under serverless request/event limits.
 const GCS_CHUNK_ALIGN_BYTES: usize = 256 * 1024;
 const UPLOAD_CHUNK_BYTES: usize = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
@@ -116,7 +170,10 @@ mod fragment_fence_backend_tests {
     #[test]
     fn fragment_fence_rejects_unsupported_backend() {
         let child = Command::new("/usr/bin/true").spawn().unwrap();
-        let backend = NativeFullscreenBackend::Screencapture { child };
+        let backend = NativeFullscreenBackend::Screencapture {
+            child,
+            output_path: PathBuf::from("/tmp/next.mp4"),
+        };
         assert!(backend
             .request_fragment_fence(PathBuf::from("/tmp/next.mp4"))
             .is_err());
@@ -124,6 +181,12 @@ mod fragment_fence_backend_tests {
 }
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
+
+#[derive(Clone, Serialize)]
+struct RecorderAudioLevelPayload {
+    level: f32,
+    source: &'static str,
+}
 
 // Custom ScreenCaptureKit capture engine: AVAssetWriter fragmented-MP4
 // writer, live audio mixer, and the AVFoundation FFI glue live in a child
@@ -211,9 +274,11 @@ struct NativeUploadResumeResponse {
     next_chunk_index: Option<u64>,
     attempt_id: Option<String>,
     upload_generation_id: Option<String>,
+    reason: Option<String>,
+    retry_after_ms: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct NativeUploadResetResponse {
     upload_mode: Option<String>,
@@ -224,6 +289,16 @@ impl NativeUploadResetResponse {
     fn mode(&self) -> NativeUploadMode {
         NativeUploadMode::from_option(self.upload_mode.clone())
     }
+}
+
+fn accept_native_retry_reset(
+    reset: NativeUploadResetResponse,
+    cancelled: bool,
+) -> Result<NativeUploadResetResponse, String> {
+    if cancelled {
+        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+    }
+    Ok(reset)
 }
 
 impl NativeUploadMode {
@@ -305,8 +380,9 @@ pub struct NativeCaptureRegion {
 }
 
 struct NativeFullscreenSession {
-    /// Active capture backend. `None` while paused — pause finalizes the
-    /// current segment and tears the backend down so the OS stops capturing.
+    /// Active capture backend. `None` while paused or waiting for recovery —
+    /// pause finalizes the current segment and tears the backend down so the
+    /// OS stops capturing.
     backend: Option<NativeFullscreenBackend>,
     /// Path the caller expects the final (single-file) recording at. When
     /// only one segment was recorded, this points directly at it. When the
@@ -336,6 +412,10 @@ struct NativeFullscreenSession {
     /// When the current pause began, if paused. Folded into `paused_total`
     /// on resume.
     paused_at: Option<Instant>,
+    /// A pause failure after backend teardown leaves the take paused for
+    /// recovery, but without a backend that can be resumed. Keep the error
+    /// explicit so Resume cannot treat that state as already running.
+    pause_failure: Option<String>,
     /// Info needed to spin up a fresh SCStream / screencapture child on
     /// resume so the new segment captures the same source with the same
     /// audio configuration as the initial start.
@@ -377,6 +457,10 @@ struct RestartInfo {
     segment_counter: u32,
     /// CGDirectDisplayID of the display to record. None = first available.
     target_display_id: Option<u32>,
+    /// CGWindowID of a selected window. Set only for native Window mode.
+    target_window_id: Option<u32>,
+    /// Pixel dimensions returned by the native picker for the selected window.
+    target_window_dimensions: Option<(u32, u32)>,
     /// Normalized display-relative capture rectangle for Region recordings.
     capture_region: Option<NativeCaptureRegion>,
 }
@@ -384,10 +468,15 @@ struct RestartInfo {
 pub(crate) enum NativeFullscreenBackend {
     Screencapture {
         child: Child,
+        output_path: PathBuf,
     },
     #[cfg(target_os = "macos")]
     ScreenCaptureKit {
-        stream: SCStream,
+        /// Behind `Arc<Mutex>` so the stop path can bound `stop_capture()` on
+        /// a detached thread instead of blocking the caller when the SCStream
+        /// connection is interrupted and the synchronous call never returns.
+        /// See `CustomScreenCaptureKit::stream` for the same reasoning.
+        stream: Arc<Mutex<SCStream>>,
         recording: SCRecordingOutput,
         finish: Arc<RecordingFinish>,
         /// Set true once the first microphone sample buffer is delivered.
@@ -670,6 +759,20 @@ pub(crate) fn prepare_shared_clip_sink(
 
 #[cfg(target_os = "macos")]
 impl NativeFullscreenBackend {
+    /// Stop the physical capture source without closing the rolling writer.
+    /// Screen Memory uses this during short ownership handoffs so macOS does
+    /// not have two ScreenCaptureKit sessions competing while the native
+    /// content picker is being presented.
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
+        match self {
+            Self::CustomScreenCaptureKit { resume, .. } => {
+                resume.pause()?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Queue a local fMP4 fence without stopping the stream or recreating its
     /// writer. Only the custom segmented backend supports this; callers must
     /// treat unsupported capture backends as a hard local-buffer failure.
@@ -694,6 +797,13 @@ impl NativeFullscreenBackend {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+impl NativeFullscreenBackend {
+    pub(crate) fn pause_capture_source(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
 /// Start the custom ScreenCaptureKit path in local rolling-buffer mode.
 /// Unlike the ordinary recorder, this always selects delegate-fed fMP4 output
 /// and preserves microphone/system audio as separate tracks, regardless of
@@ -707,6 +817,8 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
@@ -718,9 +830,13 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
         mic_device_id,
         mic_device_label,
         target_display_id,
+        target_window_id,
+        target_window_dimensions,
         capture_region,
         defer_recording_output,
         true,
+        false,
+        None,
     )
 }
 
@@ -734,7 +850,7 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
 impl Drop for NativeFullscreenBackend {
     fn drop(&mut self) {
         match self {
-            NativeFullscreenBackend::Screencapture { child } => {
+            NativeFullscreenBackend::Screencapture { child, .. } => {
                 if matches!(child.try_wait(), Ok(None)) {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -920,8 +1036,14 @@ fn spawn_disk_monitor(app: AppHandle, recording_path: PathBuf) -> Arc<AtomicBool
     stop
 }
 
+/// `recording_id` names the take this progress belongs to. The recording pill
+/// reuses one window across takes, so an untagged progress event from an
+/// earlier upload would move a newer take's completion card and refresh its
+/// stall timeout. Required rather than optional so the compiler, not review,
+/// is what catches a new emit site that forgets it.
 fn emit_native_upload_progress(
     app: &AppHandle,
+    recording_id: &str,
     stage: &str,
     message: impl Into<String>,
     detail: Option<String>,
@@ -930,6 +1052,7 @@ fn emit_native_upload_progress(
     let _ = app.emit(
         "clips:native-upload-progress",
         serde_json::json!({
+            "recordingId": recording_id,
             "stage": stage,
             "message": message.into(),
             "detail": detail,
@@ -956,6 +1079,8 @@ fn clear_recording_active(app: &AppHandle) {
 static LAST_NATIVE_UPLOAD_FINISHED: OnceLock<Mutex<Option<NativeUploadFinishedPayload>>> =
     OnceLock::new();
 static CLAIMED_NATIVE_UPLOAD_OPEN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static CANCELLED_NATIVE_UPLOAD_RETRIES: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
+const NATIVE_UPLOAD_RETRY_CANCELLED: &str = "native recording upload retry cancelled";
 
 fn last_native_upload_finished() -> &'static Mutex<Option<NativeUploadFinishedPayload>> {
     LAST_NATIVE_UPLOAD_FINISHED.get_or_init(|| Mutex::new(None))
@@ -965,7 +1090,41 @@ fn claimed_native_upload_open() -> &'static Mutex<Option<String>> {
     CLAIMED_NATIVE_UPLOAD_OPEN.get_or_init(|| Mutex::new(None))
 }
 
-fn reset_native_upload_completion_state() {
+fn cancelled_native_upload_retries() -> &'static Mutex<BTreeSet<String>> {
+    CANCELLED_NATIVE_UPLOAD_RETRIES.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+fn native_upload_retry_cancelled(recording_id: &str) -> bool {
+    cancelled_native_upload_retries()
+        .lock()
+        .map(|cancelled| cancelled.contains(recording_id))
+        .unwrap_or(true)
+}
+
+fn clear_native_upload_retry_cancelled(recording_id: &str) {
+    if let Ok(mut cancelled) = cancelled_native_upload_retries().lock() {
+        cancelled.remove(recording_id);
+    }
+}
+
+fn take_native_upload_retry_cancelled(recording_id: &str) -> bool {
+    cancelled_native_upload_retries()
+        .lock()
+        .map(|mut cancelled| cancelled.remove(recording_id))
+        .unwrap_or(true)
+}
+
+async fn wait_for_native_upload_retry_cancel(recording_id: &str) {
+    while !native_upload_retry_cancelled(recording_id) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Clear the take-once completion slot and the open-claim latch. Every path
+/// that starts a recording must call this: the slot has no expiry, and the
+/// pill drains it when a completion card opens, so a result left behind by an
+/// earlier take would surface on the next one's card.
+pub(crate) fn reset_native_upload_completion_state() {
     if let Ok(mut last) = last_native_upload_finished().lock() {
         *last = None;
     }
@@ -1114,6 +1273,476 @@ pub struct NativeFullscreenStartInfo {
     recording_id: String,
     width: Option<u32>,
     height: Option<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeWindowPickerSelection {
+    window_id: u32,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct WindowPickerRequests {
+    next_id: AtomicU64,
+    current: Mutex<Option<WindowPickerRequest>>,
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerRequest {
+    attempt: Arc<WindowPickerAttempt>,
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerAttempt {
+    id: u64,
+    started_at: Instant,
+    cancelled: AtomicBool,
+    live: AtomicBool,
+    finished: tokio::sync::watch::Sender<Option<Result<(), String>>>,
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerAttempt {
+    fn log(&self, stage: &str) {
+        crate::logfile::diagnostic(&format!(
+            "[window-picker] request={} elapsed_ms={} {stage}",
+            self.id,
+            self.started_at.elapsed().as_millis()
+        ));
+    }
+
+    fn can_present(&self) -> bool {
+        self.live.load(Ordering::SeqCst) && !self.cancelled.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerRequests {
+    fn start(
+        &self,
+    ) -> Result<(Arc<WindowPickerAttempt>, tokio::sync::oneshot::Receiver<()>), String> {
+        let mut current = self.current.lock().map_err(|error| error.to_string())?;
+        if current.is_some() {
+            return Err("The macOS Window picker is already open.".to_string());
+        }
+        let attempt = Arc::new(WindowPickerAttempt {
+            id: self.next_id.fetch_add(1, Ordering::SeqCst) + 1,
+            started_at: Instant::now(),
+            cancelled: AtomicBool::new(false),
+            live: AtomicBool::new(true),
+            finished: tokio::sync::watch::channel(None).0,
+        });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        *current = Some(WindowPickerRequest {
+            attempt: Arc::clone(&attempt),
+            cancel: Some(tx),
+        });
+        Ok((attempt, rx))
+    }
+
+    fn cancel(&self) -> Result<Option<Arc<WindowPickerAttempt>>, String> {
+        let cancelled = {
+            let mut current = self.current.lock().map_err(|error| error.to_string())?;
+            current.as_mut().map(|request| {
+                request.attempt.cancelled.store(true, Ordering::SeqCst);
+                (Arc::clone(&request.attempt), request.cancel.take())
+            })
+        };
+        if let Some((attempt, tx)) = cancelled {
+            if let Some(tx) = tx {
+                attempt.log("cancellation requested");
+                let _ = tx.send(());
+            }
+            return Ok(Some(attempt));
+        }
+        Ok(None)
+    }
+
+    fn finish(&self, id: u64) -> Result<(), String> {
+        let mut current = self.current.lock().map_err(|error| error.to_string())?;
+        if current
+            .as_ref()
+            .is_some_and(|request| request.attempt.id == id)
+        {
+            *current = None;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn window_picker_requests() -> &'static WindowPickerRequests {
+    static REQUESTS: OnceLock<WindowPickerRequests> = OnceLock::new();
+    REQUESTS.get_or_init(WindowPickerRequests::default)
+}
+
+// The picker bridge queues presentation with DispatchQueue.main.async.
+// Dismissal must use that same FIFO, not Tauri's separate event-loop queue.
+#[cfg(target_os = "macos")]
+fn queue_window_picker_main(task: impl FnOnce() + Send + 'static) {
+    use std::ffi::c_void;
+    extern "C" {
+        static _dispatch_main_q: c_void;
+        fn dispatch_async_f(
+            queue: *const c_void,
+            context: *mut c_void,
+            work: extern "C" fn(*mut c_void),
+        );
+    }
+    extern "C" fn run(context: *mut c_void) {
+        // SAFETY: dispatch invokes this once with the Box allocated below.
+        let task = unsafe { Box::from_raw(context.cast::<Box<dyn FnOnce() + Send>>()) };
+        task();
+    }
+    let task: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(task));
+    // SAFETY: libdispatch owns the process main queue; the callback owns task.
+    unsafe {
+        dispatch_async_f(&raw const _dispatch_main_q, Box::into_raw(task).cast(), run);
+    }
+}
+
+#[cfg(target_os = "macos")]
+const WINDOW_PICKER_DISPATCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(target_os = "macos")]
+async fn await_window_picker_main<T>(
+    attempt: &WindowPickerAttempt,
+    stage: &str,
+    rx: tokio::sync::oneshot::Receiver<T>,
+) -> Result<T, String> {
+    tokio::time::timeout(WINDOW_PICKER_DISPATCH_TIMEOUT, rx)
+        .await
+        .map_err(|_| {
+            attempt.log(&format!("{stage}: main queue timed out"));
+            format!("The macOS Window picker main queue timed out during {stage}.")
+        })?
+        .map_err(|_| format!("The macOS Window picker main queue stopped during {stage}."))
+}
+
+#[cfg(target_os = "macos")]
+struct WindowPickerStateGuard {
+    attempt: Arc<WindowPickerAttempt>,
+    dismissal_queued: bool,
+    completion: Option<Result<(), String>>,
+}
+
+#[cfg(target_os = "macos")]
+impl WindowPickerStateGuard {
+    fn dismiss(&mut self) -> tokio::sync::oneshot::Receiver<()> {
+        self.attempt.live.store(false, Ordering::SeqCst);
+        self.dismissal_queued = true;
+        let attempt = Arc::clone(&self.attempt);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        attempt.log("dismiss queued");
+        queue_window_picker_main(move || {
+            attempt.log("dismiss entered main queue");
+            SCContentSharingPicker::set_active(false);
+            attempt.log("dismiss completed");
+            let _ = tx.send(());
+        });
+        rx
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for WindowPickerStateGuard {
+    fn drop(&mut self) {
+        if !self.dismissal_queued {
+            let _ = self.dismiss();
+        }
+        if let Err(error) = window_picker_requests().finish(self.attempt.id) {
+            self.attempt.log(&format!("release failed: {error}"));
+            self.completion = Some(Err(error));
+        }
+        self.attempt
+            .finished
+            .send_replace(Some(self.completion.take().unwrap_or_else(|| {
+                Err(
+                    "The macOS Window picker request ended before dismissal was acknowledged."
+                        .to_string(),
+                )
+            })));
+        self.attempt.log("request released");
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn window_picker_active() -> bool {
+    window_picker_requests()
+        .current
+        .lock()
+        .expect("Window picker request state poisoned")
+        .is_some()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn window_picker_active() -> bool {
+    false
+}
+
+/// Cancel the native picker from the global Escape shortcut. macOS does not
+/// reliably deliver Escape to the picker observer when the tray app remains
+/// the active owner of the recording flow, so the command also wakes the
+/// Rust future directly instead of relying on the picker observer.
+#[cfg(target_os = "macos")]
+pub fn cancel_window_picker(_app: &AppHandle) {
+    // Called from hotkey callbacks too: never dispatch AppKit work or wait
+    // for dismissal while the Carbon callback is on the stack.
+    if let Err(error) = window_picker_requests().cancel() {
+        crate::logfile::diagnostic(&format!("[window-picker] cancel failed: {error}"));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cancel_window_picker(_app: &AppHandle) {}
+
+/// Frontend cancellation waits until the picker releases its ownership before
+/// allowing a new recording attempt. Shortcut callbacks only signal it above.
+#[tauri::command]
+pub async fn cancel_native_window_picker() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Some(attempt) = window_picker_requests().cancel()? {
+        let mut finished = attempt.finished.subscribe();
+        let completion = tokio::time::timeout(
+            WINDOW_PICKER_DISPATCH_TIMEOUT + Duration::from_secs(1),
+            finished.wait_for(|value| value.is_some()),
+        )
+        .await
+        .map_err(|_| "The macOS Window picker cancellation did not settle.".to_string())?
+        .map_err(|_| "The macOS Window picker cancellation channel closed.".to_string())?;
+        return completion
+            .as_ref()
+            .expect("wait_for requires completion")
+            .clone();
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+async fn present_window_picker(
+    attempt: Arc<WindowPickerAttempt>,
+) -> Result<SCPickerOutcome, String> {
+    let (config_tx, config_rx) = tokio::sync::oneshot::channel();
+    let preparing = Arc::clone(&attempt);
+    attempt.log("prepare queued");
+    queue_window_picker_main(move || {
+        if !preparing.can_present() {
+            preparing.log("stale preparation skipped");
+            return;
+        }
+        preparing.log("prepare entered main queue");
+        SCContentSharingPicker::set_active(false);
+        let mut config = SCContentSharingPickerConfiguration::default_from_system();
+        config.set_allowed_picker_modes(&[SCContentSharingPickerMode::SingleWindow]);
+        config.set_allows_changing_selected_content(false);
+        config.set_excluded_bundle_ids(&["com.clips.tray"]);
+        preparing.log("configuration ready");
+        let _ = config_tx.send(config);
+    });
+    let config = await_window_picker_main(&attempt, "prepare", config_rx).await?;
+    let (outcome_tx, outcome_rx) = tokio::sync::oneshot::channel();
+    let callback_attempt = Arc::clone(&attempt);
+    attempt.log("present queued in bridge");
+    SCContentSharingPicker::show_using_style(
+        &config,
+        SCShareableContentStyle::Window,
+        move |outcome| {
+            callback_attempt.log(match &outcome {
+                SCPickerOutcome::Picked(_) => "callback picked",
+                SCPickerOutcome::Cancelled => "callback cancelled",
+                SCPickerOutcome::Error(_) => "callback error",
+            });
+            if outcome_tx.send(outcome).is_err() {
+                callback_attempt.log("late callback ignored");
+            }
+        },
+    );
+    // Enqueued after the bridge's present task, so this acknowledges actual
+    // main-queue progress rather than only the Rust FFI call returning.
+    let (present_tx, present_rx) = tokio::sync::oneshot::channel();
+    let presented = Arc::clone(&attempt);
+    queue_window_picker_main(move || {
+        presented.log("presentation main-queue fence reached");
+        let _ = present_tx.send(());
+    });
+    await_window_picker_main(&attempt, "present", present_rx).await?;
+    outcome_rx
+        .await
+        .map_err(|_| "The macOS Window picker closed unexpectedly.".to_string())
+}
+
+/// Show macOS's native single-window picker and remember the result for the
+/// native recorder. Keeping this outside the tray WebView avoids WebKit's
+/// `getDisplayMedia` handoff, which can leave a long-lived popover blank while
+/// the system sharing controls are still resolving.
+#[tauri::command]
+pub async fn show_window_picker(
+    app: AppHandle,
+) -> Result<Option<NativeWindowPickerSelection>, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let (attempt, cancel_rx) = window_picker_requests().start().map_err(|error| {
+            crate::logfile::diagnostic(&format!("[window-picker] request rejected: {error}"));
+            error
+        })?;
+        let mut guard = WindowPickerStateGuard {
+            attempt: Arc::clone(&attempt),
+            dismissal_queued: false,
+            completion: None,
+        };
+        attempt.log("request acquired");
+        crate::state::SelectedRecordingWindow::set(&app, None);
+        let outcome = tokio::select! {
+            biased;
+            _ = cancel_rx => Ok(SCPickerOutcome::Cancelled),
+            outcome = async {
+                attempt.log("arming Escape");
+                tokio::time::timeout(
+                    WINDOW_PICKER_DISPATCH_TIMEOUT,
+                    crate::shortcuts::arm_window_picker_escape(&app),
+                ).await.map_err(|_| "The macOS Window picker Escape registration timed out.".to_string())??;
+                attempt.log("Escape armed");
+                present_window_picker(Arc::clone(&attempt)).await
+            } => outcome,
+        };
+
+        // Keep ownership until dismissal is acknowledged (or bounded out).
+        // No picker/state mutex is held while AppKit runs or this await parks.
+        let dismissal = guard.dismiss();
+        let completion = await_window_picker_main(&attempt, "dismiss", dismissal).await;
+        guard.completion = Some(completion.clone());
+        completion?;
+        let outcome = outcome.map_err(|error| {
+            attempt.log(&format!("failed: {error}"));
+            error
+        })?;
+        if attempt.cancelled.load(Ordering::SeqCst) {
+            attempt.log("returning Escape cancellation");
+            return Ok(None);
+        }
+        let selection = match outcome {
+            SCPickerOutcome::Cancelled => {
+                attempt.log("returning picker cancellation");
+                return Ok(None);
+            }
+            SCPickerOutcome::Error(error) => {
+                attempt.log(&format!("picker failed: {error}"));
+                return Err(error);
+            }
+            SCPickerOutcome::Picked(result) => {
+                let windows = result.windows();
+                attempt.log(&format!("result windows={}", windows.len()));
+                let Some(window) = windows.into_iter().last() else {
+                    return Err("The selected window is no longer available.".to_string());
+                };
+                let (width, height) = result.pixel_size();
+                if window.window_id() == 0 || width == 0 || height == 0 {
+                    return Err("The selected window has no capturable content.".to_string());
+                }
+                crate::state::RecordingWindowSelection {
+                    window_id: window.window_id(),
+                    width,
+                    height,
+                }
+            }
+        };
+        attempt.log(&format!(
+            "returning selection window={} width={} height={}",
+            selection.window_id, selection.width, selection.height
+        ));
+        crate::state::SelectedRecordingWindow::set(&app, Some(selection));
+        Ok(Some(NativeWindowPickerSelection {
+            window_id: selection.window_id,
+            width: selection.width,
+            height: selection.height,
+        }))
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod window_picker_tests {
+    use super::*;
+
+    #[test]
+    fn overlapping_request_cannot_replace_observer_or_cancel_sender() {
+        let requests = WindowPickerRequests::default();
+        let (first, mut cancelled) = requests.start().unwrap();
+        assert!(requests.start().is_err());
+        assert_eq!(requests.cancel().unwrap().unwrap().id, first.id);
+        assert!(cancelled.try_recv().is_ok());
+        assert!(
+            requests.start().is_err(),
+            "cancellation still owns dismissal"
+        );
+        requests.finish(first.id).unwrap();
+        assert!(requests.start().is_ok());
+    }
+
+    #[test]
+    fn cancellation_before_queued_preparation_prevents_presentation() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        let queued_preparation = Arc::clone(&attempt);
+        requests.cancel().unwrap();
+        assert!(!queued_preparation.can_present());
+    }
+
+    #[test]
+    fn abandoned_preparation_cannot_run_after_request_is_released() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        attempt.live.store(false, Ordering::SeqCst);
+        requests.finish(attempt.id).unwrap();
+        let (next, _cancelled) = requests.start().unwrap();
+        assert!(!attempt.can_present());
+        assert!(next.can_present());
+    }
+
+    #[test]
+    fn late_release_cannot_clear_new_request() {
+        let requests = WindowPickerRequests::default();
+        let (first, _cancelled) = requests.start().unwrap();
+        requests.finish(first.id).unwrap();
+        let (next, mut cancelled) = requests.start().unwrap();
+        requests.finish(first.id).unwrap();
+        assert_eq!(requests.cancel().unwrap().unwrap().id, next.id);
+        assert!(cancelled.try_recv().is_ok());
+    }
+
+    #[test]
+    fn repeated_cancellation_joins_same_request_until_dismissal() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, mut cancelled) = requests.start().unwrap();
+        requests.cancel().unwrap();
+        assert!(cancelled.try_recv().is_ok());
+        assert_eq!(requests.cancel().unwrap().unwrap().id, attempt.id);
+        assert!(attempt.cancelled.load(Ordering::SeqCst));
+        assert!(requests.start().is_err());
+    }
+
+    #[tokio::test]
+    async fn cancellation_waiter_observes_completion_even_if_subscribed_late() {
+        let requests = WindowPickerRequests::default();
+        let (attempt, _cancelled) = requests.start().unwrap();
+        requests.cancel().unwrap();
+        requests.finish(attempt.id).unwrap();
+        attempt.finished.send_replace(Some(Ok(())));
+        let mut finished = attempt.finished.subscribe();
+        assert_eq!(
+            *finished.wait_for(|value| value.is_some()).await.unwrap(),
+            Some(Ok(()))
+        );
+    }
 }
 
 #[derive(Serialize)]
@@ -1342,6 +1971,10 @@ fn start_native_session_locked(
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
     reset_native_upload_completion_state();
+    let window_selection = crate::state::SelectedRecordingWindow::get(app);
+    let target_window_id = window_selection.map(|selection| selection.window_id);
+    let target_window_dimensions =
+        window_selection.map(|selection| (selection.width, selection.height));
     let has_specific_mic = mic_device_id
         .as_deref()
         .is_some_and(|v| !v.trim().is_empty())
@@ -1355,13 +1988,31 @@ fn start_native_session_locked(
         capture_system_audio,
         mic_device_id.as_deref(),
         mic_device_label.as_deref(),
+        target_window_id,
+        target_window_dimensions,
         capture_region,
         defer_recording_output,
     ) {
         Ok(session) => session,
         Err(sck_err) => {
-            if defer_recording_output {
+            if defer_recording_output || sck_err.starts_with(CAPTURE_STOP_PENDING_PREFIX) {
+                // A pending-stop refusal means a previous ScreenCaptureKit
+                // session may still be live at the OS level. `screencapture`
+                // is not guaranteed independent of ScreenCaptureKit on every
+                // macOS version, so falling back to it here could race the
+                // same still-tearing-down session this guard exists to avoid.
                 return Err(sck_err);
+            }
+            if let Some(permission_err) = should_skip_screencapture_fallback(&sck_err) {
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit recording unavailable due to screen-capture permission; not falling back to screencapture: {sck_err}"
+                );
+                return Err(permission_err);
+            }
+            if target_window_id.is_some() {
+                return Err(format!(
+                    "ScreenCaptureKit could not start the selected window recording: {sck_err}"
+                ));
             }
             if include_audio {
                 let mic_description = if has_specific_mic {
@@ -1694,6 +2345,8 @@ pub async fn native_fullscreen_recording_begin(
                 stream, recording, ..
             }) => {
                 stream
+                    .lock()
+                    .map_err(|e| format!("ScreenCaptureKit stream lock poisoned: {e}"))?
                     .add_recording_output(recording)
                     .map_err(|e| format!("add recording output failed: {e:?}"))?;
             }
@@ -1764,7 +2417,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let upload_mode = NativeUploadMode::from_option(upload_mode);
-    emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        &app,
+        &recording_id,
+        "finalizing",
+        "Optimizing clip",
+        None,
+        None,
+    );
     // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
     // atom is written (or has definitively failed). Signal the UI so it can tear
     // down the separate live-transcription SCStream (system_audio.rs) now,
@@ -1817,7 +2477,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 Ok(()) => merge_err.clone(),
             });
             write_saved_recording_metadata(&app, &saved)?;
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{merge_err}. The raw clip segments were saved locally and can be retried from the Clips menu."
             );
@@ -1857,7 +2517,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         if stop_err.starts_with(CAPTURE_FINALIZE_INCOMPLETE_PREFIX) {
             saved.last_error = Some(stop_err.clone());
             write_saved_recording_metadata(&app, &saved)?;
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -1892,7 +2552,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                     );
                 }
                 write_saved_recording_metadata(&app, &saved)?;
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let suffix = if saved.corrupt {
                     "The local file is incomplete and cannot be recovered. Discard it from the Clips menu and record again."
                 } else {
@@ -1930,7 +2597,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         );
         eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — saving as retryable, skipping upload");
         write_saved_recording_metadata(&app, &saved)?;
-        emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+        emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
         let error =
             "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string();
         emit_native_upload_finished(
@@ -1944,7 +2611,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         return Err(error);
     }
     write_saved_recording_metadata(&app, &saved)?;
-    emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        &app,
+        &recording_id,
+        "preparing",
+        "Optimizing clip",
+        None,
+        None,
+    );
 
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -1978,7 +2652,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(error.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{error} The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2002,7 +2683,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(error.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{error} The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2020,7 +2708,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         eprintln!(
             "[live-upload] stop: signalling finalize for {recording_id} (measured_duration_ms={verified_duration_ms})"
         );
-        emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
+        emit_native_upload_progress(
+            &app,
+            &recording_id,
+            "uploading",
+            "Uploading clip",
+            None,
+            None,
+        );
         live.ctrl
             .duration_ms
             .store(verified_duration_ms as u64, Ordering::SeqCst);
@@ -2056,7 +2751,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.last_error = Some(err.clone());
                 saved.retry_count = saved.retry_count.saturating_add(1);
                 let _ = write_saved_recording_metadata(&app, &saved);
-                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "failed",
+                    "Upload paused",
+                    None,
+                    None,
+                );
                 let error = format!(
                     "{err}. The clip was saved locally and can be retried from the Clips menu."
                 );
@@ -2098,7 +2800,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             saved.last_error = Some(err.clone());
             saved.retry_count = saved.retry_count.saturating_add(1);
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -2130,6 +2832,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
+            clear_native_upload_retry_cancelled(&recording_id);
             if !result.verification_pending {
                 clear_saved_recording_after_success(&app, &saved);
             }
@@ -2144,7 +2847,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 saved.corrupt = true;
             }
             let _ = write_saved_recording_metadata(&app, &saved);
-            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Upload paused", None, None);
             let error = format!(
                 "{err}. The clip was saved locally and can be retried from the Clips menu."
             );
@@ -2242,7 +2945,8 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
         return;
     };
     if let Some(session) = guard.as_mut() {
-        if let Some(NativeFullscreenBackend::Screencapture { child }) = session.backend.as_mut() {
+        if let Some(NativeFullscreenBackend::Screencapture { child, .. }) = session.backend.as_mut()
+        {
             if matches!(child.try_wait(), Ok(None)) {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -2251,11 +2955,33 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
     }
 }
 
+/// The `screencapture` fallback backend owns an OS child process, and
+/// `kill_active_screencapture_child` can only find it while the session is in
+/// the state slot. A cancel takes the session out of that slot and hands it to
+/// a detached thread, so a quit landing before that thread reaches its
+/// kill/reap path would leave `screencapture` running after Clips is gone.
+/// Stop and reap it here, on the caller's thread, and detach only the file
+/// cleanup. Bounded by `stop_screencapture`'s discard grace (~250ms) and only
+/// reached by the fallback backend — the ScreenCaptureKit paths, which carry
+/// the restart latency this detach exists for, still tear down detached.
+fn terminate_screencapture_child_before_detach(session: &mut NativeFullscreenSession) {
+    if !matches!(
+        session.backend.as_ref(),
+        Some(NativeFullscreenBackend::Screencapture { .. })
+    ) {
+        return;
+    }
+    if let Err(err) = finalize_active_backend(session, false) {
+        eprintln!("[clips-tray] cancel: screencapture stop before detach failed: {err}");
+    }
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_cancel(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
     preserve_display_override: Option<bool>,
+    preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
     // Bump BEFORE taking the session: a warm task on a blocking-pool thread
     // may still be mid-setup right now, with nothing installed yet for this
@@ -2267,7 +2993,12 @@ pub async fn native_fullscreen_recording_cancel(
         guard.take()
     };
     if let Some(mut session) = session {
-        discard_session(&mut session);
+        eprintln!(
+            "[clips-tray] cancel: detaching discard for {}",
+            session.path.display()
+        );
+        terminate_screencapture_child_before_detach(&mut session);
+        spawn_detached_discard(session);
     }
     // An aborted start (countdown/warm cancelled before `begin`) never reaches
     // `hide_recording_chrome`, so the picker's monitor override must also be
@@ -2276,6 +3007,9 @@ pub async fn native_fullscreen_recording_cancel(
     // matching `preserve_display_override` doc comment.
     if !preserve_display_override.unwrap_or(false) {
         crate::state::SelectedRecordingDisplay::set(&app, None);
+    }
+    if !preserve_window_override.unwrap_or(false) {
+        crate::state::SelectedRecordingWindow::set(&app, None);
     }
     Ok(())
 }
@@ -2294,6 +3028,11 @@ pub async fn native_fullscreen_recording_pause(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Recording pause needs recovery before another pause can be requested: {error}"
+        ));
+    }
     if session.paused_at.is_some() {
         return Ok(());
     }
@@ -2316,7 +3055,7 @@ pub async fn native_fullscreen_recording_pause(
             }) = session.backend.as_ref()
             {
                 if writer.segmented() && writer.is_started() {
-                    resume.pause();
+                    resume.pause()?;
                     true
                 } else {
                     false
@@ -2354,16 +3093,37 @@ pub async fn native_fullscreen_recording_pause(
         live.ctrl.cancelled.store(true, Ordering::SeqCst);
     }
     if session.backend.is_none() {
-        // No active backend means we're already paused (or never started).
-        eprintln!("[clips-tray] pause: no active backend; marking paused only");
-        session.paused_at = Some(Instant::now());
-        return Ok(());
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the capture backend is unavailable; the local recording was retained for recovery.",
+        ));
     }
     let stop_outcome = finalize_active_backend(session, true);
     if let Err(err) = &stop_outcome {
         eprintln!("[clips-tray] pause finalize reported an error: {err}");
+        return Err(mark_pause_failure(
+            session,
+            format!(
+                "Unable to pause recording safely: {err}. The local recording was retained for recovery."
+            ),
+        ));
     }
-    recover_from_unusable_current_segment(session, "pause", true);
+    if recover_from_unusable_current_segment(session, "pause", false) {
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: the current segment was unusable; earlier local segments were retained for recovery.",
+        ));
+    }
+    if !session
+        .segments
+        .last()
+        .is_some_and(|path| playable_recording_file(path, session.mime_type))
+    {
+        return Err(mark_pause_failure(
+            session,
+            "Unable to pause recording safely: no usable local segment was finalized; the recording was retained for recovery.",
+        ));
+    }
     session.paused_at = Some(Instant::now());
     let current_segment_bytes = session
         .segments
@@ -2391,6 +3151,11 @@ pub async fn native_fullscreen_recording_resume(
     let session = guard
         .as_mut()
         .ok_or_else(|| "No native full-screen recording is active.".to_string())?;
+    if let Some(error) = session.pause_failure.as_deref() {
+        return Err(format!(
+            "Cannot resume recording after pause failed: {error} Stop recording to preserve the local take."
+        ));
+    }
     let Some(paused_at) = session.paused_at else {
         // Already running — nothing to do.
         return Ok(());
@@ -2470,6 +3235,8 @@ pub async fn native_fullscreen_recording_resume(
         restart.mic_device_label.as_deref(),
         &segment_path,
         restart.target_display_id,
+        restart.target_window_id,
+        restart.target_window_dimensions,
         restart.capture_region,
     )?;
     session.backend = Some(backend);
@@ -2558,16 +3325,22 @@ fn rotate_screencapturekit_segment(
     }
     recover_from_unusable_current_segment(session, "segment rotation", true);
 
-    let start_result = start_screencapturekit_backend_at(
-        &segment_path,
-        restart.include_audio,
-        restart.capture_system_audio,
-        restart.mic_device_id.as_deref(),
-        restart.mic_device_label.as_deref(),
-        restart.target_display_id,
-        restart.capture_region,
-        false,
-    );
+    let start_result = refuse_if_capture_stop_pending().and_then(|()| {
+        start_screencapturekit_backend_at(
+            &app,
+            &segment_path,
+            restart.include_audio,
+            restart.capture_system_audio,
+            restart.mic_device_id.as_deref(),
+            restart.mic_device_label.as_deref(),
+            restart.target_display_id,
+            restart.target_window_id,
+            restart.target_window_dimensions,
+            restart.capture_region,
+            false,
+            None,
+        )
+    });
 
     let (backend, _, _) = match start_result {
         Ok(result) => result,
@@ -2709,6 +3482,13 @@ fn finalize_active_backend(
     stop_native_recording(&mut backend, wait_for_finalize)
 }
 
+fn mark_pause_failure(session: &mut NativeFullscreenSession, message: impl Into<String>) -> String {
+    let message = message.into();
+    session.paused_at = Some(Instant::now());
+    session.pause_failure = Some(message.clone());
+    message
+}
+
 fn playable_recording_file(path: &Path, mime_type: &str) -> bool {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.len() > 0 => {}
@@ -2755,6 +3535,26 @@ fn recover_from_unusable_current_segment(
     false
 }
 
+/// Discard a cancelled session on a detached thread. Backend teardown blocks
+/// for however long the OS takes — the stock SCK path's `stop_capture()` can
+/// hang indefinitely — and the renderer awaits the cancel command before it
+/// continues its own discard chain, so the discard must not run on the
+/// command's thread. The session was already taken out of the state slot
+/// under the state lock, and nothing here re-locks it, so a new recording
+/// can start while the old stream tears down (the same concurrent-stream
+/// model pause/resume relies on). Tradeoff: if the process dies before this
+/// thread deletes the files, crash recovery can resurrect the cancelled take.
+fn spawn_detached_discard(mut session: NativeFullscreenSession) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let recording_path = session.path.clone();
+        discard_session(&mut session);
+        eprintln!(
+            "[clips-tray] cancel: detached discard finished for {}",
+            recording_path.display()
+        );
+    })
+}
+
 /// Best-effort cleanup of a session being discarded (cancel, or a stale
 /// session displaced by a new start). Finalizes any active backend and
 /// deletes every on-disk artifact — segment files and the final path.
@@ -2766,13 +3566,91 @@ fn discard_session(session: &mut NativeFullscreenSession) {
     if let Some(stop) = &session.disk_monitor_stop {
         stop.store(true, Ordering::Relaxed);
     }
-    let _ = finalize_active_backend(session, false);
+    if let Err(err) = finalize_active_backend(session, false) {
+        eprintln!("[clips-tray] discard: backend finalize failed (continuing cleanup): {err}");
+    }
     for segment in &session.segments {
         remove_recording_intent(segment);
         let _ = std::fs::remove_file(segment);
     }
     remove_recording_intent(&session.path);
     let _ = std::fs::remove_file(&session.path);
+}
+
+#[cfg(test)]
+mod detached_discard_tests {
+    use super::*;
+
+    /// A session with no live backend — the shape cancel sees after an
+    /// aborted warm or a paused recording — so the discard path runs without
+    /// capture hardware.
+    fn hardware_free_session(path: PathBuf, segments: Vec<PathBuf>) -> NativeFullscreenSession {
+        NativeFullscreenSession {
+            backend: None,
+            path,
+            mime_type: MP4_RECORDING_MIME_TYPE,
+            started_at: Instant::now(),
+            width: None,
+            height: None,
+            segments,
+            paused_total: Duration::ZERO,
+            current_segment_started_at: Instant::now(),
+            lost_segment_duration: Duration::ZERO,
+            lost_segment_count: 0,
+            paused_at: None,
+            pause_failure: None,
+            restart: RestartInfo {
+                safe_id: "test".to_string(),
+                include_audio: false,
+                capture_system_audio: false,
+                mic_captured_in_file: false,
+                mic_device_id: None,
+                mic_device_label: None,
+                segment_counter: 1,
+                target_display_id: None,
+                target_window_id: None,
+                target_window_dimensions: None,
+                capture_region: None,
+            },
+            pending_recording_output: false,
+            custom_pipeline: false,
+            audio_cleanup_applied: false,
+            #[cfg(target_os = "macos")]
+            live_upload: None,
+            had_live_upload: false,
+            disk_monitor_stop: None,
+        }
+    }
+
+    #[test]
+    fn detached_discard_deletes_files_off_the_calling_thread() {
+        let root = std::env::temp_dir().join(format!(
+            "clips-detached-discard-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("recording.mp4");
+        let segment = root.join("recording-seg2.mp4");
+        std::fs::write(&path, b"video").unwrap();
+        std::fs::write(&segment, b"video").unwrap();
+        std::fs::write(recording_intent_path(&path), b"{}").unwrap();
+
+        let caller_thread = std::thread::current().id();
+        let handle =
+            spawn_detached_discard(hardware_free_session(path.clone(), vec![segment.clone()]));
+        assert_ne!(handle.thread().id(), caller_thread);
+        handle.join().unwrap();
+
+        assert!(!path.exists());
+        assert!(!segment.exists());
+        assert!(!recording_intent_path(&path).exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 /// Sibling path next to the original pending recording, numbered with
@@ -2812,6 +3690,8 @@ fn start_segment_backend(
     mic_device_label: Option<&str>,
     segment_path: &Path,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     #[cfg(target_os = "macos")]
@@ -2819,34 +3699,63 @@ fn start_segment_backend(
         // safe_id isn't needed on macOS — the segment path is pre-computed by
         // the caller. Consume to silence the unused-variable warning.
         let _ = safe_id;
-        let sck_result = if crate::remote_flags::current().use_custom_sck_pipeline {
-            start_custom_screencapturekit_backend_at(
-                app,
-                segment_path,
-                include_audio,
-                capture_system_audio,
-                mic_device_id,
-                mic_device_label,
-                target_display_id,
-                capture_region,
-                false,
-                false,
-            )
-        } else {
-            start_screencapturekit_backend_at(
-                segment_path,
-                include_audio,
-                capture_system_audio,
-                mic_device_id,
-                mic_device_label,
-                target_display_id,
-                capture_region,
-                false,
-            )
-        };
+        let sck_result = refuse_if_capture_stop_pending().and_then(|()| {
+            if crate::remote_flags::current().use_custom_sck_pipeline {
+                start_custom_screencapturekit_backend_at(
+                    app,
+                    segment_path,
+                    include_audio,
+                    capture_system_audio,
+                    mic_device_id,
+                    mic_device_label,
+                    target_display_id,
+                    target_window_id,
+                    target_window_dimensions,
+                    capture_region,
+                    false,
+                    false,
+                    true,
+                    None,
+                )
+            } else {
+                start_screencapturekit_backend_at(
+                    app,
+                    segment_path,
+                    include_audio,
+                    capture_system_audio,
+                    mic_device_id,
+                    mic_device_label,
+                    target_display_id,
+                    target_window_id,
+                    target_window_dimensions,
+                    capture_region,
+                    false,
+                    None,
+                )
+            }
+        });
         match sck_result {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
+                if sck_err.starts_with(CAPTURE_STOP_PENDING_PREFIX) {
+                    // A previous ScreenCaptureKit session may still be live at
+                    // the OS level. `screencapture` is not guaranteed
+                    // independent of ScreenCaptureKit on every macOS version,
+                    // so falling back here could race the same
+                    // still-tearing-down session this guard exists to avoid.
+                    return Err(sck_err);
+                }
+                if target_window_id.is_some() {
+                    return Err(format!(
+                        "ScreenCaptureKit could not resume the selected window recording: {sck_err}"
+                    ));
+                }
+                if let Some(permission_err) = should_skip_screencapture_fallback(&sck_err) {
+                    eprintln!(
+                        "[clips-tray] ScreenCaptureKit resume unavailable due to screen-capture permission; not falling back to screencapture: {sck_err}"
+                    );
+                    return Err(permission_err);
+                }
                 if include_audio {
                     let mic_description = if mic_device_id
                         .is_some_and(|value| !value.trim().is_empty())
@@ -2890,22 +3799,125 @@ fn start_segment_backend(
             mic_device_label,
             segment_path,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
         );
         Err("Native full-screen recording is currently macOS-only.".into())
     }
 }
 
+/// How long a popover-open `SCShareableContent` prefetch stays usable for a
+/// recording start. Short on purpose: there is no display-configuration-change
+/// hook invalidating the snapshot, so the TTL is the staleness bound.
+#[cfg(target_os = "macos")]
+const SHAREABLE_CONTENT_PREFETCH_TTL: Duration = Duration::from_secs(15);
+
+#[cfg(target_os = "macos")]
+static PREFETCHED_SHAREABLE_CONTENT: Mutex<Option<(Instant, SCShareableContent)>> =
+    Mutex::new(None);
+
+/// Set while a prefetch is running. The cache alone cannot debounce: it stays
+/// empty for the multi-second duration of `SCShareableContent::get`, so rapid
+/// popover reopens would each see "nothing cached" and pile up another
+/// blocking fetch.
+#[cfg(target_os = "macos")]
+static SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Clears the in-flight flag however the prefetch ends, including a panic in
+/// the blocking task.
+#[cfg(target_os = "macos")]
+struct ShareableContentPrefetchGuard;
+
+#[cfg(target_os = "macos")]
+impl Drop for ShareableContentPrefetchGuard {
+    fn drop(&mut self) {
+        SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Consume the popover-open prefetch for an initial recording start. Returns
+/// `None` (callers then do their own fresh fetch) when the snapshot is
+/// missing, expired, or does not contain the requested display — a monitor
+/// plugged in after the prefetch must not be resolved against stale content.
+/// Take-once so resume/rotation paths can never reuse an old snapshot.
+#[cfg(target_os = "macos")]
+fn take_prefetched_shareable_content(target_display_id: Option<u32>) -> Option<SCShareableContent> {
+    let mut guard = PREFETCHED_SHAREABLE_CONTENT.lock().ok()?;
+    let (fetched_at, content) = guard.take()?;
+    if fetched_at.elapsed() > SHAREABLE_CONTENT_PREFETCH_TTL {
+        return None;
+    }
+    if let Some(id) = target_display_id {
+        if !content.displays().iter().any(|d| d.display_id() == id) {
+            return None;
+        }
+    }
+    Some(content)
+}
+
+/// Fire-and-forget warm-up called during app startup: fetch the multi-second
+/// `SCShareableContent` snapshot now so a recording start within the TTL skips
+/// it. Best-effort — failures are logged and the start paths fall back to their
+/// own fetch, so this can never fail a recording.
+#[tauri::command]
+pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Debounce rapid popover reopen toggles so blocking-pool fetches
+        // don't pile up; a snapshot this young is fresh enough to keep.
+        let recently_fetched = PREFETCHED_SHAREABLE_CONTENT
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|(at, _)| at.elapsed() < SHAREABLE_CONTENT_PREFETCH_TTL / 3)
+            })
+            .unwrap_or(false);
+        if recently_fetched {
+            return Ok(());
+        }
+        // Coalesce with a prefetch that is already running rather than queueing
+        // a second multi-second fetch behind it; the one in flight populates
+        // the same cache this call would have.
+        if SHAREABLE_CONTENT_PREFETCH_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let _in_flight = ShareableContentPrefetchGuard;
+        match tauri::async_runtime::spawn_blocking(SCShareableContent::get).await {
+            Ok(Ok(content)) => {
+                if let Ok(mut guard) = PREFETCHED_SHAREABLE_CONTENT.lock() {
+                    *guard = Some((Instant::now(), content));
+                }
+            }
+            Ok(Err(err)) => {
+                eprintln!("[clips-tray] shareable-content prefetch unavailable: {err:?}");
+            }
+            Err(join_err) => {
+                eprintln!("[clips-tray] shareable-content prefetch task panicked: {join_err}");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Configure and start a fresh ScreenCaptureKit capture writing into
 /// `output_path`. Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
 pub(crate) fn start_screencapturekit_backend_at(
+    app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
     target_display_id: Option<u32>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     // When true the SCStream is started WITHOUT attaching the recording
     // output — capture runs (warming the mic) but nothing is written until
@@ -2914,30 +3926,71 @@ pub(crate) fn start_screencapturekit_backend_at(
     // the no-warm fallback), preserving the original record-immediately
     // behavior.
     defer_recording_output: bool,
+    // Popover-open prefetch (initial start only — resume/rotation pass `None`
+    // and keep their self-contained fresh fetch).
+    prefetched_content: Option<SCShareableContent>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
+    let window = target_window_id.and_then(|id| {
+        content
+            .windows()
+            .into_iter()
+            .find(|candidate| candidate.window_id() == id)
+    });
+    if target_window_id.is_some() && window.is_none() {
+        return Err("The selected window is no longer available.".to_string());
+    }
     let displays = content.displays();
-    let display = target_display_id
-        .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-        .or_else(|| displays.first())
-        .ok_or_else(|| "No displays available for ScreenCaptureKit recording.".to_string())?;
-
-    let source_width = display.width();
-    let source_height = display.height();
-    let region_rect = region_source_rect(capture_region, source_width, source_height)?;
+    let display = if window.is_none() {
+        Some(
+            target_display_id
+                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
+                .or_else(|| displays.first())
+                .ok_or_else(|| {
+                    "No displays available for ScreenCaptureKit recording.".to_string()
+                })?,
+        )
+    } else {
+        None
+    };
+    let (source_width, source_height) = if let Some(window) = window.as_ref() {
+        target_window_dimensions.unwrap_or_else(|| {
+            let frame = window.frame();
+            (
+                frame.width.max(1.0).round() as u32,
+                frame.height.max(1.0).round() as u32,
+            )
+        })
+    } else {
+        let display = display.expect("display is present when no window is selected");
+        (display.width(), display.height())
+    };
+    let region_rect = if window.is_some() {
+        None
+    } else {
+        region_source_rect(capture_region, source_width, source_height)?
+    };
     let (capture_width, capture_height) = region_rect
         .as_ref()
         .map(|(_, width, height)| (*width, *height))
         .unwrap_or((source_width, source_height));
     let (width, height) = native_capture_dimensions(capture_width, capture_height);
-    let filter_builder = SCContentFilter::create()
-        .with_display(display)
-        .with_excluding_windows(&[]);
-    let filter = if let Some((rect, _, _)) = region_rect {
-        filter_builder.with_content_rect(rect).build()
+    let filter = if let Some(window) = window.as_ref() {
+        SCContentFilter::create().with_window(window).build()
     } else {
-        filter_builder.build()
+        let display = display.expect("display is present when no window is selected");
+        let filter_builder = SCContentFilter::create()
+            .with_display(display)
+            .with_excluding_windows(&[]);
+        if let Some((rect, _, _)) = region_rect {
+            filter_builder.with_content_rect(rect).build()
+        } else {
+            filter_builder.build()
+        }
     };
     let capture_microphone_in_recording = include_audio;
     let selected_mic = if capture_microphone_in_recording {
@@ -2994,11 +4047,32 @@ pub(crate) fn start_screencapturekit_backend_at(
         let sample_count = Arc::new(AtomicU64::new(0));
         let flag_cb = Arc::clone(&flag);
         let sample_count_cb = Arc::clone(&sample_count);
+        let app_cb = app.clone();
+        let level_tick = Arc::new(AtomicU32::new(0));
+        let level_tick_cb = Arc::clone(&level_tick);
         stream.add_output_handler(
-            move |_sample, of_type| {
+            move |sample, of_type| {
                 if matches!(of_type, SCStreamOutputType::Microphone) {
                     sample_count_cb.fetch_add(1, Ordering::Relaxed);
                     flag_cb.store(true, Ordering::Relaxed);
+                    let tick = level_tick_cb.fetch_add(1, Ordering::Relaxed);
+                    if tick % 3 == 0 {
+                        if let Some(samples) = extract_mono_audio(&sample, "recording-mic") {
+                            let level = samples
+                                .iter()
+                                .copied()
+                                .map(f32::abs)
+                                .fold(0.0_f32, f32::max)
+                                .min(1.0);
+                            let _ = app_cb.emit(
+                                "voice:audio-level",
+                                RecorderAudioLevelPayload {
+                                    level,
+                                    source: "mic",
+                                },
+                            );
+                        }
+                    }
                 }
             },
             SCStreamOutputType::Microphone,
@@ -3018,11 +4092,12 @@ pub(crate) fn start_screencapturekit_backend_at(
         return Err(format!("capture start failed: {err:?}"));
     }
     eprintln!(
-        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
+        "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (source {source_width}x{source_height}, window={}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}",
+        target_window_id.is_some()
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
+            stream: Arc::new(Mutex::new(stream)),
             recording,
             finish,
             mic_ready,
@@ -3105,7 +4180,10 @@ pub(crate) fn start_screencapture_backend_at(
     }
     eprintln!("[clips-tray] screencapture recording started");
     Ok((
-        NativeFullscreenBackend::Screencapture { child },
+        NativeFullscreenBackend::Screencapture {
+            child,
+            output_path: output_path.to_path_buf(),
+        },
         region_width,
         region_height,
     ))
@@ -3636,6 +4714,10 @@ pub async fn native_fullscreen_recording_retry_upload(
     auth_token: Option<String>,
     cookie: Option<String>,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    if take_native_upload_retry_cancelled(&recording_id) {
+        emit_native_upload_progress(&app, &recording_id, "paused", "Retry cancelled", None, None);
+        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+    }
     let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
     saved.server_url = server_url.trim_end_matches('/').to_string();
     saved.last_attempt_at = Some(now_iso());
@@ -3658,6 +4740,7 @@ pub async fn native_fullscreen_recording_retry_upload(
         // second click cannot steal an upload session already owned by this
         // local recording.
         let retry_plan = match get_native_retry_upload_plan(
+            &app,
             &saved.server_url,
             &saved.recording_id,
             prepared.bytes,
@@ -3670,16 +4753,18 @@ pub async fn native_fullscreen_recording_retry_upload(
         {
             Ok(plan) => plan,
             Err(err) => {
-                interrupt_native_retry_upload(
-                    &saved.server_url,
-                    &saved.recording_id,
-                    &err,
-                    Some(&claimed_attempt_id),
-                    None,
-                    &auth_token,
-                    &cookie,
-                )
-                .await;
+                if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                    interrupt_native_retry_upload(
+                        &saved.server_url,
+                        &saved.recording_id,
+                        &err,
+                        Some(&claimed_attempt_id),
+                        None,
+                        &auth_token,
+                        &cookie,
+                    )
+                    .await;
+                }
                 cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
                 return Err(err);
             }
@@ -3717,6 +4802,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             NativeRetryUploadPlan::Resume(resume) => {
                 emit_native_upload_progress(
                     &app,
+                    &recording_id,
                     "uploading",
                     "Resuming upload",
                     None,
@@ -3735,6 +4821,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             } => {
                 emit_native_upload_progress(
                     &app,
+                    &recording_id,
                     "uploading",
                     "Restarting upload",
                     None,
@@ -3753,19 +4840,25 @@ pub async fn native_fullscreen_recording_retry_upload(
                 {
                     Ok(reset) => reset,
                     Err(err) => {
-                        interrupt_native_retry_upload(
-                            &saved.server_url,
-                            &saved.recording_id,
-                            &err,
-                            active_attempt_id.as_deref(),
-                            active_upload_generation_id.as_deref(),
-                            &auth_token,
-                            &cookie,
-                        )
-                        .await;
+                        if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                            interrupt_native_retry_upload(
+                                &saved.server_url,
+                                &saved.recording_id,
+                                &err,
+                                active_attempt_id.as_deref(),
+                                active_upload_generation_id.as_deref(),
+                                &auth_token,
+                                &cookie,
+                            )
+                            .await;
+                        }
                         return Err(err);
                     }
                 };
+                let reset = accept_native_retry_reset(
+                    reset,
+                    native_upload_retry_cancelled(&saved.recording_id),
+                )?;
                 (reset.mode(), None, reset.upload_generation_id)
             }
             NativeRetryUploadPlan::Reconcile => unreachable!("handled above"),
@@ -3814,6 +4907,10 @@ pub async fn native_fullscreen_recording_retry_upload(
             {
                 Ok(reset) => {
                     interruption_upload_generation_id = reset.upload_generation_id.clone();
+                    let reset = accept_native_retry_reset(
+                        reset,
+                        native_upload_retry_cancelled(&saved.recording_id),
+                    )?;
                     upload_prepared_recording_file(
                         &app,
                         &prepared,
@@ -3839,16 +4936,18 @@ pub async fn native_fullscreen_recording_retry_upload(
             upload_result
         };
         if let Err(err) = &upload_result {
-            interrupt_native_retry_upload(
-                &saved.server_url,
-                &saved.recording_id,
-                err,
-                replay_attempt_id.as_deref(),
-                interruption_upload_generation_id.as_deref(),
-                &auth_token,
-                &cookie,
-            )
-            .await;
+            if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                interrupt_native_retry_upload(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    err,
+                    replay_attempt_id.as_deref(),
+                    interruption_upload_generation_id.as_deref(),
+                    &auth_token,
+                    &cookie,
+                )
+                .await;
+            }
         }
         cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
         upload_result
@@ -3863,11 +4962,23 @@ pub async fn native_fullscreen_recording_retry_upload(
             Ok(result)
         }
         Err(err) => {
+            clear_native_upload_retry_cancelled(&recording_id);
+            if err == NATIVE_UPLOAD_RETRY_CANCELLED {
+                emit_native_upload_progress(
+                    &app,
+                    &recording_id,
+                    "paused",
+                    "Retry cancelled",
+                    None,
+                    None,
+                );
+                return Err(err);
+            }
             if is_moov_corrupt_error(&err) {
                 saved.corrupt = true;
             }
             persist_saved_recording_error(&app, &mut saved, &err);
-            emit_native_upload_progress(&app, "failed", "Retry paused", None, None);
+            emit_native_upload_progress(&app, &recording_id, "failed", "Retry paused", None, None);
             let suffix = if saved.corrupt {
                 "The file is corrupted and cannot be recovered."
             } else {
@@ -3876,6 +4987,15 @@ pub async fn native_fullscreen_recording_retry_upload(
             Err(format!("{err}. {suffix}"))
         }
     }
+}
+
+#[tauri::command]
+pub fn native_fullscreen_recording_cancel_retry(recording_id: String) -> Result<(), String> {
+    cancelled_native_upload_retries()
+        .lock()
+        .map_err(|_| "native upload retry cancellation state is unavailable".to_string())?
+        .insert(recording_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -4803,9 +5923,12 @@ fn start_screencapturekit_recording(
     capture_system_audio: bool,
     mic_device_id: Option<&str>,
     mic_device_label: Option<&str>,
+    target_window_id: Option<u32>,
+    target_window_dimensions: Option<(u32, u32)>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<NativeFullscreenSession, String> {
+    refuse_if_capture_stop_pending()?;
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
@@ -4839,20 +5962,28 @@ fn start_screencapturekit_recording(
             mic_device_id,
             mic_device_label,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
             defer_recording_output,
             false,
+            true,
+            take_prefetched_shareable_content(target_display_id),
         )?
     } else {
         start_screencapturekit_backend_at(
+            app,
             &path,
             include_audio,
             capture_system_audio,
             mic_device_id,
             mic_device_label,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
             defer_recording_output,
+            take_prefetched_shareable_content(target_display_id),
         )?
     };
     let (fallback_width, fallback_height) = primary_monitor_size(app);
@@ -4871,6 +6002,8 @@ fn start_screencapturekit_recording(
             mic_device_label: mic_device_label.map(str::to_string),
             segment_counter: 0,
             target_display_id,
+            target_window_id,
+            target_window_dimensions,
             capture_region,
         },
     );
@@ -4936,6 +6069,8 @@ fn start_screencapture_recording(
             mic_device_label: None,
             segment_counter: 0,
             target_display_id,
+            target_window_id: None,
+            target_window_dimensions: None,
             capture_region,
         },
     );
@@ -4976,6 +6111,7 @@ fn new_fullscreen_session(
         lost_segment_duration: Duration::ZERO,
         lost_segment_count: 0,
         paused_at: None,
+        pause_failure: None,
         restart,
         pending_recording_output: false,
         custom_pipeline,
@@ -5070,10 +6206,41 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `SCStream::stop_capture()` occasionally stops the underlying capture but
 /// never returns from ScreenCaptureKit's synchronous completion wait. Keep
-/// teardown bounded so the writer can still close its inputs, flush the final
-/// fragment, and let the upload path validate the playable file on disk.
+/// teardown bounded — for the custom backend so the writer can still close
+/// its inputs, flush the final fragment, and let the upload path validate the
+/// playable file on disk; for the plain backend so a stuck `stop_capture()`
+/// can't leave the OS-level capture session half-torn-down and stall the
+/// *next* recording's `start_capture()` for the rest of its own hang.
 #[cfg(target_os = "macos")]
-const CUSTOM_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[cfg(target_os = "macos")]
+static PENDING_CAPTURE_STOP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "macos")]
+pub(crate) fn pending_capture_stop_workers() -> usize {
+    PENDING_CAPTURE_STOP_WORKERS.load(Ordering::SeqCst)
+}
+
+/// Every entry point that constructs a brand-new ScreenCaptureKit `SCStream`
+/// (initial start, resume, and automatic segment rotation) must call this
+/// first. A prior stop that hit `SCK_STOP_TIMEOUT` leaves its `stop_capture()`
+/// running on a detached thread, still holding that stream's lock, with no
+/// signal of when (or whether) it finishes; starting a new capture while one
+/// is outstanding risks the exact OS-level contention this bounding exists to
+/// avoid. Errors carry `CAPTURE_STOP_PENDING_PREFIX` — callers that treat an
+/// SCK failure as "unavailable, fall back to `screencapture`" must check for
+/// it and refuse to fall back instead, since `screencapture` is not
+/// guaranteed independent of ScreenCaptureKit on every macOS version.
+#[cfg(target_os = "macos")]
+pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
+    if pending_capture_stop_workers() > 0 {
+        return Err(format!(
+            "{CAPTURE_STOP_PENDING_PREFIX}A previous recording is still shutting down. Wait a moment and try again."
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(target_os = "macos")]
 pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
@@ -5081,8 +6248,11 @@ where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    PENDING_CAPTURE_STOP_WORKERS.fetch_add(1, Ordering::SeqCst);
     std::thread::spawn(move || {
-        let _ = tx.send(stop());
+        let result = stop();
+        PENDING_CAPTURE_STOP_WORKERS.fetch_sub(1, Ordering::SeqCst);
+        let _ = tx.send(result);
     });
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
@@ -5099,10 +6269,27 @@ where
 #[cfg(all(test, target_os = "macos"))]
 mod bounded_capture_stop_tests {
     use super::run_bounded_capture_stop;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
+
+    // All three tests below drive `run_bounded_capture_stop`, which touches
+    // the shared `PENDING_CAPTURE_STOP_WORKERS` static. Cargo runs tests in
+    // parallel by default, so without this a slow worker spawned by one test
+    // (e.g. the 1s sleep below) can still be decrementing the counter while
+    // another test is asserting against it, making the "back to baseline"
+    // check spuriously fail. Mirrors the `test_guard` pattern already used in
+    // `capture_audio_bus.rs` for the same class of shared-static tests.
+    fn test_guard() -> MutexGuard<'static, ()> {
+        static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn returns_the_capture_stop_result() {
+        let _guard = test_guard();
         assert_eq!(
             run_bounded_capture_stop(|| Ok(()), Duration::from_millis(50)),
             Ok(())
@@ -5115,6 +6302,7 @@ mod bounded_capture_stop_tests {
 
     #[test]
     fn releases_the_caller_when_capture_stop_hangs() {
+        let _guard = test_guard();
         let started = Instant::now();
         let result = run_bounded_capture_stop(
             || {
@@ -5125,6 +6313,131 @@ mod bounded_capture_stop_tests {
         );
         assert!(result.unwrap_err().contains("timed out"));
         assert!(started.elapsed() < Duration::from_millis(250));
+        // This test's own worker is still sleeping (up to ~1s) when it
+        // returns. Wait it out under the same lock so it can't bleed its
+        // decrement into whichever test acquires the guard next.
+        while super::pending_capture_stop_workers() > 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn tracks_a_timed_out_worker_until_it_actually_finishes() {
+        let _guard = test_guard();
+        use super::pending_capture_stop_workers;
+        let baseline = pending_capture_stop_workers();
+        let result = run_bounded_capture_stop(
+            || {
+                std::thread::sleep(Duration::from_millis(200));
+                Ok(())
+            },
+            Duration::from_millis(20),
+        );
+        assert!(result.unwrap_err().contains("timed out"));
+        assert!(
+            pending_capture_stop_workers() > baseline,
+            "a timed-out stop must stay counted as outstanding — the caller \
+             gave up waiting, but the worker (and the lock it holds) is still alive"
+        );
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        while pending_capture_stop_workers() > baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            pending_capture_stop_workers(),
+            baseline,
+            "the counter must drop back once the worker's stop() call actually returns"
+        );
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod screencapture_fallback_tests {
+    use super::{looks_like_screen_capture_permission_error, verify_screencapture_output};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_recording_path(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "clips-native-screen-test-{name}-{}-{stamp}.mov",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn detects_screen_capture_tcc_denial() {
+        assert!(looks_like_screen_capture_permission_error(
+            "Content unavailable: The user declined TCCs for application, window, display capture"
+        ));
+        assert!(looks_like_screen_capture_permission_error(
+            "Screen Recording permission denied"
+        ));
+        assert!(!looks_like_screen_capture_permission_error(
+            "ScreenCaptureKit stop failed: connection interrupted"
+        ));
+    }
+
+    #[test]
+    fn fallback_output_validation_rejects_missing_file() {
+        let path = temp_recording_path("missing");
+        let _ = std::fs::remove_file(&path);
+
+        let err = verify_screencapture_output(&path, None).unwrap_err();
+
+        assert!(err.contains("stopped without writing a recording file"));
+        assert!(err.contains("Screen Recording permission denied"));
+    }
+
+    #[test]
+    fn fallback_output_validation_rejects_empty_file() {
+        let path = temp_recording_path("empty");
+        std::fs::write(&path, b"").expect("create empty fallback file");
+
+        let err = verify_screencapture_output(&path, None).unwrap_err();
+
+        assert!(err.contains("produced an empty recording file"));
+        assert!(err.contains("Screen Recording permission denied"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fallback_output_validation_accepts_non_empty_file() {
+        let path = temp_recording_path("non-empty");
+        std::fs::write(&path, b"not-empty").expect("create fallback file");
+
+        assert!(verify_screencapture_output(&path, None).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fallback_output_validation_rejects_failed_exit_even_with_bytes() {
+        let path = temp_recording_path("failed-exit");
+        std::fs::write(&path, b"partial").expect("create partial fallback file");
+        let status = std::process::Command::new("/usr/bin/false")
+            .status()
+            .expect("run failing command");
+
+        let err = verify_screencapture_output(&path, Some(status)).unwrap_err();
+
+        assert!(err.contains("exited unsuccessfully"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fallback_output_validation_accepts_sigint_stop() {
+        let path = temp_recording_path("sigint-stop");
+        std::fs::write(&path, b"finalized").expect("create fallback file");
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-c", "kill -INT $$"])
+            .status()
+            .expect("run signal command");
+
+        assert!(verify_screencapture_output(&path, Some(status)).is_ok());
+        let _ = std::fs::remove_file(&path);
     }
 }
 
@@ -5138,7 +6451,9 @@ pub(crate) fn stop_native_recording(
     wait_for_finalize: bool,
 ) -> Result<(), String> {
     match backend {
-        NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
+        NativeFullscreenBackend::Screencapture { child, output_path } => {
+            stop_screencapture(child, output_path, wait_for_finalize)
+        }
         #[cfg(target_os = "macos")]
         NativeFullscreenBackend::CustomScreenCaptureKit {
             stream,
@@ -5164,7 +6479,7 @@ pub(crate) fn stop_native_recording(
                                 .map_err(|e| format!("custom ScreenCaptureKit stop failed: {e:?}"))
                         })
                 },
-                CUSTOM_SCK_STOP_TIMEOUT,
+                SCK_STOP_TIMEOUT,
             );
             if let Err(err) = &stop_result {
                 eprintln!("[clips-tray] custom capture stop_capture error: {err}");
@@ -5184,12 +6499,28 @@ pub(crate) fn stop_native_recording(
             // `remove_recording_output()` looks like the clean stop path, but
             // on real machines it can block synchronously forever when the
             // underlying SCStream connection is interrupted. `stop_capture()`
-            // returns control to us, then the delegate callback is bounded by
-            // `SCK_FINALIZE_TIMEOUT`; the moov/audio guards below decide
-            // whether the resulting file is uploadable or recoverable.
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            // itself is not guaranteed to return either, so it runs on a
+            // detached thread bounded by `SCK_STOP_TIMEOUT`: an unbounded
+            // hang here doesn't just delay this stop, it leaves the OS-level
+            // capture session half-torn-down and stalls the *next*
+            // recording's `start_capture()`. The delegate callback below is
+            // separately bounded by `SCK_FINALIZE_TIMEOUT`; the moov/audio
+            // guards then decide whether the resulting file is uploadable or
+            // recoverable.
+            let stream_for_stop = Arc::clone(stream);
+            let stop_result = run_bounded_capture_stop(
+                move || {
+                    stream_for_stop
+                        .lock()
+                        .map_err(|e| format!("ScreenCaptureKit stop lock poisoned: {e}"))
+                        .and_then(|guard| {
+                            guard
+                                .stop_capture()
+                                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"))
+                        })
+                },
+                SCK_STOP_TIMEOUT,
+            );
             let mut waited_for_finalize = false;
             let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
@@ -5240,13 +6571,82 @@ pub(crate) fn stop_native_recording(
     }
 }
 
-fn stop_screencapture(child: &mut Child) -> Result<(), String> {
-    if child
+fn verify_screencapture_output(
+    path: &Path,
+    status: Option<std::process::ExitStatus>,
+) -> Result<(), String> {
+    if let Some(status) = status.as_ref() {
+        let acceptable = if status.success() {
+            true
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+
+                // The normal stop path sends SIGINT so screencapture can flush
+                // its movie before exiting. macOS reports that intentional stop
+                // as signal 2 on versions that do not translate it to exit 0.
+                status.signal() == Some(2)
+            }
+            #[cfg(not(unix))]
+            {
+                false
+            }
+        };
+        if !acceptable {
+            let message = format!(
+                "macOS screencapture fallback exited unsuccessfully ({status}) at {}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            return Err(message);
+        }
+    }
+
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() > 0 => Ok(()),
+        Ok(_) => {
+            let status_detail = status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown status".to_string());
+            let message = format!(
+                "macOS screencapture fallback produced an empty recording file ({status_detail}) at {}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            Err(message)
+        }
+        Err(err) => {
+            let status_detail = status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown status".to_string());
+            let message = format!(
+                "macOS screencapture fallback stopped without writing a recording file ({status_detail}) at {}: {err}. {}",
+                path.display(),
+                screen_capture_permission_message("saving the fallback recording")
+            );
+            eprintln!("[clips-tray] {message}");
+            Err(message)
+        }
+    }
+}
+
+fn stop_screencapture(
+    child: &mut Child,
+    output_path: &Path,
+    wait_for_finalize: bool,
+) -> Result<(), String> {
+    if let Some(status) = child
         .try_wait()
         .map_err(|e| format!("screencapture status check failed: {e}"))?
-        .is_some()
     {
-        return Ok(());
+        return if wait_for_finalize {
+            verify_screencapture_output(output_path, Some(status))
+        } else {
+            Ok(())
+        };
     }
 
     let pid = child.id().to_string();
@@ -5258,14 +6658,33 @@ fn stop_screencapture(child: &mut Child) -> Result<(), String> {
         .stderr(Stdio::null())
         .status();
 
+    // Discard path: the movie file is deleted immediately after this returns,
+    // so the long graceful wait for `screencapture` to finish writing it just
+    // delays the cancel. Give SIGINT a short grace, then hard-kill and reap.
+    if !wait_for_finalize {
+        let grace_deadline = Instant::now() + Duration::from_millis(250);
+        while Instant::now() < grace_deadline {
+            if child
+                .try_wait()
+                .map_err(|e| format!("screencapture wait failed: {e}"))?
+                .is_some()
+            {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(());
+    }
+
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
-        if child
+        if let Some(status) = child
             .try_wait()
             .map_err(|e| format!("screencapture wait failed: {e}"))?
-            .is_some()
         {
-            return Ok(());
+            return verify_screencapture_output(output_path, Some(status));
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
@@ -5292,6 +6711,7 @@ pub(crate) async fn upload_finalized_native_artifact(
 ) -> Result<NativeFullscreenUploadResult, String> {
     let prepared = prepare_recording_file(
         app,
+        &recording_id,
         &artifact.path,
         artifact.mime_type,
         artifact.width,
@@ -5359,6 +6779,7 @@ fn prepare_saved_recording_file(
         .to_path_buf();
     let prepared = prepare_recording_file(
         app,
+        &saved.recording_id,
         &source_path,
         &saved.mime_type,
         saved.width,
@@ -5515,6 +6936,7 @@ async fn upload_prepared_recording_file(
         .unwrap_or(0);
     emit_native_upload_progress(
         app,
+        &recording_id,
         "uploading",
         if streaming_resume.is_some() {
             "Resuming upload"
@@ -5554,7 +6976,8 @@ async fn upload_prepared_recording_file(
             let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
             file.read_exact(&mut buffer)
                 .map_err(|e| format!("native recording read failed: {e}"))?;
-            send_upload_post_with_attempt(
+            tokio::select! {
+                result = send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -5575,10 +6998,14 @@ async fn upload_prepared_recording_file(
                 upload_attempt_id,
                 upload_generation_id,
                 buffer,
-            )
-            .await?;
+                ) => result,
+                _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                }
+            }?;
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "uploading",
                 "Uploading clip",
                 None,
@@ -5594,12 +7021,14 @@ async fn upload_prepared_recording_file(
 
         emit_native_upload_progress(
             app,
+            &recording_id,
             "processing",
             "Uploading clip",
             None,
             Some(streaming_full_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post_with_attempt(
+        verification_pending = tokio::select! {
+            result = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -5620,8 +7049,11 @@ async fn upload_prepared_recording_file(
             upload_attempt_id,
             upload_generation_id,
             final_body,
-        )
-        .await?;
+            ) => result,
+            _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+            }
+        }?;
     } else {
         for index in 0..total_chunks {
             let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
@@ -5632,7 +7064,8 @@ async fn upload_prepared_recording_file(
                 return Err("Native recording ended before all chunks were read.".into());
             }
             buffer.truncate(read);
-            send_upload_post_with_attempt(
+            tokio::select! {
+                result = send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -5653,10 +7086,14 @@ async fn upload_prepared_recording_file(
                 upload_attempt_id,
                 upload_generation_id,
                 buffer,
-            )
-            .await?;
+                ) => result,
+                _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                }
+            }?;
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "uploading",
                 "Uploading clip",
                 None,
@@ -5666,12 +7103,14 @@ async fn upload_prepared_recording_file(
 
         emit_native_upload_progress(
             app,
+            &recording_id,
             "processing",
             "Uploading clip",
             None,
             Some(total_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post_with_attempt(
+        verification_pending = tokio::select! {
+            result = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -5692,11 +7131,21 @@ async fn upload_prepared_recording_file(
             upload_attempt_id,
             upload_generation_id,
             Vec::new(),
-        )
-        .await?;
+            ) => result,
+            _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+            }
+        }?;
     }
 
-    emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
+    emit_native_upload_progress(
+        app,
+        &recording_id,
+        "opening",
+        "Uploading clip",
+        None,
+        Some(1.0),
+    );
     Ok(NativeFullscreenUploadResult {
         recording_id,
         duration_ms: verified_local_duration_ms,
@@ -5708,6 +7157,7 @@ async fn upload_prepared_recording_file(
 }
 
 async fn get_native_retry_upload_plan(
+    app: &AppHandle,
     server_url: &str,
     recording_id: &str,
     local_bytes: u64,
@@ -5735,30 +7185,105 @@ async fn get_native_retry_upload_plan(
     if !cookie.trim().is_empty() {
         request = request.header("Cookie", cookie.trim());
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("native recording resume check failed: {e}"))?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "native recording resume check returned {status}: {}",
-            body.chars().take(400).collect::<String>()
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5 * 60);
+    loop {
+        if native_upload_retry_cancelled(recording_id) {
+            return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+        }
+        let response = tokio::select! {
+            response = request
+                .try_clone()
+                .ok_or_else(|| "native recording resume request could not be retried".to_string())?
+                .send() => response.map_err(|e| format!("native recording resume check failed: {e}"))?,
+            _ = wait_for_native_upload_retry_cancel(recording_id) => {
+                return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+            }
+        };
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let parsed = serde_json::from_str::<NativeUploadResumeResponse>(&body);
+        if !status.is_success() {
+            if let Ok(conflict) = &parsed {
+                if let Some(delay) = native_retry_conflict_delay(conflict) {
+                    if tokio::time::Instant::now() + delay <= deadline {
+                        emit_native_upload_progress(
+                            app,
+                            recording_id,
+                            "uploading",
+                            "Waiting for prior retry",
+                            None,
+                            None,
+                        );
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {}
+                            _ = wait_for_native_upload_retry_cancel(recording_id) => {
+                                return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+                            }
+                        }
+                        continue;
+                    }
+                    return Err(
+                        "Another upload retry is still active. Wait a moment and try again"
+                            .to_string(),
+                    );
+                }
+                if conflict.reason.as_deref() == Some("retry_claim_liveness_unavailable") {
+                    return Err(
+                        "Clips could not verify whether another retry is active".to_string()
+                    );
+                }
+            }
+            return Err(format!("native recording resume check failed ({status})"));
+        }
+        let response = parsed.map_err(|_| {
+            "native recording resume check returned an unreadable response".to_string()
+        })?;
+        if response.resumable && response.attempt_id.as_deref() != Some(claimed_attempt_id) {
+            return Err(
+                "native recording resume check did not acknowledge its attempt claim".to_string(),
+            );
+        }
+        let recovery_enabled = response.recovery_enabled;
+        let rollback_attempt_id = response.attempt_id.clone();
+        let rollback_generation_id = response.upload_generation_id.clone();
+        return Ok(preserve_native_retry_fence_during_rollback(
+            plan_native_retry_upload(response, local_bytes, exact_local_stream),
+            recovery_enabled,
+            rollback_attempt_id,
+            rollback_generation_id,
         ));
     }
-    let response: NativeUploadResumeResponse = serde_json::from_str(&body)
-        .map_err(|_| "native recording resume check returned an unreadable response".to_string())?;
-    if response.resumable && response.attempt_id.as_deref() != Some(claimed_attempt_id) {
-        return Err(
-            "native recording resume check did not acknowledge its attempt claim".to_string(),
-        );
+}
+
+fn preserve_native_retry_fence_during_rollback(
+    mut plan: NativeRetryUploadPlan,
+    recovery_enabled: bool,
+    acknowledged_attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
+) -> NativeRetryUploadPlan {
+    if !recovery_enabled {
+        if let NativeRetryUploadPlan::Restart {
+            attempt_id,
+            upload_generation_id: planned_generation_id,
+        } = &mut plan
+        {
+            *attempt_id = acknowledged_attempt_id;
+            *planned_generation_id = upload_generation_id;
+        }
     }
-    Ok(plan_native_retry_upload(
-        response,
-        local_bytes,
-        exact_local_stream,
-    ))
+    plan
+}
+
+fn native_retry_conflict_delay(response: &NativeUploadResumeResponse) -> Option<Duration> {
+    if response.resumable
+        || !response.recovery_enabled
+        || response.reason.as_deref() != Some("retry_already_active")
+    {
+        return None;
+    }
+    response
+        .retry_after_ms
+        .map(|delay| Duration::from_millis(delay.clamp(250, 30_000)))
 }
 
 #[derive(Deserialize)]
@@ -5944,13 +7469,54 @@ fn native_retry_interruption_payload(
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
-        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
-        native_replay_attempt_id, native_retry_attempt_id, native_retry_interruption_payload,
-        plan_native_retry_upload, saved_native_retry_attempt_id, upload_url,
-        NativeFullscreenUploadResult, NativeRetryUploadPlan, NativeUploadResumeResponse,
-        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED,
-        UPLOAD_CHUNK_BYTES,
+        accept_native_retry_reset, is_native_upload_restart_required,
+        is_native_upload_unfenced_restart_required, native_fullscreen_recording_cancel_retry,
+        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
+        native_retry_interruption_payload, native_upload_retry_cancelled, plan_native_retry_upload,
+        preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id,
+        take_native_upload_retry_cancelled, upload_url, NativeFullscreenUploadResult,
+        NativeRetryUploadPlan, NativeUploadResetResponse, NativeUploadResumeResponse,
+        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_RETRY_CANCELLED,
+        NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED, UPLOAD_CHUNK_BYTES,
     };
+
+    #[test]
+    fn consumes_a_cancellation_that_arrives_before_retry_startup() {
+        let recording_id = "pre-start-cancel-recording".to_string();
+        assert!(!take_native_upload_retry_cancelled(&recording_id));
+
+        native_fullscreen_recording_cancel_retry(recording_id.clone())
+            .expect("record pre-start cancellation");
+        assert!(native_upload_retry_cancelled(&recording_id));
+        assert!(take_native_upload_retry_cancelled(&recording_id));
+        assert!(!native_upload_retry_cancelled(&recording_id));
+    }
+
+    #[test]
+    fn cancellation_after_a_committed_reset_preserves_the_authoritative_response() {
+        let reset = NativeUploadResetResponse {
+            upload_mode: Some("streaming".to_string()),
+            upload_generation_id: Some("generation-after-reset".to_string()),
+        };
+
+        assert_eq!(
+            accept_native_retry_reset(reset, true),
+            Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+        );
+        assert_eq!(
+            accept_native_retry_reset(
+                NativeUploadResetResponse {
+                    upload_mode: Some("streaming".to_string()),
+                    upload_generation_id: Some("generation-after-reset".to_string()),
+                },
+                false,
+            )
+            .expect("retry may re-enter the committed reset fence")
+            .upload_generation_id
+            .as_deref(),
+            Some("generation-after-reset")
+        );
+    }
 
     fn response(bytes_received: u64, next_chunk_index: u64) -> NativeUploadResumeResponse {
         NativeUploadResumeResponse {
@@ -5962,6 +7528,8 @@ mod native_retry_upload_plan_tests {
             next_chunk_index: Some(next_chunk_index),
             attempt_id: Some("attempt-1".to_string()),
             upload_generation_id: Some("generation-1".to_string()),
+            reason: None,
+            retry_after_ms: None,
         }
     }
 
@@ -6013,6 +7581,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: None,
                 attempt_id: Some("ignored-attempt".to_string()),
                 upload_generation_id: Some("ignored-generation".to_string()),
+                reason: Some("feature_disabled".to_string()),
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6028,6 +7598,66 @@ mod native_retry_upload_plan_tests {
     }
 
     #[test]
+    fn preserves_an_existing_fence_when_resumable_retry_is_disabled() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            Some("attempt-1".to_string()),
+            Some("generation-1".to_string()),
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: Some(attempt_id),
+                upload_generation_id: Some(generation_id),
+            } if attempt_id == "attempt-1" && generation_id == "generation-1"
+        ));
+    }
+
+    #[test]
+    fn keeps_an_unacknowledged_legacy_restart_unfenced_when_resumable_retry_is_disabled() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            None,
+            None,
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn preserves_an_acknowledged_legacy_attempt_without_a_generation() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            Some("attempt-1".to_string()),
+            None,
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: Some(attempt_id),
+                upload_generation_id: None,
+            } if attempt_id == "attempt-1"
+        ));
+    }
+
+    #[test]
     fn reconciles_terminal_resume_without_an_attempt_echo() {
         let terminal = plan_native_retry_upload(
             NativeUploadResumeResponse {
@@ -6039,6 +7669,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: None,
                 attempt_id: None,
                 upload_generation_id: None,
+                reason: None,
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6064,6 +7696,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: Some(0),
                 attempt_id: Some(claimed_attempt_id.clone()),
                 upload_generation_id: Some("generation-1".to_string()),
+                reason: None,
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6106,6 +7740,30 @@ mod native_retry_upload_plan_tests {
         let later = saved_native_retry_attempt_id(&mut saved_attempt_id);
         assert_eq!(first, later);
         assert_eq!(saved_attempt_id.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn waits_only_for_a_typed_bounded_retry_conflict() {
+        let conflict = NativeUploadResumeResponse {
+            resumable: false,
+            recovery_enabled: true,
+            status: Some("uploading".to_string()),
+            upload_mode: None,
+            bytes_received: None,
+            next_chunk_index: None,
+            attempt_id: None,
+            upload_generation_id: None,
+            reason: Some("retry_already_active".to_string()),
+            retry_after_ms: Some(60_000),
+        };
+        assert_eq!(
+            native_retry_conflict_delay(&conflict),
+            Some(std::time::Duration::from_secs(30))
+        );
+
+        let mut untyped = conflict;
+        untyped.retry_after_ms = None;
+        assert_eq!(native_retry_conflict_delay(&untyped), None);
     }
 
     #[test]
@@ -6836,6 +8494,9 @@ fn verify_prepared_audio_signal(
 
 fn prepare_recording_file(
     app: &AppHandle,
+    // Only so the compression progress this emits can name its take; the
+    // preparation itself is per-file and knows nothing about the recording.
+    recording_id: &str,
     path: &Path,
     mime_type: &str,
     width: Option<u32>,
@@ -6887,7 +8548,14 @@ fn prepare_recording_file(
             );
         }
     }
-    emit_native_upload_progress(app, "preparing", "Optimizing clip", None, None);
+    emit_native_upload_progress(
+        app,
+        recording_id,
+        "preparing",
+        "Optimizing clip",
+        None,
+        None,
+    );
 
     let original = PreparedRecordingFile {
         path: path.to_path_buf(),
@@ -6987,6 +8655,7 @@ fn prepare_recording_file(
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "compressing",
                 "Optimizing clip",
                 None,
@@ -7087,6 +8756,7 @@ fn prepare_recording_file(
                     }
                     emit_native_upload_progress(
                         app,
+                        &recording_id,
                         "compressing",
                         "Optimizing clip",
                         None,
@@ -7122,6 +8792,7 @@ fn prepare_recording_file(
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
+                &recording_id,
                 "compressing",
                 "Optimizing clip",
                 None,
@@ -7208,6 +8879,7 @@ fn prepare_recording_file(
                     }
                     emit_native_upload_progress(
                         app,
+                        &recording_id,
                         "compressing",
                         "Optimizing clip",
                         None,
@@ -8519,7 +10191,7 @@ mod audio_track_probe_tests {
 #[cfg(test)]
 mod segment_recovery_tests {
     use super::{
-        recover_from_unusable_current_segment, validate_recording_segment_file,
+        mark_pause_failure, recover_from_unusable_current_segment, validate_recording_segment_file,
         NativeFullscreenSession, RestartInfo, MP4_RECORDING_MIME_TYPE,
     };
     use std::io::Write;
@@ -8575,6 +10247,7 @@ mod segment_recovery_tests {
             lost_segment_duration: Duration::ZERO,
             lost_segment_count: 0,
             paused_at: None,
+            pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
                 include_audio: true,
@@ -8584,6 +10257,8 @@ mod segment_recovery_tests {
                 mic_device_label: None,
                 segment_counter: 0,
                 target_display_id: None,
+                target_window_id: None,
+                target_window_dimensions: None,
                 capture_region: None,
             },
             pending_recording_output: false,
@@ -8594,6 +10269,20 @@ mod segment_recovery_tests {
             had_live_upload: false,
             disk_monitor_stop: None,
         }
+    }
+
+    #[test]
+    fn failed_pause_enters_an_explicit_recoverable_state() {
+        let mut session = test_session(Vec::new());
+        let message = mark_pause_failure(&mut session, "backend finalize failed");
+
+        assert_eq!(message, "backend finalize failed");
+        assert!(session.paused_at.is_some());
+        assert_eq!(
+            session.pause_failure.as_deref(),
+            Some("backend finalize failed")
+        );
+        assert!(session.backend.is_none());
     }
 
     #[test]

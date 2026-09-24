@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,11 @@ const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
 ] as const;
 const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
 const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
+const MANAGED_DRIZZLE_SKILL_FILE = ".agents/skills/storing-data/SKILL.md";
+const FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES = [
+  "packages/core/src/templates/default/scripts/migrate-production.ts",
+  "templates/chat/scripts/migrate-production.ts",
+] as const;
 const RELEASE_COMMAND = /\bmigrate:production\b/;
 const RELEASE_FLAG =
   /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
@@ -22,6 +27,30 @@ const BETA_SCHEMA_OWNER_EXPORT =
   "export AGENT_NATIVE_BETA_SCHEMA_OWNER=production";
 const CLIPS_PREBUILT_MIGRATION_SKIP =
   /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/;
+const RELEASE_MIGRATION_SCRIPT_GLOBS = [
+  "packages/**/scripts/migrate-production.ts",
+  "templates/**/scripts/migrate-production.ts",
+] as const;
+
+const FRAMEWORK_ONLY_RELEASE_SCRIPT = `
+import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
+import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+
+loadEnv();
+
+async function main(): Promise<void> {
+  await withMigrationRuntime(async () => {
+    await runFrameworkReleaseMigrations(null);
+  });
+}
+
+try {
+  await main();
+} finally {
+  await closeDbExec();
+}
+`;
 
 /**
  * Production builds that run a release migration must bake the ownership
@@ -90,10 +119,14 @@ export function validateBetaPrebuiltReleaseEnvironment(
   file = BETA_PREBUILT_WORKFLOW,
 ): string[] {
   const betaStart = source.indexOf('if [[ "$TARGET" == "beta" ]]');
-  const betaEnd = source.indexOf(
-    'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
-    betaStart,
-  );
+  const betaEnd =
+    [
+      'if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+    ]
+      .map((marker) => source.indexOf(marker, betaStart))
+      .filter((index) => index > betaStart)
+      .sort((left, right) => left - right)[0] ?? -1;
   const betaBuild =
     betaStart >= 0 && betaEnd > betaStart
       ? source.slice(betaStart, betaEnd)
@@ -193,6 +226,82 @@ export function validateBetaSchemaOwnerRuntimeContract(
   return issues;
 }
 
+function executableSource(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\s+/g, "");
+}
+
+export function validateFrameworkOnlyReleaseScript(
+  source: string,
+  file: string,
+): string[] {
+  if (
+    executableSource(source) === executableSource(FRAMEWORK_ONLY_RELEASE_SCRIPT)
+  ) {
+    return [];
+  }
+  return [
+    `${file}: must contain only the framework release migration entrypoint`,
+  ];
+}
+
+export function validateReleaseMigrationLoadsEnv(
+  source: string,
+  file: string,
+): string[] {
+  if (
+    source.includes('import { loadEnv } from "@agent-native/core/scripts";') &&
+    /\bloadEnv\(\);/.test(executableSource(source))
+  ) {
+    return [];
+  }
+  return [`${file}: must load app and workspace environment before migrating`];
+}
+
+export function validateManagedDrizzleMigrationOwnership(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+  const skillFile = path.join(repoRoot, MANAGED_DRIZZLE_SKILL_FILE);
+  if (!existsSync(skillFile)) {
+    issues.push(
+      `${MANAGED_DRIZZLE_SKILL_FILE}: managed Drizzle migration guidance is missing`,
+    );
+  } else {
+    const source = readFileSync(skillFile, "utf8");
+    if (
+      !source.includes("drizzle/schema.ts") ||
+      !source.includes("db:generate") ||
+      !source.includes("scripts/migrate-production.ts` is framework-only") ||
+      !source.includes("do not create a parallel `runMigrations([...])` list")
+    ) {
+      issues.push(
+        `${MANAGED_DRIZZLE_SKILL_FILE}: must keep managed app migrations in generated Drizzle files and the release script framework-only`,
+      );
+    }
+  }
+
+  for (const relativeFile of FRAMEWORK_ONLY_RELEASE_SCRIPT_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: framework release migration script is missing`,
+      );
+      continue;
+    }
+    issues.push(
+      ...validateFrameworkOnlyReleaseScript(
+        readFileSync(file, "utf8"),
+        relativeFile,
+      ),
+    );
+  }
+
+  return issues;
+}
+
 function readTomlSection(source: string, header: string): string | null {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `[${header}]`);
@@ -227,6 +336,16 @@ export function findNetlifyReleaseMigrationIssues(
       ),
     );
   }
+  for (const relativeFile of globSync(RELEASE_MIGRATION_SCRIPT_GLOBS, {
+    cwd: repoRoot,
+  })) {
+    issues.push(
+      ...validateReleaseMigrationLoadsEnv(
+        readFileSync(path.join(repoRoot, relativeFile), "utf8"),
+        relativeFile,
+      ),
+    );
+  }
 
   const workflow = path.join(repoRoot, BETA_PREBUILT_WORKFLOW);
   if (!existsSync(workflow)) {
@@ -237,6 +356,7 @@ export function findNetlifyReleaseMigrationIssues(
     );
   }
   issues.push(...validateBetaSchemaOwnerRuntimeContract(repoRoot));
+  issues.push(...validateManagedDrizzleMigrationOwnership(repoRoot));
   return issues;
 }
 

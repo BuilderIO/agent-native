@@ -27,6 +27,7 @@ export {
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveDelegatedRunModel,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
   type NormalizeModelOptions,
   detectEngineFromEnv,

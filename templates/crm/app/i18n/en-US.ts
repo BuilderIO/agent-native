@@ -61,7 +61,7 @@ const messages = {
   settings: {
     title: "CRM settings",
     description:
-      "Native SQL keeps CRM-owned records local and portable. HubSpot and Salesforce use workspace Connections; their mirrors store only allow-listed fields, scoped metadata, and bounded evidence references.",
+      "Native SQL keeps CRM-owned records in Postgres. HubSpot and Salesforce use workspace Connections; their mirrors store only allow-listed fields, scoped metadata, and bounded evidence references.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -606,6 +606,19 @@ const messages = {
     evaluatedThroughAsk: "Evaluated through Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Review duplicates",
+    duplicateReviewTitle: "Possible duplicate records",
+    duplicateReviewDescription:
+      "Check this record against accessible candidates. Running Jev sends record names, types, and match signals for up to five candidates to TypeSafe. Its probability is a suggestion; merging always requires a separate review.",
+    duplicateReviewRun: "Check duplicates",
+    duplicateReviewLoading: "Checking…",
+    duplicateReviewFailed: "Duplicate review could not be completed.",
+    duplicateReviewUnavailable:
+      "Jev could not review these records. Rule-based candidates remain visible.",
+    duplicateReviewEmpty: "No likely duplicates found.",
+    duplicateRuleConfidence: "Rule-based match: {{percent}}%",
+    duplicateJevProbability: "Jev same-entity probability: {{percent}}%",
+    duplicateMatchedOn: "Matched on: {{values}}",
     evidenceAttached: "Call evidence attached.",
     evidenceAttachFailed: "Evidence could not be attached.",
     addEvidence: "Add evidence",

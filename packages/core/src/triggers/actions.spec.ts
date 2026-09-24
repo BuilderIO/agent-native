@@ -46,8 +46,10 @@ vi.mock("../localization/user-timezone.js", () => ({
   resolveUserSchedulingTimezone: resolveUserSchedulingTimezoneMock,
 }));
 
-vi.mock("../jobs/run-history.js", () => ({
-  deleteAutomationRuns: deleteAutomationRunsMock,
+const queueAutomationRunNowMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../jobs/run-now.js", () => ({
+  queueAutomationRunNow: queueAutomationRunNowMock,
 }));
 
 vi.mock("../integrations/remote-devices-store.js", () => ({
@@ -67,6 +69,11 @@ describe("manage-automations tool", () => {
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
     deleteAutomationRunsMock.mockResolvedValue(undefined);
+    queueAutomationRunNowMock.mockResolvedValue({
+      queued: true,
+      runId: "run-1",
+      automationRunId: "run-1",
+    });
     listRemoteDevicesForOwnerMock.mockResolvedValue([]);
     getRemoteExecutionCapabilitiesMock.mockReturnValue(null);
   });
@@ -250,6 +257,94 @@ Updated body.`,
     await tool().run({ action: "delete", name: "qa-alert" });
 
     expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+  });
+
+  it("persists and updates reasoning_effort, and rejects an unrecognized value", async () => {
+    const defineResult = JSON.parse(
+      await tool().run({
+        action: "define",
+        name: "qa-effort",
+        trigger_type: "event",
+        event: "test.event.fired",
+        body: "Record the QA signal.",
+        model: "gpt-5.6-luna",
+        reasoning_effort: "high",
+      }),
+    );
+    expect(defineResult.reasoningEffort).toBe("high");
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-effort.md",
+      expect.stringContaining("reasoningEffort: high"),
+    );
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-effort.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+model: gpt-5.6-luna
+reasoningEffort: high
+---
+
+Record the QA signal.`,
+    });
+
+    const updateResult = JSON.parse(
+      await tool().run({
+        action: "update",
+        name: "qa-effort",
+        reasoning_effort: "low",
+      }),
+    );
+    expect(updateResult.reasoningEffort).toBe("low");
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-effort.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+model: gpt-5.6-luna
+reasoningEffort: low
+---
+
+Record the QA signal.`,
+    });
+
+    const rejected = await tool().run({
+      action: "update",
+      name: "qa-effort",
+      reasoning_effort: "extreme",
+    });
+    expect(rejected).toContain("Invalid reasoning effort");
+  });
+
+  // `handleDefine` used to silently coerce an unrecognized reasoning_effort
+  // to undefined and report a successful creation using the model default —
+  // the caller's typo vanished instead of erroring, unlike update.
+  it("rejects an unrecognized reasoning_effort on define instead of silently dropping it", async () => {
+    const result = await tool().run({
+      action: "define",
+      name: "qa-bad-effort",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+      reasoning_effort: "extreme",
+    });
+    expect(result).toContain("Invalid reasoning effort");
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("rejects define with mode: deterministic and persists nothing", async () => {
@@ -438,6 +533,22 @@ Record the signal.`,
     );
 
     expect(result).toBe("Error: an automation cannot run another automation.");
-    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a nested automation by path without sending an empty name", async () => {
+    const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
+
+    await tool().run({ action: "run-now", path, scope: "organization" });
+
+    expect(queueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path,
+        scope: "organization",
+      }),
+    );
+    expect(queueAutomationRunNowMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "name",
+    );
   });
 });

@@ -2,10 +2,33 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
+import { useSettingsPanelController } from "./useSettingsPanelController.js";
+
+vi.mock("../labs/LabsSettings.js", () => ({
+  LabsSettings: ({
+    labs,
+  }: {
+    labs: readonly { key: string; displayName?: string }[];
+  }) => (
+    <div data-testid="labs-content">
+      {labs.map((lab) => (
+        <span key={lab.key} id={`lab-${lab.key}`}>
+          {lab.displayName ?? lab.key}
+        </span>
+      ))}
+    </div>
+  ),
+}));
+
+vi.mock("../i18n.js", () => ({
+  useT: () => (key: string) =>
+    key === "agentChat.auth.logOut" ? "Cerrar sesión" : key,
+}));
 
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
@@ -64,6 +87,7 @@ describe("SettingsTabsPage", () => {
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("focuses the settings search on desktop entry", () => {
@@ -110,6 +134,38 @@ describe("SettingsTabsPage", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       ),
     ).toBe(true);
+  });
+
+  it("finds the account tab for sign-out aliases and localized labels", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            account={<div>Account content</div>}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+
+    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        valueSetter?.call(searchInput, term);
+        searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(
+        container.querySelector('[role="listbox"]')?.textContent,
+      ).toContain("Account");
+    }
   });
 
   it("centers the content panel while keeping the navigation rail compact", () => {
@@ -195,6 +251,188 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("General content");
     expect(container.textContent).not.toContain("Integration content");
+  });
+
+  it("always includes the core lab and indexes app labs", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[
+              {
+                key: "clips.meetings",
+                displayName: "Meetings and transcription",
+                description: "Try meetings",
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    expect(searchInput).not.toBeNull();
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(searchInput, "meetings");
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const result = container.querySelector('[role="option"]');
+    expect(result).not.toBeNull();
+    expect(result?.textContent).toContain("Meetings and transcription");
+    await act(async () =>
+      result?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    expect(window.location.pathname).toBe("/settings/labs/lab-clips.meetings");
+    expect(
+      container.querySelector("[data-testid=labs-content]")?.textContent,
+    ).toContain("Meetings and transcription");
+
+    await act(async () => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage general={<div>General content</div>} />
+        </MemoryRouter>,
+      );
+    });
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
+  });
+
+  it("places labs after app-specific tabs such as notifications", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "notifications",
+              label: "Notifications",
+              content: <div>Notifications content</div>,
+            },
+          ]}
+          labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+        />,
+      );
+    });
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>("[id^='settings-tab-']"),
+    ).map((tab) => tab.id);
+    expect(tabs.indexOf("settings-tab-notifications")).toBeLessThan(
+      tabs.indexOf("settings-tab-labs"),
+    );
+  });
+
+  it("resolves legacy experiment routes to Labs", async () => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <MemoryRouter
+            initialEntries={["/settings/experiments/experiment-clips.meetings"]}
+          >
+            <SettingsTabsPage
+              general={<div>General content</div>}
+              labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+            />
+          </MemoryRouter>,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
+  });
+
+  it.each([
+    "#experiments:experiment-clips.meetings",
+    "#experiment-clips.meetings",
+  ])("canonicalizes legacy experiment hash %s", async (hash) => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      window.history.replaceState(null, "", `/${hash}`);
+      runAnimationFramesImmediately();
+      await act(async () => {
+        root.render(
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            labs={[{ key: "clips.meetings", displayName: "Meetings" }]}
+          />,
+        );
+      });
+
+      expect(
+        container
+          .querySelector("#settings-tab-labs")
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(window.location.pathname).toBe(
+        "/settings/labs/lab-clips.meetings",
+      );
+      expect(window.location.hash).toBe("");
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      });
+    } finally {
+      if (previousScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          previousScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+      }
+    }
   });
 
   it("restores a connections tab from its canonical route after a remount", () => {
@@ -329,7 +567,13 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
+    expect(tabLabels).toEqual([
+      "General",
+      "Agent",
+      "Labs",
+      "What's new",
+      "Team",
+    ]);
   });
 
   it("visually separates app, agent, and workspace tabs", () => {
@@ -371,6 +615,85 @@ describe("SettingsTabsPage", () => {
     ).toBeNull();
   });
 
+  it("keeps What's new out of the preceding feature group", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          whatsNew={<div>Recent updates</div>}
+          extraTabs={[
+            {
+              id: "library",
+              label: "Library",
+              group: "creative-context",
+              groupLabel: "Creative context",
+              content: <div>Creative Context library</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const creativeContextGroup = container.querySelector<HTMLElement>(
+      '[data-settings-tab-group="creative-context"]',
+    );
+    expect(creativeContextGroup?.textContent).toContain("Creative context");
+    expect(creativeContextGroup?.textContent).not.toContain("What's new");
+    expect(
+      container.querySelector('[data-settings-tab-group="app"]')?.textContent,
+    ).toContain("What's new");
+  });
+
+  it("merges tabs sharing a group id into one section even when another group intervenes", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "gmail-filters",
+              label: "Gmail Filters",
+              group: "integrations",
+              content: <div>Gmail filters content</div>,
+            },
+            {
+              id: "aliases",
+              label: "Aliases",
+              content: <div>Aliases content</div>,
+            },
+            {
+              id: "slack",
+              label: "Slack",
+              group: "integrations",
+              content: <div>Slack content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    // "aliases" has no group (defaults to "app", same as General) but sits
+    // between two "integrations" tabs, breaking simple adjacency.
+    expect(
+      container.querySelectorAll('[data-settings-tab-group="app"]'),
+    ).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[data-settings-tab-group="integrations"]'),
+    ).toHaveLength(1);
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual([
+      "General",
+      "Aliases",
+      "Labs",
+      "Gmail Filters",
+      "Slack",
+    ]);
+  });
+
   it("keeps linked settings navigation last with an external-link marker", () => {
     act(() => {
       root.render(
@@ -403,7 +726,14 @@ describe("SettingsTabsPage", () => {
       Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
         tab.textContent?.trim(),
       ),
-    ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
+    ).toEqual([
+      "General",
+      "Labs",
+      "What's new",
+      "Integrations",
+      "Team",
+      "Workspace",
+    ]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/workspace"]',
@@ -413,6 +743,92 @@ describe("SettingsTabsPage", () => {
     expect(
       workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
+  });
+
+  it("syncs the active tab after router-only settings navigation", () => {
+    function NavigationProbe() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => void navigate("/settings#workspace")}
+        >
+          Navigate
+        </button>
+      );
+    }
+
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings#agent"]}>
+          <NavigationProbe />
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent");
+    expect(window.location.hash).toBe("");
+    expect(container.textContent).toContain("Agent content");
+    const navigateButton = container.querySelector("button");
+    expect(navigateButton).not.toBeNull();
+
+    act(() => navigateButton!.click());
+
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
+  });
+
+  it("keeps BrowserRouter in sync when a tab updates native history", () => {
+    window.history.replaceState(null, "", "/settings#agent");
+
+    act(() => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent content");
+    const workspaceTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-workspace",
+    );
+    expect(workspaceTab).not.toBeNull();
+
+    act(() => workspaceTab!.click());
+
+    expect(window.location.pathname).toBe("/settings/workspace");
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
   });
 
   it("honors the controlled value and reports changes without touching the hash", () => {
@@ -529,6 +945,103 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("Agent voice settings");
     expect(container.textContent).not.toContain("General content");
+  });
+
+  it("resolves a legacy secrets deep link (with a focused key) to the keys tab", () => {
+    window.history.replaceState(null, "", "/settings#secrets:OPENAI_API_KEY");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "keys",
+              label: "API keys",
+              content: <div>API keys content</div>,
+              searchEntries: [
+                { id: "section:secrets", label: "API keys", hash: "secrets" },
+              ],
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("API keys content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
+  it("resolves a legacy #browser deep link to the integrations tab", () => {
+    window.history.replaceState(null, "", "/settings#browser");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "integrations",
+              label: "Integrations",
+              content: <div>Integrations content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Integrations content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
+  it("opens the inner section after BrowserRouter canonicalizes a hash", async () => {
+    window.history.replaceState(null, "", "/settings#uploads");
+
+    function SectionProbe() {
+      const { openSection } = useSettingsPanelController({
+        sections: ["voice", "uploads"],
+      });
+      return <span data-testid="open-section">{openSection}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <SectionProbe />,
+                searchEntries: [
+                  { id: "section:voice", label: "Voice", hash: "voice" },
+                  {
+                    id: "section:uploads",
+                    label: "Uploads",
+                    hash: "uploads",
+                  },
+                ],
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("uploads");
+
+    await act(async () => {
+      window.history.pushState(null, "", "/settings#voice");
+      window.dispatchEvent(new Event("popstate"));
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/voice");
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("voice");
   });
 
   it("selects the deepest matching tab for nested agent deep links", () => {

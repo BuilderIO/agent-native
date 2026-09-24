@@ -18,8 +18,8 @@ import {
   type Resource,
 } from "../resources/store.js";
 import {
-  buildJobResourceContent,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import { finishAutomationRun, startAutomationRun } from "./run-history.js";
@@ -184,7 +184,9 @@ export async function dispatchRemoteAutomation(
     const claimed = await resourcePutIfCurrent({
       owner: latest.owner,
       path: latest.path,
-      content: buildJobResourceContent(withRequest, parsed.body),
+      content: patchJobFrontmatterFields(latest.content, {
+        remoteRequestId: requestId,
+      }),
       expectedId: latest.id,
       expectedUpdatedAt: latest.updatedAt,
       expectedContent: latest.content,
@@ -263,7 +265,13 @@ export async function dispatchRemoteAutomation(
     const persisted = await resourcePutIfCurrent({
       owner: currentResource.owner,
       path: currentResource.path,
-      content: buildJobResourceContent(nextMeta, parsed.body),
+      content: patchJobFrontmatterFields(currentResource.content, {
+        remoteRequestId: requestId,
+        remoteCommandId: command.id,
+        remoteRunId: nextMeta.remoteRunId,
+        remoteAutomationRunId: automationRunId,
+        remoteAdvanceSchedule: nextMeta.remoteAdvanceSchedule,
+      }),
       expectedId: currentResource.id,
       expectedUpdatedAt: currentResource.updatedAt,
       expectedContent: currentResource.content,

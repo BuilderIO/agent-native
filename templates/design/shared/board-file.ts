@@ -12,7 +12,17 @@
  * It must stay free of React, Nitro, and database imports.
  */
 
+import { parseFragment } from "parse5";
+
 import type { BoardObjectEntry } from "./board-objects.js";
+import { resolveLayerNameAttribute } from "./layer-name.js";
+import {
+  vectorEndpointAttributesMarkup,
+  vectorEndpointDefsMarkup,
+  vectorEndpointPairForPrimitive,
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+} from "./vector-endpoints.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,7 +31,8 @@ import type { BoardObjectEntry } from "./board-objects.js";
 /** Reserved filename for the board overlay file. */
 export const BOARD_FILENAME = "__board__.html";
 
-const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
+// guard:allow-raw-color — Figma's default shape paint (D9D9D9), independent of the document theme.
+const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 
 // Figma-parity default stroke for vector primitives (line/arrow/pen path).
@@ -32,6 +43,15 @@ const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 // Keep these two values in sync if either canonical token ever changes.
 const DEFAULT_LINE_STROKE = "#000000";
 const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
+function getHtmlAttributeValue(tag: string, name: string): string {
+  const element = parseFragment(tag).childNodes[0];
+  if (!element || !("attrs" in element)) return "";
+  return (
+    element.attrs.find((attribute) => attribute.name === name.toLowerCase())
+      ?.value ?? ""
+  );
+}
 
 // ---------------------------------------------------------------------------
 // isBoardFile
@@ -100,6 +120,8 @@ export function boardObjectEntryToHtmlFragment(
     fill,
     stroke,
     strokeWidth,
+    startPoint,
+    endPoint,
     text,
     pathData,
     points,
@@ -157,14 +179,14 @@ export function boardObjectEntryToHtmlFragment(
         .join(" ");
     const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
     const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
-
-    let markerDefs = "";
-    let markerEnd = "";
-    if (kind === "arrow") {
-      const markerId = `${nodeId}-arrow`;
-      markerDefs = `<defs><marker id="${escapeAttr(markerId)}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z" fill="${escapeAttr(strokeColor)}"/></marker></defs>`;
-      markerEnd = ` marker-end="url(#${escapeAttr(markerId)})"`;
-    }
+    const endpoints = vectorEndpointPairForPrimitive(
+      kind,
+      startPoint,
+      endPoint,
+    );
+    const endpointStyle = `;${VECTOR_START_ENDPOINT_PROPERTY}:${endpoints.startPoint};${VECTOR_END_ENDPOINT_PROPERTY}:${endpoints.endPoint}`;
+    const markerDefs = vectorEndpointDefsMarkup(nodeId, endpoints);
+    const markerAttributes = vectorEndpointAttributesMarkup(nodeId, endpoints);
 
     // Pen-authored paths (pathData present) serialize anchors in absolute
     // canvas/geometry space, not relative to the fragment's own 0,0 origin
@@ -178,7 +200,7 @@ export function boardObjectEntryToHtmlFragment(
       ? ` viewBox="${x} ${y} ${width} ${height}"`
       : "";
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    return `<svg style="${baseStyle}${endpointStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="${escapeAttr(fill ?? "none")}" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerAttributes}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
@@ -271,7 +293,7 @@ function kindToLayerName(kind: BoardObjectEntry["kind"]): string {
  * | `<svg>` containing exactly one `<path>` and no other shape | `"path"`  |
  * | `<svg>` with no reliable vector signal                  | *(skip — left unmarked, still classifies as a generic shape via tag)* |
  * | Inline style contains `border-radius:50%`              | `"ellipse"`   |
- * | Inline style contains `background:transparent` or no background, but has `data-agent-native-layer-name` starting with "Frame" | `"frame"` |
+ * | Inline style contains `background:transparent` or no background, but has a layer-name attribute starting with "Frame" | `"frame"` |
  * | Element has non-empty text content and no background color in style | `"text"` |
  * | Otherwise                                              | `"rectangle"` |
  *
@@ -546,10 +568,10 @@ function _inferPrimitiveKind(openTag: string): string {
   }
 
   // Extract the layer name for additional hints.
-  const layerNameMatch = openTag.match(
-    /\bdata-agent-native-layer-name="([^"]*)"/i,
-  );
-  const layerName = layerNameMatch ? layerNameMatch[1] : "";
+  const layerName =
+    resolveLayerNameAttribute((attribute) =>
+      getHtmlAttributeValue(openTag, attribute),
+    )?.value ?? "";
 
   // Frame: layer name starts with "Frame".
   if (/^frame/i.test(layerName)) {

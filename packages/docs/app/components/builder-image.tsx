@@ -25,7 +25,7 @@ function getFallbackWidth(
 
 interface BuilderImageProps extends Omit<
   ImgHTMLAttributes<HTMLImageElement>,
-  "src" | "srcSet" | "sizes"
+  "src" | "srcSet"
 > {
   src: string;
   widths?: readonly number[];

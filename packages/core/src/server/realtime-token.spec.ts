@@ -6,6 +6,7 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetOrgContext = vi.hoisted(() => vi.fn());
 const mockResolveProjectId = vi.hoisted(() => vi.fn());
 const mockSameOrigin = vi.hoisted(() => vi.fn());
+const mockRegisteredChannel = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (h: any) => h,
@@ -25,6 +26,9 @@ vi.mock("./builder-browser.js", () => ({
 }));
 vi.mock("./request-origin.js", () => ({
   isSameOriginRequest: mockSameOrigin,
+}));
+vi.mock("./realtime-registration.js", () => ({
+  resolveRegisteredRealtimeChannel: mockRegisteredChannel,
 }));
 
 const SECRET = "per-project-hmac-secret";
@@ -46,6 +50,7 @@ describe("realtime-token mint endpoint", () => {
     mockGetOrgContext.mockResolvedValue({ orgId: "org-1" });
     // Async scoped resolver — proves the endpoint uses it, not a sync env read.
     mockResolveProjectId.mockResolvedValue("proj_scoped");
+    mockRegisteredChannel.mockResolvedValue(null);
   });
   afterEach(() => {
     delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
@@ -83,6 +88,58 @@ describe("realtime-token mint endpoint", () => {
     mockResolveProjectId.mockResolvedValue("");
     const { e } = await invoke({ method: "GET" });
     expect(e.status).toBe(404);
+  });
+
+  it("mints on a self-registered channel when nothing was injected", async () => {
+    mockResolveProjectId.mockResolvedValue("");
+    delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
+    mockRegisteredChannel.mockResolvedValue({
+      channelId: "rt_selfregistered",
+      hmacSecret: "registered-secret",
+    });
+
+    const { e, body } = await invoke({ method: "GET" });
+    expect(e.status).toBeUndefined();
+    expect(
+      verifyRealtimeSubscribeToken(body.token, {
+        projectId: "rt_selfregistered",
+        key: "registered-secret",
+      }),
+    ).toMatchObject({ ok: true, owner: "alice@example.com", orgId: "org-1" });
+  });
+
+  it("never self-registers for a pipeline app missing only its secret", async () => {
+    // A resolved project id means Builder already has this app's database.
+    delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
+    mockRegisteredChannel.mockResolvedValue({
+      channelId: "rt_selfregistered",
+      hmacSecret: "registered-secret",
+    });
+    const { e } = await invoke({ method: "GET" });
+    expect(e.status).toBe(404);
+    expect(mockRegisteredChannel).not.toHaveBeenCalled();
+  });
+
+  it("prefers the injected pipeline channel over a registered one", async () => {
+    mockRegisteredChannel.mockResolvedValue({
+      channelId: "rt_selfregistered",
+      hmacSecret: "registered-secret",
+    });
+    const { body } = await invoke({ method: "GET" });
+    expect(
+      verifyRealtimeSubscribeToken(body.token, {
+        projectId: "proj_scoped",
+        key: SECRET,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(mockRegisteredChannel).not.toHaveBeenCalled();
+  });
+
+  it("404s when neither an injected nor a registered channel exists", async () => {
+    mockResolveProjectId.mockResolvedValue("");
+    delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
+    mockRegisteredChannel.mockResolvedValue(null);
+    expect((await invoke({ method: "GET" })).e.status).toBe(404);
   });
 
   it("rejects cross-origin (403) and non-GET (405)", async () => {

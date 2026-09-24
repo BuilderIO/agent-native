@@ -208,6 +208,190 @@ describe("Factory graph history actions", () => {
     expect(tx.insert).not.toHaveBeenCalled();
   });
 
+  it("refuses to create a named factory through save-factory-graph", async () => {
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "company-demo",
+          name: "Company demo",
+          description: "",
+          prompt: "",
+          source: "ai",
+          changeSummary: "Created a factory.",
+          expectedGraphVersion: 0,
+          graph,
+        },
+        { userEmail: "owner@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("Use create-factory");
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("keeps the canonical default name on an AI save of the virtual Factory", async () => {
+    const insertValues = vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(() => ({ values: insertValues })),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    const result = await action.run(
+      {
+        factoryId: "product-feedback",
+        name: "Renamed by a graph proposal",
+        description: "Should not stick.",
+        prompt: "",
+        source: "ai",
+        changeSummary: "Designed a Slack intake flow.",
+        expectedGraphVersion: 1,
+        graph,
+      },
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(result).toMatchObject({
+      factoryId: "product-feedback",
+      name: "Product feedback to shipped change",
+      graphVersion: 2,
+    });
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "product-feedback",
+        name: "Product feedback to shipped change",
+        graphVersion: 2,
+        description:
+          "Observe product signals, classify them safely, and keep a human in the loop before work starts.",
+      }),
+    );
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a first Map save of the virtual Factory that still uses version 0", async () => {
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "product-feedback",
+          name: "Product feedback to shipped change",
+          description: "",
+          prompt: "",
+          source: "manual",
+          changeSummary: "Updated in the Factory visual editor.",
+          expectedGraphVersion: 0,
+          graph,
+        },
+        { userEmail: "owner@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("Factory changed while saving");
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("keeps the current factory name on an AI graph save", async () => {
+    const definition = {
+      id: "company-demo",
+      name: "Company demo",
+      description: "Existing description",
+      graphVersion: 1,
+      orgId: "org-1",
+    };
+    const set = vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([{ id: definition.id }]),
+      }),
+    });
+    const insertValues = vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([definition]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set })),
+      insert: vi.fn(() => ({ values: insertValues })),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    const result = await action.run(
+      {
+        factoryId: "company-demo",
+        name: "Slack bug intake to Builder",
+        description: "Renamed by a graph proposal.",
+        prompt: "",
+        source: "ai",
+        changeSummary: "Designed a Slack intake flow.",
+        expectedGraphVersion: 1,
+        graph,
+      },
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(result).toMatchObject({
+      name: "Company demo",
+      graphVersion: 2,
+    });
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Company demo",
+        description: "Existing description",
+      }),
+    );
+  });
+
   it("restores by appending a new version and updating the current definition atomically", async () => {
     const definition = {
       id: "product-feedback",

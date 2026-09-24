@@ -2,7 +2,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -206,6 +206,58 @@ describe("workspace deploy", () => {
     });
   });
 
+  it("builds direct-child apps with isolated workspace auth", async () => {
+    const appDir = path.join(tmpDir, "account-tiering");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify({
+        name: "account-tiering",
+        displayName: "Account Tiering",
+        scripts: { build: "agent-native build" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { appsDirectory: ".", authMode: "isolated" } } };\n',
+    );
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(buildCallForApp("account-tiering")?.env).toMatchObject({
+      AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+      VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+      APP_BASE_PATH: "/account-tiering",
+    });
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "account-tiering-server",
+          "account-tiering-server.mjs",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "account-tiering-server",
+          "account-tiering-server.mjs",
+        ),
+        "utf8",
+      ),
+    ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
+  });
+
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -237,6 +289,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         isDispatch: true,
         audience: "internal",
         publicPaths: [],
@@ -247,6 +300,7 @@ describe("workspace deploy", () => {
         name: "Starter",
         description: "",
         path: "/starter",
+        homePath: "/home",
         isDispatch: false,
         audience: "internal",
         publicPaths: [],
@@ -382,6 +436,7 @@ describe("workspace deploy", () => {
           name: "Dispatch",
           description: "",
           path: "/dispatch",
+          homePath: "/home",
           isDispatch: true,
           audience: "internal",
           publicPaths: [],
@@ -392,6 +447,7 @@ describe("workspace deploy", () => {
           name: "Starter",
           description: "",
           path: "/starter",
+          homePath: "/home",
           isDispatch: false,
           audience: "internal",
           publicPaths: [],
@@ -444,7 +500,7 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(starterServer).toContain(
-      'path: ["/starter","/starter.data","/starter/*"]',
+      'path: ["/starter","/starter.data","/starter/*","/.well-known/oauth-authorization-server/starter","/.well-known/openid-configuration/starter","/.well-known/oauth-protected-resource/starter","/.well-known/oauth-protected-resource/starter/*"]',
     );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
@@ -504,6 +560,12 @@ describe("workspace deploy", () => {
       new Request("https://example.test/starter"),
     );
     expect(await starterResponse.text()).toBe("https://example.test/starter//");
+    const starterDataResponse = await starterModule.default(
+      new Request("https://example.test/starter.data?_routes=root"),
+    );
+    expect(await starterDataResponse.text()).toBe(
+      "https://example.test/starter/.data?_routes=root",
+    );
 
     const redirects = fs.readFileSync(
       path.join(tmpDir, "dist", "_redirects"),
@@ -520,6 +582,9 @@ describe("workspace deploy", () => {
     );
     expect(redirects).toContain(
       "/dispatch/robots.txt /_workspace_static/dispatch/robots.txt 200",
+    );
+    expect(redirects).toContain(
+      "/dispatch/auth-marketing/dispatch.webp /_workspace_static/dispatch/auth-marketing/dispatch.webp 200",
     );
     expect(redirects).toContain(
       "/starter/feed.xml /_workspace_static/starter/feed.xml 200",
@@ -541,6 +606,21 @@ describe("workspace deploy", () => {
     );
     expect(redirects).toContain(
       "/.well-known/* /.netlify/functions/dispatch-server 200",
+    );
+    expect(redirects).toContain(
+      "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+    );
+    expect(redirects).toContain(
+      "/.well-known/oauth-protected-resource/starter/* /.netlify/functions/starter-server 200",
+    );
+    expect(
+      redirects.indexOf(
+        "/.well-known/oauth-authorization-server/starter /.netlify/functions/starter-server 200",
+      ),
+    ).toBeLessThan(
+      redirects.indexOf(
+        "/.well-known/* /.netlify/functions/dispatch-server 200",
+      ),
     );
     expect(redirects).toContain("/favicon.ico /dispatch/favicon.ico 302");
     expect(redirects).toContain("/ /dispatch/overview 302");
@@ -590,6 +670,67 @@ describe("workspace deploy", () => {
     expect(fs.existsSync(path.join(tmpDir, "dist", "_worker.js"))).toBe(false);
   });
 
+  it("writes a directory root page without redirecting the workspace root", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    makeWorkspaceApp(tmpDir, "beta");
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
+    );
+
+    for (const preset of ["netlify", "cloudflare_pages", "vercel"] as const) {
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset,
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+
+      const outputDir =
+        preset === "vercel"
+          ? path.join(tmpDir, ".vercel", "output", "static")
+          : path.join(tmpDir, "dist");
+      const directoryPage = fs.readFileSync(
+        path.join(outputDir, "index.html"),
+        "utf-8",
+      );
+      expect(directoryPage).toContain("Pick the right app for the work ahead.");
+      expect(directoryPage).toContain('href="/alpha/"');
+      expect(directoryPage).toContain('href="/beta/"');
+
+      if (preset === "netlify") {
+        expect(
+          fs.readFileSync(path.join(tmpDir, "dist", "_redirects"), "utf-8"),
+        ).not.toContain("/ /alpha/ 302");
+      }
+      if (preset === "cloudflare_pages") {
+        const routes = JSON.parse(
+          fs.readFileSync(path.join(tmpDir, "dist", "_routes.json"), "utf-8"),
+        ) as { include: string[] };
+        expect(routes.include).not.toContain("/");
+        expect(
+          fs.readFileSync(path.join(tmpDir, "dist", "_worker.js"), "utf-8"),
+        ).not.toContain('if (pathname === "/")');
+      }
+      if (preset === "vercel") {
+        const vercelConfig = JSON.parse(
+          fs.readFileSync(
+            path.join(tmpDir, ".vercel", "output", "config.json"),
+            "utf-8",
+          ),
+        ) as {
+          routes: Array<{ src?: string; headers?: { Location?: string } }>;
+        };
+        expect(vercelConfig.routes).not.toContainEqual(
+          expect.objectContaining({
+            src: "/",
+            headers: { Location: "/alpha/" },
+          }),
+        );
+      }
+    }
+  });
+
   it("propagates workspace app route access into manifests and app env", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "portal", {
@@ -618,6 +759,7 @@ describe("workspace deploy", () => {
     );
     expect(manifest.find((app: any) => app.id === "portal")).toMatchObject({
       id: "portal",
+      homePath: "/home",
       audience: "public",
       publicPaths: ["/", "/pricing"],
       protectedPaths: ["/admin"],
@@ -781,6 +923,12 @@ describe("workspace deploy", () => {
     await expect(starterModule.default.fetch(req, {})).resolves.toBe(
       "/starter//",
     );
+    await expect(
+      starterModule.default.fetch(
+        new Request("https://example.test/starter.data?_routes=root"),
+        {},
+      ),
+    ).resolves.toBe("/starter/.data");
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -815,6 +963,24 @@ describe("workspace deploy", () => {
       src: "/_agent-native/(.*)",
       dest: "/dispatch-server",
     });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-authorization-server/starter",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
+      src: "/\\.well-known/oauth-protected-resource/starter/(.*)",
+      dest: "/starter-server",
+    });
+    expect(
+      config.routes.findIndex(
+        (route: { src?: string }) =>
+          route.src === "/\\.well-known/oauth-authorization-server/starter",
+      ),
+    ).toBeLessThan(
+      config.routes.findIndex(
+        (route: { src?: string }) => route.src === "/\\.well-known/(.*)",
+      ),
+    );
     expect(config.routes).toContainEqual({
       src: "/\\.well-known/(.*)",
       dest: "/dispatch-server",
@@ -853,9 +1019,34 @@ describe("workspace deploy", () => {
       dest: "/starter-server",
     });
     expect(config.routes).toContainEqual({
+      src: "/starter\\.data",
+      dest: "/starter-server",
+    });
+    expect(config.routes).toContainEqual({
       src: "/starter/(.*)",
       dest: "/starter-server",
     });
+  });
+
+  it("keeps Vite assets when the app id is assets", async () => {
+    makeWorkspaceApp(tmpDir, "assets");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=vercel", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const assetsDir = path.join(
+      tmpDir,
+      ".vercel",
+      "output",
+      "static",
+      "assets",
+      "assets",
+    );
+    expect(fs.existsSync(path.join(assetsDir, "app.js"))).toBe(true);
+    expect(fs.existsSync(path.join(assetsDir, "app-aB12_cdE.js"))).toBe(true);
   });
 
   it("allows local build-only deploy checks without A2A_SECRET", async () => {
@@ -945,7 +1136,7 @@ describe("workspace deploy", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
-  it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
+  it("writes workspace app URLs and preserves explicit manifest metadata", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
       "https://directory.example.test";
@@ -955,6 +1146,7 @@ describe("workspace deploy", () => {
         {
           id: "mail",
           path: "/mail",
+          homePath: "/inbox",
           url: "https://mail.custom.example.test/",
         },
       ],
@@ -984,6 +1176,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -995,6 +1188,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/inbox",
         url: "https://mail.custom.example.test",
         isDispatch: false,
         audience: "internal",
@@ -1025,6 +1219,68 @@ describe("workspace deploy", () => {
       ["dispatch", "https://workspace.example.test/dispatch"],
       ["mail", "https://mail.custom.example.test"],
     ]);
+  });
+
+  it("publishes configured app home paths while preserving manifest overrides", async () => {
+    process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [{ id: "mail", homePath: "/compose" }],
+    });
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "calendar", { homePath: "/dashboard" });
+    makeWorkspaceApp(tmpDir, "mail", { homePath: "/inbox" });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const dispatchCall = buildCallForApp("dispatch");
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      expect.objectContaining({ id: "dispatch", homePath: "/home" }),
+      expect.objectContaining({ id: "calendar", homePath: "/dashboard" }),
+      expect.objectContaining({ id: "mail", homePath: "/compose" }),
+    ]);
+  }, 30_000);
+
+  it("infers a root home path when an app has no home route", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "root-app", { rootRoute: true });
+    makeWorkspaceApp(tmpDir, "configured-root", {
+      homePath: "/inbox",
+      rootRoute: true,
+    });
+    makeWorkspaceApp(tmpDir, "standard", {
+      homeRoute: true,
+      rootRoute: true,
+    });
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const apps = JSON.parse(
+      buildCallForApp("dispatch")?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ??
+        "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({
+          id: "configured-root",
+          homePath: "/inbox",
+        }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
   });
 
   it("uses public workspace URLs before loopback gateways when building apps", async () => {
@@ -1061,6 +1317,7 @@ describe("workspace deploy", () => {
         name: "Dispatch",
         description: "",
         path: "/dispatch",
+        homePath: "/home",
         url: "https://workspace.example.test/dispatch",
         isDispatch: true,
         audience: "internal",
@@ -1072,6 +1329,7 @@ describe("workspace deploy", () => {
         name: "Mail",
         description: "",
         path: "/mail",
+        homePath: "/home",
         url: "https://workspace.example.test/mail",
         isDispatch: false,
         audience: "internal",
@@ -1095,6 +1353,20 @@ describe("workspace deploy", () => {
     expect(execFile).not.toHaveBeenCalled();
   });
 
+  it("rejects dotted app ids that collide with root data routes", async () => {
+    makeWorkspaceApp(tmpDir, "starter");
+    makeWorkspaceApp(tmpDir, "starter.data");
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).rejects.toThrow(/must use lowercase letters, numbers, and hyphens/);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
   it("routes root framework requests to Dispatch for Cloudflare workspaces", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -1111,6 +1383,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).toContain("/_agent-native/*");
     expect(routes.include).toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).toContain("/favicon.ico");
     expect(routes.include).toContain("/approval");
     expect(routes.include).toContain("/extensions");
@@ -1129,6 +1407,17 @@ describe("workspace deploy", () => {
     expect(worker).toContain(
       'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
     );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-protected-resource/starter" || pathname.startsWith("/.well-known/oauth-protected-resource/starter/")) return app_starter.fetch(request, env, ctx);',
+    );
+    expect(
+      worker.indexOf(
+        'pathname === "/.well-known/oauth-authorization-server/starter"',
+      ),
+    ).toBeLessThan(worker.indexOf('pathname === "/_agent-native"'));
     expect(worker).toContain(
       'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/") || pathname === "/.well-known" || pathname.startsWith("/.well-known/")) return app_dispatch.fetch(request, env, ctx);',
     );
@@ -1183,6 +1472,12 @@ describe("workspace deploy", () => {
     ) as { include: string[] };
     expect(routes.include).not.toContain("/_agent-native/*");
     expect(routes.include).not.toContain("/.well-known/*");
+    expect(routes.include).toContain(
+      "/.well-known/oauth-authorization-server/starter",
+    );
+    expect(routes.include).toContain(
+      "/.well-known/oauth-protected-resource/starter/*",
+    );
     expect(routes.include).not.toContain("/favicon.ico");
 
     const worker = fs.readFileSync(
@@ -1191,6 +1486,9 @@ describe("workspace deploy", () => {
     );
     expect(worker).not.toContain('pathname === "/_agent-native"');
     expect(worker).not.toContain('pathname === "/.well-known"');
+    expect(worker).toContain(
+      'if (pathname === "/.well-known/oauth-authorization-server/starter") return app_starter.fetch(request, env, ctx);',
+    );
     expect(worker).not.toContain('pathname === "/favicon.ico"');
   });
 });
@@ -1282,6 +1580,26 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("dispatch"))).toBe(false);
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
+
+  it.each([true, false])(
+    "keeps per-app chat recovery independent of disabled jobs (%s)",
+    async (durableChat) => {
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = String(durableChat);
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "starter");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=netlify", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      });
+
+      for (const app of ["dispatch", "starter"]) {
+        expect(fs.existsSync(recurringFuncDir(app))).toBe(durableChat);
+      }
+    },
+  );
 
   it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
@@ -1467,8 +1785,11 @@ function makeWorkspaceApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
+    homePath?: string;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
     usesUnpooledDatabaseUrl?: boolean;
   } = {},
 ): void {
@@ -1489,6 +1810,42 @@ function makeWorkspaceApp(
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
 
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
+
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
+  }
+
   if (opts.usesUnpooledDatabaseUrl) {
     fs.writeFileSync(
       path.join(appDir, "netlify.toml"),
@@ -1502,7 +1859,9 @@ function makeWorkspaceApp(
 }
 
 function writeAppBuildOutput(workspaceRoot: string, app: string): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = fs.existsSync(path.join(workspaceRoot, app, "package.json"))
+    ? path.join(workspaceRoot, app)
+    : path.join(workspaceRoot, "apps", app);
   fs.mkdirSync(path.join(appDir, "dist", app, "assets"), { recursive: true });
   fs.mkdirSync(path.join(appDir, ".netlify", "functions-internal", "server"), {
     recursive: true,
@@ -1526,6 +1885,13 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
   fs.writeFileSync(path.join(appDir, "dist", app, "poster.avif"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "robots.txt"), "");
   fs.writeFileSync(path.join(appDir, "dist", app, "site.webmanifest"), "{}");
+  fs.mkdirSync(path.join(appDir, "dist", app, "auth-marketing"), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(appDir, "dist", app, "auth-marketing", `${app}.webp`),
+    "image",
+  );
   fs.mkdirSync(path.join(appDir, "dist", app, app, "assets"), {
     recursive: true,
   });
@@ -1552,7 +1918,9 @@ function writeAppBuildOutput(workspaceRoot: string, app: string): void {
 }
 
 function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
-  const appDir = path.join(workspaceRoot, "apps", app);
+  const appDir = fs.existsSync(path.join(workspaceRoot, app, "package.json"))
+    ? path.join(workspaceRoot, app)
+    : path.join(workspaceRoot, "apps", app);
   const staticDir = path.join(appDir, ".vercel", "output", "static", app);
   const functionDir = path.join(
     appDir,

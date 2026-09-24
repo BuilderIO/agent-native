@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ClipsAvatar } from "../clips-avatar";
 import { Avatar as ShareAvatar } from "./share-ui";
 import { ViewerAvatar } from "./viewed-by-popover";
 
@@ -146,5 +147,21 @@ describe("sharing avatar rendering", () => {
     const image = container.querySelector("img");
     expect(image?.getAttribute("src")).toBe(avatarMocks.url);
     expect(image?.getAttribute("alt")).toBe("Viewer Name");
+  });
+
+  it("forwards trigger props and refs through the shared avatar", () => {
+    const ref = React.createRef<HTMLSpanElement>();
+
+    render(
+      <ClipsAvatar
+        ref={ref}
+        email="person@example.com"
+        alt="Person"
+        fallback="PE"
+        data-testid="avatar-trigger"
+      />,
+    );
+
+    expect(ref.current).toBe(container.querySelector("[data-testid]"));
   });
 });

@@ -43,6 +43,7 @@ export interface NativeTranscriptionCapture {
 
 const STOP_SETTLE_MS = 1_500;
 const RESTART_DELAY_MS = 250;
+const MAX_RESTART_ATTEMPTS = 8;
 
 function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
@@ -81,20 +82,29 @@ export function createNativeTranscriptionCapture(options?: {
   let paused = false;
   let disposed = false;
   let failureReason = unsupportedReason;
+  // Kept apart from `failureReason`: a failed `start()` attempt loses no
+  // audio once a later attempt succeeds, whereas `failureReason` records
+  // speech that was actually dropped and must survive a recovery.
+  let restartStartFailure: string | null = null;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let restartFailures = 0;
   let stopPromise: Promise<NativeTranscriptResult> | null = null;
   let resolveStop: ((result: NativeTranscriptResult) => void) | null = null;
   let stopTimer: ReturnType<typeof setTimeout> | null = null;
 
   const result = (): NativeTranscriptResult => {
     const text = appendTranscript(finalText, interimText).trim();
+    // Captured text does not clear a failure: a capture that died mid-recording
+    // still has to be re-transcribed in the cloud, and the reason is the only
+    // signal the server has that this transcript is truncated.
     return {
       text,
       failureReason:
-        text.length > 0
+        failureReason ||
+        restartStartFailure ||
+        (text.length > 0
           ? null
-          : failureReason ||
-            "Chrome Web Speech recognition returned no transcript.",
+          : "Chrome Web Speech recognition returned no transcript."),
     };
   };
 
@@ -111,20 +121,34 @@ export function createNativeTranscriptionCapture(options?: {
     resolve(result());
   };
 
-  const scheduleRestart = (): void => {
+  const scheduleRestart = (delayMs: number = RESTART_DELAY_MS): void => {
     if (restartTimer !== null) return;
     restartTimer = setTimeout(() => {
       restartTimer = null;
       if (disposed || stopped || paused || !recognition) return;
       try {
         recognition.start();
+        restartFailures = 0;
+        // The engine recovered, so a failed start attempt is no longer the
+        // transcript's outcome. `failureReason` is deliberately NOT cleared:
+        // it records audio that was actually dropped, which a restart cannot
+        // recover.
+        restartStartFailure = null;
       } catch (error) {
-        failureReason =
+        restartStartFailure =
           error instanceof Error
             ? `Chrome Web Speech recognition could not restart: ${error.message}`
             : "Chrome Web Speech recognition could not restart.";
+        // Nothing started, so no `onend` will arrive to schedule the next try.
+        restartFailures += 1;
+        if (restartFailures < MAX_RESTART_ATTEMPTS) {
+          scheduleRestart(RESTART_DELAY_MS * restartFailures);
+        } else {
+          // Out of retries: the gap is permanent, so it stops being transient.
+          failureReason = failureReason || restartStartFailure;
+        }
       }
-    }, RESTART_DELAY_MS);
+    }, delayMs);
   };
 
   const start = (): void => {
@@ -230,10 +254,18 @@ export function createNativeTranscriptionCapture(options?: {
   const resume = (): void => {
     if (!recognition || stopped || disposed) return;
     paused = false;
+    restartFailures = 0;
     try {
       recognition.start();
     } catch {
-      failureReason = "Chrome Web Speech recognition could not resume.";
+      // Chrome throws a transient InvalidStateError if the previous session has
+      // not finished tearing down. Nothing started, so no `onend` will arrive to
+      // drive the bounded retry loop — schedule it here or transcription stays
+      // dead for the rest of the recording. The gap is recorded durably because
+      // audio is already live: `paused` is false above.
+      failureReason =
+        failureReason || "Chrome Web Speech recognition could not resume.";
+      scheduleRestart();
     }
   };
 

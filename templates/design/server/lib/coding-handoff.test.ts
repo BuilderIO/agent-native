@@ -152,7 +152,8 @@ describe("coding handoff helpers", () => {
         {
           filename: "../index.html",
           fileType: "html",
-          content: "<main>Hello</main>",
+          content:
+            '<main data-agent-native-layer-name="Launch Hero">Hello</main>',
         },
         {
           filename: "styles.css",
@@ -173,7 +174,7 @@ describe("coding handoff helpers", () => {
       "Launch Page!",
     );
     expect(await zip.file("index.html")?.async("string")).toContain(
-      "<main>Hello</main>",
+      'data-agent-native-layer-name="Launch Hero"',
     );
     expect(await zip.file("styles.css")?.async("string")).toContain(
       "color: red",

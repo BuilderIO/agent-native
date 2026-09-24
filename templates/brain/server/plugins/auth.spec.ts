@@ -14,12 +14,12 @@ vi.mock("@agent-native/core/server", () => ({
 import authPlugin from "./auth.js";
 
 describe("brain auth plugin", () => {
-  it("keeps workspace pages private while preserving signed ingest", () => {
+  it("keeps workspace pages private while allowing the public home", () => {
     expect(authPlugin).toMatchObject({ kind: "auth-plugin" });
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceAppAudience: "internal",
-        workspaceAppPublicPaths: [],
+        workspaceAppPublicPaths: ["/"],
         publicPaths: ["/api/_agent-native/brain/ingest"],
       }),
     );

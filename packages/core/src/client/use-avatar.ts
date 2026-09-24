@@ -66,7 +66,7 @@ export function useAvatarUrl(email: string | null | undefined): string | null {
   useEffect(() => {
     if (!email) return;
     let cancelled = false;
-    fetchAvatar(email).then((u) => {
+    void fetchAvatar(email).then((u) => {
       if (!cancelled) setUrl(u);
     });
     // Subscribe to upload notifications so the avatar updates without remount

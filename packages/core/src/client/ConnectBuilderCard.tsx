@@ -13,13 +13,14 @@ import { BuilderBMark } from "./builder-mark.js";
 import { writeClipboardText } from "./clipboard.js";
 import { requestDesktopLocalCodeChange } from "./desktop-local-code-change.js";
 import { getCallbackOrigin } from "./frame.js";
+import { useT } from "./i18n.js";
+import { DeferredBuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 const CODE_CHANGE_FALLBACK_DETAIL =
   "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
-const CODE_CHANGE_FALLBACK_TEXT = `This requires a code change. ${CODE_CHANGE_FALLBACK_DETAIL}`;
 
 function isLocalDevelopment() {
   if (typeof window === "undefined") {
@@ -78,11 +79,13 @@ export function ConnectBuilderCard({
   prompt = "",
   context = "",
 }: ConnectBuilderCardProps) {
+  const t = useT();
   // The connect-poll state machine is shared — the tool-call result is
   // frozen at render time, so the hook's mount-time fetch + focus refresh
   // is what catches a flow the user completed in another tab.
   const flow = useBuilderConnectFlow({
     popupUrl: initialConnectUrl,
+    provisionAccount: true,
     trackingSource: "connect_builder_card",
   });
   // Keep the server-rendered handoff state until a successful status response
@@ -237,6 +240,15 @@ export function ConnectBuilderCard({
     [prompt],
   );
 
+  const openBackgroundAgentSettings = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "background" },
+      }),
+    );
+  }, []);
+
   // Auto-send the user's pending prompt the moment connecting finishes
   // successfully. Without this, the connect popup closing leaves the user
   // staring at a "Send to Builder" button — feels like they have to
@@ -262,8 +274,19 @@ export function ConnectBuilderCard({
   // so the render tree below stays flat.
   const connectedCapabilityText =
     builderEnabled && codeChangeConfigured
-      ? "AI credits and cloud code changes are ready to use."
-      : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
+      ? t("onboarding.builderReadyWithCodeChanges")
+      : t("onboarding.builderReadyCreditsOnly");
+  const connectedCapabilityAction =
+    configured && !(builderEnabled && codeChangeConfigured) ? (
+      <button
+        type="button"
+        onClick={openBackgroundAgentSettings}
+        className="ml-1 inline-flex items-center gap-1 font-medium text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
+      >
+        {t("onboarding.openBackgroundAgentSettings")}
+        <IconExternalLink className="h-3 w-3" />
+      </button>
+    ) : null;
   let title: string;
   let subtitle: React.ReactNode;
   if (localCodeChangeRequested) {
@@ -311,16 +334,18 @@ export function ConnectBuilderCard({
     subtitle = flow.envManaged ? (
       <>
         Managed by this deployment — every user of this app uses the same
-        Builder identity. {connectedCapabilityText}
+        Builder identity. {connectedCapabilityText} {connectedCapabilityAction}
       </>
     ) : orgName ? (
       <>
         Connected to{" "}
         <span className="font-medium text-foreground">{orgName}</span>.{" "}
-        {connectedCapabilityText}
+        {connectedCapabilityText} {connectedCapabilityAction}
       </>
     ) : (
-      <>{connectedCapabilityText}</>
+      <>
+        {connectedCapabilityText} {connectedCapabilityAction}
+      </>
     );
   } else {
     title = "Connect Builder.io";
@@ -539,24 +564,25 @@ export function ConnectBuilderCard({
                       : "Do locally"}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => flow.start()}
-                  disabled={connecting}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
-                    connecting && "opacity-70 cursor-wait",
-                  )}
-                >
-                  {connecting ? (
-                    <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                      Waiting for Builder…
-                    </>
-                  ) : (
-                    "Connect Builder"
-                  )}
-                </button>
+                <DeferredBuilderConnectPopover flow={flow}>
+                  <button
+                    type="button"
+                    disabled={connecting}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                      connecting && "opacity-70 cursor-wait",
+                    )}
+                  >
+                    {connecting ? (
+                      <>
+                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                        Waiting for Builder…
+                      </>
+                    ) : (
+                      "Connect Builder"
+                    )}
+                  </button>
+                </DeferredBuilderConnectPopover>
               </div>
             ) : showDesktopLocalHandoff ? (
               <button

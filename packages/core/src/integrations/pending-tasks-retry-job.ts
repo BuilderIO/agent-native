@@ -96,9 +96,7 @@ function affectedRows(result: unknown): number {
 
 function isMissingPendingTasksTableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return /no such table|relation .* does not exist|undefined_table/i.test(
-    message,
-  );
+  return /relation .* does not exist|undefined_table/i.test(message);
 }
 
 function durableScopeSql(): { clause: string; args: string[] } {

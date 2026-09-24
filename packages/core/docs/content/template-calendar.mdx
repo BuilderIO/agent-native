@@ -1,135 +1,68 @@
 ---
 title: "Calendar"
-description: "An agent-powered calendar with Google Calendar sync and Calendly-style booking links. Schedule, find slots, and manage availability through plain English."
+description: "An agent-powered calendar that replaces Google Calendar and Calendly with one app you own. Schedule, manage availability, and handle booking links through the agent or the UI."
 ---
 
 # Calendar
 
-An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
+Calendar is an agent-powered scheduling app. Connect your Google Calendar and
+the agent can read your schedule, find free time, create events, and manage
+Calendly-style booking links, in plain English or with a click. It replaces
+the Google Calendar + Calendly combo with one app, so your real schedule and
+your public booking pages are never two things you have to keep in sync by
+hand.
 
-<WireframeBlock id="doc-block-calendar1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>May 3-9, 2026</strong><div style='flex:1'></div><button class='primary'>New Event</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>Sun 3</strong><strong>Mon 4</strong><strong>Tue 5</strong><strong>Wed 6</strong><strong>Thu 7</strong><strong>Fri 8</strong><strong>Sat 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>All-hands</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div class='wf-box'>Eng standup</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Design review</div><div></div><div class='wf-box'>Design crit</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Friday demo</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Focus block</div><div></div><div></div><div class='wf-box'>All-hands</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Skip-level</div><div></div><div></div><div></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Cards columns={1}>
 
-When you open the app, the active calendar view is the primary surface. The agent still knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
+### :calendar: [Try it out now →](https://calendar.agent-native.com)
 
-<Diagram id="doc-block-calendar2" title="How a scheduling request flows" summary="Whether you click in the calendar or ask the agent, the same actions read live from Google Calendar and write back to the same view.">
+See Calendar live with a real Google Calendar connected.
 
-```html
-<div class="diagram-flow">
-  <div class="diagram-col">
-    <div class="diagram-node">
-      You click<br /><small class="diagram-muted"
-        >drag, toolbar, shortcuts</small
-      >
-    </div>
-    <div class="diagram-node">
-      You ask the agent<br /><small class="diagram-muted"
-        >"find a 1-hour slot next week"</small
-      >
-    </div>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Actions</span
-    ><small class="diagram-muted"
-      >list-events · check-availability · create-event</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-col">
-    <div class="diagram-box">
-      Google Calendar<br /><small class="diagram-muted"
-        >live, multi-account</small
-      >
-    </div>
-    <div class="diagram-box">
-      SQL<br /><small class="diagram-muted">bookings · availability</small>
-    </div>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
-  <div class="diagram-box">Calendar view updates live</div>
-</div>
-```
+</Cards>
 
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-flow .diagram-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-```
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fafb81b5670d44030960cf8b60ec77c53?alt=media&token=59a6171c-f074-4507-91fe-db820cbe007e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A short screen recording of logging in and touring the calendar app."
+  caption="A brief tour of the calendar application."
+  autoplay={true}
+  loop={true}
+/>
 
-</Diagram>
+## What it replaces
 
-## What you can do with it
+<Comparison>
 
-- **See your real Google Calendar** in day, week, or month view, with multiple accounts overlayed in one grid.
-- **Subscribe to ICS feeds** (HR time off, conference schedules, team calendars) — read-only, mixed into the same view.
-- **Set weekly availability** with timezone support, buffer time, and minimum notice — the agent uses this when finding free slots.
-- **Create public booking links** at `/book/{your-name}/{slug}` for things like "15-minute intro" or "30-minute demo." Configure durations, custom fields, required co-hosts, and whether visitors get Google Meet or Zoom.
-- **Ask the agent anything schedule-related**: "Am I free Thursday afternoon?" "Find a 1-hour slot next week and put 'Planning with Alex' on it." "Pause my demo booking link."
-- **Share booking links** with teammates so they can manage them too.
+### Before
 
-See [Scheduling, Availability & Finding Time](/docs/template-calendar-scheduling) and [Booking Links](/docs/template-calendar-booking-links) for the full detail on each.
+- Google Calendar for your real schedule
+- Calendly (or similar) for public booking links, kept in sync by hand
+- A separate contacts search when you need someone's email
+- Copy-pasting a Zoom link into every invite
 
-## Getting started
+### After
 
-Live demo: [calendar.agent-native.com](https://calendar.agent-native.com).
+- One view: your real calendar and your booking links together
+- One availability model that booking links and the agent both read from
+- People search built into the same prompt as scheduling
+- Zoom or Google Meet attached automatically when someone books
 
-When you first open the app:
+</Comparison>
 
-1. Click **Settings**.
-2. Click **Connect Google Calendar** and approve.
-3. (Optional) Connect more Google accounts if you want personal + work overlayed.
-4. Open the main view — your real calendar will load.
+## Calendar in a multi-app workspace
 
-To create your first booking link:
-
-1. Click **Booking Links** in the sidebar.
-2. Click **New booking link**, set a title and duration.
-3. Share the public URL — visitors pick from your available slots.
-
-Or just ask the agent: "Create a 15-minute intro booking link with a name field."
-
-### Useful prompts
-
-- "What is on my calendar today?"
-- "Am I free Thursday afternoon for 30 minutes?"
-- "Find a 1-hour slot next week and put 'Planning with Alex' on it."
-- "Create a booking link called '15 min intro' at 15 minutes with a note field."
-- "Block Friday afternoons on my availability."
-
-See [Talking to the Agent](/docs/template-calendar-agent) for the full list of prompts by task.
-
-The agent will query Google Calendar live for any schedule question — it never guesses.
+If you're running Calendar alongside other apps under
+[Dispatch](/docs/template-dispatch), your calendar stops being just a page you
+open. It becomes something other channels and apps can act on, from
+automations that fire off a new booking to a sibling app handing Calendar a
+scheduling request directly. See [Calendar in a Multi-App
+Workspace](/docs/template-calendar-integrations) for how the connection
+actually works and the real mechanisms behind it.
 
 ## What's next
 
-- [**Scheduling, Availability & Finding Time**](/docs/template-calendar-scheduling) — views, availability, free-slot search, overlays, and people search
-- [**Booking Links**](/docs/template-calendar-booking-links) — creating, sharing, and managing Calendly-style booking pages
-- [**Talking to the Agent**](/docs/template-calendar-agent) — prompts by task, application state, and Extensions
+- [**Features**](/docs/template-calendar-features) — views, availability, finding time, and booking links, with setup steps for each
+- [**Talk to the Agent**](/docs/template-calendar-agent) — prompts by task, application state, and Extensions
+- [**Calendar in a Multi-App Workspace**](/docs/template-calendar-integrations) — integration strategies and connecting to Dispatch
 - [**Developer Guide**](/docs/template-calendar-developers) — quick start, actions, data model, and routes
 - [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model, and every other domain template to start from
 - [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync

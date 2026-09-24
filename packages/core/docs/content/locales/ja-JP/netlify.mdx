@@ -5,7 +5,7 @@ description: "Netlify Nitro プリセットを使って agent-native アプリ�
 
 # Netlify
 
-Nitro の `netlify` プリセットはよく機能し、外部の Postgres（Neon）と通信するテンプレートでは、実際に Cloudflare Pages よりもはるかに速いコールドスタート（TTFB 約 200ms 対 約 9秒）を実現しています。プリセットは `vite.config.ts` で設定するか、
+Nitro の `netlify` プリセットはよく機能し、外部の Postgres（Neon）と通信するテンプレートでは、実際に Cloudflare Pages よりもはるかに速いコールドスタート（TTFB 約 200ms 対 約 9秒）を実現しています。生成されたスキャフォールド外の最小構成として、プリセットを `vite.config.ts` で設定するか、
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,23 @@ export default defineConfig({
 });
 ```
 
+生成された Chat スキャフォールドでも、インポート名は `agentNative` のままです。設定では
+型アサーションを使ってローカルの `agentNativePlugins` エイリアスに割り当て、返された
+プラグイン配列を展開して Vite パッケージの型を揃えます。このエイリアスは上記の
+`agentNative` の例と同じオプションを受け取ります。Netlify にデプロイする場合は、既存の
+`agentNativePlugins({ ... })` 呼び出しのオプションに `nitro: { preset: "netlify" }` を
+追加してください。Chat 固有の他のプラグイン、オプション、エイリアスはそのまま残します。
+
 …もしくはビルド時に `NITRO_PRESET=netlify` を設定します。
+
+スタンドアロンアプリでは、Netlify出力をビルドして静的アセットとfunctionsをデプロイします。
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+最初の本番デプロイ前に、Netlify サイトの環境変数へ `DATABASE_URL` と安定した `BETTER_AUTH_SECRET` を設定してください。ローカル開発用の PGlite データベースに依存せず、`DATABASE_URL` はデプロイされた function から到達できる永続 PostgreSQL データベースを指す必要があります。
 
 ワークスペースの場合、次を実行して 1 つの Netlify サイトからすべてのアプリをデプロイします。
 

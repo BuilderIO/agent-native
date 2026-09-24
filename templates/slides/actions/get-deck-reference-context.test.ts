@@ -1,6 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import {
+const mockResolveAccess = vi.fn();
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+}));
+
+vi.mock("../server/db/index.js", () => ({}));
+
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
+import action, {
   buildReferenceDeckContext,
   pickLayoutPatterns,
 } from "./get-deck-reference-context.js";
@@ -64,5 +82,26 @@ describe("buildReferenceDeckContext", () => {
 
   it("points the agent at get-deck for cases the patterns miss", () => {
     expect(context).toContain("get-deck --id deck-1 --compact false");
+  });
+});
+
+describe("get-deck-reference-context action", () => {
+  it("falls back to the design system id stored in data when the column is null", async () => {
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        id: "deck-2",
+        title: "Reference Deck",
+        designSystemId: null,
+        data: JSON.stringify({ designSystemId: "ds-in-data", slides }),
+      },
+    });
+
+    const result = (await action.run({ id: "deck-2" } as any)) as any;
+
+    expect(result.designSystemId).toBe("ds-in-data");
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      id: "ds-in-data",
+    });
   });
 });

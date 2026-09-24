@@ -8,7 +8,7 @@ if (!tokenFile) throw new Error("BRAIN_CLIPS_TOKEN_FILE is required");
 
 const db = getDbExec();
 const { rows } = await db.execute({
-  sql: "SELECT id, source_key, config_json FROM brain_sources WHERE provider = ? AND title = ?",
+  sql: "SELECT id, source_key, config_json FROM brain_sources WHERE provider = $1 AND title = $2",
   args: ["clips", "Clips exports"],
 });
 if (rows.length !== 1) {
@@ -31,7 +31,7 @@ config.sourceKey = sourceKey;
 config.ingestTokenHash = tokenHash;
 
 await db.execute({
-  sql: "UPDATE brain_sources SET source_key = ?, ingest_token_hash = ?, config_json = ?, updated_at = ? WHERE id = ?",
+  sql: "UPDATE brain_sources SET source_key = $1, ingest_token_hash = $2, config_json = $3, updated_at = $4 WHERE id = $5",
   args: [
     sourceKey,
     tokenHash,

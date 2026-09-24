@@ -10,6 +10,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useMemo,
   useImperativeHandle,
   forwardRef,
 } from "react";
@@ -25,12 +26,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
+import {
+  createComposeAutocompleteExtension,
+  handleComposeAutocompleteKeyDown,
+  refreshComposeAutocomplete,
+  type ComposeAutocompleteOptions,
+} from "./compose-autocomplete";
 import {
   shouldApplyComposeContent,
   COMPOSE_TYPING_GRACE_MS,
 } from "./compose-draft-context";
+import { handleComposeSendShortcut } from "./compose-shortcuts";
 import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
 import { ComposeSlashMenu } from "./ComposeSlashMenu";
 import { ComposeImageNode } from "./extensions/ComposeImageNode";
@@ -49,10 +58,11 @@ interface ComposeEditorProps {
   content: string;
   onChange: (markdown: string) => void;
   onGenerate: () => void;
-  onSend: () => void;
+  onSend: (markDone?: boolean) => void;
   onClose: () => void;
   onFlush: () => Promise<unknown> | undefined;
   isGenerating: boolean;
+  autocompleteEnabled: boolean;
   draftId: string;
   getCurrentDraftBody: (editor: Editor) => string;
   sendToAgent: (opts: {
@@ -76,6 +86,7 @@ export const ComposeEditor = forwardRef<
     onClose,
     onFlush,
     isGenerating,
+    autocompleteEnabled,
     draftId,
     getCurrentDraftBody,
     sendToAgent,
@@ -84,6 +95,21 @@ export const ComposeEditor = forwardRef<
   ref,
 ) {
   const t = useT();
+  const isMobile = useIsMobile();
+  const autocompleteOptionsRef = useRef<ComposeAutocompleteOptions>({
+    enabled: autocompleteEnabled,
+    isMobile,
+  });
+  autocompleteOptionsRef.current = {
+    enabled: autocompleteEnabled,
+    isMobile,
+  };
+  const previousAutocompleteOptionsRef = useRef(autocompleteOptionsRef.current);
+  const autocompleteExtension = useMemo(
+    () =>
+      createComposeAutocompleteExtension(() => autocompleteOptionsRef.current),
+    [],
+  );
   const isSettingContent = useRef(false);
   // Last time the user actually typed (not merely had focus). Used to let an
   // external/agent edit reconcile in even while the editor is focused but idle,
@@ -161,6 +187,7 @@ export const ComposeEditor = forwardRef<
 
   const editor = useEditor({
     extensions: [
+      autocompleteExtension,
       (StarterKit as any).configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
@@ -185,6 +212,7 @@ export const ComposeEditor = forwardRef<
       }),
       Markdown.configure({
         html: false,
+        linkify: true,
         transformPastedText: true,
         transformCopiedText: true,
       }),
@@ -195,12 +223,16 @@ export const ComposeEditor = forwardRef<
         class: "compose-editor",
       },
       handleKeyDown: (_view, event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-          event.preventDefault();
-          event.stopPropagation();
-          onSendRef.current();
+        if (
+          handleComposeAutocompleteKeyDown(
+            _view,
+            event,
+            () => autocompleteOptionsRef.current,
+          )
+        ) {
           return true;
         }
+        if (handleComposeSendShortcut(event, onSendRef.current)) return true;
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
@@ -253,6 +285,19 @@ export const ComposeEditor = forwardRef<
       }
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const previous = previousAutocompleteOptionsRef.current;
+    if (
+      previous.enabled === autocompleteOptionsRef.current.enabled &&
+      previous.isMobile === autocompleteOptionsRef.current.isMobile
+    ) {
+      return;
+    }
+    previousAutocompleteOptionsRef.current = autocompleteOptionsRef.current;
+    refreshComposeAutocomplete(editor.view);
+  }, [autocompleteEnabled, editor, isMobile]);
 
   // Reconcile external content into the editor when the agent (or another
   // surface) updates compose-{id} app-state — the `compose-drafts` query

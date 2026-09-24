@@ -25,13 +25,15 @@ import { EventEmitter } from "node:events";
 
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
+import { setActionChangeFastPath } from "../action-change-fast-path.js";
 import {
+  actionChangeDedupeKey,
   ACTION_CHANGE_MARKER_KEY,
   parseActionChangeMarker,
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { type DbExec, getDbExec, isPostgres } from "../db/client.js";
+import { type DbExec, getDbExec } from "../db/client.js";
 import {
   ensureIndexExists,
   ensureIndexExistsConcurrently,
@@ -42,8 +44,8 @@ import {
   parseExtensionChangeMarker,
   type ExtensionChangeTarget,
 } from "../extensions/change-marker.js";
+import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
-import { getSession } from "./auth.js";
 
 export interface ChangeEvent {
   version: number;
@@ -75,7 +77,15 @@ export interface ChangeEvent {
    * to drive the access-aware delivery check in `canSeeChangeForUser`.
    */
   resourceId?: string;
+  /** Public-resource scope for events whose resource may be gone. */
+  visibility?: "public";
   [k: string]: unknown;
+}
+
+export interface TransactionalChange {
+  persist(transaction: DbExec): Promise<ChangeEvent>;
+  isPersisted(): boolean;
+  publish(): ChangeEvent;
 }
 
 // In-memory ring buffer of recent changes. Kept small since clients
@@ -216,10 +226,16 @@ async function readMaxUpdatedAtRaw(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<unknown> {
   try {
     const result = await db.execute(
-      `SELECT MAX(updated_at) as max_ts FROM ${table}`,
+      excludeKey
+        ? {
+            sql: `SELECT MAX(updated_at) as max_ts FROM ${table} WHERE key != ?`,
+            args: [excludeKey],
+          }
+        : `SELECT MAX(updated_at) as max_ts FROM ${table}`,
     );
     return result.rows[0]?.max_ts;
   } catch {
@@ -235,8 +251,29 @@ async function readMaxUpdatedAt(
     ) => Promise<{ rows: Array<Record<string, unknown>> }>;
   },
   table: "application_state" | "settings" | "tools",
+  excludeKey?: string,
 ): Promise<number> {
-  return timestampValue(await readMaxUpdatedAtRaw(db, table));
+  return timestampValue(await readMaxUpdatedAtRaw(db, table, excludeKey));
+}
+
+/**
+ * The settings watermark deliberately cannot see the realtime registration row.
+ *
+ * `wireLocalEmitters` already skips that key so the isolate that WRITES it fans
+ * out nothing — but the cross-instance detector below has no key filter, and a
+ * bare `MAX(updated_at)` advancing makes every OTHER live isolate record a
+ * durable `key:"*"` settings change. That invalidates every connected client's
+ * settings queries for a write none of them can see, which is exactly what the
+ * emitter skip exists to prevent. Filtering here closes the second half.
+ * `settings_updated_at_idx` still serves this: the excluded key is one row, so
+ * a backwards index scan skips at most one tuple before it stops.
+ */
+async function readSettingsMaxUpdatedAt(db: {
+  execute: (
+    query: string | { sql: string; args?: unknown[] },
+  ) => Promise<{ rows: Array<Record<string, unknown>> }>;
+}): Promise<number> {
+  return readMaxUpdatedAt(db, "settings", REALTIME_REGISTRATION_SETTING_KEY);
 }
 
 async function readExtensionMarkerMaxUpdatedAt(db: {
@@ -402,7 +439,7 @@ export type AccessResolver = (
   resourceType: string,
   resourceId: string,
   ctx: { userEmail: string; orgId: string | undefined },
-) => Promise<unknown | null>;
+) => Promise<unknown>;
 
 const defaultResolveAccess: AccessResolver = async (
   resourceType,
@@ -420,8 +457,6 @@ export interface AppSyncStateOptions {
    * `getDbExec`.
    */
   getDb?: () => DbExec;
-  /** Whether this app's DB is Postgres. Defaults to the process-global check. */
-  isPostgres?: () => boolean;
   /** Access-aware delivery resolver. Defaults to the framework registry. */
   resolveAccess?: AccessResolver;
   /**
@@ -450,7 +485,7 @@ export interface AppSyncStateOptions {
    * allocator row's lock, so version order equals commit order across all
    * writers. Versions stay on the epoch-ms scale (existing cursors, the
    * detector's timestamp-mixed seed, and lag metrics all assume it).
-   * Postgres only; ignored on SQLite.
+   * Postgres-only durable version allocation.
    */
   dbAssignedVersions?: boolean;
   /**
@@ -472,7 +507,6 @@ export interface AppSyncStateOptions {
  */
 export class AppSyncState {
   private readonly getDb: () => DbExec;
-  private readonly isPg: () => boolean;
   private readonly resolveAccessFn: AccessResolver;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
@@ -554,7 +588,6 @@ export class AppSyncState {
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
-    this.isPg = options.isPostgres ?? isPostgres;
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
@@ -619,6 +652,11 @@ export class AppSyncState {
       this.recordChange(event);
     });
     getSettingsEmitter().on("settings", (event) => {
+      // Internal infrastructure, like the change-marker keys above: nothing
+      // renders it, so recording it would fan a durable sync event out to every
+      // connected client and invalidate their settings queries for a write they
+      // cannot see.
+      if (event.key === REALTIME_REGISTRATION_SETTING_KEY) return;
       this.recordChange(event);
     });
   }
@@ -644,62 +682,35 @@ export class AppSyncState {
         )
       `;
 
-        if (this.isPg()) {
-          // Run DDL against THIS app's DB, not the process-global one — the
-          // gateway injects a per-app getDb, and ddl-guard otherwise probes/
-          // creates via the global exec. The dialect override matters for the
-          // same reason: ddl-guard's own isPostgres() reads the process-global
-          // DB config, which in a gateway process is not this app's dialect.
-          const guardOptions = {
-            injectedClient: client,
-            dialectIsPostgres: true,
-          };
-          await ensureTableExists("sync_events", createSql, guardOptions);
-          await ensureIndexExists(
-            "sync_events_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-            guardOptions,
-          );
-          await ensureIndexExists(
-            "sync_events_owner_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-            guardOptions,
-          );
-          await ensureIndexExists(
-            "sync_events_org_version_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-            guardOptions,
-          );
-          await ensureIndexExistsConcurrently(
-            "sync_events_created_at_id_idx",
-            "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-            guardOptions,
-          );
-          if (this.dbAssignedVersions) {
-            await ensureTableExists(
-              "sync_version",
-              "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-              guardOptions,
-            );
-            // Seed at/above both the existing durable max and wall clock, so
-            // allocated versions never land below live client cursors.
-            await client.execute(SEED_SYNC_VERSION_SQL);
-          }
-          return true;
-        }
-
-        await client.execute(createSql);
-        for (const ddl of [
+        const guardOptions = { injectedClient: client };
+        await ensureTableExists("sync_events", createSql, guardOptions);
+        await ensureIndexExists(
+          "sync_events_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+          guardOptions,
+        );
+        await ensureIndexExists(
+          "sync_events_owner_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+          guardOptions,
+        );
+        await ensureIndexExists(
+          "sync_events_org_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-          "CREATE INDEX IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-        ]) {
-          try {
-            await client.execute(ddl);
-          } catch {
-            // Index already exists or the dialect rejected a duplicate.
-          }
+          guardOptions,
+        );
+        await ensureIndexExistsConcurrently(
+          "sync_events_created_at_id_idx",
+          "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+          guardOptions,
+        );
+        if (this.dbAssignedVersions) {
+          await ensureTableExists(
+            "sync_version",
+            "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+            guardOptions,
+          );
+          await client.execute(SEED_SYNC_VERSION_SQL);
         }
         return true;
       })().catch(() => {
@@ -744,37 +755,22 @@ export class AppSyncState {
     let deleted = 0;
     try {
       for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
-        const runBatch = async (tx: DbExec): Promise<number> => {
-          // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
-          // and the primary key is indexed on every dialect we ship.
-          const result = await tx.execute({
-            sql: `DELETE FROM sync_events WHERE id IN (
-                    SELECT id FROM sync_events WHERE created_at < ?
-                    ORDER BY created_at, id LIMIT ?
-                  )`,
-            args: [cutoff, DURABLE_PRUNE_BATCH],
-          });
-          return result.rowsAffected;
-        };
-
-        const rowsAffected = this.isPg()
-          ? (
-              await client.execute({
-                sql: `WITH prune_lease AS MATERIALIZED (
-                       SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
-                     ), prune_batch AS MATERIALIZED (
-                       SELECT sync_events.id
-                       FROM sync_events CROSS JOIN prune_lease
-                       WHERE prune_lease.acquired AND sync_events.created_at < ?
-                       ORDER BY sync_events.created_at, sync_events.id LIMIT ?
-                     )
-                     DELETE FROM sync_events WHERE id IN (
-                       SELECT id FROM prune_batch
-                     )`,
-                args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
-              })
-            ).rowsAffected
-          : await runBatch(client);
+        const rowsAffected = (
+          await client.execute({
+            sql: `WITH prune_lease AS MATERIALIZED (
+                   SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
+                 ), prune_batch AS MATERIALIZED (
+                   SELECT sync_events.id
+                   FROM sync_events CROSS JOIN prune_lease
+                   WHERE prune_lease.acquired AND sync_events.created_at < ?
+                   ORDER BY sync_events.created_at, sync_events.id LIMIT ?
+                 )
+                 DELETE FROM sync_events WHERE id IN (
+                   SELECT id FROM prune_batch
+                 )`,
+            args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
+          })
+        ).rowsAffected;
         deleted += rowsAffected;
         if (rowsAffected < DURABLE_PRUNE_BATCH) break;
       }
@@ -826,12 +822,9 @@ export class AppSyncState {
     if (!(await this.ensureSyncEventsTable())) return;
     const client = this.getDb();
     await client.execute({
-      sql: this.isPg()
-        ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO NOTHING`
-        : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ON CONFLICT (id) DO NOTHING`,
       args: [
         // presetId lets a gated fallback reuse the allocating attempt's id,
         // so a commit-then-timeout can't produce the same event twice.
@@ -1070,7 +1063,10 @@ export class AppSyncState {
    * owner/org fast paths below are unchanged and evaluated first.
    */
   canSeeChangeForUser(
-    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
     userEmail: string,
     orgId: string | undefined,
   ): boolean {
@@ -1080,22 +1076,32 @@ export class AppSyncState {
   }
 
   private getChangeVisibilityForUser(
-    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    event: Pick<
+      ChangeEvent,
+      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+    >,
     userEmail: string,
     orgId: string | undefined,
   ): ChangeVisibility {
+    const normalizedUserEmail = userEmail.trim().toLowerCase();
     // Global / unowned events: every authenticated user gets them. Events that
     // predate resource tagging (owner/org only, no resourceType) keep the exact
     // conservative contract they had before.
     if (!event.owner && !event.orgId && !event.resourceType) return "visible";
-    if (event.owner && event.owner === userEmail) return "visible";
+    if (
+      typeof event.owner === "string" &&
+      event.owner.trim().toLowerCase() === normalizedUserEmail
+    ) {
+      return "visible";
+    }
     if (event.orgId && orgId && event.orgId === orgId) return "visible";
+    if (event.visibility === "public") return "visible";
 
     // Access-aware branch: only when the event carries BOTH resourceType and
     // resourceId and the owner/org fast paths above did not already grant.
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
-        userEmail,
+        normalizedUserEmail,
         orgId,
         event.resourceType,
         event.resourceId,
@@ -1115,7 +1121,7 @@ export class AppSyncState {
         key,
         event.resourceType,
         event.resourceId,
-        userEmail,
+        normalizedUserEmail,
         orgId,
       );
       return "pending";
@@ -1139,7 +1145,7 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
-    if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+    if (this.dbAssignedVersions && !syncEventsDisabled()) {
       // No provisional version may reach clients: cursors are max-only, so an
       // emitted clock version above a later DB allocation would recreate the
       // skew bug. Buffer/emit happen only after the DB returns the version,
@@ -1163,6 +1169,93 @@ export class AppSyncState {
         this.reportDurableWriteFailure(error, entry);
       },
     );
+  }
+
+  /**
+   * Prepare a durable change whose row must commit with a caller-owned
+   * transaction. Persistence and in-process publication are deliberately
+   * separate: callers persist through the transaction, then publish only
+   * after that transaction resolves successfully.
+   */
+  async prepareTransactionalChange(event: {
+    source: string;
+    type: string;
+    key?: string;
+    [k: string]: unknown;
+  }): Promise<TransactionalChange> {
+    if (!(await this.ensureSyncEventsTable())) {
+      throw new Error(
+        "Transactional change delivery requires durable sync events",
+      );
+    }
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let persisted: ChangeEvent | null = null;
+    return {
+      persist: async (transaction) => {
+        if (persisted) return persisted;
+        let version: number;
+        if (this.dbAssignedVersions) {
+          const result = await transaction.execute({
+            sql: ALLOCATING_INSERT_SQL,
+            args: [
+              this.version + 1,
+              id,
+              JSON.stringify({ ...event, cursorId: id })
+                .split("\\u0000")
+                .join(""),
+              event.source,
+              event.type,
+              event.key ?? null,
+              (event.owner as string | undefined) ?? null,
+              (event.orgId as string | undefined) ?? null,
+              (event.resourceType as string | undefined) ?? null,
+              (event.resourceId as string | undefined) ?? null,
+              Date.now(),
+            ],
+          });
+          version = timestampValue(result.rows[0]?.version);
+          if (version <= 0) {
+            throw new Error("Durable sync version allocation failed");
+          }
+        } else {
+          version = Math.max(this.version + 1, Date.now());
+          const entry = { ...event, version, cursorId: id } as ChangeEvent;
+          const result = await transaction.execute({
+            sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+            args: [
+              id,
+              version,
+              JSON.stringify(entry),
+              entry.source,
+              entry.type,
+              entry.key ?? null,
+              entry.owner ?? null,
+              entry.orgId ?? null,
+              entry.resourceType ?? null,
+              entry.resourceId ?? null,
+              Date.now(),
+            ],
+          });
+          if (result.rowsAffected !== 1) {
+            throw new Error("Durable sync event was not persisted");
+          }
+        }
+        persisted = { ...event, version, cursorId: id } as ChangeEvent;
+        return persisted;
+      },
+      isPersisted: () => persisted !== null,
+      publish: () => {
+        if (!persisted) {
+          throw new Error(
+            "Transactional change cannot publish before persistence commits",
+          );
+        }
+        this.version = Math.max(this.version, persisted.version);
+        this.commitEntryForChain(persisted);
+        return persisted;
+      },
+    };
   }
 
   /** Buffer + emit. Shared by both version-allocation modes. */
@@ -1309,7 +1402,7 @@ export class AppSyncState {
         },
         dedupeKey !== undefined
           ? {
-              dedupeKey: `${dedupeKey}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`,
+              dedupeKey: actionChangeDedupeKey(target, dedupeKey),
             }
           : undefined,
       );
@@ -1414,7 +1507,7 @@ export class AppSyncState {
       // sharee, so resource-scoped rows must still flow through that check
       // regardless of who owns them). A caller with no org passes a null
       // `orgId` bind param, which makes `org_id = ?` match no row in both
-      // dialects — mirroring the `event.orgId && orgId` truthy check.
+      // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
         sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
               AND (
@@ -1659,7 +1752,7 @@ export class AppSyncState {
       ] = await Promise.all([
         this.readMaxSyncEventVersion(),
         readMaxUpdatedAt(db, "application_state"),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
         readExtensionMarkerMaxUpdatedAt(db),
         readActionMarkerMaxUpdatedAt(db),
@@ -1689,7 +1782,7 @@ export class AppSyncState {
       // allocator (a skew-fast writer's rows). Lift the allocator to the seed
       // BEFORE the seed can reach this.version — and through it, client
       // cursors — so no later allocation lands below a seeded cursor.
-      if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+      if (this.dbAssignedVersions && !syncEventsDisabled()) {
         await this.alignVersionAllocator(seedMax);
       }
       // Seed version — never decrease an already-set value
@@ -1757,7 +1850,7 @@ export class AppSyncState {
         // land in the same response — drain the chain here to keep that
         // contract (and so a serverless instance frozen after responding
         // can't strand them). The chain never rejects (backstopped).
-        if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+        if (this.dbAssignedVersions && !syncEventsDisabled()) {
           return this.recordChain;
         }
       })
@@ -1793,7 +1886,7 @@ export class AppSyncState {
       ] = await Promise.all([
         readMaxUpdatedAt(db, "application_state"),
         readActionMarkerMaxUpdatedAt(db),
-        readMaxUpdatedAt(db, "settings"),
+        readSettingsMaxUpdatedAt(db),
         readMaxUpdatedAtRaw(db, "tools"),
       ]);
 
@@ -1898,7 +1991,9 @@ export class AppSyncState {
           // marker path.
           this.recordActionChanges(
             [target],
-            `action|${timestampValue(row.updated_at)}`,
+            target.nonce
+              ? `action|${target.nonce}`
+              : `action|${timestampValue(row.updated_at)}`,
           );
         }
         this.lastActionMarkerTs = actionMarkerTs;
@@ -2038,20 +2133,31 @@ export class AppSyncState {
 let _defaultState: AppSyncState | undefined;
 
 /**
- * Hosted-realtime gate for the default instance, env-only. Mirrors the
- * fail-closed transport-AND-url pair in `sentry-config.ts`'s
- * `resolveRealtimeClientConfig` (not imported — poll.ts is import-cycle
- * sensitive). Hosted apps are multi-writer (their own serverless instances
- * plus gateway instances share one DB), so THEY must DB-allocate versions too
- * — gating only the gateway would leave the app's user-event writes
- * clock-versioned and the cross-writer skew hole open.
+ * Hosted-realtime gate for the default instance, env-only. Mirrors the gate in
+ * `sentry-config.ts`'s `resolveRealtimeClientConfig` and the worker emitter in
+ * `deploy/build.ts` (not imported — poll.ts is import-cycle sensitive). Hosted
+ * apps are multi-writer (their own serverless instances plus gateway instances
+ * share one DB), so THEY must DB-allocate versions too — gating only the
+ * gateway would leave the app's user-event writes clock-versioned and the
+ * cross-writer skew hole open.
+ *
+ * The gateway URL is deliberately NOT part of this test any more. It is derived
+ * when unset, so requiring it here while the other two derive it would make
+ * this the one gate that says "local" while the client is on the gateway —
+ * precisely the skew this exists to prevent. `realtime-transport-gate.spec.ts`
+ * asserts all three still agree.
  */
 function hostedRealtimeTransportEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted" &&
-    !!process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL?.trim()
-  );
+  // config-ok: one of three copies that must agree byte-for-byte; the other
+  // two are in `sentry-config.ts` and in generated worker source, and this
+  // file cannot import either way without a cycle.
+  return process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted";
 }
+
+/** Test seam for `realtime-transport-gate.spec.ts`, which compares this gate
+ * against its two uninmportable copies. */
+export const __hostedRealtimeTransportEnabledForTests =
+  hostedRealtimeTransportEnabled;
 
 /**
  * The process-wide default instance, bound to the global DB. All module-level
@@ -2101,7 +2207,10 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 export function canSeeChangeForUser(
-  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+  event: Pick<
+    ChangeEvent,
+    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+  >,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {
@@ -2117,6 +2226,31 @@ export function recordChange(event: {
 }): void {
   getDefaultAppSyncState().recordChange(event);
 }
+
+export function prepareTransactionalChange(event: {
+  source: string;
+  type: string;
+  key?: string;
+  [k: string]: unknown;
+}): Promise<TransactionalChange> {
+  return getDefaultAppSyncState().prepareTransactionalChange(event);
+}
+
+setActionChangeFastPath((target) => {
+  getDefaultAppSyncState().recordChange(
+    {
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    },
+    target.nonce
+      ? { dedupeKey: actionChangeDedupeKey(target, `action|${target.nonce}`) }
+      : undefined,
+  );
+});
 
 /** Get all changes after a given version. */
 export function getChangesSince(since: number): {
@@ -2160,7 +2294,10 @@ export function createPollHandler(
   // per-app instance learns of changes by tailing its own DB.
   if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
-    const session = await getSession(event).catch(() => null);
+    // coercion-ok: polling must fail closed when session resolution is unavailable.
+    const session = await import("./auth.js")
+      .then(({ getSession }) => getSession(event))
+      .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Unauthenticated" };

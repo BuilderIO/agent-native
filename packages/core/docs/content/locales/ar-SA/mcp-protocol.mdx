@@ -411,3 +411,16 @@ Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## الاكتشاف أولًا عبر fetch
+
+يوفّر Agent-Native أيضًا كتالوج توافق HTTP في `GET /.well-known/mcp.json`.
+يمكن للوكيل جلبه باستخدام `fetch` أو `curl` حتى من دون متصفح قيد التشغيل. يصف
+نقاط نهاية الإجراءات ومخططاتها وما إذا كانت للقراءة فقط أو تتطلب مصادقة.
+يمكن استدعاء الأداة عبر `POST /mcp/tool/:name`، وتظل المصادقة والتفويض والتحقق
+ونطاق المستأجر على الخادم.
+
+هذا اصطلاح توافق من Agent-Native، وليس جزءًا من WebMCP أو MCP Streamable HTTP.
+يبقى `/mcp` هو مسار MCP القياسي، كما تبقى أدوات `document.modelContext` المحلية
+للصفحة متاحة للمتصفحات المتوافقة. وتعلن صفحات Clips عن `agentContextUrl` وروابط
+النص الكامل وإطارات JPEG كي يصل الوكيل إليها مباشرة عبر HTTP.

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -13,7 +13,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { createAssetFromBuffer } from "../server/lib/assets.js";
-import { seedDefaultGenerationPresets } from "../server/lib/generation-presets.js";
+import { ensureDefaultTemplates } from "../server/lib/generation-presets.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import {
   DEFAULT_LIBRARY_PRESET_VERSION,
@@ -141,7 +141,7 @@ export default defineAction({
 
     const db = getDb();
     await db.insert(schema.assetLibraries).values(row);
-    await seedDefaultGenerationPresets({ db, libraryId: row.id, now });
+    await ensureDefaultTemplates({ db, ownerEmail, orgId: row.orgId, now });
 
     const referenceAssets = [];
     const referenceSeedErrors = [];

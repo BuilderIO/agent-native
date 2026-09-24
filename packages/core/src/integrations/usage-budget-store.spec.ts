@@ -1,22 +1,22 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 async function execute(
   input: string | { sql: string; args?: unknown[] },
 ): Promise<{ rows: unknown[]; rowsAffected: number }> {
   if (typeof input === "string") {
-    sqlite.exec(input);
+    await pglite.exec(input);
     return { rows: [], rowsAffected: 0 };
   }
-  const statement = sqlite.prepare(input.sql);
   const args = input.args ?? [];
-  if (statement.reader) {
-    return { rows: statement.all(...args), rowsAffected: 0 };
-  }
-  const result = statement.run(...args);
-  return { rows: [], rowsAffected: result.changes };
+  const result = await pglite.query(input.sql, args);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
 }
 
 const db = {
@@ -24,13 +24,13 @@ const db = {
   transaction: async <T>(
     fn: (tx: { execute: typeof execute }) => Promise<T>,
   ) => {
-    sqlite.exec("BEGIN IMMEDIATE");
+    await pglite.exec("BEGIN");
     try {
       const result = await fn({ execute });
-      sqlite.exec("COMMIT");
+      await pglite.exec("COMMIT");
       return result;
     } catch (error) {
-      sqlite.exec("ROLLBACK");
+      await pglite.exec("ROLLBACK");
       throw error;
     }
   },
@@ -38,8 +38,7 @@ const db = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const { _resetIntegrationScopeStoreForTests, saveIntegrationScope } =
@@ -58,15 +57,15 @@ const {
 
 const access = { ownerEmail: "owner@example.com", orgId: "org-example" };
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   db.execute.mockClear();
   _resetIntegrationScopeStoreForTests();
   _resetIntegrationUsageBudgetStoreForTests();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("integration usage budget reservations", () => {

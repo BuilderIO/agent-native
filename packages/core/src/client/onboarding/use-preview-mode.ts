@@ -13,12 +13,35 @@ export const ONBOARDING_PREVIEW_STORAGE_KEY =
   "agent-native-dev-overlay-option-framework-onboarding-show-as-new-user";
 export const ONBOARDING_PREVIEW_QUERY_PARAM = "onboarding";
 export const ONBOARDING_PREVIEW_QUERY_VALUE = "preview";
+export const ONBOARDING_PREVIEW_STEP_QUERY_PARAM = "step";
+
+export const ONBOARDING_PREVIEW_STEPS = [
+  "role",
+  "choice",
+  "connecting",
+  "extension",
+  "references",
+] as const;
+
+export type OnboardingPreviewStep = (typeof ONBOARDING_PREVIEW_STEPS)[number];
 
 export function isOnboardingPreviewQuery(search: string): boolean {
   return (
     new URLSearchParams(search).get(ONBOARDING_PREVIEW_QUERY_PARAM) ===
     ONBOARDING_PREVIEW_QUERY_VALUE
   );
+}
+
+export function getOnboardingPreviewStep(
+  search: string,
+): OnboardingPreviewStep | null {
+  if (!isOnboardingPreviewQuery(search)) return null;
+  const step = new URLSearchParams(search).get(
+    ONBOARDING_PREVIEW_STEP_QUERY_PARAM,
+  );
+  return ONBOARDING_PREVIEW_STEPS.includes(step as OnboardingPreviewStep)
+    ? (step as OnboardingPreviewStep)
+    : null;
 }
 
 function readPreview(): boolean {
@@ -35,6 +58,11 @@ function readPreview(): boolean {
   }
 }
 
+function readPreviewStep(): OnboardingPreviewStep | null {
+  if (typeof window === "undefined") return null;
+  return getOnboardingPreviewStep(window.location.search);
+}
+
 export function useOnboardingPreviewMode(): boolean {
   const [val, setVal] = useState(readPreview);
   useEffect(() => {
@@ -48,4 +76,23 @@ export function useOnboardingPreviewMode(): boolean {
     };
   }, []);
   return val;
+}
+
+export function useOnboardingPreviewStep(): OnboardingPreviewStep | null {
+  const search = typeof window === "undefined" ? "" : window.location.search;
+  const [step, setStep] = useState(() => getOnboardingPreviewStep(search));
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChange = () => setStep(readPreviewStep());
+    onChange();
+    window.addEventListener("popstate", onChange);
+    window.addEventListener("storage", onChange);
+    window.addEventListener("agent-native-dev-overlay:changed", onChange);
+    return () => {
+      window.removeEventListener("popstate", onChange);
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener("agent-native-dev-overlay:changed", onChange);
+    };
+  }, [search]);
+  return step;
 }

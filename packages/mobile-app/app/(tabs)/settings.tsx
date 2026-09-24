@@ -5,7 +5,6 @@ import {
   IconRotateClockwise,
   IconTrash,
 } from "@tabler/icons-react-native";
-import { useMinimizeOnScroll } from "expo-glass-tabs";
 import { useCallback, useState } from "react";
 import {
   Alert,
@@ -25,6 +24,7 @@ import {
 } from "@/components/AppCard";
 import AppForm from "@/components/AppForm";
 import DictationSettings from "@/components/DictationSettings";
+import { useMinimizeOnScroll } from "@/components/TabBarEffects";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { supportsMobileTab } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";

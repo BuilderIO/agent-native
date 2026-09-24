@@ -44,7 +44,7 @@ export default function UpdatePrompt() {
           Update ready
         </div>
         <div className="update-prompt-subtitle">
-          Version {status.version} has been downloaded. Relaunch Agent Native to
+          Version {status.version} has been downloaded. Relaunch Agent-Native to
           finish installing.
         </div>
       </div>

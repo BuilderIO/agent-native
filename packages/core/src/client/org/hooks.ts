@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 import {
   canInviteOrgMembers,
@@ -12,17 +13,17 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const ORG_BASE = agentNativePath("/_agent-native/org");
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetch(path, {
     ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
   if (!res.ok) {
     // Prefer a JSON `error` / `message` field when the server returns one,
@@ -46,10 +47,11 @@ async function apiFetch(path: string, init?: RequestInit) {
   return res.json();
 }
 
-export function useOrg() {
+export function useOrg(options: { enabled?: boolean } = {}) {
   return useQuery<OrgInfo>({
     queryKey: ["org-me"],
     queryFn: () => apiFetch(`${ORG_BASE}/me`),
+    enabled: options.enabled ?? true,
     staleTime: 30_000,
   });
 }
@@ -73,7 +75,7 @@ export function useOrgRole(): UseOrgRoleResult {
     role,
     isOwner: role === "owner",
     canManageOrg: canManageOrg(role),
-    canInviteMembers: canInviteOrgMembers(role),
+    canInviteMembers: canInviteOrgMembers(role, query.data?.emailConfigured),
     canManageDomain: canManageOrgDomain(role),
     isLoading: query.isLoading,
     error: query.error,
@@ -89,21 +91,27 @@ export interface OrgMembersPage {
   nextOffset: number | null;
 }
 
-export function useOrgMembers(offset = 0) {
+export function useOrgMembers(offset = 0, query = "") {
   // Scope the cache by active orgId so switching or creating an org forces a
   // fresh fetch rather than briefly showing the previous org's members.
   const { data: org } = useOrg();
+  const search = query.trim().toLowerCase();
   const params = new URLSearchParams({
     limit: String(ORG_MEMBER_PAGE_SIZE),
     offset: String(offset),
   });
+  if (search) params.set("search", search);
   return useQuery<OrgMembersPage>({
-    queryKey: ["org-members", org?.orgId ?? null, offset],
-    queryFn: () => apiFetch(`${ORG_BASE}/members?${params}`),
+    queryKey: ["org-members", org?.orgId ?? null, offset, search],
+    queryFn: ({ signal }) =>
+      apiFetch(`${ORG_BASE}/members?${params}`, { signal }),
     enabled: Boolean(org?.orgId),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[1] === org?.orgId ? previousData : undefined,
+      previousQuery?.queryKey[1] === org?.orgId &&
+      previousQuery?.queryKey[3] === search
+        ? previousData
+        : undefined,
   });
 }
 
@@ -155,16 +163,28 @@ export type InviteRole = "admin" | "member";
 export interface InviteVars {
   email: string;
   role?: InviteRole;
+  appId?: string;
+  appRoles?: string[];
 }
 
 export function useInviteMember() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (vars: string | InviteVars) => {
-      const body: { email: string; role: InviteRole } =
+      const body: {
+        email: string;
+        role: InviteRole;
+        appId?: string;
+        appRoles?: string[];
+      } =
         typeof vars === "string"
           ? { email: vars, role: "member" }
-          : { email: vars.email, role: vars.role ?? "member" };
+          : {
+              email: vars.email,
+              role: vars.role ?? "member",
+              appId: vars.appId,
+              appRoles: vars.appRoles,
+            };
       return apiFetch(`${ORG_BASE}/invitations`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -202,6 +222,8 @@ export function useBulkInviteMembers() {
           invites: invites.map((i) => ({
             email: i.email,
             role: i.role ?? "member",
+            appId: i.appId,
+            appRoles: i.appRoles,
           })),
         }),
       }),
@@ -251,9 +273,16 @@ export function useAcceptInvitation() {
 export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (email: string) =>
+    mutationFn: ({
+      email,
+      transferTo,
+    }: {
+      email: string;
+      transferTo: string;
+    }) =>
       apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
+        body: JSON.stringify({ transferTo }),
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-members"] });
@@ -350,6 +379,35 @@ export function useSetWorkspaceAppDefaultVisibility() {
   });
 }
 
+export type WorkspaceAppAccessMode = "all" | "restricted" | "disabled";
+
+export interface WorkspaceAppAccess {
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+  mode: WorkspaceAppAccessMode;
+}
+
+export function useWorkspaceAppAccess(options: { enabled?: boolean } = {}) {
+  return useActionQuery<{ apps: WorkspaceAppAccess[] }>(
+    "list-workspace-app-access",
+    {},
+    { enabled: options.enabled ?? true },
+  );
+}
+
+export function useSetWorkspaceAppAccess() {
+  const qc = useQueryClient();
+  return useActionMutation("set-workspace-app-access", {
+    onSuccess: async () => {
+      await qc.invalidateQueries({
+        queryKey: ["action", "list-workspace-app-access"],
+      });
+    },
+  });
+}
+
 export function useSetOrgWorkspaceUrl() {
   const qc = useQueryClient();
   return useMutation({
@@ -367,7 +425,7 @@ export function useSetOrgWorkspaceUrl() {
 export function useSetOrgAuthProvider() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (provider: "google" | null) =>
+    mutationFn: (provider: "google" | `sso:${string}` | null) =>
       apiFetch(`${ORG_BASE}/auth-provider`, {
         method: "PUT",
         body: JSON.stringify({ provider }),
@@ -378,27 +436,187 @@ export function useSetOrgAuthProvider() {
   });
 }
 
+export interface OrgSsoProvider {
+  providerId: string;
+  issuer: string;
+  domain: string;
+  domainVerified: boolean;
+  type: "oidc" | "saml";
+  redirectURI: string;
+  spMetadataUrl: string;
+}
+
+export interface OrgSsoProvidersResult {
+  enabled: boolean;
+  providers: OrgSsoProvider[];
+}
+
+export interface OrgScimConnection {
+  connectionId: string;
+  status: string;
+  createdAt: string | number;
+}
+
+export interface OrgScimResult {
+  enabled: boolean;
+  endpoint: string;
+  connections: OrgScimConnection[];
+}
+
+export function useOrgSsoProviders(enabled = true) {
+  const { data: org } = useOrg();
+  return useQuery<OrgSsoProvidersResult>({
+    queryKey: ["org-sso-providers", org?.orgId ?? null],
+    queryFn: () => apiFetch(`${ORG_BASE}/sso/providers`),
+    enabled: Boolean(org?.orgId) && enabled,
+  });
+}
+
+export function useCreateOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation<
+    { provider: OrgSsoProvider; domainVerificationToken?: string },
+    Error,
+    {
+      providerId: string;
+      issuer: string;
+      domain: string;
+      type: "oidc" | "saml";
+      oidcConfig?: {
+        clientId: string;
+        clientSecret: string;
+        discoveryEndpoint?: string;
+      };
+      samlConfig?: {
+        entryPoint: string;
+        cert?: string;
+        idpMetadata: { entityID: string; metadata: string };
+      };
+    }
+  >({
+    mutationFn: (body: {
+      providerId: string;
+      issuer: string;
+      domain: string;
+      type: "oidc" | "saml";
+      oidcConfig?: {
+        clientId: string;
+        clientSecret: string;
+        discoveryEndpoint?: string;
+      };
+      samlConfig?: {
+        entryPoint: string;
+        cert?: string;
+        idpMetadata: { entityID: string; metadata: string };
+      };
+    }) =>
+      apiFetch(`${ORG_BASE}/sso/providers`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-sso-providers"] });
+    },
+  });
+}
+
+export function useVerifyOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch(
+        `${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}/verify`,
+        { method: "POST" },
+      ),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-sso-providers"] });
+    },
+  });
+}
+
+export function useDeleteOrgSsoProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      apiFetch(`${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["org-sso-providers"] }),
+        qc.invalidateQueries({ queryKey: ["org-me"] }),
+      ]);
+    },
+  });
+}
+
+export function useOrgScim(enabled = true) {
+  const { data: org } = useOrg();
+  return useQuery<OrgScimResult>({
+    queryKey: ["org-scim", org?.orgId ?? null],
+    queryFn: () => apiFetch(`${ORG_BASE}/scim`),
+    enabled: Boolean(org?.orgId) && enabled,
+  });
+}
+
+export function useCreateOrgScimConnection() {
+  const qc = useQueryClient();
+  return useMutation<
+    { connection: OrgScimConnection; token: string },
+    Error,
+    void
+  >({
+    mutationFn: () =>
+      apiFetch(`${ORG_BASE}/scim`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-scim"] });
+    },
+  });
+}
+
+export function useDeleteOrgScimConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (connectionId: string) =>
+      apiFetch(`${ORG_BASE}/scim/${encodeURIComponent(connectionId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-scim"] });
+    },
+  });
+}
+
 export interface AppRoleAssignment {
   email: string;
-  role: string;
+  roles: string[];
+  /** @deprecated Read `roles`; retained for one minor release for clients upgrading from the single-role API. */
+  role: string | null;
 }
 
 export interface AppRolesInfo {
   appId: string;
   roles: string[];
+  permissions: Record<string, readonly string[]>;
+  permissionLabels?: Record<string, string>;
   /** Shown for members with no assignment. Never satisfies a server guard. */
   defaultRole: string | null;
   roleLabels: Record<string, string>;
   /** Whether the current user may change assignments (org owner/admin). */
   canManage: boolean;
   assignments: AppRoleAssignment[];
+  myRoles: string[];
+  /** @deprecated Read `myRoles`; retained for one minor release. */
   myRole: string | null;
 }
 
 /**
  * App-role vocabulary and assignments for the active org.
  *
- * `myRole` and `canManage` are progressive disclosure only — every guarded
+ * `myRoles` and `canManage` are progressive disclosure only — every guarded
  * operation re-resolves both server-side, so a client that shows the wrong
  * affordance still cannot perform the operation.
  */
@@ -413,34 +631,101 @@ export function useAppRoles(appId: string | undefined) {
   });
 }
 
-/** The current user's role in one app, or `null` when unassigned. */
+export interface AppPermissionsInfo {
+  appId: string;
+  permissions: Record<
+    string,
+    { defaults: string[]; roles: string[]; overridden: boolean }
+  >;
+  roles: string[];
+  can: (permission: string) => boolean;
+}
+
+/** Effective app permissions for the current member. Server guards remain authoritative. */
+export function useAppPermissions(appId: string | undefined) {
+  const roles = useAppRoles(appId);
+  const permissions = useActionQuery(
+    "list-app-permissions",
+    { appId: appId ?? "" },
+    { enabled: Boolean(appId) },
+  );
+  const grants =
+    (
+      permissions.data as
+        | { permissions?: AppPermissionsInfo["permissions"] }
+        | undefined
+    )?.permissions ?? {};
+  const myRoles = roles.data?.myRoles ?? [];
+  return {
+    appId: appId ?? "",
+    permissions: grants,
+    roles: myRoles,
+    can: (permission: string) =>
+      (grants[permission]?.roles ?? []).some((role) => myRoles.includes(role)),
+    isLoading: roles.isLoading || permissions.isLoading,
+    error: roles.error ?? permissions.error ?? null,
+  };
+}
+
+export function RequirePermission({
+  appId,
+  permission,
+  children,
+  fallback = null,
+}: {
+  appId: string | undefined;
+  permission: string;
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const access = useAppPermissions(appId);
+  return access.can(permission) ? children : fallback;
+}
+
+/** The current user's roles in one app. */
 export function useAppRole(appId: string | undefined): {
+  roles: string[];
+  /** @deprecated Read `roles`; retained for one minor release. */
   role: string | null;
   isLoading: boolean;
   error: Error | null;
 } {
   const query = useAppRoles(appId);
   return {
+    roles: query.data?.myRoles ?? [],
     role: query.data?.myRole ?? null,
     isLoading: query.isLoading,
     error: query.error,
   };
 }
 
-export function useSetAppMemberRole(appId: string) {
+export function useSetAppMemberRoles() {
   const qc = useQueryClient();
+  return useActionMutation("set-app-member-roles", {
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
+    },
+  });
+}
+
+/**
+ * @deprecated Use `useSetAppMemberRoles`. This adapter keeps existing generated
+ * apps source-compatible while they migrate from one role to an array.
+ */
+export function useSetAppMemberRole(appId: string) {
+  const modern = useSetAppMemberRoles();
   return useMutation<
     { appId: string; email: string; role: string | null },
     Error,
     { email: string; role: string | null }
   >({
-    mutationFn: ({ email, role }) =>
-      apiFetch(`${ORG_BASE}/app-roles/${encodeURIComponent(email)}`, {
-        method: "PUT",
-        body: JSON.stringify({ appId, role }),
-      }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
+    mutationFn: async ({ email, role }) => {
+      await modern.mutateAsync({
+        appId,
+        email,
+        roles: role ? [role] : [],
+      });
+      return { appId, email, role };
     },
   });
 }

@@ -22,6 +22,8 @@ export interface GuardResult {
    * by `--only` and `agent-native.json`'s `doctor.disabledGuards`. */
   name: string;
   findings: GuardFinding[];
+  /** Advisory findings that do not fail `agent-native doctor`. */
+  warnings?: GuardFinding[];
 }
 
 export interface GuardScanOptions {

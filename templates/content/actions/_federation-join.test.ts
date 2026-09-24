@@ -7,7 +7,11 @@ import type {
   ContentDatabaseSourceRole,
   ContentDatabaseSourceRow,
 } from "../shared/api";
-import { computeNormalizedKey, federateSources } from "./_federation-join";
+import {
+  applyFederatedOverlayValues,
+  computeNormalizedKey,
+  federateSources,
+} from "./_federation-join";
 
 function item(documentId: string): ContentDatabaseItem {
   return {
@@ -182,5 +186,213 @@ describe("federateSources", () => {
     const result = federateSources({ items, sources: [primary, secondary] });
     expect(result[0].canonicalKey).toBeNull();
     expect(result[0].sourceOverlays).toBeUndefined();
+  });
+});
+
+describe("applyFederatedOverlayValues", () => {
+  it("keeps only unambiguous local-owned mappings editable", () => {
+    const localProperty = {
+      definition: { id: "local-property" },
+      value: "Local value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const local = source({ id: "local", rows: [] });
+    local.fields = [
+      {
+        id: "local-field",
+        propertyId: "local-property",
+        propertyName: "Local field",
+        localFieldKey: "local-property",
+        sourceFieldKey: "local-property",
+        sourceFieldLabel: "Local field",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "local",
+        readOnly: false,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+
+    expect(
+      applyFederatedOverlayValues(
+        [{ ...item("doc-local"), properties: [localProperty] }],
+        [local],
+      )[0].properties[0],
+    ).toMatchObject({ value: "Local value", editable: true });
+
+    const blocking = source({ id: "blocking", rows: [] });
+    blocking.fields = [
+      {
+        ...local.fields[0],
+        id: "source-field",
+        writeOwner: "source",
+      },
+    ];
+    expect(
+      applyFederatedOverlayValues(
+        [{ ...item("doc-blocked"), properties: [localProperty] }],
+        [local, blocking],
+      )[0].properties[0],
+    ).toMatchObject({ value: "Local value", editable: false });
+  });
+
+  it("keeps an overlay-provided value noneditable even with local metadata", () => {
+    const local = source({ id: "local", rows: [] });
+    local.fields = [
+      {
+        id: "local-field",
+        propertyId: "local-property",
+        propertyName: "Local field",
+        localFieldKey: "local-property",
+        sourceFieldKey: "local-property",
+        sourceFieldLabel: "Local field",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "local",
+        readOnly: false,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+    const overlaid = {
+      ...item("doc-overlay"),
+      properties: [
+        {
+          definition: { id: "local-property" },
+          value: "Stale local value",
+          editable: true,
+        } as ContentDatabaseItem["properties"][number],
+      ],
+      sourceOverlays: [
+        {
+          sourceId: "local",
+          sourceName: "Local",
+          sourceRowId: "row-1",
+          values: { "local-property": "Overlay value" },
+          fields: local.fields,
+        },
+      ],
+    };
+
+    expect(
+      applyFederatedOverlayValues([overlaid], [local])[0].properties[0],
+    ).toMatchObject({ value: "Overlay value", editable: false });
+  });
+
+  it("keeps mapped properties read-only without blanking a primary value", () => {
+    const secondaryProperty = {
+      definition: { id: "secondary-property" },
+      value: "stale local value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const primaryProperty = {
+      definition: { id: "primary-property" },
+      value: "Primary source value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const sharedProperty = {
+      definition: { id: "shared-property" },
+      value: "Shared primary value",
+      editable: true,
+    } as ContentDatabaseItem["properties"][number];
+    const unmatchedItem = {
+      ...item("doc-unmatched"),
+      properties: [secondaryProperty, primaryProperty, sharedProperty],
+    };
+    const primary = source({
+      id: "primary",
+      federation: federation("primary", "slug", "{slug}"),
+      rows: [row("doc-unmatched", {})],
+    });
+    primary.fields = [
+      {
+        id: "primary-field",
+        propertyId: "primary-property",
+        propertyName: "Primary owner",
+        localFieldKey: "primary-property",
+        sourceFieldKey: "primary-owner",
+        sourceFieldLabel: "Primary owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+      {
+        id: "primary-shared-field",
+        propertyId: "shared-property",
+        propertyName: "Shared owner",
+        localFieldKey: "shared-property",
+        sourceFieldKey: "shared-owner",
+        sourceFieldLabel: "Shared owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "local",
+        readOnly: false,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+    const secondary = source({
+      id: "secondary",
+      federation: federation("secondary", "slug", "{slug}"),
+      rows: [],
+    });
+    secondary.fields = [
+      {
+        id: "managed-field",
+        propertyId: "secondary-property",
+        propertyName: "Source owner",
+        localFieldKey: "secondary-property",
+        sourceFieldKey: "owner",
+        sourceFieldLabel: "Owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+      {
+        id: "secondary-shared-field",
+        propertyId: "shared-property",
+        propertyName: "Shared owner",
+        localFieldKey: "shared-property",
+        sourceFieldKey: "shared-owner",
+        sourceFieldLabel: "Shared owner",
+        sourceFieldType: "text",
+        mappingType: "property",
+        writeOwner: "source",
+        readOnly: true,
+        provenance: "test",
+        freshness: "fresh",
+        lastSyncedAt: null,
+      },
+    ];
+
+    const federated = federateSources({
+      items: [unmatchedItem],
+      sources: [primary, secondary],
+    });
+    expect(federated[0].sourceOverlays).toBeUndefined();
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[0],
+    ).toMatchObject({ value: null, editable: false });
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[1],
+    ).toMatchObject({ value: "Primary source value", editable: false });
+    expect(
+      applyFederatedOverlayValues(federated, [primary, secondary])[0]
+        .properties[2],
+    ).toMatchObject({ value: "Shared primary value", editable: false });
   });
 });

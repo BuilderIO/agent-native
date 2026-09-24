@@ -3,9 +3,10 @@ import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
-import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -17,10 +18,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import {
-  DefaultSpinner,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -141,7 +139,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();
@@ -211,8 +209,15 @@ function isAgentNativeDesktop(): boolean {
 }
 
 function AppContent() {
+  const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateAppContent />;
+}
+
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -225,9 +230,17 @@ function AppContent() {
         changelogKey="calendar"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/booking-links")}>
+              {t("navigation.bookingLinks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/booking-links") ||
+          location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.calendar")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -252,6 +265,16 @@ function AppContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag: the Electron desktop shell opens every app tab with that
+ * flag and no token, and a bare-flag bypass sent those signed-out tabs
+ * straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(): boolean {
+  return Boolean(getEmbedAuthToken());
+}
+
 export default function Root() {
   const [queryClient] = useState(() =>
     createAgentNativeQueryClient({
@@ -272,15 +295,16 @@ export default function Root() {
   );
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  const isPublicPath = isPublicBookingPath(location.pathname);
+  const isMarketingHome = location.pathname === "/";
+  const isPublicPath =
+    isMarketingHome || isPublicBookingPath(location.pathname);
 
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
-        sessionBypass={isEmbedAuthActive()}
-        clientOnlyFallback={<DefaultSpinner />}
+        sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}
         i18n={{
           catalog: i18nCatalog,

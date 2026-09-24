@@ -162,7 +162,7 @@ describe("CSRF vs. independently-initialized action-route plugin (registration-o
 
   beforeAll(() => {
     tempDir = mkdtempSync(join(tmpdir(), "agent-native-csrf-order-"));
-    process.env.DATABASE_URL = `file:${join(tempDir, "csrf-order.db")}`;
+    process.env.DATABASE_URL = `pglite:${join(tempDir, "csrf-order")}`;
   });
 
   afterAll(async () => {

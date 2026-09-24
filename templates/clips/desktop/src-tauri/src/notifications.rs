@@ -30,6 +30,10 @@ const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
 const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
 const DISMISSAL_TOMBSTONE_SECS: i64 = 30 * 60;
+/// How long an answered card stays un-hydratable. Only has to outlive an
+/// overlay boot, but a meeting that is recording has no reason to be asked about
+/// again for a while either.
+const ACK_TOMBSTONE_SECS: i64 = 10 * 60;
 
 #[derive(Default)]
 pub struct MeetingNotificationState(Mutex<MeetingNotificationStateInner>);
@@ -38,6 +42,11 @@ pub struct MeetingNotificationState(Mutex<MeetingNotificationStateInner>);
 struct MeetingNotificationStateInner {
     pending: Option<Value>,
     dismissed_until: HashMap<String, i64>,
+    /// meeting id -> unix-seconds until which a stored payload for it must not
+    /// be handed out. Clearing `pending` cannot retract a payload an overlay
+    /// already took, and `take_pending_meeting_notification` is destructive, so
+    /// the acknowledgement has to leave a mark rather than only a deletion.
+    acknowledged_until: HashMap<String, i64>,
 }
 
 #[allow(dead_code)]
@@ -193,10 +202,24 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
         .map_err(|_| "meeting notification state lock poisoned".to_string())?;
     let now = chrono::Utc::now().timestamp();
     state.dismissed_until.retain(|_, until| *until > now);
+    state.acknowledged_until.retain(|_, until| *until > now);
     if state.pending.as_ref().is_some_and(|payload| {
         state
             .dismissed_until
             .contains_key(&notification_key(payload))
+    }) {
+        state.pending = None;
+    }
+    // A meeting whose card was already acknowledged must not be hydrated by an
+    // overlay mounting afterwards. Without this the payload survives as a
+    // "Take notes?" card over a meeting that is already recording, because the
+    // acknowledgement that would have cleared it arrived while this webview was
+    // still booting and had nothing listening.
+    if state.pending.as_ref().is_some_and(|payload| {
+        payload
+            .get("meetingId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| state.acknowledged_until.contains_key(id))
     }) {
         state.pending = None;
     }
@@ -232,6 +255,74 @@ fn notification_key_from_parts(
         meeting_id,
         scheduled_start.unwrap_or_default()
     )
+}
+
+/// Drop a stored payload for a meeting that no longer needs asking about.
+///
+/// `pending` exists so an overlay webview that had not mounted yet can still
+/// hydrate the card — and that is also how a stale card outlives the event meant
+/// to clear it. `meetings:hide-notification` is matched against the payload the
+/// overlay already holds, so a hide arriving before the overlay mounts is
+/// dropped, and hydration afterwards shows "Take notes?" over a meeting that is
+/// already recording. A caller that has started capture clears the payload
+/// rather than trusting an event the overlay may not be listening for yet.
+/// Clear the stored payload once the frontend confirms a card is finished with.
+///
+/// `pending` is the cold-overlay hydration path, so it has to outlive the emit
+/// that dismisses a card in an overlay that is already mounted — otherwise an
+/// overlay mounting late loses the notification entirely. It must not outlive it
+/// indefinitely either: a payload still sitting there after capture has begun
+/// becomes a "Take notes?" card over a meeting that is already recording.
+///
+/// `meetings:hide-notification` is the frontend's own acknowledgement that
+/// startup got far enough to put the meeting on screen, which makes it the exact
+/// point where the stored copy stops being a recovery path and starts being
+/// wrong. A start that fails emits `meetings:transcription-error` instead and
+/// deliberately leaves the payload in place, so the user keeps a way back to the
+/// detected meeting.
+pub fn watch_meeting_notification_acks(app: &AppHandle) {
+    use tauri::Listener;
+
+    let handle = app.clone();
+    app.listen("meetings:hide-notification", move |event| {
+        let Some(meeting_id) = serde_json::from_str::<Value>(event.payload())
+            .ok()
+            .as_ref()
+            .and_then(|payload| payload.get("meetingId"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        acknowledge_meeting_notification(&handle, &meeting_id);
+    });
+}
+
+/// Record that a meeting card has been answered, and drop any stored copy.
+///
+/// Both halves are needed. Dropping `pending` handles the overlay that has not
+/// read it yet; the tombstone handles the one that already did, or that reads it
+/// a moment from now — `take_pending_meeting_notification` is destructive, so by
+/// the time an acknowledgement arrives there may be nothing left to delete and
+/// still a payload in flight toward a webview that is about to render it.
+fn acknowledge_meeting_notification(app: &AppHandle, meeting_id: &str) {
+    let Some(state) = app.try_state::<MeetingNotificationState>() else {
+        return;
+    };
+    let Ok(mut state) = state.0.lock() else {
+        return;
+    };
+    let now = chrono::Utc::now().timestamp();
+    state.acknowledged_until.retain(|_, until| *until > now);
+    state
+        .acknowledged_until
+        .insert(meeting_id.to_string(), now + ACK_TOMBSTONE_SECS);
+    if clear_pending_notification(&mut state.pending, meeting_id) {
+        dlog!(
+            "[clips-tray] cleared pending meeting notification for {}",
+            meeting_id
+        );
+    }
 }
 
 fn clear_pending_notification(pending: &mut Option<Value>, meeting_id: &str) -> bool {

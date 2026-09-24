@@ -13,6 +13,14 @@ import {
   probeDbPressure,
 } from "./db-pressure.js";
 
+const CHAT_HEALTH_SCRIPT = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../../scripts/chat-health.mjs",
+  ),
+  "utf8",
+);
+
 const HEALTHY = {
   connections: 8,
   idleInTxn: 0,
@@ -56,18 +64,25 @@ describe("probeDbPressure", () => {
   };
 
   it("measures counters on postgres", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [row] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [row] }),
+    });
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
   it("excludes the probe connection from both activity scans", () => {
-    expect(DB_PRESSURE_SQL.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
+    }
   });
 
-  it("uses the liveness query duration instead of the pressure query duration", async () => {
+  it("limits both activity scans to the database being probed", () => {
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql.match(/datname = current_database\(\)/g)).toHaveLength(2);
+    }
+  });
+
+  it("uses a provided liveness query duration", async () => {
     const queries: string[] = [];
     const result = await probeDbPressure(
       {
@@ -76,7 +91,6 @@ describe("probeDbPressure", () => {
           return { rows: [row] };
         },
       },
-      "postgres",
       { trivialQueryMs: 128 },
     );
     expect(queries).toEqual([DB_PRESSURE_SQL]);
@@ -84,43 +98,22 @@ describe("probeDbPressure", () => {
   });
 
   it("accepts string counters from drivers that widen bigints", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => ({
-          rows: [{ ...row, connections: "8", max_same_query: "1" }],
-        }),
-      },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({
+        rows: [{ ...row, connections: "8", max_same_query: "1" }],
+      }),
+    });
     expect(result).toMatchObject({ measured: true, connections: 8 });
   });
 
-  // Each of the next four would, if folded into a zeroed "measured" result,
+  // Each of the next three would, if folded into a zeroed "measured" result,
   // report a database nobody looked at as a healthy one.
-  it("reports non-postgres as unmeasured, not healthy", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => {
-          throw new Error("no such table: pg_stat_activity");
-        },
-      },
-      "sqlite",
-    );
-    expect(result).toEqual({
-      measured: false,
-      reason: "dialect sqlite has no pg_stat_activity",
-    });
-  });
-
   it("reports a throwing query as unmeasured", async () => {
-    const result = await probeDbPressure(
-      {
-        execute: async () => {
-          throw new Error("permission denied for pg_stat_activity");
-        },
+    const result = await probeDbPressure({
+      execute: async () => {
+        throw new Error("permission denied for pg_stat_activity");
       },
-      "postgres",
-    );
+    });
     expect(result).toMatchObject({ measured: false });
     expect((result as { reason: string }).reason).toContain(
       "permission denied",
@@ -128,10 +121,9 @@ describe("probeDbPressure", () => {
   });
 
   it("reports an empty result set as unmeasured", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [] }),
+    });
     expect(result).toEqual({
       measured: false,
       reason: "pressure query returned no rows",
@@ -139,10 +131,9 @@ describe("probeDbPressure", () => {
   });
 
   it("reports missing columns as unmeasured", async () => {
-    const result = await probeDbPressure(
-      { execute: async () => ({ rows: [{ connections: 8 }] }) },
-      "postgres",
-    );
+    const result = await probeDbPressure({
+      execute: async () => ({ rows: [{ connections: 8 }] }),
+    });
     expect(result).toEqual({
       measured: false,
       reason: "pressure query returned unreadable counters",
@@ -156,15 +147,10 @@ describe("threshold parity with scripts/chat-health.mjs", () => {
   // above for the scheduled fleet audit. Two copies of a number is how the two
   // start disagreeing about whether production is healthy.
   it("keeps both copies of the outage thresholds equal", () => {
-    const script = readFileSync(
-      resolve(
-        dirname(fileURLToPath(import.meta.url)),
-        "../../../../scripts/chat-health.mjs",
-      ),
-      "utf8",
-    );
     const literal = (name: string) => {
-      const match = new RegExp(`const ${name} = ([0-9_]+);`).exec(script);
+      const match = new RegExp(`const ${name} = ([0-9_]+);`).exec(
+        CHAT_HEALTH_SCRIPT,
+      );
       if (!match)
         throw new Error(`${name} not found in scripts/chat-health.mjs`);
       return Number(match[1].replace(/_/g, ""));
@@ -174,5 +160,12 @@ describe("threshold parity with scripts/chat-health.mjs", () => {
     expect(literal("MAX_SAME_QUERY_CONCURRENCY")).toBe(
       MAX_SAME_QUERY_CONCURRENCY,
     );
+  });
+
+  it("groups full query text so shared prefixes do not look like one query", () => {
+    for (const sql of [DB_PRESSURE_SQL, CHAT_HEALTH_SCRIPT]) {
+      expect(sql).toMatch(/GROUP BY\s+query\b/);
+      expect(sql).not.toMatch(/left\s*\(\s*query\s*,\s*60\s*\)/);
+    }
   });
 });

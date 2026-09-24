@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayAuth,
   resolveSecret,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
@@ -20,8 +20,14 @@ import type {
   StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
+import {
+  describeProviderPayloadShape,
+  isModelUnavailableDetail,
+  readableProviderErrorDetail,
+} from "../../shared/provider-error.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
+import { canReadDraftAsset, type DraftReadScope } from "./library-access.js";
 import { getObject } from "./storage.js";
 
 export interface ReferenceForGeneration {
@@ -269,18 +275,11 @@ export async function generateWithBuilderImageApi(
   // injected gateway pair and no identity credential at all, and image
   // generation is metered rather than identity-bearing. The resolver still
   // prefers a connected Builder account, so a site that has one is unaffected.
-  const builderCredentials = await resolveBuilderGatewayCredentials();
-  if (!builderCredentials.privateKey || !builderCredentials.publicKey) {
-    const detail =
-      !builderCredentials.privateKey && !builderCredentials.publicKey
-        ? "Builder credentials are missing"
-        : !builderCredentials.privateKey
-          ? "Builder token is missing"
-          : "Builder space id is missing";
+  const builderAuth = await resolveBuilderGatewayAuth();
+  if (!builderAuth) {
     throw new BuilderImageGenerationError(
       "Builder.io is not connected for managed image generation. Connect Builder.io (free tier available), or publish with Builder credits so the site is issued its own gateway credential.",
       401,
-      detail,
     );
   }
 
@@ -341,8 +340,10 @@ export async function generateWithBuilderImageApi(
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${builderCredentials.privateKey}`,
-      "x-builder-api-key": builderCredentials.publicKey,
+      Authorization: builderAuth.authorization,
+      ...(builderAuth.spaceId
+        ? { "x-builder-api-key": builderAuth.spaceId }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),
@@ -389,8 +390,22 @@ export async function generateWithBuilderImageApi(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const detail = extractBuilderErrorDetail(text);
+    const detail = builderErrorDetailForUser(text, input.model);
     const code = extractBuilderErrorCode(text);
+    // Shape, not values: the rest of this file already logs `promptChars` and
+    // hashed reference data rather than the payloads themselves, and a
+    // provider error can echo prompt-derived content back to us. `detail` is
+    // the string the user is about to see anyway.
+    logGeneration("builder.error", {
+      model: requestModel,
+      requestedModel: input.model,
+      status: response.status,
+      code,
+      detail,
+      bodyShape: describeProviderPayloadShape(text),
+      bodyChars: text.length,
+      runId: input.runId,
+    });
     throw new BuilderImageGenerationError(
       `Builder-managed image generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
       response.status,
@@ -733,17 +748,17 @@ function builderImageGenerationFallbackMessage(
   }
 }
 
-function extractBuilderErrorDetail(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    const detail = readProviderErrorDetail(parsed);
-    if (detail) return detail.slice(0, 300);
-  } catch {
-    // Fall back to the raw response text below.
+// This string is rendered verbatim in the candidate tray, so it must never
+// carry the upstream payload. The managed service wraps the provider failure
+// in a JSON string, which wraps the Vertex failure in another JSON string;
+// returning the first value found put an escaped 404 body in front of users.
+function builderErrorDetailForUser(text: string, model: ImageModel): string {
+  const detail = readableProviderErrorDetail(text);
+  if (!detail) return "";
+  if (isModelUnavailableDetail(detail)) {
+    return `the ${model} model is unavailable right now. Pick a different image model and try again.`;
   }
-  return trimmed.slice(0, 300);
+  return detail;
 }
 
 // The managed service tags errors with a stable machine code (e.g.
@@ -757,19 +772,6 @@ function extractBuilderErrorCode(text: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function readProviderErrorDetail(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ["message", "error", "detail"]) {
-    const candidate = record[key];
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
-    const nested = readProviderErrorDetail(candidate);
-    if (nested) return nested;
-  }
-  return null;
 }
 
 export async function generateWithGemini(
@@ -1462,7 +1464,10 @@ function formatRenderedDesignEvidence(style: StyleBrief): string {
       ["shadow", component.boxShadow],
       ["padding", component.padding],
     ]
-      .filter(([, value]) => typeof value === "string" && value.trim())
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && Boolean(entry[1].trim()),
+      )
       .map(([name, value]) => `${name} ${value}`);
     if (fields.length > 0)
       lines.push(`${role} component: ${fields.join("; ")}.`);
@@ -1498,6 +1503,13 @@ export async function selectReferences(input: {
   subjectAssetId?: string;
   intent?: GenerationIntent;
   limit?: number;
+  /**
+   * Drafts are private to their author, and the pool below scores every asset
+   * in the kit — including unsaved candidates. Without this scope an automatic
+   * selection would quietly send another drafter's candidate to the provider.
+   * Required: pass `unrestrictedDraftReadScope()` for an approver.
+   */
+  draftScope: DraftReadScope;
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
   const requestedExplicitIds = new Set(input.referenceAssetIds ?? []);
@@ -1531,6 +1543,7 @@ export async function selectReferences(input: {
           asset.mimeType.startsWith("image/") &&
           asset.status !== "archived" &&
           asset.status !== "failed" &&
+          canReadDraftAsset(input.draftScope, asset) &&
           !excludedAssetIds.has(asset.id),
       );
     const explicitRefs = await loadReferenceData(
@@ -1569,6 +1582,7 @@ export async function selectReferences(input: {
       excludeAssetIds: input.excludeAssetIds,
       intent: input.intent,
       limit: styleLimit,
+      draftScope: input.draftScope,
     });
     const seen = new Set(explicitRefs.map((ref) => ref.id));
     return [...explicitRefs, ...styleRefs.filter((ref) => !seen.has(ref.id))];
@@ -1600,6 +1614,7 @@ export async function selectReferences(input: {
         asset.status !== "archived" &&
         asset.status !== "failed" &&
         metadata.category !== "skeleton" &&
+        canReadDraftAsset(input.draftScope, asset) &&
         !excludedAssetIds.has(asset.id)
       );
     })

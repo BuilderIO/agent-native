@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import path from "path";
@@ -13,13 +13,11 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
-  assertNativeDependencies,
-  assertNodeRuntimeMarker,
-  ensureNativeDependencies,
-  writeNodeRuntimeMarker,
-} from "./native-dependencies.js";
-import { cliSpawnOptions } from "./process.js";
+  findBinUpwards,
+  findReactRouterInvocation,
+} from "./react-router-command.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -34,21 +32,26 @@ try {
   _version = pkg.version;
 } catch {}
 
-// Fail fast on unsupported Node versions. `engines.node: ">=22"` is only
-// advisory — npx/pnpm merely warn — so without this an older Node (18/20)
-// first fails deep inside a scaffold dynamic import with a cryptic
-// ERR_MODULE / syntax error that `handleScaffoldImportError` misreports as a
-// corrupt npx cache. A clear up-front message saves that whole detour.
+// Fail fast on unsupported Node versions. The package engine is only
+// advisory — npx/pnpm merely warn — so without this an older Node first fails
+// deep inside a scaffold dynamic import with a cryptic ERR_MODULE / syntax
+// error that `handleScaffoldImportError` misreports as a corrupt npx cache.
 const REQUIRED_NODE_MAJOR = 22;
-const _nodeMajor = Number(process.versions.node.split(".")[0]);
-if (Number.isFinite(_nodeMajor) && _nodeMajor < REQUIRED_NODE_MAJOR) {
+const REQUIRED_NODE_MINOR = 22;
+const _nodeVersion = process.versions.node;
+const _nodeIsStable = /^\d+\.\d+\.\d+$/.test(_nodeVersion);
+const [_nodeMajor, _nodeMinor] = _nodeVersion.split(".").map(Number);
+const _unsupportedNode =
+  !_nodeIsStable ||
+  _nodeMajor < REQUIRED_NODE_MAJOR ||
+  (_nodeMajor === REQUIRED_NODE_MAJOR && _nodeMinor < REQUIRED_NODE_MINOR);
+if (_unsupportedNode) {
   console.error(
-    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR} or newer, but you're on Node ${process.versions.node}.\n` +
+    `agent-native requires Node.js ${REQUIRED_NODE_MAJOR}.${REQUIRED_NODE_MINOR}.0 or newer, but you're on Node ${process.versions.node}.\n` +
       `Upgrade Node (https://nodejs.org) and re-run. With nvm: \`nvm install ${REQUIRED_NODE_MAJOR}\`.`,
   );
   process.exit(1);
 }
-
 /**
  * Build a redacted "command" tag from process.argv. Strips the value that
  * follows any --token / --key / --secret / --password / --api-key flag so
@@ -293,18 +296,6 @@ function handleScaffoldImportError(err: any): void {
   flushTelemetryAndExit(1);
 }
 
-function findBinUpwards(binName: string): string | undefined {
-  let dir = process.cwd();
-  for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, "node_modules", ".bin", binName);
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return undefined;
-}
-
 function findViteBin(): string {
   return findBinUpwards("vite") ?? "vite";
 }
@@ -340,10 +331,6 @@ function findTypeScriptCompilerBin(): string {
   if (fs.existsSync(localTsgo)) return localTsgo;
 
   return "tsc";
-}
-
-function findReactRouterBin(): string {
-  return findBinUpwards("react-router") ?? "react-router";
 }
 
 /** Check if the project uses React Router framework mode (has react-router.config.ts) */
@@ -515,7 +502,7 @@ function inferBuildContext(cwd: string): {
 function runBuildStep(
   cmd: string,
   cmdArgs: string[],
-  opts: { label: string; env?: NodeJS.ProcessEnv },
+  opts: { label: string; env?: NodeJS.ProcessEnv; shell?: boolean },
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     const STDERR_TAIL_BYTES = 8000;
@@ -525,7 +512,7 @@ function runBuildStep(
 
     const child = spawn(cmd, cmdArgs, {
       stdio: ["inherit", "pipe", "pipe"],
-      shell: process.platform === "win32",
+      shell: opts.shell ?? process.platform === "win32",
       env: opts.env ?? process.env,
     });
 
@@ -620,12 +607,6 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
-    try {
-      ensureNativeDependencies({ repair: true, label: "dev" });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
     if (isWorkspaceRoot()) {
       import("./workspace-dev.js")
         .then((m) => m.runWorkspaceDev({ args }))
@@ -638,7 +619,7 @@ switch (command) {
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      run(vite, rest);
+      runDevServer(vite, rest);
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -647,7 +628,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      run(vite, rest);
+      runDevServer(vite, rest);
       break;
     }
     // Attach inspect flag to server process (not Vite or Nitro process)
@@ -665,10 +646,14 @@ switch (command) {
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
-    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], {
-      env,
-      shell: false,
-    });
+    runDevServer(
+      process.execPath,
+      ["--import", preload, viteJsEntry, ...rest],
+      {
+        env,
+        shell: false,
+      },
+    );
     break;
   }
 
@@ -692,8 +677,6 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
-      ensureNativeDependencies({ repair: true, label: "build" });
-
       // Doctor pre-step: scans app source for the security-critical guard
       // invariants (see `agent-native doctor --help`). Findings fail by
       // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
@@ -720,9 +703,12 @@ switch (command) {
       if (isReactRouterFramework()) {
         clearAgentNativeNitroPresetMarker();
         validateReactRouterBuildDependencies();
-        const rr = findReactRouterBin();
+        const rr = findReactRouterInvocation(["build"]);
         console.log("Building (React Router framework mode)...");
-        await runBuildStep(rr, ["build"], { label: "react-router-build" });
+        await runBuildStep(rr.command, rr.args, {
+          label: "react-router-build",
+          shell: rr.shell,
+        });
       } else {
         const vite = findViteBin();
         console.log("Building...");
@@ -754,15 +740,6 @@ switch (command) {
         }
       }
 
-      const serverDirectory = path.resolve(".output/server");
-      if (fs.existsSync(serverDirectory)) {
-        assertNativeDependencies({
-          fromDirectory: serverDirectory,
-          label: "build output",
-        });
-        writeNodeRuntimeMarker(serverDirectory);
-      }
-
       console.log("\nBuild complete.");
     })().catch((err) => {
       // runBuildStep handles its own failures and exits, so reaching here
@@ -788,17 +765,6 @@ switch (command) {
       );
       process.exit(1);
     }
-    const serverDirectory = path.dirname(serverEntry);
-    try {
-      assertNodeRuntimeMarker(serverDirectory);
-      assertNativeDependencies({
-        fromDirectory: serverDirectory,
-        label: "start output",
-      });
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
-    }
     run(process.execPath, [serverEntry, ...args]);
     break;
   }
@@ -818,6 +784,20 @@ switch (command) {
     const scriptsRun = path.resolve("scripts/run.ts");
     const runFile = fs.existsSync(actionsRun) ? actionsRun : scriptsRun;
     run(tsxAction, [runFile, ...args]);
+    break;
+  }
+
+  case "identity": {
+    const [operation, ...identityArgs] = args;
+    if (operation !== "rekey") {
+      console.error(
+        "Usage: agent-native identity rekey --from <old-email> --to <new-email> [--yes] | --resume",
+      );
+      process.exit(1);
+    }
+    const cliDir = path.dirname(fileURLToPath(import.meta.url));
+    const script = path.resolve(cliDir, "../scripts/identity-rekey.js");
+    run(process.execPath, [script, ...identityArgs]);
     break;
   }
 
@@ -857,9 +837,15 @@ switch (command) {
     // React Router framework mode generates route types first
     if (isReactRouterFramework()) {
       validateReactRouterBuildDependencies();
-      const rr = findReactRouterBin();
+      const rr = findReactRouterInvocation(["typegen"]);
       try {
-        execSync(`${rr} typegen`, { stdio: "inherit" });
+        if (rr.shell) {
+          execSync(`${rr.command} ${rr.args.join(" ")}`, {
+            stdio: "inherit",
+          });
+        } else {
+          execFileSync(rr.command, rr.args, { stdio: "inherit" });
+        }
       } catch {
         // typegen may fail if routes aren't set up yet; continue to TypeScript.
       }
@@ -1161,6 +1147,16 @@ switch (command) {
     break;
   }
 
+  case "amplify-stream": {
+    import("./amplify-stream.js")
+      .then((m) => m.runAmplifyStream(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "setup-agents": {
     import("./setup-agents.js")
       .then((m) => m.runSetupAgents())
@@ -1347,6 +1343,8 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
+                                to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
   agent-native info <pkg>       Print info about an installed package:
                                 exports, source paths, and docs links.

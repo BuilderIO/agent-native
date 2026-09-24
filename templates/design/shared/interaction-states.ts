@@ -559,7 +559,7 @@ export function upsertStateStyles(
 ): string {
   if (!nodeId) throw new Error("upsertStateStyles requires a nodeId.");
   if (!isInteractionState(state)) {
-    throw new Error(`Invalid interaction state: "${state}".`);
+    throw new Error(`Invalid interaction state: "${String(state)}".`);
   }
   const normalized = normalizeStateStyles(styles);
   const model = readModel(html);
@@ -585,7 +585,7 @@ export function upsertResponsiveStateStyles(
   if (!nodeId)
     throw new Error("upsertResponsiveStateStyles requires a nodeId.");
   if (!isInteractionState(state)) {
-    throw new Error(`Invalid interaction state: "${state}".`);
+    throw new Error(`Invalid interaction state: "${String(state)}".`);
   }
   if (!Number.isFinite(maxWidthPx) || maxWidthPx <= 0) {
     throw new Error(`Invalid interaction-state breakpoint: ${maxWidthPx}px.`);

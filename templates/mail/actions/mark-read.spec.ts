@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   markRead: vi.fn(),
   markAllUnreadReadForAccount: vi.fn(),
   markAllLocalUnreadRead: vi.fn(),
+  resolveMutationAccounts: vi.fn(),
+  track: vi.fn(),
+  syncInboxLabelDeltaForTargets: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -16,6 +19,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -27,6 +34,11 @@ vi.mock("../server/lib/google-auth.js", () => ({
 vi.mock("../server/lib/email-state.js", () => ({
   markRead: mocks.markRead,
   markAllLocalUnreadRead: mocks.markAllLocalUnreadRead,
+  resolveMutationAccounts: mocks.resolveMutationAccounts,
+}));
+
+vi.mock("../server/lib/inbox-store-sync.js", () => ({
+  syncInboxLabelDeltaForTargets: mocks.syncInboxLabelDeltaForTargets,
 }));
 
 import action, { MARK_READ_DESCRIPTION } from "./mark-read";
@@ -40,6 +52,23 @@ beforeEach(() => {
   mocks.writeAppState.mockResolvedValue(undefined);
   mocks.isConnected.mockResolvedValue(false);
   mocks.markRead.mockResolvedValue({ id: "email-1", isRead: true });
+  // Default: every target already carries an explicit accountEmail in these
+  // tests, so resolution is a pure passthrough (matches the real resolver's
+  // behavior when accountEmail is already set — see email-state.spec.ts for
+  // the actual resolution-rule coverage).
+  mocks.resolveMutationAccounts.mockImplementation(
+    async (
+      _owner: string,
+      targets: Array<{ id: string; accountEmail?: string }>,
+    ) => ({
+      resolved: targets
+        .filter((t) => t.accountEmail)
+        .map((t) => ({ ...t, accountEmail: t.accountEmail! })),
+      unresolved: targets
+        .filter((t) => !t.accountEmail)
+        .map((t) => ({ id: t.id, error: "Cannot determine account" })),
+    }),
+  );
 });
 
 describe("mark-read action", () => {
@@ -63,6 +92,88 @@ describe("mark-read action", () => {
     expect(mocks.markAllUnreadReadForAccount).not.toHaveBeenCalled();
     expect(mocks.markAllLocalUnreadRead).not.toHaveBeenCalled();
     expect(result).toBe("Marked 1/1 email(s) as read");
+  });
+
+  it("records partial explicit triage failures", async () => {
+    mocks.markRead.mockImplementation(async ({ id }) => {
+      if (id === "email-2") throw new Error("provider unavailable");
+      return { id, isRead: true };
+    });
+
+    const result = await action.run({
+      id: "email-1,email-2",
+      accountEmail: ACCOUNT,
+    });
+
+    expect(result).toBe("Marked 1/2 email(s) as read");
+    expect(mocks.track).toHaveBeenCalledWith(
+      "inbox_triaged",
+      expect.objectContaining({
+        items_triaged: 1,
+        succeeded: false,
+        partial: true,
+        failed_count: 1,
+      }),
+      undefined,
+    );
+  });
+
+  it("syncs the inbox store from the Gmail bulk-modify path, grouped by account", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.gmailBatchModifyByAccount.mockResolvedValue({
+      succeeded: ["email-1", "email-2"],
+      failed: [],
+    });
+
+    await action.run({
+      id: "email-1,email-2",
+      accountEmails: "acct-a@example.com,acct-b@example.com",
+    });
+
+    // Passes the SAME resolved targets to the Gmail mutation and the store
+    // mirror (see resolveMutationAccounts in email-state.ts) — the two must
+    // never group by different accounts.
+    expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
+      OWNER,
+      [
+        { id: "email-1", accountEmail: "acct-a@example.com" },
+        { id: "email-2", accountEmail: "acct-b@example.com" },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+    expect(mocks.syncInboxLabelDeltaForTargets).toHaveBeenCalledWith(
+      OWNER,
+      [
+        { id: "email-1", accountEmail: "acct-a@example.com" },
+        { id: "email-2", accountEmail: "acct-b@example.com" },
+      ],
+      { add: undefined, remove: ["UNREAD"], scope: "message" },
+    );
+  });
+
+  it("reports an unresolvable target as a failure instead of guessing its account", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.resolveMutationAccounts.mockResolvedValue({
+      resolved: [{ id: "email-1", accountEmail: "acct-a@example.com" }],
+      unresolved: [
+        { id: "email-2", error: "Cannot determine which connected account" },
+      ],
+    });
+    mocks.gmailBatchModifyByAccount.mockResolvedValue({
+      succeeded: ["email-1"],
+      failed: [],
+    });
+
+    const result = await action.run({ id: "email-1,email-2" });
+
+    expect(result).toBe("Marked 1/2 email(s) as read");
+    expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
+      OWNER,
+      [{ id: "email-1", accountEmail: "acct-a@example.com" }],
+      undefined,
+      ["UNREAD"],
+    );
   });
 
   it.each([[{ id: "email-1", scope: "all-unread" }], [{}]])(

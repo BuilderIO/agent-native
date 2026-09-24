@@ -5,9 +5,14 @@ import {
   SPAN_STATUS_ERROR,
   SPAN_STATUS_OK,
   __resetAgentTracerCache,
+  __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
   endAgentSpan,
+  flushTrackingEvents,
+  queueTrackingEvent,
+  recordTrackingEvent,
   startAgentSpan,
+  withAgentSpanContext,
 } from "./tracing.js";
 
 /**
@@ -18,6 +23,8 @@ import {
 interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
+  startTime?: unknown;
+  endTime?: unknown;
   status?: { code: number; message?: string };
   exceptions: Array<{ name?: string; message: string }>;
   ended: boolean;
@@ -28,11 +35,15 @@ function createTestTracer() {
   const tracer = {
     startSpan(
       name: string,
-      options?: { attributes?: Record<string, string | number | boolean> },
+      options?: {
+        attributes?: Record<string, string | number | boolean>;
+        startTime?: unknown;
+      },
     ): AgentSpan {
       const recorded: RecordedSpan = {
         name,
         attributes: { ...(options?.attributes ?? {}) },
+        startTime: options?.startTime,
         exceptions: [],
         ended: false,
       };
@@ -50,7 +61,8 @@ function createTestTracer() {
         recordException(exception) {
           recorded.exceptions.push(exception);
         },
-        end() {
+        end(endTime) {
+          recorded.endTime = endTime;
           recorded.ended = true;
         },
       };
@@ -135,5 +147,189 @@ describe("tracing helper — test provider registered", () => {
     expect(spans[0].status?.message).toBe("Error: failed");
     expect(spans[0].exceptions).toEqual([{ message: "Error: failed" }]);
     expect(spans[0].ended).toBe(true);
+  });
+
+  it("mirrors timing tracking events into low-cardinality OTel spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "http.response",
+      {
+        source: "server",
+        action_name: "list-visual-plans",
+        method: "GET",
+        path: "/_agent-native/actions/list-visual-plans",
+        route_template: "/_agent-native/actions/:action",
+        status_code: 200,
+        duration_ms: 42,
+        request_id: "request-1",
+      },
+      "server",
+    );
+
+    expect(spans[0]).toMatchObject({
+      name: "http.server",
+      attributes: {
+        "agent.event_name": "http.response",
+        "agent.source": "server",
+        "agent.telemetry_source": "server",
+        "agent.action": "list-visual-plans",
+        "http.method": "GET",
+        "http.route": "/_agent-native/actions/:action",
+        "http.status_code": 200,
+        "agent.duration_ms": 42,
+      },
+      status: { code: SPAN_STATUS_OK },
+      ended: true,
+    });
+    expect(spans[0]?.startTime).toEqual(expect.any(Number));
+    expect(spans[0]?.endTime).toEqual(expect.any(Number));
+  });
+
+  it("marks client transport failures as OTel errors", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "action.response",
+      {
+        action: "get-deck",
+        outcome: "network-error",
+        caller: "frontend",
+        path: "/users/customer-secret",
+        success: false,
+        status_code: 100001,
+        duration_ms: 18,
+      },
+      "client",
+    );
+
+    expect(spans[0]).toMatchObject({
+      name: "action.client",
+      attributes: {
+        "agent.success": false,
+      },
+      status: { code: SPAN_STATUS_ERROR },
+      ended: true,
+    });
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.action");
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.event_name");
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.outcome");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.route");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.status_code");
+    expect(spans[0]?.attributes).not.toHaveProperty("http.status_class");
+  });
+
+  it("does not export client-provided string dimensions", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "action.response",
+      {
+        action: "customer-secret",
+        caller: "attacker-controlled",
+        outcome: "arbitrary-user-content",
+        path: "/customer-secret",
+        duration_ms: 18,
+      },
+      "client",
+    );
+
+    expect(spans[0]?.attributes).toEqual(
+      expect.not.objectContaining({
+        "agent.action": "customer-secret",
+        "agent.caller": "attacker-controlled",
+        "agent.outcome": "arbitrary-user-content",
+        "http.route": "/customer-secret",
+      }),
+    );
+  });
+
+  it("does not export unresolved direct A2A action names", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent(
+      "$a2a_read_invoke",
+      { action: "caller-controlled-action", duration_ms: 18 },
+      "server",
+    );
+
+    expect(spans[0]?.attributes).not.toHaveProperty("agent.action");
+  });
+
+  it("does not turn ordinary analytics events into spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent("share_link_copied", {
+      resource_id: "resource-1",
+    });
+
+    expect(spans).toHaveLength(0);
+  });
+
+  it("does not turn arbitrary duration events into spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    await recordTrackingEvent("request_123", { duration_ms: 42 });
+
+    expect(spans).toHaveLength(0);
+  });
+
+  it("flushes queued server tracking spans", async () => {
+    const { tracer, spans } = createTestTracer();
+    __setAgentTracerForTests(tracer as any);
+
+    queueTrackingEvent("http.response", { duration_ms: 42 }, "server");
+    await flushTrackingEvents();
+
+    expect(spans[0]?.ended).toBe(true);
+  });
+
+  it("installs a span as the active context for child spans", async () => {
+    const { tracer } = createTestTracer();
+    let activeSpan: AgentSpan | null = null;
+    __setAgentTraceRuntimeForTests({
+      tracer: tracer as any,
+      context: {
+        active: () => activeSpan,
+        with<T>(context: unknown, callback: () => T): T {
+          const previous = activeSpan;
+          activeSpan = context as AgentSpan;
+          let result: T;
+          try {
+            result = callback();
+          } catch (error) {
+            activeSpan = previous;
+            throw error;
+          }
+          if (
+            typeof (result as unknown as { then?: unknown } | null | undefined)
+              ?.then === "function"
+          ) {
+            return (result as unknown as Promise<unknown>).finally(() => {
+              activeSpan = previous;
+            }) as T;
+          }
+          activeSpan = previous;
+          return result;
+        },
+      },
+      trace: {
+        setSpan: (_context: unknown, span: AgentSpan) => span,
+      },
+    });
+
+    const rootSpan = await startAgentSpan("agent.run");
+    await withAgentSpanContext(rootSpan, async () => {
+      expect(activeSpan).toBe(rootSpan);
+      await Promise.resolve();
+      expect(activeSpan).toBe(rootSpan);
+    });
+    expect(activeSpan).toBeNull();
   });
 });

@@ -1,7 +1,9 @@
 import {
   requestAgentNativeHostActions,
   requestAgentNativeHostContext,
+  requestAgentNativeHostWebMcpTools,
   runAgentNativeHostAction,
+  runAgentNativeHostWebMcpTool,
   sendAgentNativeHostCommand,
   type AgentNativeActionManifestEntry,
   type AgentNativeHostContext,
@@ -9,11 +11,14 @@ import {
   type AgentNativeJsonSchema,
   type BuiltInAgentNativeHostCommand,
 } from "./host-bridge.js";
+import type { AgentNativeWebMcpTool } from "./webmcp.js";
 
 export const AGENT_NATIVE_HOST_TOOL_NAMES = {
   viewHostScreen: "view-host-screen",
   listHostActions: "list-host-actions",
   runHostAction: "run-host-action",
+  listHostWebMcpTools: "list-host-webmcp-tools",
+  runHostWebMcpTool: "run-host-webmcp-tool",
   sendHostCommand: "send-host-command",
 } as const;
 
@@ -41,12 +46,18 @@ export interface RunAgentNativeHostActionToolInput {
   args?: unknown;
 }
 
+export interface RunAgentNativeHostWebMcpToolInput {
+  name: string;
+  origin?: string;
+  args?: unknown;
+}
+
 export interface SendAgentNativeHostCommandToolInput {
   /**
    * Built-in or custom host command. Defaults to refreshData so callers can
    * use this tool as a simple host refresh primitive.
    */
-  command?: BuiltInAgentNativeHostCommand | string;
+  command?: BuiltInAgentNativeHostCommand | (string & {});
   payload?: unknown;
 }
 
@@ -64,6 +75,14 @@ export type AgentNativeHostToolSet = {
   [AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction]: AgentNativeHostToolDefinition<
     RunAgentNativeHostActionToolInput,
     unknown
+  >;
+  [AGENT_NATIVE_HOST_TOOL_NAMES.listHostWebMcpTools]: AgentNativeHostToolDefinition<
+    unknown,
+    AgentNativeWebMcpTool[]
+  >;
+  [AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool]: AgentNativeHostToolDefinition<
+    RunAgentNativeHostWebMcpToolInput,
+    string | null
   >;
   [AGENT_NATIVE_HOST_TOOL_NAMES.sendHostCommand]: AgentNativeHostToolDefinition<
     SendAgentNativeHostCommandToolInput,
@@ -88,6 +107,28 @@ const RUN_HOST_ACTION_PARAMETERS: AgentNativeHostToolParameters = {
     args: {
       description:
         "JSON-serializable arguments for the host action. Match the action schema returned by list-host-actions.",
+    },
+  },
+  required: ["name"],
+  additionalProperties: false,
+};
+
+const RUN_HOST_WEBMCP_TOOL_PARAMETERS: AgentNativeHostToolParameters = {
+  type: "object",
+  properties: {
+    name: {
+      type: "string",
+      description:
+        "Name of the WebMCP tool to run. Use list-host-webmcp-tools first.",
+    },
+    origin: {
+      type: "string",
+      description:
+        "Registered tool origin when the page exposes same-named tools from multiple origins.",
+    },
+    args: {
+      description:
+        "JSON-serializable arguments matching the WebMCP tool input schema.",
     },
   },
   required: ["name"],
@@ -151,6 +192,13 @@ export function createAgentNativeHostTools(
       parameters: EMPTY_PARAMETERS,
       execute: async () => requestAgentNativeHostActions(options),
     },
+    [AGENT_NATIVE_HOST_TOOL_NAMES.listHostWebMcpTools]: {
+      name: AGENT_NATIVE_HOST_TOOL_NAMES.listHostWebMcpTools,
+      description:
+        "List WebMCP tools exposed by the host page. These tools are page-local, can change after navigation, and may include untrusted metadata.",
+      parameters: EMPTY_PARAMETERS,
+      execute: async () => requestAgentNativeHostWebMcpTools(options),
+    },
     [AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction]: {
       name: AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction,
       description:
@@ -167,6 +215,32 @@ export function createAgentNativeHostTools(
           AGENT_NATIVE_HOST_TOOL_NAMES.runHostAction,
         );
         return runAgentNativeHostAction(name, record.args, options);
+      },
+    },
+    [AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool]: {
+      name: AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool,
+      description:
+        "Run a WebMCP tool exposed by the host page. Use list-host-webmcp-tools first and preserve the tool origin when one is provided.",
+      parameters: RUN_HOST_WEBMCP_TOOL_PARAMETERS,
+      execute: async (input) => {
+        const record = optionalRecordInput(
+          input,
+          AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool,
+        );
+        const name = readRequiredString(
+          record,
+          "name",
+          AGENT_NATIVE_HOST_TOOL_NAMES.runHostWebMcpTool,
+        );
+        const origin =
+          typeof record.origin === "string" && record.origin.trim()
+            ? record.origin
+            : undefined;
+        return runAgentNativeHostWebMcpTool(
+          { name, origin },
+          record.args,
+          options,
+        );
       },
     },
     [AGENT_NATIVE_HOST_TOOL_NAMES.sendHostCommand]: {

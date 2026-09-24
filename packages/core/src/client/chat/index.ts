@@ -1,15 +1,21 @@
 export { AgentChatHome, type AgentChatHomeProps } from "../AgentChatHome.js";
 export {
+  MAX_ESTIMATED_BODY_BYTES,
+  estimateAttachmentBodyBytes,
+} from "./attachment-adapters.js";
+export {
   AgentChatSurface,
   AgentPanel,
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   type AgentChatSurfaceMode,
   type AgentChatSurfaceProps,
   type AgentPanelProps,
-  type AgentSidebarProps,
 } from "../AgentPanel.js";
+export {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  type AgentSidebarProps,
+} from "../AgentSidebar.js";
 export {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
@@ -38,10 +44,9 @@ export {
   type AssistantChatHandle,
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
-export {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatProps,
-  type MultiTabAssistantChatHeaderProps,
+export type {
+  MultiTabAssistantChatProps,
+  MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
 export {
   createAgentChatAdapter,
@@ -58,7 +63,65 @@ export {
   type CreateCodeAgentChatAdapterOptions,
 } from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
+export {
+  AgentApprovalCard,
+  AgentChoiceCard,
+  AgentInputCard,
+  type AgentApprovalCardProps,
+  type AgentChoiceCardProps,
+  type AgentChoiceOption,
+  type AgentInputCardProps,
+} from "./agent-approval-card.js";
+export {
+  AgentActivityObject,
+  type AgentActivityObjectKind,
+  type AgentActivityObjectProps,
+  type AgentActivityObjectReference,
+} from "./agent-activity-object.js";
+export {
+  AgentActivityChip,
+  AgentActivityTrace,
+  type AgentActivityChipProps,
+  type AgentActivityDisplayMode,
+  type AgentActivityItem,
+  type AgentActivityStatus,
+  type AgentActivityTraceProps,
+  type AgentActivityVariant,
+} from "./agent-activity-trace.js";
+export {
+  ToolChips,
+  type ToolChipDetail,
+  type ToolChipDiff,
+  type ToolChipKind,
+  type ToolChipStep,
+  type ToolChipTone,
+  type ToolChipsProps,
+} from "./tool-chips.js";
+export {
+  AssistantMessageActionBar,
+  type AssistantMessageActionBarProps,
+  type FormattedMessageTimestamp,
+} from "./message-components.js";
 export * from "./runtime.js";
+export {
+  createAgentKitProtocolAdapter,
+  type AgentKitProtocolAdapter,
+  type CreateAgentKitProtocolAdapterOptions,
+} from "./agentkit-protocol.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "./agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
 export {
   sendToAgentChat,
   sendToAgentChatAndConfirm,
@@ -170,3 +233,17 @@ export {
   type ChatHistoryListProps,
 } from "./ChatHistoryList.js";
 export * from "../conversation/index.js";
+export {
+  ThinkingDisplayProvider,
+  getBrowserThinkingDisplay,
+  setBrowserThinkingDisplay,
+  subscribeToBrowserThinkingDisplay,
+  useThinkingDisplay,
+  useThinkingDisplayControl,
+} from "../thinking-display.js";
+export {
+  DEFAULT_THINKING_DISPLAY,
+  THINKING_DISPLAY_MODES,
+  isThinkingDisplay,
+  type ThinkingDisplay,
+} from "../../shared/thinking-display.js";

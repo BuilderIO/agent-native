@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error - plain JS shim helper without type declarations
-import { shouldUseSourceFallback } from "../../bin/launcher.js";
+import {
+  shouldUseSourceFallback,
+  supportsNodeVersion,
+} from "../../bin/launcher.js";
 
 const fresh = (over: Partial<Record<string, unknown>> = {}) => ({
   sourceExists: true,
@@ -92,5 +95,13 @@ describe("shouldUseSourceFallback", () => {
         ],
       }),
     ).toBe(false);
+  });
+});
+
+describe("supportsNodeVersion", () => {
+  it("enforces the package's exact Node 22.22.0 minimum", () => {
+    expect(supportsNodeVersion("22.15.1")).toBe(false);
+    expect(supportsNodeVersion("22.22.0")).toBe(true);
+    expect(supportsNodeVersion("24.0.0")).toBe(true);
   });
 });

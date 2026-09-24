@@ -21,7 +21,7 @@
   },
   "starter": {
     "siteId": "864ab6ba-0889-4265-99c0-7a18d1888585",
-    "host": "starter.agent-native.com"
+    "host": "chat.agent-native.com"
   },
   "slides": {
     "siteId": "fd5deb5b-5539-47e1-830c-e5fb5e105efd",
@@ -30,10 +30,6 @@
   "mail": {
     "siteId": "dee98bb0-6143-4205-8c04-afe7bf83d5b5",
     "host": "mail.agent-native.com"
-  },
-  "macros": {
-    "siteId": "0700a8ac-6a9f-4834-80dd-734102228132",
-    "host": "macros.agent-native.com"
   },
   "forms": {
     "siteId": "aa0b2020-9983-4d6c-8fb0-65462f960fc4",

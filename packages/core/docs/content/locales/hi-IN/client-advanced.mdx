@@ -98,6 +98,35 @@ const { values, missing } = await readClientAppStateMany([
 
 `requestSource` आमतौर पर `TAB_ID` पर सेट किया जाता है, हर टेम्पलेट द्वारा `app/lib/tab-id.ts` से एक्सपोर्ट किया गया एक सादा कॉन्स्टेंट: एक छोटी रैंडम स्ट्रिंग जो किसी टैब के जीवनकाल के लिए एक जैसी रहती है और टैब्स के बीच अलग होती है। किसी राइट पर `requestSource: TAB_ID` को रीड साइड पर `useDbSync({ ignoreSource: TAB_ID })` के साथ जोड़ना ही यह है कि कोई टैब अपनी खुद की राइट को रीफ़ेच करने से कैसे बचता है जबकि सभी के प्रति फिर भी रिएक्ट करता है। पूरे वॉकथ्रू के लिए [Context Awareness](/docs/context-awareness#jitter-prevention) देखें।
 
+## अलग-थलग बैकग्राउंड Agent सेशन {#isolated-background-agent-sessions}
+
+जब हर कॉल के लिए नया और स्थिर थ्रेड चाहिए और foreground या hidden tab,
+sidebar state या runs tray entry नहीं जोड़नी हो, तब
+`startBackgroundAgentSession()` का उपयोग करें। यह सामान्य authenticated Agent
+chat route का उपयोग करता है, इसलिए persistence, tools, retries और hosted durable
+execution की ज़िम्मेदारी shared Run Manager के पास रहती है।
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+Handle तुरंत `operationId`, `threadId` और `turnId` देता है। `accepted` run के
+स्वीकार होने तक प्रतीक्षा करता है, `completion` response stream को follow करता है,
+और `status()` durable run state को अलग से पढ़ता है। `cancel()` turn रोकता है।
+Acknowledgement खोने के बाद retry करते समय मूल `operationId` और `threadId` दोनों दें।
+
 ## sendToAgentChat: बैकग्राउंड सेंड {#background-send}
 
 `background: true` का उपयोग तब करें जब किसी UI एक्शन को साइडबार खोले या फोकस

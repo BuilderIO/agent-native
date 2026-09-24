@@ -195,6 +195,8 @@ describe("listInboxEmails", () => {
         {
           email: OWNER,
           error: "429: rateLimitExceeded — retry in 90s",
+          isQuotaError: true,
+          retryAfterMs: 90_000,
         },
       ],
     } as any);
@@ -214,6 +216,68 @@ describe("listInboxEmails", () => {
     expect(result.message).toContain(OWNER);
     // The 429 short-circuit must happen before the snooze lookup.
     expect(getSnoozedThreadIds).not.toHaveBeenCalled();
+  });
+
+  it("floors a sub-second remaining cooldown to 1s instead of advertising 0s", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: OWNER,
+          error: "429: rateLimitExceeded — retry shortly",
+          isQuotaError: true,
+          retryAfterMs: 400,
+        },
+      ],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "inbox",
+      limit: 50,
+      accountTokens: accountTokens(),
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.retryAfterSeconds).toBe(1);
+  });
+
+  // Regression test for the "frequent 502s switching labels" report: the
+  // real cooldown error (google-api.ts's GmailQuotaCooldownError) carries a
+  // jargon-free message with none of "quota"/"429"/"rate limit" in it, so
+  // this must classify as a quota error via the `isQuotaError` flag alone.
+  // Before the fix, isGmailQuotaError regex-matched the message text, which
+  // never matched this wording — every account-wide cooldown fell through to
+  // a hard failure and the REST handler returned 502 instead of 429.
+  it("classifies a jargon-free quota-cooldown message via isQuotaError, not message text", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: OWNER,
+          error:
+            "Email service is briefly busy and will be ready again in about 45s. Ask the user for the missing info if you need it now, or try again in a moment.",
+          isQuotaError: true,
+          retryAfterMs: 45_000,
+        },
+      ],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "all",
+      label: "2-tasks/pylon",
+      limit: 25,
+      accountTokens: accountTokens(),
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.isQuotaError).toBe(true);
+    expect(result.retryAfterSeconds).toBe(45);
   });
 
   it("returns a non-quota failure result (no retryAfterSeconds) for other Gmail errors", async () => {

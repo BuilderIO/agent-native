@@ -11,9 +11,17 @@ export const APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE =
   "agentNative.perAppChatStateRequest";
 
 export type AppChatSidebarCommand = "toggle" | "open" | "close";
+export interface AppChatSidebarCommandOptions {
+  focus?: boolean;
+}
 
 interface AppChatDesktopBridge {
-  chat?: Partial<Record<AppChatSidebarCommand, () => void>>;
+  chat?: Partial<
+    Record<
+      AppChatSidebarCommand,
+      (options?: AppChatSidebarCommandOptions) => void
+    >
+  >;
 }
 
 export interface AppChatSidebarState {
@@ -68,18 +76,27 @@ function readInitialPerAppChatState(): AppChatSidebarState {
 
 export function requestPerAppChatCommand(
   command: AppChatSidebarCommand,
+  options?: AppChatSidebarCommandOptions,
 ): boolean {
   if (typeof window === "undefined") return false;
 
   const desktopCommand = readDesktopChatBridge()?.[command];
   if (desktopCommand) {
-    desktopCommand();
+    desktopCommand(options);
     return true;
   }
 
   if (window.parent === window) return false;
 
-  const data = command === "toggle" ? undefined : { open: command === "open" };
+  const data =
+    command === "toggle"
+      ? options?.focus
+        ? { focus: true }
+        : undefined
+      : {
+          open: command === "open",
+          ...(options?.focus ? { focus: true } : {}),
+        };
   window.parent.postMessage(
     {
       type: "agentNative.toggleSidebar",

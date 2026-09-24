@@ -160,15 +160,21 @@ export function buildFrameGeometryDataOperations(args: {
     }
     // A resize is a deliberate height. Without this the content-fit pass in
     // MultiScreenCanvas grows the frame straight back past the drag.
-    if (
-      args.pinHeightFrameIds?.includes(frameId) &&
-      !metadataEntry.heightPinned
-    ) {
-      operations.push({
-        op: "set",
-        path: ["screenMetadata", frameId, "heightPinned"],
-        value: true,
-      });
+    if (args.pinHeightFrameIds?.includes(frameId)) {
+      if (!metadataEntry.heightPinned) {
+        operations.push({
+          op: "set",
+          path: ["screenMetadata", frameId, "heightPinned"],
+          value: true,
+        });
+      }
+      if (metadataEntry.heightMode !== "fixed") {
+        operations.push({
+          op: "set",
+          path: ["screenMetadata", frameId, "heightMode"],
+          value: "fixed",
+        });
+      }
     }
 
     const localhostEntry = recordValue(localhostScreens, frameId);
@@ -227,6 +233,37 @@ export function applyDesignDataOperations(
     else target[leaf] = operation.value;
   }
   return root;
+}
+
+export function invertDesignDataOperations(
+  data: Record<string, unknown>,
+  operations: readonly DesignDataOperation[],
+): DesignDataOperation[] {
+  let current = data;
+  const inverse: DesignDataOperation[] = [];
+  for (const operation of operations) {
+    let parent: unknown = current;
+    for (const segment of operation.path.slice(0, -1)) {
+      if (!isRecord(parent)) {
+        parent = undefined;
+        break;
+      }
+      parent = parent[segment];
+    }
+    const leaf = operation.path[operation.path.length - 1]!;
+    const parentRecord = isRecord(parent) ? parent : undefined;
+    const exists =
+      parentRecord !== undefined &&
+      Object.prototype.hasOwnProperty.call(parentRecord, leaf);
+    const previous = exists ? parentRecord[leaf] : undefined;
+    inverse.unshift(
+      exists
+        ? { op: "set", path: operation.path, value: previous }
+        : { op: "delete", path: operation.path },
+    );
+    current = applyDesignDataOperations(current, [operation]);
+  }
+  return inverse;
 }
 
 export function compactDesignDataOperations(
@@ -290,6 +327,16 @@ export function pendingDesignDataOperations(
         left.revision - right.revision || left.order - right.order,
     )
     .map(({ operation }) => operation);
+}
+
+export function rebaseDesignDataWithPendingOperations(
+  data: Record<string, unknown>,
+  pending: PendingDesignDataOperations,
+): Record<string, unknown> {
+  const operations = pendingDesignDataOperations(pending);
+  return operations.length > 0
+    ? applyDesignDataOperations(data, operations)
+    : data;
 }
 
 function byteLength(value: string): number {

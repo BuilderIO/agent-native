@@ -25,6 +25,7 @@ const popoverOpenChangeHandlers = vi.hoisted(
 const popoverTestState = vi.hoisted(() => ({
   simulateMounting: false,
 }));
+const sharesError = vi.hoisted(() => ({ current: false }));
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -38,6 +39,7 @@ const sharesData = vi.hoisted(() => ({
 vi.mock("../use-action.js", () => ({
   useActionQuery: () => ({
     data: sharesData.current,
+    isError: sharesError.current,
     refetch: refetchShares,
   }),
   useActionMutation: (name: string) => ({
@@ -153,6 +155,7 @@ describe("ShareButton", () => {
     popoverInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
     popoverTestState.simulateMounting = false;
+    sharesError.current = false;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -461,6 +464,27 @@ describe("ShareButton", () => {
     expect(trigger?.querySelector("svg")).toBeFalsy();
   });
 
+  it("allows an explicit compact trigger while preserving the Share label", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="chat_thread"
+            resourceId="thread-1"
+            triggerContent={<span data-share-icon="">↗</span>}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = container.querySelector(
+      'button[aria-label="Share"]',
+    ) as HTMLButtonElement | null;
+
+    expect(trigger?.querySelector("[data-share-icon]")).not.toBeNull();
+    expect(trigger?.getAttribute("title")).toBe("Share");
+  });
+
   it("renders the label trigger as text only regardless of visibility", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",
@@ -515,6 +539,37 @@ describe("ShareButton", () => {
     expect(trigger?.textContent).toBe("Share");
     expect(trigger?.querySelector("svg")).toBeFalsy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
+  });
+
+  it("reports a failed shares read instead of skeletoning forever", async () => {
+    sharesData.current = undefined as any;
+    sharesError.current = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Couldn't load sharing settings.");
+    expect(container.querySelector(".animate-pulse")).toBeFalsy();
+
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    if (!retry) throw new Error("Retry button not found");
+    const refetchesBefore = refetchShares.mock.calls.length;
+    act(() => {
+      retry.click();
+    });
+
+    expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
   });
 
   it("renders both primary and secondary share URLs", async () => {
@@ -775,9 +830,16 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("Share link");
     expect(container.textContent).toContain("Export");
     expect(container.textContent).toContain("Send to...");
-    expect(container.textContent).not.toContain("Context");
+    expect(container.textContent).toContain("Context");
     expect(container.textContent).not.toContain("Context body");
     expect(container.textContent).not.toContain("Export body");
+    for (const tab of container.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    )) {
+      expect(
+        document.getElementById(tab.getAttribute("aria-controls") ?? ""),
+      ).not.toBeNull();
+    }
 
     const exportTab = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Export",
@@ -792,7 +854,7 @@ describe("ShareButton", () => {
     expect(container.textContent).not.toContain("Send body");
   });
 
-  it("omits the context tab when it is the only custom share tab", async () => {
+  it("renders the context tab when it is the only custom share tab", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -813,10 +875,29 @@ describe("ShareButton", () => {
       );
     });
 
-    expect(container.textContent).not.toContain("Share deck");
-    expect(container.textContent).not.toContain("Context");
+    expect(container.textContent).toContain("Share link");
+    expect(container.textContent).toContain("Context");
     expect(container.textContent).not.toContain("Context body");
-    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).not.toBeNull();
+
+    const contextTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Context",
+    );
+    if (!contextTab) throw new Error("Context tab not found");
+
+    act(() => {
+      contextTab.click();
+    });
+
+    expect(container.textContent).toContain("Context body");
+    const contextPanelId = contextTab.getAttribute("aria-controls");
+    expect(contextPanelId).toBeTruthy();
+    const contextPanel = contextPanelId
+      ? document.getElementById(contextPanelId)
+      : null;
+    expect(contextPanel?.getAttribute("aria-labelledby")).toBe(
+      contextTab.getAttribute("id"),
+    );
   });
 
   it("buries organization search visibility under Advanced", async () => {
@@ -870,7 +951,14 @@ describe("ShareButton", () => {
       const url = String(input);
       if (url.includes("/_agent-native/org/members")) {
         return Response.json({
-          members: [{ email: "akash@builder.io", role: "member" }],
+          members: [
+            {
+              email: "akash@builder.io",
+              image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+              name: "Akash",
+              role: "member",
+            },
+          ],
           hasMore: false,
           nextOffset: null,
         });
@@ -906,6 +994,16 @@ describe("ShareButton", () => {
     expect(String(memberSearchCall?.[0])).toContain("search=aka");
     expect(String(memberSearchCall?.[0])).toContain("limit=25");
     expect(container.textContent).toContain("akash@builder.io");
+    expect(
+      container.querySelector(
+        'img[src="https://lh3.googleusercontent.com/a/avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/_agent-native/avatar/"),
+      ),
+    ).toBe(false);
 
     act(() => {
       input.dispatchEvent(
@@ -922,22 +1020,25 @@ describe("ShareButton", () => {
   });
 
   it("requests the next org-member page from the share autocomplete", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "first@builder.io", role: "member" }],
-          hasMore: true,
-          nextOffset: 25,
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "second@builder.io", role: "member" }],
-          hasMore: false,
-          nextOffset: null,
-        }),
-      );
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/_agent-native/org/members")) {
+        return Promise.resolve(
+          url.includes("offset=25")
+            ? Response.json({
+                members: [{ email: "second@builder.io", role: "member" }],
+                hasMore: false,
+                nextOffset: null,
+              })
+            : Response.json({
+                members: [{ email: "first@builder.io", role: "member" }],
+                hasMore: true,
+                nextOffset: 25,
+              }),
+        );
+      }
+      return Promise.resolve(Response.json({ image: null }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
@@ -970,7 +1071,10 @@ describe("ShareButton", () => {
       await Promise.resolve();
     });
 
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
+    const loadMoreCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("offset=25"),
+    );
+    expect(String(loadMoreCall?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
   });
 

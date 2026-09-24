@@ -47,4 +47,11 @@ describe("docs root ErrorBoundary", () => {
   it("logs any error it does not recover from", () => {
     expect(source).toContain('console.error("[DocsErrorBoundary]", error)');
   });
+
+  it("publishes complete organization contact metadata", () => {
+    expect(source).toContain('"@type": "ContactPoint"');
+    expect(source).toContain('email: "support@builder.io"');
+    expect(source).toContain('"@type": "PostalAddress"');
+    expect(source).toContain('postalCode: "94103"');
+  });
 });

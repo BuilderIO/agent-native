@@ -1,22 +1,52 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import {
+  fetchBuilderDesignSystemDocumentCount,
+  parseBuilderDesignSystemProxyReference,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import {
   accessFilter,
-  resolveAccess,
+  ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { desc } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { canManageDesignSystemRole } from "../server/lib/design-system-access.js";
+import { resolveDefaultDesignSystemId } from "../server/lib/design-system-defaults.js";
 
-function canManageRole(role: "owner" | ShareRole) {
-  return role === "owner" || role === "admin";
+type EffectiveRole = "owner" | ShareRole;
+
+function normalizeEmail(email: string | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
+  if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
+  return current;
+}
+
+function withLiveDocCount(data: string, docCount: number): string {
+  const parsed = JSON.parse(data) as Record<string, unknown>;
+  return JSON.stringify({
+    ...parsed,
+    docCount,
+    builderStatus: docCount > 0 ? "ready" : "in-progress",
+  });
 }
 
 export default defineAction({
   description:
-    "List all design systems accessible to the current user. " +
-    "Returns title, id, and whether each is the default.",
+    "List all design systems accessible to the current user. Returns title, " +
+    "id, and isDefault (true only for the caller's effective default). For a " +
+    "named system, match the exact title and pass its id as designSystemId " +
+    "— or pass the title as `designSystem` on create-design — then call " +
+    "get-design-system once before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -25,10 +55,26 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
   run: async (args) => {
     const db = getDb();
+    const userEmail = normalizeEmail(getRequestUserEmail());
+    const orgId = getRequestOrgId();
     const rows = await db
-      .select()
+      .select({
+        id: schema.designSystems.id,
+        title: schema.designSystems.title,
+        description: schema.designSystems.description,
+        data: schema.designSystems.data,
+        assets: schema.designSystems.assets,
+        customInstructions: schema.designSystems.customInstructions,
+        isDefault: schema.designSystems.isDefault,
+        visibility: schema.designSystems.visibility,
+        ownerEmail: schema.designSystems.ownerEmail,
+        orgId: schema.designSystems.orgId,
+        createdAt: schema.designSystems.createdAt,
+        updatedAt: schema.designSystems.updatedAt,
+      })
       .from(schema.designSystems)
       .where(accessFilter(schema.designSystems, schema.designSystemShares))
       .orderBy(desc(schema.designSystems.updatedAt));
@@ -37,53 +83,128 @@ export default defineAction({
       return { count: 0, designSystems: [] };
     }
 
-    const accessById = new Map<
-      string,
-      { role: "owner" | ShareRole; canManage: boolean }
-    >();
-    await Promise.all(
-      rows.map(async (row) => {
-        const access = await resolveAccess("design-system", row.id);
-        if (!access) {
-          // accessFilter admitted this row but resolveAccess cannot name a
-          // role, so create-design's assertAccess will reject the same id the
-          // picker just offered.
-          console.warn(
-            `[design] list-design-systems: no resolvable access for ` +
-              `design-system ${row.id} ("${row.title}") that accessFilter ` +
-              `admitted; create-design will reject it.`,
+    // docCount is never stored in SQL and never read from a cached value on
+    // the row: it always comes from Builder's own document-count endpoint,
+    // fetched fresh for every Builder-backed row on every list call, in
+    // parallel so N Builder-backed systems cost one round trip, not N.
+    const builderRows = rows
+      .map((row) => ({
+        row,
+        reference: parseBuilderDesignSystemProxyReference(row.data),
+      }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          row: (typeof rows)[number];
+          reference: NonNullable<typeof entry.reference>;
+        } => entry.reference !== null,
+      );
+    const liveDocCounts = new Map<string, number>();
+    const liveRowData = new Map<string, string>();
+    if (builderRows.length > 0) {
+      const results = await Promise.all(
+        builderRows.map(async ({ row, reference }) => {
+          const result = await fetchBuilderDesignSystemDocumentCount(
+            reference.builderDesignSystemId,
           );
-        }
-        const role = access?.role ?? "viewer";
-        accessById.set(row.id, { role, canManage: canManageRole(role) });
-      }),
-    );
+          return { row, result };
+        }),
+      );
+      for (const { row, result } of results) {
+        if (!result.ok) continue;
+        liveDocCounts.set(row.id, result.docCount);
+        liveRowData.set(row.id, withLiveDocCount(row.data, result.docCount));
+      }
+    }
+
+    // The row-level isDefault column is per-owner, so a shared system owned by
+    // someone else can carry isDefault: true for them. Compute the caller's
+    // own effective default once and report that instead of the raw column.
+    const effectiveDefaultId = userEmail
+      ? await resolveDefaultDesignSystemId(userEmail)
+      : null;
+
+    // Resolve every row's role from one batched shares query. Calling
+    // resolveAccess() per row reloads the resource and its shares (N+1) and
+    // fans out an unbounded Promise.all as the catalog grows.
+    const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
+    if (userEmail) {
+      principalClauses.push(
+        and(
+          eq(schema.designSystemShares.principalType, "user"),
+          sql`lower(${schema.designSystemShares.principalId}) = ${userEmail}`,
+        )!,
+      );
+    }
+    if (orgId) {
+      principalClauses.push(
+        and(
+          eq(schema.designSystemShares.principalType, "org"),
+          eq(schema.designSystemShares.principalId, orgId),
+        )!,
+      );
+    }
+
+    const shareRoleById = new Map<string, ShareRole>();
+    if (principalClauses.length > 0) {
+      const shareRows = await db
+        .select({
+          resourceId: schema.designSystemShares.resourceId,
+          role: schema.designSystemShares.role,
+        })
+        .from(schema.designSystemShares)
+        .where(
+          and(
+            inArray(
+              schema.designSystemShares.resourceId,
+              rows.map((row) => row.id),
+            ),
+            or(...principalClauses),
+          ),
+        );
+      for (const share of shareRows) {
+        shareRoleById.set(
+          share.resourceId,
+          strongerRole(shareRoleById.get(share.resourceId) ?? null, share.role),
+        );
+      }
+    }
 
     const items = rows.map((row) => {
-      const access = accessById.get(row.id) ?? {
-        role: "viewer" as const,
-        canManage: false,
-      };
+      let role: EffectiveRole = shareRoleById.get(row.id) ?? "viewer";
+      if (
+        userEmail &&
+        normalizeEmail(row.ownerEmail) === userEmail &&
+        (!row.orgId || row.orgId === orgId)
+      ) {
+        role = "owner";
+      }
+      const canManage = canManageDesignSystemRole(role);
+      const data = liveRowData.get(row.id) ?? row.data;
+      const docCount = liveDocCounts.get(row.id);
       if (args.compact === "true") {
         return {
           id: row.id,
           title: row.title,
-          isDefault: row.isDefault,
-          accessRole: access.role,
-          canManage: access.canManage,
+          isDefault: row.id === effectiveDefaultId,
+          accessRole: role,
+          canManage,
+          docCount,
         };
       }
       return {
         id: row.id,
         title: row.title,
         description: row.description,
-        data: row.data,
+        data,
+        docCount,
         assets: row.assets,
         customInstructions: row.customInstructions ?? "",
-        isDefault: row.isDefault,
+        isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
-        accessRole: access.role,
-        canManage: access.canManage,
+        accessRole: role,
+        canManage,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

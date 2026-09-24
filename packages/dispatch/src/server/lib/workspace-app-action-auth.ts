@@ -12,6 +12,8 @@ import { getSession } from "@agent-native/core/server";
 
 export const WORKSPACE_APPS_ACTION_PATH =
   "/_agent-native/actions/list-workspace-apps";
+export const WORKSPACE_APP_CLAIM_ACTION_PATH =
+  "/_agent-native/actions/claim-workspace-app-organization";
 
 function isWorkspaceAppsActionPath(event: any): boolean {
   const rawUrl =
@@ -25,12 +27,10 @@ function isWorkspaceAppsActionPath(event: any): boolean {
   const requestPath =
     String(rawUrl).split("?", 1)[0].replace(/\/+$/, "") || "/";
   const appBasePath = process.env.APP_BASE_PATH?.trim().replace(/\/+$/, "");
-  return (
-    requestPath === WORKSPACE_APPS_ACTION_PATH ||
-    Boolean(
-      appBasePath &&
-      `${appBasePath}${WORKSPACE_APPS_ACTION_PATH}` === requestPath,
-    )
+  return [WORKSPACE_APPS_ACTION_PATH, WORKSPACE_APP_CLAIM_ACTION_PATH].some(
+    (actionPath) =>
+      requestPath === actionPath ||
+      Boolean(appBasePath && `${appBasePath}${actionPath}` === requestPath),
   );
 }
 
@@ -44,9 +44,9 @@ function readAuthorizationHeader(event: any): string | undefined {
 }
 
 /**
- * The hosted workspace registry is a read-only action that accepts a caller
- * JWT from Dispatch. Keep this resolver path-scoped so the shared secret never
- * becomes a bearer credential for unrelated Dispatch actions.
+ * The hosted workspace registry actions accept a caller JWT from Dispatch.
+ * Keep this resolver path-scoped so the shared secret never becomes a bearer
+ * credential for unrelated Dispatch actions.
  */
 export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
   resolveCaller: async (event): Promise<ActionRouteResolvedCaller | null> => {

@@ -8,8 +8,8 @@ export type RecordingTitleSource =
 export interface CaptureTitleContext {
   appName?: string | null;
   windowTitle?: string | null;
-  displaySurface?: "monitor" | "window" | "browser" | string | null;
-  mode?: "screen" | "camera" | "screen+camera" | string | null;
+  displaySurface?: "monitor" | "window" | "browser" | (string & {}) | null;
+  mode?: "screen" | "camera" | "screen+camera" | (string & {}) | null;
   now?: Date;
 }
 

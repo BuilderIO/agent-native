@@ -94,10 +94,6 @@ function DbSyncBridge() {
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
-    // Netlify functions cannot reliably hold the local long-lived SSE
-    // response. Analytics uses the poll safety net until a hosted realtime
-    // gateway is configured for this deployment.
-    sseUrl: false,
     ignoreSource: TAB_ID,
     onEvent: notifyProviderCorpusJobSyncEvent,
     actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,
@@ -116,6 +112,7 @@ export function shouldInvalidateAnalyticsQueryForAction(query: {
 }): boolean {
   const [scope, name] = query.queryKey;
   if (
+    (scope === "data" && name === "sql-dashboard") ||
     scope === "sql-chart" ||
     scope === "sql-dashboards-sidebar" ||
     scope === "analyses-sidebar" ||
@@ -143,14 +140,14 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  // Public, unauthenticated uptime status pages (`/status/<slug>`) render
-  // SSR-first without the authenticated app chrome (sidebar/chat/command
-  // palette). See app/routes/status.$slug.tsx and the `/status` public path in
-  // server/plugins/auth.ts.
+  // Public, unauthenticated routes render SSR-first without the authenticated
+  // app chrome (sidebar/chat/command palette). See the status routes and the
+  // `/` workspace-app public path in server/plugins/auth.ts.
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
+  const isMarketingPath = location.pathname === "/";
 
-  if (isPublicStatusPath) {
+  if (isPublicStatusPath || isMarketingPath) {
     return (
       <AppToolkitProvider>
         <AppProviders

@@ -4,22 +4,42 @@ const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
-const mockLoadRecordingMediaBytes = vi.hoisted(() => vi.fn());
-const mockExtractJpegFrame = vi.hoisted(() => vi.fn());
+const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
+const mockExtractJpegFrameFromFile = vi.hoisted(() => vi.fn());
+const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
+const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const MockVideoFrameExtractionError = vi.hoisted(
+  () =>
+    class VideoFrameExtractionError extends Error {
+      code?: string;
+      constructor(message: string, code?: string) {
+        super(message);
+        this.code = code;
+      }
+    },
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
+  getRequestURL: (event: { url: string }) => new URL(event.url),
   setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...args),
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
-  loadRecordingMediaBytes: (...args: unknown[]) =>
-    mockLoadRecordingMediaBytes(...args),
+  loadRecordingMediaFile: (...args: unknown[]) =>
+    mockLoadRecordingMediaFile(...args),
   RecordingMediaFetchError: class RecordingMediaFetchError extends Error {
     statusCode: number;
     constructor(message: string, statusCode = 502) {
@@ -35,14 +55,16 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/video-frame.js", () => ({
-  extractJpegFrame: (...args: unknown[]) => mockExtractJpegFrame(...args),
-  VideoFrameExtractionError: class VideoFrameExtractionError extends Error {
-    code?: string;
-    constructor(message: string, code?: string) {
-      super(message);
-      this.code = code;
-    }
-  },
+  extractJpegFrameFromFile: (...args: unknown[]) =>
+    mockExtractJpegFrameFromFile(...args),
+  probeMediaDurationMsFromFile: (...args: unknown[]) =>
+    mockProbeMediaDurationMsFromFile(...args),
+  VideoFrameExtractionError: MockVideoFrameExtractionError,
+}));
+vi.mock("../../lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+  RECORDING_THUMBNAIL_AT_MS: 350,
 }));
 
 import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
@@ -66,8 +88,13 @@ function makeAccess(overrides: Record<string, unknown> = {}) {
 }
 
 function makeEvent(query: Record<string, string>) {
+  const url = new URL("https://clips.example.com/api/agent-frame.jpg");
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value);
+  }
   return {
     query,
+    url: url.href,
     headers: new Map<string, string>(),
     status: 200,
   };
@@ -91,14 +118,91 @@ describe("agent-frame.jpg route", () => {
       ok: true,
       access: makeAccess(),
     });
-    mockLoadRecordingMediaBytes.mockResolvedValue({
-      bytes: new Uint8Array([9, 9, 9]),
+    mockLoadRecordingMediaFile.mockResolvedValue({
+      path: "/tmp/recording.webm",
       mimeType: "video/webm",
+      cleanup: mockCleanupMediaFile,
     });
-    mockExtractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+    mockCleanupMediaFile.mockResolvedValue(undefined);
+    mockEnsureRecordingThumbnail.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "generated",
+      changed: true,
+      thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+    });
+    mockRunWithRequestContext.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
   });
 
-  it("caches anonymous public frames and marks them publicly cacheable", async () => {
+  it("holds the frame back while redactions are drawn but not burned", async () => {
+    // This route reads the stored file directly, so the hold on /api/video
+    // does not cover it. Without the check, asking for the exact timestamp a
+    // box sits on returns the unredacted frame to any anonymous caller.
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "pending-redaction",
+          editsJson: JSON.stringify({
+            trims: [],
+            overlays: [
+              {
+                kind: "redact",
+                id: "r1",
+                startMs: 0,
+                endMs: 5_000,
+                keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+              },
+            ],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "pending-redaction", atMs: "1000" });
+    const result = (await handler(event as any)) as Record<string, unknown>;
+
+    expect(result.redactionPending).toBe(true);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 409);
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+  });
+
+  it("still serves the owner while a redaction is pending", async () => {
+    // The owner is who finishes the burn, so holding them out would make the
+    // editor unusable — and they can already see what is under the box.
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        viewerIsOwner: true,
+        recording: {
+          id: "pending-owner",
+          editsJson: JSON.stringify({
+            trims: [],
+            overlays: [
+              {
+                kind: "redact",
+                id: "r1",
+                startMs: 0,
+                endMs: 5_000,
+                keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+              },
+            ],
+          }),
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "pending-owner", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalled();
+  });
+
+  it("caches anonymous public frames without shared caching", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
       access: makeAccess({
@@ -114,13 +218,14 @@ describe("agent-frame.jpg route", () => {
 
     expect(Buffer.from(first as Buffer)).toEqual(Buffer.from([1, 2, 3]));
     expect(Buffer.from(second as Buffer)).toEqual(Buffer.from([1, 2, 3]));
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(1);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(1);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(1);
+    expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
     expect(headerValue(firstEvent, "Cache-Control")).toBe(
-      "public, max-age=300",
+      "private, max-age=0, no-store",
     );
     expect(headerValue(secondEvent, "Cache-Control")).toBe(
-      "public, max-age=300",
+      "private, max-age=0, no-store",
     );
   });
 
@@ -143,8 +248,8 @@ describe("agent-frame.jpg route", () => {
     await handler(firstEvent as any);
     await handler(secondEvent as any);
 
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(2);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(2);
     expect(headerValue(firstEvent, "Cache-Control")).toBe(
       "private, max-age=0, no-store",
     );
@@ -162,12 +267,100 @@ describe("agent-frame.jpg route", () => {
     await handler(makeEvent({ id: "tokenized-public", atMs: "1000" }) as any);
     await handler(makeEvent({ id: "tokenized-public", atMs: "1000" }) as any);
 
-    expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
-    expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(2);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("redirects to the actual media range when stored duration is stale", async () => {
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(4000);
+    mockExtractJpegFrameFromFile
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError(
+          "No frame was available at that timestamp.",
+          "NO_VIDEO",
+        ),
+      )
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+    const result = await handler(
+      makeEvent({ id: "rec-1", atMs: "9999" }) as any,
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect((result as Response).headers.get("location")).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=3999",
+    );
+    expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledWith(
+      "/tmp/recording.webm",
+    );
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ atMs: 3999 }),
+    );
+  });
+
+  it("persists the generated social frame as the recording thumbnail", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "social-thumbnail",
+          ownerEmail: "owner@example.com",
+          videoUrl: "https://cdn.example.com/video.webm",
+          videoFormat: "webm",
+          thumbnailUrl: null,
+        },
+      }),
+    });
+
+    const result = await handler(
+      makeEvent({ id: "social-thumbnail", atMs: "350" }) as any,
+    );
+
+    expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
+    expect(mockEnsureRecordingThumbnail).toHaveBeenCalledWith({
+      recordingId: "social-thumbnail",
+      ownerEmail: "owner@example.com",
+      thumbnailBytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/webm",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: undefined },
+      expect.any(Function),
+    );
+  });
+
+  it("replaces password and legacy token query params with the scoped token", async () => {
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(4000);
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ apiToken: "scoped-token" }),
+    });
+    mockExtractJpegFrameFromFile
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError(
+          "No frame was available at that timestamp.",
+          "NO_VIDEO",
+        ),
+      )
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+    const result = await handler(
+      makeEvent({
+        id: "rec-1",
+        password: "plain-text-password",
+        agent_access: "frame-token",
+        tSeconds: "9.999",
+      }) as any,
+    );
+
+    expect((result as Response).headers.get("location")).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=3999&agent_access=scoped-token",
+    );
   });
 
   it("returns media fetch status when recording bytes cannot be loaded", async () => {
-    mockLoadRecordingMediaBytes.mockRejectedValue(
+    mockLoadRecordingMediaFile.mockRejectedValue(
       new RecordingMediaFetchError(
         "Recording media could not be fetched.",
         502,
@@ -181,6 +374,6 @@ describe("agent-frame.jpg route", () => {
     expect(result).toEqual({
       error: "Recording media could not be fetched.",
     });
-    expect(mockExtractJpegFrame).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
   });
 });

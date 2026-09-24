@@ -33,7 +33,7 @@ const ERROR_CAPTURE_DOCS_URL = docsUrl("tracking", {
   hash: "posthog-error-tracking",
 });
 
-const ERROR_CAPTURE_SNIPPET = `// Agent Native templates already call configureTracking().
+const ERROR_CAPTURE_SNIPPET = `// Agent-Native templates already call configureTracking().
 import { configureTracking, captureException } from "@agent-native/core/client/observability";
 
 configureTracking({

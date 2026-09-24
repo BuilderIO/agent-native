@@ -5,17 +5,21 @@ description: "Every agent-native app is multi-tenant out of the box — organiza
 
 # Multi-Tenancy
 
-Every agent-native app is multi-tenant out of the box. Organizations, team members, role-based access, and per-org data isolation are built into the framework with zero configuration.
+Every Agent-Native app includes organizations and team membership. The
+framework provides access helpers and a SQL scoping layer for tenant data.
+Applications still need to declare ownable tables and use the documented
+server-side access patterns.
 
 ## What you get for free {#free}
 
-A fresh `npx @agent-native/core@latest create` scaffold already ships with:
+A fresh `npx --yes @agent-native/core@latest create` scaffold already ships with:
 
 - **User registration and login** — see [Authentication](/docs/authentication).
 - **Organizations** — users create orgs and invite members by email. Each org is a fully isolated tenant.
 - **Roles** — every member is an `owner`, `admin`, or `member`; actions can check the role for authorization.
 - **Org switching** — the session tracks the active org (`session.orgId`), and switching it changes the data the user and agent see.
-- **Per-org data isolation** — every query is automatically scoped to the active org.
+- **Per-org data isolation:** framework access helpers and agent SQL scoping
+  enforce the active organization boundary when used as documented.
 
 If you're evaluating agent-native for a CRM, project tracker, support inbox, or any team tool, the multi-tenant foundation is already there. All first-party templates are multi-tenant — see [Templates](/docs/cloneable-saas) for the list.
 
@@ -66,13 +70,21 @@ If you're evaluating agent-native for a CRM, project tracker, support inbox, or 
 
 The org-switcher and members UI render in every template with no extra code. They drive the core org REST routes under `/_agent-native/org/*` (create org, switch org, list/invite/remove members, change roles, set allowed email domain). Users pick the active org from the switcher; the members panel handles invitations and role changes.
 
-This is the framework's own `org/` module, not Better Auth's organization plugin (which is intentionally not registered). The full org-management surface — `createOrganization`, the REST routes, and template-authored `defineAction` wrappers like `invite-member` — is documented in [Authentication → Organizations](/docs/authentication#organizations).
+This is the framework's own `org/` module, not Better Auth's organization
+plugin. The full org-management surface, its routes, and template-authored
+`defineAction` wrappers are documented in
+[Authentication → Organizations](/docs/authentication#organizations).
 
 ## How isolation works {#isolation}
 
-Tenant data is isolated by an `org_id` column (added by `ownableColumns()`), and the framework scopes every query to the active org automatically: `session.orgId → AGENT_ORG_ID → SQL`. When a user switches organizations, the UI, actions, and agent all see only that org's data — the agent cannot reach data for an org the user isn't a member of.
+Tenant data commonly uses an `org_id` column from `ownableColumns()`. The
+request context carries the active org. Server reads and writes should use
+`accessFilter()` or `assertAccess()`. Agent SQL receives temporary filtered
+views for ownable tables. The `no-unscoped-queries` check runs as part of
+`pnpm guards` and is also available through the doctor. These layers do not
+replace application authorization checks.
 
-<Diagram id="doc-block-15rq3ee" title="From session to scoped SQL" summary="The active org on the session becomes AGENT_ORG_ID, which the framework folds into the WHERE clause of every query.">
+<Diagram id="doc-block-15rq3ee" title="Organization context and data access" summary="The active org is part of request context. Server access helpers and agent SQL scoping enforce the declared data boundary.">
 
 ```html
 <div class="mt-pipe">
@@ -87,8 +99,8 @@ Tenant data is isolated by an `org_id` column (added by `ownableColumns()`), and
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
-    SQL row scoping<br /><small class="diagram-muted"
-      >WHERE owner_email = ? AND org_id = ?</small
+    Scoped data access<br /><small class="diagram-muted"
+      >server helpers and agent SQL views</small
     >
   </div>
 </div>
@@ -115,7 +127,11 @@ Tenant data is isolated by an `org_id` column (added by `ownableColumns()`), and
 
 </Diagram>
 
-This is the same pipeline used for per-user scoping. For the SQL-level mechanics, the `ownableColumns()` contract, and the `accessFilter` / `resolveAccess` / `assertAccess` guards, see [Security → Data Scoping](/docs/security#data-scoping) — the single source of truth for the scoping pipeline.
+This is the same pipeline used for per-user scoping. PostgreSQL row-level
+security (RLS) is not currently part of the framework enforcement path. It is
+planned as post-1.0 hardening. For the SQL-level mechanics, the
+`ownableColumns()` contract, and the `accessFilter()` / `resolveAccess()` /
+`assertAccess()` helpers, see [Security → Data Scoping](/docs/security#data-scoping).
 
 ## What's next {#related}
 

@@ -42,7 +42,7 @@ description: "خطافات actions التي يستخدمها app/ للقراءة
   </div>
   <div class="fmcmp-vs diagram-muted">مقابل</div>
   <div class="fmcmp-col">
-    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="fmcmp-label diagram-muted">Agent-Native</div>
     <div class="diagram-node">Component</div>
     <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
     <div class="diagram-node">useActionQuery("get-lead")</div>
@@ -401,7 +401,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-يُقصد استخدام هذا الخطاف للحفاظ على واجهة المستخدم متزامنة مع تغييرات قاعدة البيانات التي تحدث خارج actions الخاصة بك، مثل كتابة من الوكيل، أو خطاف ويب (webhook)، أو تغيير تم إجراؤه من علامة تبويب متصفح أخرى. يستمع للتغييرات عبر الأحداث المرسلة من الخادم، ويعود إلى الاستقصاء عندما لا تكون الأحداث المرسلة من الخادم متاحة.
+يُقصد استخدام هذا الخطاف للحفاظ على واجهة المستخدم متزامنة مع تغييرات قاعدة البيانات التي تحدث خارج actions الخاصة بك، مثل كتابة من الوكيل، أو خطاف ويب (webhook)، أو تغيير تم إجراؤه من علامة تبويب متصفح أخرى. يستمع للتغييرات عبر الأحداث المرسلة من الخادم، ويعود إلى الاستقصاء عندما لا تكون الأحداث المرسلة من الخادم متاحة. في عملية نشر بدون خادم (serverless) في بيئة الإنتاج، يكون تدفق `/_agent-native/events` الخاص بالتطبيق نفسه غير متاح بحكم التصميم — يرد الخادم فورًا برمز 204 بدلًا من إبقاء نسخة دالة مفتوحة — فيتولى الاستقصاء بنفس الوتيرة كل المزامنة هناك، ما لم يكن التطبيق قد اشترك في [بوابة المزامنة الفورية المستضافة](/docs/real-time-collaboration#hosted-gateway).
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

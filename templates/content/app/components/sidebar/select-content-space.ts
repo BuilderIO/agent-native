@@ -41,6 +41,10 @@ export function contentSpaceForStoredSelection(args: {
   );
 }
 
+export function contentSpaceActionArgs(spaceId: string | null | undefined) {
+  return spaceId ? { spaceId } : undefined;
+}
+
 export function contentSpaceForCatalogItem(args: {
   databaseId: string;
   catalogDatabaseId: string | undefined;
@@ -89,11 +93,42 @@ export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
   syncApplicationState: (space: ContentSpaceSummary) => Promise<unknown>;
   persistSelection: (spaceId: string) => void;
-  openFiles: (documentId: string) => void;
+  openSpace: (spaceId: string) => void;
 }) {
   await args.syncApplicationState(args.space);
   args.persistSelection(args.space.id);
-  args.openFiles(args.space.filesDocumentId);
+  args.openSpace(args.space.id);
+}
+
+export function contentSpaceRouteReconciliation(args: {
+  activeDocumentId: string | null;
+  routeDocumentId: string | undefined;
+  routeFilesDatabaseId: string | null;
+  selectedSpace: ContentSpaceSummary | null;
+  explicitSpaceId: string | null;
+  spaces: ContentSpaceSummary[];
+}) {
+  const explicitSelectionReachedRoute = Boolean(
+    args.explicitSpaceId &&
+    args.selectedSpace?.id === args.explicitSpaceId &&
+    args.selectedSpace.filesDatabaseId === args.routeFilesDatabaseId,
+  );
+  if (
+    !args.activeDocumentId ||
+    args.routeDocumentId !== args.activeDocumentId ||
+    !args.routeFilesDatabaseId ||
+    args.selectedSpace?.filesDatabaseId === args.routeFilesDatabaseId ||
+    (args.explicitSpaceId && !explicitSelectionReachedRoute)
+  ) {
+    return { explicitSelectionReachedRoute, routeSpace: null };
+  }
+  return {
+    explicitSelectionReachedRoute,
+    routeSpace:
+      args.spaces.find(
+        (space) => space.filesDatabaseId === args.routeFilesDatabaseId,
+      ) ?? null,
+  };
 }
 
 export function createContentSpaceSelectionQueue() {
@@ -113,5 +148,16 @@ export function createContentSidebarStateWriteQueue<T>(
     const next = pending.catch(() => undefined).then(() => write(snapshot));
     pending = next;
     return next;
+  };
+}
+
+export function contentSidebarSubsetReorder(
+  itemIds: string[],
+  renderedItemIds: string[],
+) {
+  return {
+    operation: "reorder-subset" as const,
+    itemIds,
+    previousItemIds: renderedItemIds,
   };
 }

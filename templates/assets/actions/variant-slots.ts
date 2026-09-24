@@ -24,6 +24,7 @@ type VariantScopeInput = {
 type VariantSlotInput = VariantScopeInput & {
   prompt: string;
   slotId: string;
+  ownerEmail?: string | null;
   status: "pending" | "ready" | "failed";
   assetId?: string;
   previewUrl?: string;
@@ -133,12 +134,21 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
     const nextSlot = {
       slotId: input.slotId,
       runId: input.runId,
+      ownerEmail:
+        input.ownerEmail !== undefined
+          ? input.ownerEmail
+          : existingSlot?.runId === input.runId
+            ? existingSlot.ownerEmail
+            : undefined,
       status: input.status,
       assetId: input.assetId,
       previewUrl: input.previewUrl,
       thumbnailUrl: input.thumbnailUrl,
       error: input.error,
-      createdAt: existingSlot?.createdAt ?? now,
+      createdAt:
+        existingSlot?.runId === input.runId
+          ? (existingSlot.createdAt ?? now)
+          : now,
       updatedAt: now,
     };
     const index = state.slots.findIndex((slot) => slot.slotId === input.slotId);
@@ -175,6 +185,36 @@ export async function readVariantState(
   scopeId?: string | null,
 ): Promise<AssetVariantState | null> {
   return withVariantStateLock(() => readVariantStateUnlocked(scopeId));
+}
+
+export async function failMissingVariantRun(input: {
+  runId: string;
+  libraryId: string;
+  scopeId?: string | null;
+  staleBefore: number;
+  error: string;
+}): Promise<boolean> {
+  return withVariantStateLock(async () => {
+    const state = await readVariantStateUnlocked(input.scopeId);
+    if (!state || state.libraryId !== input.libraryId) return false;
+    const slot = state.slots.find(
+      (candidate) =>
+        candidate.runId === input.runId && candidate.status === "pending",
+    );
+    if (!slot) return false;
+    const timestamp = Date.parse(slot.createdAt ?? slot.updatedAt ?? "");
+    if (!Number.isFinite(timestamp) || timestamp > input.staleBefore) {
+      return false;
+    }
+
+    const now = nowIso();
+    slot.status = "failed";
+    slot.error = input.error;
+    slot.updatedAt = now;
+    state.updatedAt = now;
+    await writeVariantStateUnlocked(state, input.scopeId);
+    return true;
+  });
 }
 
 // Iterations (refine/edit/restyle) are a continuation of what is already on
@@ -218,13 +258,13 @@ async function readVariantStateUnlocked(
   scopeId?: string | null,
 ): Promise<AssetVariantState | null> {
   const key = variantStateKey(scopeId);
-  const current = (await readAppState(key)) as unknown | null;
+  const current = (await readAppState(key)) as unknown;
   if (current) return current as AssetVariantState;
 
   if (scopeId) {
-    const globalCurrent = (await readAppState(GLOBAL_VARIANT_STATE_KEY)) as
-      | unknown
-      | null;
+    const globalCurrent = (await readAppState(
+      GLOBAL_VARIANT_STATE_KEY,
+    )) as unknown;
     const globalState = (globalCurrent ?? null) as AssetVariantState | null;
     return globalState?.threadId === scopeId ||
       globalState?.variantScopeId === scopeId
@@ -234,9 +274,9 @@ async function readVariantStateUnlocked(
 
   const legacyCurrent =
     current ??
-    ((await readAppState(LEGACY_VARIANT_STATE_KEY).catch(() => null)) as
-      | unknown
-      | null);
+    ((await readAppState(LEGACY_VARIANT_STATE_KEY).catch(
+      () => null,
+    )) as unknown);
   return (legacyCurrent ?? null) as AssetVariantState | null;
 }
 
@@ -259,9 +299,9 @@ async function deleteVariantStateUnlocked(scopeId?: string | null) {
   const key = variantStateKey(scopeId);
   await deleteAppState(key);
   if (key !== GLOBAL_VARIANT_STATE_KEY) {
-    const globalCurrent = (await readAppState(GLOBAL_VARIANT_STATE_KEY)) as
-      | unknown
-      | null;
+    const globalCurrent = (await readAppState(
+      GLOBAL_VARIANT_STATE_KEY,
+    )) as unknown;
     const globalState = (globalCurrent ?? null) as AssetVariantState | null;
     if (
       globalState?.threadId === scopeId ||

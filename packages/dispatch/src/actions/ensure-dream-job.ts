@@ -1,11 +1,14 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { ensureDreamJob } from "../server/lib/dreams-store.js";
 
 export default defineAction({
   description:
     "Create or update the personal recurring Dispatch dream job resource at jobs/dispatch-dream.md.",
+  authorize: authorizeDispatchAdmin,
   schema: z.object({
     schedule: z
       .string()
@@ -73,5 +76,18 @@ export default defineAction({
       .default(1)
       .describe("Skip recurring report creation below this candidate count."),
   }),
-  run: async (input) => ensureDreamJob(input),
+  run: async (input, ctx) => {
+    const result = await ensureDreamJob(input);
+    track(
+      "cron_created",
+      {
+        app_name: "dispatch",
+        template_name: "dispatch",
+        job_id: result.path,
+        cadence: result.schedule,
+      },
+      ctx,
+    );
+    return result;
+  },
 });

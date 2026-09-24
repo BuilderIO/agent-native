@@ -3,9 +3,8 @@ name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
   babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
-  beta and the docs site through the prebuilt publisher; other production
-  promotion is manual.
+  asks to ship, publish, or hand off local changes. Matching beta and docs
+  paths publish automatically after merge; other production promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -14,276 +13,235 @@ metadata:
 
 # Ship
 
-Ship the complete nonignored current-branch snapshot end-to-end: commit and
-push it, open or update a ready PR, run `/babysit-pr`, merge when its normal
-gates are satisfied, then run `/new-branch` after the merge lands.
+Use /ship only when the user asks to ship, publish, or hand off the current
+work. It means: publish the requested current-branch snapshot, open a ready
+PR, monitor it, merge it when the gates hold, and leave the worktree ready for
+the next task.
 
-`/ship` means all nonignored local changes on the current branch. The shared
-checkout is the source of truth, so include concurrent-session changes in the
-same branch snapshot. The checkpoint helper excludes `learnings.md`,
-`bridge/**`, and `data/**`.
+## Contract
 
-## Non-Negotiable Shipping Invariant
+- Ship all nonignored changes belonging to the requested work on the current
+  branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
+- Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
+  overwrite, rebase, or force-push it.
+- /ship authorizes the merge once the gates below pass, unless the user says
+  not to merge.
+- If the user asks not to create scheduled tasks, keep ship and babysitting in
+  the foreground; do not create a separate recurring automation.
+- For a linked GitHub issue, a verified source fix in the merged shipping
+  snapshot is enough to close it. Thank the reporter, link the fix, and close
+  immediately; do not leave it open waiting for publication, beta, or live
+  proof, and never say "leaving open until published." Keep it open only while
+  accepted scope is still unfixed, the source fix is not merged, or reporter
+  information is required.
+- Use the current worktree and branch. A detached worktree may create one
+  unused shipping branch during this flow; never attach or move another
+  worktree.
+- Never add Co-Authored-By, codex, [codex], or agent labels to commits, branch
+  names, PR titles, or PR bodies.
 
-`/ship` ships the complete nonignored branch snapshot, not a hand-selected
-subset of dirty paths. At the start of the flow, record the status and publish
-all current local changes with the checkpoint helper. If another session adds a
-path during the flow, include it in the next coherent snapshot; never revert,
-stash, or overwrite it.
+## Flow
 
-Invoking `/ship` is explicit authorization to merge this PR once the merge gates
-below pass, unless the user says not to merge. Do not ask again just to merge a
-clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
-merged PR and a fresh post-merge branch.
+1. Preflight the worktree and ownership.
+2. Run focused validation and publish the first coherent snapshot.
+3. Open or update the ready PR immediately.
+4. Run /babysit-pr <number> and keep the watcher or foreground loop active.
+5. Merge only after the live gates hold continuously for 10 minutes.
+6. Verify the merge reached origin/main, then rotate to a fresh branch.
+7. Report source checks, PR, merge, branch rotation, and deployment boundaries
+   separately.
 
-## Branch-wide Push
+## Existing PR backlog
 
-A worktree is a valid publishing checkout. When `/ship` is authorized from a
-worktree, use that worktree's current branch and cwd for validation, commit,
-push, and PR creation or update. Do not copy its changes into the shared
-checkout; update the existing PR and do not create a second one.
+When the user asks to ship a backlog, inspect every relevant open PR directly
+with fresh `gh pr view` and `gh pr checks` state. Do not create a second
+reminder or leave a scheduler repeating an unchanged status. For each PR:
+
+- If required CI is failing, open the failing run logs, fix only an actionable
+  repo-owned failure, publish one coherent update, and recheck the same head.
+- If CI is green, the PR is mergeable, and review items are addressed, use the
+  authorized admin merge after the unchanged 10-minute soak. Capture the final
+  live `headRefOid` immediately before merging and bind the operation to it:
+  `gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`.
+  If the command rejects because the head changed, restart the soak.
+- If an external dependency is unchanged, record the exact blocker once and
+  keep the watcher quiet until a meaningful state change. Do not send repeated
+  "continue" prompts that only renew a lease or restate CI status.
+
+The scheduler is a trigger, not the work. A ship task must inspect, fix,
+publish, merge, verify `origin/main`, and rotate the branch in the same
+lifecycle; it must not stop at a progress report while an actionable PR state
+is available. The original task that received the ship request owns this tail:
+once the gates hold, it runs `gh pr merge <number> --squash --admin` without
+waiting for the user or a separate watcher to perform the routine merge.
+Under `/ship`, `reviewDecision: REVIEW_REQUIRED` is not a user handoff: once
+required checks are green, the live PR is `MERGEABLE`, and every review item
+has a verified fix, reply, or terminal disposition, the owning task must
+perform the guarded admin merge after the unchanged soak. Never ask the user
+to click Merge for that routine authorized step.
+
+## 1. Preflight
+
+Start by refreshing the remote and reading the actual checkout:
+
+```bash
+if ! git fetch origin --quiet; then
+  echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
+  exit 1
+fi
+git status --short
+git diff --stat
+git log --oneline -5
+git rev-list --count HEAD..origin/main
+```
+
+The all-origin fetch refreshes both `origin/main` and the current branch's
+tracking ref before comparing unpublished work. Inspect the current branch's
+unpushed commits with the remote-aware fallback:
+
+```bash
+if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
+  git log --oneline "origin/$(git branch --show-current)"..HEAD -- \
+    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+else
+  git log --oneline HEAD --not --remotes=origin -- \
+    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+fi
+```
+
+The behind count is information, not a reason to merge or rebase. Check
+GitHub's live mergeability before updating from origin/main.
+
+If git branch --show-current is empty, inspect git worktree list --porcelain
+and existing changes-\* refs, then create an unused shipping branch in this
+worktree only. Never use main, attach a branch checked out elsewhere, or move
+another worktree. This branch creation is authorized by the explicit /ship
+request.
+
+Before publishing, classify every dirty path and unpushed commit. If any is
+unrelated or incomplete concurrent work, preserve it and stop the publishing
+step with a concrete report. Do not hide it in a stash or make a guessed
+commit.
+
+## 2. Validate and publish
+
+Run the smallest relevant formatter, tests, typecheck, and guards for the
+changed area. Push the first coherent snapshot before a long prep or broad
+validation so CI can work in parallel. A slow or contaminated local check is
+not permission to stall the handoff; record the exact result and let the PR
+checks carry the gate.
+
+After the ownership check, run:
 
 ```bash
 corepack pnpm ship:push
 ```
 
-The helper stages and commits the complete nonignored snapshot, excluding
-`learnings.md`, `bridge/**`, and `data/**`. Verify the push landed on the current
-branch and read the remote sha back.
+Confirm the push landed on the current branch and read the remote head back.
+Run ship:push again only for an actionable CI fix, review fix, conflict
+resolution, or explicit user request. A clean tree, a behind count, queued
+checks, or a babysit timer never creates a publish commit.
 
-Treat these as an immediate call to it: `/ship`, "ship our latest local
-changes", or "push up my local changes". Push the first coherent branch
-snapshot before long validation so CI and review can start, then publish later
-snapshots as local work arrives.
+## 3. Open or update the PR
 
-## Deployment split
+Open or update one ready PR for the current branch immediately after the first
+push. Use a factual title and body. Do not create a second PR from a worktree.
+Do not tag, assign, mention, or leave proactive comments on the PR unless the
+user explicitly requested that communication. A factual reply needed to
+document a review fix or terminal disposition is allowed when the babysit
+gate requires it.
 
-Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
-which builds in GitHub Actions and uploads prebuilt artifacts to the independent
-Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
-auto-builds are disabled, so do not wait for Netlify build queues or
-deploy-preview checks; verify the Actions run and its per-site smoke checks.
-Production promotion is a separate manual operation for other production
-sites. The normal `/ship` flow does not wait for or verify post-merge beta
-deployment; use `/ship-and-monitor` to verify beta, the docs production lane,
-and the release tail. The public docs site is the temporary exception:
-matching `main` changes trigger `.github/workflows/deploy-docs-production.yml`,
-which publishes `www.agent-native.com` from the exact commit and disables that
-site's Git-connected Netlify builds. There is no beta docs site today. The
-normal `/ship` flow must not imply an automatic production deploy for other
-sites. Critical fixes that must reach other production sites need an explicit
-manual promotion, followed by
-`/ship-and-monitor` when the promotion and release tail need verification.
+Keep these claims separate in the PR and final report:
 
-Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
-`promote-netlify-deploy.yml` workflow to promote a critical fix and let it
-manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
-as a deployment step; clearing one is not the production promotion.
+- source and focused tests;
+- CI and review state;
+- merged commit and origin/main ancestry;
+- beta, docs, or production deployment state.
 
-## Latest-feedback handoff
+## 4. Babysit
 
-When `/review-latest-feedback` has run before `/ship`, its sweep is a required
-ship input. Carry the sweep's start cursor, grouped reports, evidence links, and
-disposition table into the PR or ship recap. The handoff remains cross-app and
-cross-source: adding Design UI bugs to the eligible set must not drop
-Analytics, Dispatch, Calendar, Slides, Content, GitHub, Sentry, or any other
-previously identified candidate. Every actionable item must have an owning
-source seam and focused verification, with one explicit disposition: fixed,
-awaiting reporter clarification, already owned or duplicate, deferred or
-informational, external or non-repo-owned, or unavailable/unverified.
+Run /babysit-pr <number> immediately after PR creation and follow that skill
+for the durable heartbeat, serialized PR lease, local-change ownership checks,
+review handling, conflict recovery, and cadence. Do not duplicate its lease
+protocol here or end the task after opening the PR without either its watcher
+or a foreground loop.
 
-Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
+If a live PR is CONFLICTING, let babysit-pr recover it only after:
 
-- Never add or duplicate `👀` on a Slack parent. If the latest readable parent
-  already has an `👀` reaction from anyone, preserve that fact as an existing
-  investigation marker, but do not treat it as a disposition or suppression
-  signal. After classifying the parent, re-read the complete thread and, for
-  an actionable in-scope item, require a verified `@agent-native` **Fixed**,
-  **In progress**, or **Clarification needed** disposition; an eye-only or
-  stale eye-only item remains actionable for that handoff check. For items
-  routed to Sid or Alice, or classified as external, duplicate, deferred, or
-  informational, honor that owning disposition and do not turn the eye into a
-  merge blocker. If the reaction state is unavailable, record the item as
-  unavailable/unverified and refresh the feedback thread instead of guessing.
-- Concrete small UI or interaction bugs in the Design app are an additional
-  in-scope category for this workflow and follow the same feedback handoff,
-  verification, and merge gates as other repo-owned fixes. Do not narrow the
-  ship ledger to Design when Design is added to a cross-app sweep. Route broad
-  redesigns or subjective Design suggestions to Sid. All Content app feedback
-  remains owned by Alice; keep those source links and ownership decisions in
-  the ship ledger, but do not include them as this workflow's fixes,
-  investigation, clarification requests, replies, dispatches, or merge
-  blockers.
+- the local tree and publishable-path unpublished-commit check are clean;
+- the local HEAD exactly matches the live PR headRefOid;
+- origin/main was freshly fetched.
 
-When deciding whether an awaiting clarification is already answered, treat the
-requested URL, error, screenshot, repro, run ID, or other evidence as present
-only when it is readable in the parent, a reply, or an accessible linked
-artifact. Keep a linked artifact that is present but inaccessible because of
-permissions, expiry, connector gaps, or another read failure separate from
-evidence that is absent. If that artifact is required to identify or verify
-the change, route the item back through the feedback workflow for a targeted
-request for access or a fresh/replacement link; do not suppress that request or
-ask again for contents already known to be in the inaccessible artifact. If the
-available evidence is enough without it, continue and record the limitation as
-unavailable/unverified in the ship ledger.
+Merge origin/main once with a normal merge, resolve and test it, push, and
+restart the soak. Never merge main merely because the PR is behind, checks are
+pending, or mergeability is UNKNOWN.
 
-Before carrying any item forward from a prior handoff - fixed, in progress,
-awaiting clarification, already owned or duplicate, deferred or informational,
-external, or unavailable/unverified - always re-read the complete source thread
-and current handoff and reconcile them for new replies, reactions, linked
-evidence, resolution, or ownership signals. The handoff is a prior record, not
-the source of truth. After that refresh, if
-`@agent-native` or another participant already supplied the needed details,
-identified the cause, linked a fix, or said the issue is fixed, landed, or being
-fixed, do not reopen it as a clarification request or ask for duplicate
-information. Carry it as fixed pending verification, already owned, or in
-progress, and verify or follow up on that existing work. Only preserve an
-awaiting-clarification disposition when one specific reporter or product input
-is still missing after that check. Any eventual reporter-facing clarification
-must thank the person first and ask the question second; `Clarification needed`
-is an internal state, not an opening line.
+### Feedback handoff
 
-There may be only one unanswered clarification request per feedback thread. If
-the existing handoff or complete source thread contains a question from this
-workflow or `@agent-native`, re-read both and determine whether the exact
-requested detail has been semantically answered or explicitly resolved anywhere
-in the thread. A partial or unrelated reply does not clear the request. If it
-remains unresolved, carry its timestamp forward as the sole pending request and
-do not add another question. Once it is answered or resolved, re-read the
-thread and try the fix first; ask one new question only for one specific,
-non-repeating detail that still blocks the fix.
+If /review-latest-feedback was used, carry its start cursor, grouped reports,
+evidence links, and disposition table into the ship ledger and PR recap.
+Follow review-latest-feedback for ownership, reactions, reporter replies, and
+the exact disposition vocabulary; follow babysit-pr for review comments and
+merge blocking. Do not send Slack replies or reactions as a routine ship step
+unless that workflow was explicitly requested or already owns the action.
 
-Do not ship a feedback fix that is only a wording-specific rule or that lacks
-the evidence needed to identify its owner. Re-run or refresh the feedback sweep
-when the branch changes after triage or when new comments, Slack replies,
-GitHub review comments, or Sentry findings arrive. Treat an unavailable
-connector as unavailable - never as “nothing matched” - and preserve that gap
-in the recap.
+Close linked GitHub issues as soon as their accepted fix is verified in the
+merged snapshot. The publication and runtime follow-ups belong in the ship
+ledger; they do not delay issue closure. If an issue was already fixed in the
+merged snapshot and the issue comments document that fix, close it during the
+same ledger pass and thank the reporter. If more information is needed, ask
+one targeted question and leave the issue open.
 
-The ship report and PR description must keep source-tested, built, and merged
-claims separate. A green test or PR does not prove that beta or production is
-live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
-Before merging, `/babysit-pr` must re-check that every actionable feedback or
-review item has a fix or a concise reply and that no new evidence has been left
-without a disposition. Items routed to Sid or Alice remain outside this
-workflow's ownership. External, duplicate, deferred, and informational items
-also follow their recorded disposition rather than blocking this workflow. A
-parent marked with `👀` is not thereby complete or non-actionable: preserve the
-reaction without duplicating it, and for actionable in-scope items do not merge
-while an eye-only or stale eye-only item lacks a verified bot disposition.
+Leave bot-authored PRs, including Dependabot, untouched when reviewing a queue.
 
-## Worktree and branch setup
+## 5. Merge gate
 
-A detached HEAD is a valid shipping context. Codex and platform-managed
-worktrees may intentionally start detached, and `/ship` explicitly authorizes
-creating a shipping branch in that worktree before committing or pushing. Do
-not stop or ask for confirmation just because `git branch --show-current` is
-empty.
+Merge only when all of these are true at the same time and remain true for 10
+continuous minutes on the unchanged live PR head:
 
-If this worktree is detached:
+- working tree is clean and there are no unpushed commits;
+- required GitHub Actions checks are green;
+- every human or bot review item has a verified fix/reply or a valid terminal
+  disposition;
+- GitHub reports the PR mergeable;
+- no new actionable feedback arrived during the soak.
 
-1. Inspect `git worktree list --porcelain` and existing `changes-*` refs.
-2. Create an unused `changes-N` branch (N at least 50) at the current HEAD in
-   this worktree, for example `git switch -c changes-N`. Never attach or switch
-   a branch that is checked out by another worktree, use `main`, overwrite an
-   existing ref, or move another worktree.
-3. Continue the normal ship flow on that new branch.
+Then use the explicit squash-admin merge:
 
-This is the one pre-PR branch operation that `/ship` authorizes for a detached
-worktree. Do not reset, rebase, stash, or force-push. If already on a named
-branch, stay on it.
+```bash
+gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
+```
 
-## Steps
+Capture `<verified-head-oid>` from the final live PR check immediately before
+this command. This admin merge is the normal `/ship` completion step once the
+gates hold; do not wait for an additional approval or enable auto-merge. If the
+head-match guard rejects the merge, restart the soak for the new head.
 
-1. **Stay in the current worktree and branch**: if already on a named branch,
-   never create, switch, rebase, reset, or stash before opening the PR. If the
-   worktree is detached, follow the Worktree and branch setup section and
-   create the shipping branch before opening the PR. This repo uses
-   shared/platform-managed worktrees; ship the branch belonging to this
-   worktree.
+Never enable auto-merge. If a gate fails, fix the actionable cause, publish one
+coherent update to the same PR, and restart the soak. A queued, skipped,
+cancelled, superseded, provider, or missing-secret job is not automatically a
+repo defect; classify it before changing code.
 
-2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   establish the branch snapshot. Multiple agents may have added work; include
-   those paths in the complete nonignored snapshot.
+## 6. Rotate after merge
 
-   Then confirm the base is current, before validating or pushing anything. A
-   worktree can be created from a stale ref, and its local `main` ref is stale
-   too, so `git log main..HEAD` comes back empty and the branch reports itself
-   current while being weeks behind. The fetch is required: without it the
-   count reads a stale remote ref and returns 0, which is the same
-   confidently-wrong clean answer this check exists to catch.
+After the merge, verify that origin/main contains the merge commit. Then run
+the post-ship branch rotation owned by /new-branch, preserving and reporting
+any pre-existing stashes. The final state is a fresh branch from current
+origin/main, not a detached merged checkout.
 
-   ```bash
-   git fetch origin main --quiet
-   git rev-list --count HEAD..origin/main
-   ```
+## Deployment boundary
 
-   Non-zero means reapply the work onto current `origin/main` before pushing —
-   shipping from a stale base conflicts with or reverts whatever landed in the
-   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
-   `origin/main` while reporting themselves clean from the inside.
+Merges trigger the prebuilt beta publisher on every push to `main`. The docs
+production workflow runs only when its path filters match. Other production
+promotion is manual. Do not wait for Netlify Git-connected builds, clear a
+Netlify lock by hand, or claim beta or production is live from a green PR. Use
+/ship-and-monitor when the user asks for post-merge beta, docs, release-tail,
+or manual-production proof.
 
-3. **Validate enough to avoid obvious breakage**: run focused tests for the
-   changed area. Push the first safe slice before running `pnpm run prep` or
-   another long validation. Run prep when it is practical, but if prep is slow,
-   flaky, or contaminated by concurrent in-flight edits, do not stall shipment:
-   record the exact failure, keep pushing stable slices, and let GitHub Actions
-   be the validation gate that `/babysit-pr` monitors.
+## Final report
 
-4. **Publish the branch snapshot**: run `corepack pnpm ship:push` to stage,
-   commit, and push all nonignored current-branch work. Never add
-   `Co-Authored-By` or other agent attribution.
-
-   The first successful push is the review handoff point: open or update the
-   ready PR immediately, before waiting on `pnpm prep`, a stability window, or
-   additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow. Push each
-   later coherent branch snapshot as soon as it is available.
-
-5. **Open or update a ready PR immediately after the first push**: use the
-   current branch. PRs are ready for review by default, not drafts. Do not put
-   `codex`, `[codex]`, or similar agent labels in the title/body.
-
-   For every later safe slice, update this same PR immediately after pushing;
-   do not create a second PR or wait for prep to finish before handing the
-   slice to CI and review.
-
-6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 publishes the current nonignored branch snapshot, then
-   checks mergeability, every unaddressed review comment by reply state, and CI.
-   Keep going until the PR is either merged/closed or the user explicitly tells
-   you to stop.
-
-7. **Merge when allowed**: because `/ship` includes merge authorization, merge
-   with `gh pr merge <number> --squash --admin` only after `/babysit-pr`’s merge
-   requirements are simultaneously true for 10 consecutive minutes:
-   clean working tree, no unpushed commits, GitHub Actions green, all review
-   comments addressed/replied, and mergeable.
-
-8. **Create the next branch after merge**: after the PR is merged and `origin/main`
-   contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
-   stash gate, branch naming, and stash-reporting rules. This is the only branch
-   movement in the ship flow.
-
-9. **Report**: summarize the PR URL, merge result, new branch name, validation,
-   and any feedback/CI fixes handled. Do not claim post-merge beta or production
-   monitoring unless you ran `/ship-now` or `/ship-and-monitor`.
-
-## Important
-
-- **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Include those paths in the next
-  complete branch snapshot. Don't revert or overwrite other agents' work; fix
-  real bugs if CI or review feedback flags them.
-- Never commit `learnings.md` or files in `.gitignore`.
-- If feedback appears in inline comments or review bodies, every item needs a
-  fix or a reply before merge.
-- Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
-  comment handling, local-file push discipline, and merge gates. Update
-  `babysit-pr` first if the watcher behavior changes.
-- Treat `/ship` as complete after its merge and branch-rotation steps. Use
-  `/ship-now` or `/ship-and-monitor` for post-merge beta/release monitoring and
-  explicit manual production-promotion verification.
-- Treat `/new-branch` as mandatory after a successful merge so the workspace is
-  ready for the next task on fresh `main`.
+Include the ready PR URL, merged commit, fresh branch, focused/local checks,
+required CI state, and any deployment result. In the feedback dispositions,
+name each linked issue that was thanked and closed and each issue left open
+with its precise blocker. Say explicitly when deployment was not part of this
+run.

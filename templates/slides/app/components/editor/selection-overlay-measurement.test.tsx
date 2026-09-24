@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   createSelectionOverlayAutofitKey,
   createSelectionOverlayMeasurementKey,
+  currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
   isSelectionOverlayAutofitSettled,
   isSelectionOverlayOnActiveSlide,
@@ -173,6 +174,27 @@ describe("selection overlay measurement", () => {
     expect(
       currentSelectionOverlayRect({ key: oldKey, rect: rect(120) }, currentKey),
     ).toBeNull();
+  });
+
+  it("invalidates the rotated handle frame with its matching rect", () => {
+    const frame = {
+      left: 175,
+      top: 125,
+      width: 100,
+      height: 50,
+      transform: "matrix(0, 1, -1, 0, 0, 0)",
+      transformOrigin: { x: 50, y: 25 },
+    };
+    const measurement = {
+      key: "selection-a",
+      rect: rect(200),
+      frame,
+    };
+
+    expect(currentSelectionOverlayFrame(measurement, "selection-a")).toEqual(
+      frame,
+    );
+    expect(currentSelectionOverlayFrame(measurement, "selection-b")).toBeNull();
   });
 
   it("hides the old rect while the same object receives new geometry", () => {

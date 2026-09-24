@@ -5,12 +5,16 @@ import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
 const guards = [
   "guard:hooks-registered",
+  "guard:agent-native-brand",
   "guard:no-drizzle-push",
+  "guard:mcp-registry",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",
+  "guard:identity-columns-registered",
+  "guard:no-raw-app-identity-env",
   "guard:no-env-credentials",
   "guard:env-documentation",
   "guard:no-unscoped-credentials",
@@ -30,10 +34,12 @@ const guards = [
   "guard:template-standard",
   "guard:public-packages",
   "guard:shared-ui-singletons",
+  "guard:modal-layer-integrity",
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
   "guard:template-ui-imports",
   "guard:controller-boundaries",
+  "guard:agentkit-stream-ownership",
   "guard:migration-manifest",
   "guard:eject-manifests",
   "guard:no-generated-artifacts",
@@ -45,6 +51,8 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:agent-access-endpoints-public",
+  "guard:external-result-contract",
   "guard:provider-action-factories",
   "guard:agent-chat-context",
   "guard:request-storms",
@@ -57,16 +65,22 @@ const guards = [
   "guard:config-docs",
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
+  "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
+  "guard:single-search-clear",
   "guard:no-boot-data-work",
+  "guard:tracking-event-names",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
+  "guard:no-blob-column-predicate",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
+  "guard:e2e-quarantine",
+  "guard:e2e-harness",
 ] as const;
 
 type GuardName = (typeof guards)[number];
@@ -224,6 +238,9 @@ Environment overrides:
 function guardCommand(name: GuardName): [string, string[]] {
   if (name === "guard:no-heavy-dashboard-list-reads") {
     return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+  }
+  if (name === "guard:no-blob-column-predicate") {
+    return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
   return [pnpmCommand(), ["run", name]];
 }

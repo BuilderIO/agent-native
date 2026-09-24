@@ -1,4 +1,4 @@
-import { IconDots, IconPlus } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { ActionButton, IconButton } from "../design-system/components.js";
@@ -80,7 +80,17 @@ export function DefaultChatHistoryRailView({
           type="button"
           className="an-chat-history-rail__disclosure"
           size="compact"
-          icon={<IconDots size={14} strokeWidth={1.8} aria-hidden="true" />}
+          // A disclosure chevron, not the `IconDots` overflow glyph the rows
+          // above already use: hosts are free to give both states the same
+          // label, so the glyph is the only thing guaranteed to move when the
+          // rail expands.
+          icon={
+            expanded ? (
+              <IconChevronUp size={14} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <IconChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+            )
+          }
           onPress={toggleExpanded}
           aria-expanded={expanded}
           label={disclosureLabel}

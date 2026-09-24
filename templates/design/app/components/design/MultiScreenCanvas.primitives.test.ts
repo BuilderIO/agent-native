@@ -1,4 +1,5 @@
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
+import type { CodeLayerSource } from "@shared/code-layer";
 import {
   hitTestPenAnchor,
   hitTestPenHandle,
@@ -33,6 +34,7 @@ import {
   getDraftPreviewGeometryForTool,
 } from "./multi-screen/draft-primitives";
 import {
+  findTopFrameEntryAtPoint,
   frameStyleLeftTop,
   getBreakpointFrameGeometry,
   getLayerSelectableBounds,
@@ -52,6 +54,8 @@ import {
   boardSurfaceLocalPointToBoardPoint,
   getBoardSurfaceRenderGeometry,
   getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewClip,
+  getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
   shouldRenderBoardSurfaceStaticPreview,
   SURFACE_PADDING,
@@ -72,12 +76,49 @@ import {
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
 } from "./multi-screen/vector-edit-geometry";
+import { isApplePlatform } from "./MultiScreenCanvas";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type ScreenStub = { id: string; filename: string; content: string };
+type ScreenStub = {
+  id: string;
+  filename: string;
+  content: string;
+  codeLayerSource?: CodeLayerSource;
+};
+
+describe("isApplePlatform", () => {
+  it("follows the physical platform over an emulated user-agent platform", () => {
+    const originalPlatform = navigator.platform;
+    const originalUserAgentData = (
+      navigator as Navigator & { userAgentData?: { platform?: string } }
+    ).userAgentData;
+
+    try {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: "Win32",
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: { platform: "MacIntel" },
+      });
+
+      expect(isApplePlatform()).toBe(false);
+    } finally {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: originalPlatform,
+      });
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: originalUserAgentData,
+      });
+    }
+  });
+});
 
 function makeGeom(x: number, y: number, w: number, h: number): FrameGeometry {
   return { x, y, width: w, height: h };
@@ -119,8 +160,14 @@ function hashString(s: string): string {
 /** Inject pre-built primitives into the module cache so tests don't need
  *  DOMParser (unavailable in jsdom-less vitest). */
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  // Cache key mirrors the implementation: id:length:hash(content)
-  const key = `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+  const source =
+    screen.codeLayerSource ??
+    ({ kind: "design-file", fileId: screen.id } as const);
+  const sourceKey = Object.entries(source)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("\u0000");
+  const key = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
   primitiveParseCache.set(key, prims);
 }
 
@@ -274,7 +321,7 @@ describe("board surface pointer capture", () => {
 
     expect(content).toContain("transform:scale(0.03125)!important");
     expect(content).toContain("translate:65536px 65536px!important");
-    expect(content).toContain("background:hsl(0, 0%, 10%)!important");
+    expect(content).toContain("background:transparent!important");
     expect(content).toContain('data-agent-native-node-id="left"');
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
@@ -291,6 +338,34 @@ describe("board surface pointer capture", () => {
     expect(content).not.toMatch(/\shref="https:\/\/example\.test/);
     expect(content).toContain("animation:none!important");
     expect(content).toContain("transition:none!important");
+  });
+
+  it("clips the static board preview to the camera window", () => {
+    expect(
+      getBoardSurfaceStaticPreviewClip({
+        logicalGeometry: makeGeom(-65_536, -65_536, 131_072, 131_072),
+        viewportGeometry: makeGeom(-36_000, -22_500, 72_000, 45_000),
+      }),
+    ).toBe("inset(43036px 29536px 43036px 29536px)");
+  });
+
+  it("maps the sampled board directly into viewport pixels", () => {
+    expect(
+      getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: makeGeom(-65_536, -65_536, 131_072, 131_072),
+        viewport: { width: 4096, height: 4096 },
+        pan: { x: 400, y: 300 },
+        zoom: 3.125,
+      }),
+    ).toBe("translate(-1640.5px, -1740.5px) scale(1, 1)");
+    expect(
+      getBoardSurfaceStaticPreviewTransform({
+        logicalGeometry: makeGeom(0, 0, 100, 200),
+        viewport: { width: 100, height: 200 },
+        pan: { x: -100, y: -100 },
+        zoom: 50,
+      }),
+    ).toBe("translate(20px, 20px) scale(0.5, 0.5)");
   });
 
   it("round-trips board drag and hit-test points through the finite iframe origin", () => {
@@ -336,6 +411,17 @@ describe("board surface pointer capture", () => {
         hasSurfaceContent: false,
         viewportGeometry: null,
         renderGeometry: active,
+      }),
+    ).toBe(false);
+  });
+
+  it("waits for a measured viewport before enabling the opaque board replica", () => {
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: true,
+        viewportGeometry: null,
+        renderGeometry: makeGeom(-4096, -4096, 8192, 8192),
       }),
     ).toBe(false);
   });
@@ -1221,7 +1307,7 @@ describe("getPrimitiveDropTargetForPoint", () => {
       overlappingFrames,
       getMeta,
     );
-    expect(result?.nodeId).toBe("other-screen-inner");
+    expect(result).toBeNull();
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {
@@ -1410,6 +1496,40 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
 
     expect(roundTrip.x).toBeCloseTo(local.x, 8);
     expect(roundTrip.y).toBeCloseTo(local.y, 8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findTopFrameEntryAtPoint: cross-screen drop release resolution
+// (drag-reparent-1)
+// ---------------------------------------------------------------------------
+describe("findTopFrameEntryAtPoint at a cross-screen drop release point", () => {
+  it("picks the source screen over an overlapping destination when foregroundId favors the source", () => {
+    // A dragged element still lives in the source document until commit, so
+    // the source screen's measured (content-fit) geometry can grow mid-drag
+    // to overlap the destination screen it is being dropped into. Both
+    // frames now genuinely contain the release point.
+    const entries = [
+      { id: "source", geometry: makeGeom(0, 0, 900, 1400) },
+      { id: "dest", geometry: makeGeom(0, 1024, 900, 900) },
+    ];
+    const releasePoint = { x: 260, y: 1330 };
+
+    // Unfiltered: the foregroundId tie-break (the active/source screen)
+    // wins the overlap, silently discarding the real cross-screen drop.
+    const naive = findTopFrameEntryAtPoint(entries, releasePoint, {
+      foregroundId: "source",
+    });
+    expect(naive?.id).toBe("source");
+
+    // The fix: exclude the source screen from the candidate set before
+    // hit-testing, so an overlap can never resolve back to it.
+    const excludingSource = findTopFrameEntryAtPoint(
+      entries.filter((entry) => entry.id !== "source"),
+      releasePoint,
+      { foregroundId: "source" },
+    );
+    expect(excludingSource?.id).toBe("dest");
   });
 });
 
@@ -2030,25 +2150,48 @@ describe("getOutsideFrameDraftFallback", () => {
   });
 });
 
-describe("board surface background follows the editor theme", () => {
-  const preview = (background?: string) =>
+describe("board render style tracks the editor scheme", () => {
+  const boardHtml =
+    '<!doctype html><html><head></head><body><div data-agent-native-node-id="a"></div></body></html>';
+
+  it("keeps the light default text colour under the dark scheme", () => {
+    expect(getBoardSurfaceRenderContent(boardHtml, true)).toContain(
+      "html{color-scheme:dark!important;color:#000}",
+    );
+  });
+
+  it("replaces a stale scheme instead of trusting the marker", () => {
+    const dark = getBoardSurfaceRenderContent(boardHtml, true);
+    expect(dark).toContain("color-scheme:dark");
+
+    const relit = getBoardSurfaceRenderContent(dark, false);
+    expect(relit).not.toContain("color-scheme:dark");
+    expect(
+      (relit.match(/data-agent-native-board-surface-render/g) ?? []).length,
+    ).toBe(1);
+  });
+
+  it("leaves a document already rendered for this scheme alone", () => {
+    const dark = getBoardSurfaceRenderContent(boardHtml, true);
+    expect(getBoardSurfaceRenderContent(dark, true)).toBe(dark);
+  });
+});
+
+describe("board surface preview paints no colour of its own", () => {
+  const preview = () =>
     getBoardSurfaceStaticPreviewContent({
       html: `<!doctype html><html><head></head><body><div data-agent-native-node-id="a" style="position:absolute;left:0;top:0;width:10px;height:10px"></div></body></html>`,
       logicalGeometry: { x: 0, y: 0, width: 1000, height: 1000 },
       viewport: { width: 500, height: 500 },
-      background,
     });
 
-  it("paints the themed canvas colour when one is supplied", () => {
-    // The board is its own iframe and cannot read the host's CSS vars, so a
-    // hardcoded dark fill made the canvas black in the light theme.
-    const content = preview("hsl(0 0% 92%)");
-    expect(content).toContain("hsl(0 0% 92%)");
+  it("stays transparent so the host layer's canvas colour shows through", () => {
+    // A colour baked into this document is a second canvas colour: it cannot
+    // read the host's CSS var, so it goes stale the moment the theme or the
+    // design's stored colour changes.
+    const content = preview();
+    expect(content).toContain("html,body{background:transparent!important");
     expect(content).not.toContain("hsl(0, 0%, 10%)");
-  });
-
-  it("falls back to the dark default when no theme colour is resolved", () => {
-    expect(preview()).toContain("hsl(0, 0%, 10%)");
-    expect(preview("   ")).toContain("hsl(0, 0%, 10%)");
+    expect(content).not.toContain("hsl(0 0% 92%)");
   });
 });

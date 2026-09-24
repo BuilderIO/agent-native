@@ -2,10 +2,10 @@ import {
   sendToAgentChat,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useEffect, useRef } from "react";
 
-export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 60_000;
+export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 3 * 60_000;
 
 export type TransactionalEmailContextPacket = {
   recordingId: string;
@@ -54,17 +54,54 @@ export function buildTransactionalEmailChatOptions(
   };
 }
 
+async function releaseClaimedTransactionalEmailAiRequests(
+  jobIds: string[],
+): Promise<void> {
+  if (jobIds.length === 0) return;
+  try {
+    await callAction(
+      "release-transactional-email-ai-requests" as any,
+      { jobIds } as any,
+    );
+  } catch (error) {
+    console.error("Failed to release abandoned transactional email AI claims", {
+      jobIds,
+      error,
+    });
+  }
+}
+
 export async function dispatchClaimedTransactionalEmailAiRequests(
   dispatched: Set<string>,
   send: (options: AgentChatMessage) => unknown = sendToAgentChat,
+  isActive?: () => boolean,
 ): Promise<number> {
+  if (isActive && !isActive()) return 0;
+  const dispatchedBefore = new Set(dispatched);
   const result = (await callAction(
     "list-transactional-email-ai-requests" as any,
     {} as any,
     { method: "GET" },
   )) as { requests?: ClaimedTransactionalEmailAiRequest[] } | null;
+  const requests = result?.requests ?? [];
+  if (isActive && !isActive()) {
+    await releaseClaimedTransactionalEmailAiRequests(
+      requests
+        .filter(({ jobId }) => !dispatchedBefore.has(jobId))
+        .map(({ jobId }) => jobId),
+    );
+    return 0;
+  }
   let dispatchCount = 0;
-  for (const request of result?.requests ?? []) {
+  for (const request of requests) {
+    if (isActive && !isActive()) {
+      await releaseClaimedTransactionalEmailAiRequests(
+        requests
+          .filter(({ jobId }) => !dispatched.has(jobId))
+          .map(({ jobId }) => jobId),
+      );
+      return dispatchCount;
+    }
     if (dispatched.has(request.jobId)) continue;
     dispatched.add(request.jobId);
     try {
@@ -81,25 +118,37 @@ export async function dispatchClaimedTransactionalEmailAiRequests(
 }
 
 export function useTransactionalEmailBridge(): void {
-  const actionVersion = useChangeVersions(["action"]);
+  const { status } = useSession();
   const dispatched = useRef(new Set<string>());
-  const inflight = useRef(false);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+
+    const controller = new AbortController();
+    let inflight = false;
     const tick = () => {
-      if (inflight.current) return;
-      inflight.current = true;
-      void dispatchClaimedTransactionalEmailAiRequests(dispatched.current)
+      if (inflight) return;
+      inflight = true;
+      void dispatchClaimedTransactionalEmailAiRequests(
+        dispatched.current,
+        sendToAgentChat,
+        () => !controller.signal.aborted,
+      )
         .catch(() => undefined)
         .finally(() => {
-          inflight.current = false;
+          inflight = false;
         });
     };
 
     tick();
-    // The transactional email queue is file-backed, so background worker writes
-    // do not emit SQL/action change events that this browser can observe.
+    // clips_transactional_email_jobs is SQL, but the transactional-emails
+    // cron job enqueues awaiting_ai rows directly without bumping a change
+    // version, so no SQL/action change event reaches this browser — only
+    // this timer notices a claimable job.
     const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [actionVersion]);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [status]);
 }

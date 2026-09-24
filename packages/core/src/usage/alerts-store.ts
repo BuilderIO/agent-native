@@ -1,4 +1,4 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -110,7 +110,7 @@ function numberField(row: Record<string, unknown>, key: string): number {
 }
 
 function stringField(row: Record<string, unknown>, key: string): string {
-  return String(row[key] ?? "");
+  return stringifyValue(row[key] ?? "");
 }
 
 function nullableNumberField(
@@ -192,7 +192,6 @@ function ruleIdFor(
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const db = getDbExec();
       const tableSql = `CREATE TABLE IF NOT EXISTS usage_alert_rules (
         id TEXT PRIMARY KEY,
         scope TEXT NOT NULL,
@@ -201,20 +200,20 @@ export async function ensureTables(): Promise<void> {
         app_id TEXT,
         unit TEXT NOT NULL,
         period TEXT NOT NULL,
-        limit_value ${intType()} NOT NULL,
+        limit_value BIGINT NOT NULL,
         channels TEXT NOT NULL,
-        enabled ${intType()} NOT NULL DEFAULT 1,
-        is_default ${intType()} NOT NULL DEFAULT 0,
-        dismissed_window_start ${intType()},
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        enabled BIGINT NOT NULL DEFAULT 1,
+        is_default BIGINT NOT NULL DEFAULT 0,
+        dismissed_window_start BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const eventsSql = `CREATE TABLE IF NOT EXISTS usage_alert_events (
         id TEXT PRIMARY KEY,
         rule_id TEXT NOT NULL,
-        window_start ${intType()} NOT NULL,
+        window_start BIGINT NOT NULL,
         notification_id TEXT,
-        created_at ${intType()} NOT NULL
+        created_at BIGINT NOT NULL
       )`;
       const indexes = [
         {
@@ -226,38 +225,22 @@ export async function ensureTables(): Promise<void> {
           sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_alert_events_rule_window ON usage_alert_events(rule_id, window_start)",
         },
       ];
-      if (isPostgres()) {
+      {
         await ensureTableExists("usage_alert_rules", tableSql);
         await ensureTableExists("usage_alert_events", eventsSql);
         await ensureColumnExists(
           "usage_alert_rules",
           "is_default",
-          `ALTER TABLE usage_alert_rules ADD COLUMN is_default ${intType()} NOT NULL DEFAULT 0`,
+          `ALTER TABLE usage_alert_rules ADD COLUMN IF NOT EXISTS is_default BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureColumnExists(
           "usage_alert_events",
           "notification_id",
-          "ALTER TABLE usage_alert_events ADD COLUMN notification_id TEXT",
+          "ALTER TABLE usage_alert_events ADD COLUMN IF NOT EXISTS notification_id TEXT",
         );
         for (const index of indexes) {
           await ensureIndexExists(index.name, index.sql);
         }
-      } else {
-        await db.execute(tableSql);
-        await db.execute(eventsSql);
-        const eventColumns = await db.execute(
-          "PRAGMA table_info(usage_alert_events)",
-        );
-        const hasNotificationId = eventColumns.rows.some(
-          (row) =>
-            String((row as Record<string, unknown>).name) === "notification_id",
-        );
-        if (!hasNotificationId) {
-          await db.execute(
-            "ALTER TABLE usage_alert_events ADD COLUMN notification_id TEXT",
-          );
-        }
-        for (const index of indexes) await db.execute(index.sql);
       }
     })().catch((error) => {
       initPromise = undefined;
@@ -276,7 +259,10 @@ async function resolveScope(
   let role: string | null = null;
   if (orgId) {
     const result = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ?
+              AND federation_removal_pending_at IS NULL
+            LIMIT 1`,
       args: [orgId, ownerEmail],
     });
     const candidate = result.rows[0]?.role;
@@ -447,7 +433,7 @@ async function rowToRule(
   row: Record<string, unknown>,
   partition: ResolvedScope,
 ): Promise<UsageAlertRule> {
-  const appId = row.app_id == null ? null : String(row.app_id);
+  const appId = row.app_id == null ? null : stringifyValue(row.app_id);
   const unit = stringField(row, "unit") as UsageAlertUnit;
   const period = stringField(row, "period") as UsageAlertPeriod;
   const window = windowForPeriod(period);
@@ -635,7 +621,7 @@ export async function setUsageAlertEnabled(
     {
       scope,
       ruleId,
-      appId: existing.app_id == null ? null : String(existing.app_id),
+      appId: existing.app_id == null ? null : stringifyValue(existing.app_id),
       unit: stringField(existing, "unit") as UsageAlertUnit,
       period: stringField(existing, "period") as UsageAlertPeriod,
       limit:
@@ -681,7 +667,7 @@ export async function dismissUsageAlert(
   const listed = await listUsageAlerts(
     {
       scope,
-      appId: existing.app_id == null ? null : String(existing.app_id),
+      appId: existing.app_id == null ? null : stringifyValue(existing.app_id),
     },
     access,
   );
@@ -776,7 +762,7 @@ async function evaluateUsageAlerts(
 ): Promise<void> {
   const matches = await matchingEvaluationRows(record);
   for (const { row, partition } of matches) {
-    const appId = row.app_id == null ? null : String(row.app_id);
+    const appId = row.app_id == null ? null : stringifyValue(row.app_id);
     const unit = stringField(row, "unit") as UsageAlertUnit;
     const period = stringField(row, "period") as UsageAlertPeriod;
     const window = windowForPeriod(period);
@@ -860,4 +846,14 @@ export function _resetUsageAlertStoreForTests(): void {
 
 export async function _waitForUsageAlertEvaluationsForTests(): Promise<void> {
   await evaluationTail;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

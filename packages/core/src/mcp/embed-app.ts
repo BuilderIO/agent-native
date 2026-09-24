@@ -36,7 +36,7 @@ export function embedApp(
   options: EmbedAppOptions = {},
 ): ActionMcpAppResourceConfig {
   const title = options.title ?? "Open app";
-  const iframeTitle = options.iframeTitle ?? "Agent Native app";
+  const iframeTitle = options.iframeTitle ?? "Agent-Native app";
   const openLabel = options.openLabel ?? "Open in app";
   const startToolName = options.startToolName ?? "create_embed_session";
   const embedByDefault = options.embedByDefault !== false;
@@ -280,12 +280,12 @@ export function embedApp(
       const record = data && typeof data === "object" ? data : {};
       const structuredOpenLinkUrl = openLinkWebUrlFrom(record.openLink);
       return firstNonEmbedStartUrl([
+        metaUrl,
         record.embedTargetPath,
         record.deepLinkUrl,
         record.deepLink,
-        record.openUrl,
         structuredOpenLinkUrl,
-        metaUrl,
+        record.openUrl,
         record.url
       ]);
     }
@@ -1256,7 +1256,7 @@ export function embedApp(
       clearFrameReadyTimer();
       clearFrameLoadTimer();
       const frame = document.createElement("iframe");
-      frame.title = body.dataset.iframeTitle || "Agent Native app";
+      frame.title = body.dataset.iframeTitle || "Agent-Native app";
       frame.src = src;
       frame.allow = "clipboard-read; clipboard-write";
       appFrame = frame;
@@ -1917,7 +1917,7 @@ export function embedApp(
             const result = await rpcRequest(
               "ui/initialize",
               {
-                appInfo: { name: "Agent Native Embed", version: "1.0.0" },
+                appInfo: { name: "Agent-Native Embed", version: "1.0.0" },
                 appCapabilities: {},
                 protocolVersion: "2026-01-26"
               },
@@ -2038,7 +2038,7 @@ export function embedApp(
     async function startMcpAppsBridge() {
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
-        { name: "Agent Native Embed", version: "1.0.0" },
+        { name: "Agent-Native Embed", version: "1.0.0" },
         {},
         { autoResize: false }
       );

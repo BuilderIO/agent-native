@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { calculateCost, recordUsage } from "@agent-native/core/usage";
 import { eq } from "drizzle-orm";
 import { z } from "zod";

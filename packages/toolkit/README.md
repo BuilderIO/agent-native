@@ -21,6 +21,21 @@ Creative Context, and Pinpoint are Toolkit capability modules installed on
 demand. They remain separate npm packages with independent lifecycle manifests
 and docs. Dispatch is a separate product rather than a Toolkit module.
 
+## AgentKit
+
+AgentKit is split at a deliberate seam. Toolkit owns presentation primitives:
+composers, prompt menus, agent-authored next-action bars, queue drawers, and
+design-system adapters. Core owns runtime-backed chat surfaces and registries:
+streaming text, activity traces, approvals, tool and widget renderers, threads,
+attachments, and application-state adapters. Both layers are reusable, and
+Toolkit stays Core-free. The provider-neutral event contract lives in
+[`@agent-native/agentkit/protocol`](../agentkit/README.md).
+
+AgentKit is an independent implementation optimized for Agent-Native workflows.
+The protocol README records the shared product goals and clean implementation
+boundary; it is not a runtime dependency or compatibility layer for another
+chat product.
+
 ## Imports
 
 ```tsx
@@ -56,6 +71,7 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
 import {
   SidebarFooterActions,
+  usePersistentSidebarCollapsed,
   useSetHeaderActions,
 } from "@agent-native/toolkit/app-shell";
 ```
@@ -85,6 +101,14 @@ Core.
 Use `SidebarFooterActions` for the shared left-sidebar utility row. Provide the
 app-owned controls through its slots; the rendered order is feedback, search,
 then collapse, with the same order stacked in collapsed sidebars.
+
+Use `usePersistentSidebarCollapsed` for a collapsible desktop navigation
+sidebar that should remember a person's choice after refresh. Each app supplies
+its own stable storage key and first-use default. The hook restores valid
+browser state immediately after hydration, keeps explicit changes responsive
+when storage is unavailable, and exposes `persistenceStatus` so unavailable or
+malformed storage is distinguishable from a saved preference. Keep temporary
+mobile drawer state separate.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

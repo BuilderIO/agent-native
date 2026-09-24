@@ -1,3 +1,7 @@
+import { sourceContentHash } from "@shared/source-workspace";
+
+import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
+
 export type ClipboardContentMutationOrigin =
   | "user"
   | "clipboard-paste"
@@ -22,8 +26,9 @@ export interface ClipboardContentLineage extends ClipboardContentMutationPublica
 export function publishClipboardContentMutation(args: {
   current: ClipboardContentLineage | undefined;
   baseContentHash: string;
+  fileId: string;
+  fileType?: string | null;
   nextContent: string;
-  nextContentHash: string;
   origin: ClipboardContentMutationOrigin;
   /**
    * "document" means the base was read from the live document. Ordinary edits
@@ -32,6 +37,16 @@ export function publishClipboardContentMutation(args: {
    */
   baseSource?: "lineage" | "document";
 }): ClipboardContentLineage | null {
+  let canonicalNextContent: string;
+  try {
+    canonicalNextContent = prepareCanonicalSourceContent(args.nextContent, {
+      fileId: args.fileId,
+      fileType: args.fileType,
+    }).content;
+  } catch {
+    // coercion-ok: canonicalization failure is a refused publication; callers abort writes.
+    return null;
+  }
   if (
     args.current &&
     args.current.contentHash !== args.baseContentHash &&
@@ -40,8 +55,8 @@ export function publishClipboardContentMutation(args: {
     return null;
   }
   return {
-    content: args.nextContent,
-    contentHash: args.nextContentHash,
+    content: canonicalNextContent,
+    contentHash: sourceContentHash(canonicalNextContent),
     mutationId: (args.current?.mutationId ?? 0) + 1,
     origin: args.origin,
   };

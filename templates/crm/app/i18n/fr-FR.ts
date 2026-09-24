@@ -62,7 +62,7 @@ const messages = {
   settings: {
     title: "Paramètres du CRM",
     description:
-      "Le SQL natif garde les enregistrements du CRM locaux et portables. HubSpot et Salesforce passent par les connexions de l’espace de travail ; leurs miroirs ne stockent que les champs autorisés, des métadonnées limitées et des références de preuve bornées.",
+      "Le SQL natif garde les enregistrements du CRM dans Postgres. HubSpot et Salesforce passent par les connexions de l’espace de travail ; leurs miroirs ne stockent que les champs autorisés, des métadonnées limitées et des références de preuve bornées.",
     languageTitle: "Langue",
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
@@ -616,6 +616,19 @@ const messages = {
     evaluatedThroughAsk: "Évalué avec Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Examiner les doublons",
+    duplicateReviewTitle: "Doublons possibles",
+    duplicateReviewDescription:
+      "Compare cette fiche aux candidats accessibles. Jev envoie à TypeSafe les noms, types de fiche et indices de correspondance de cinq candidats au maximum. Sa probabilité est indicative ; la fusion demande un examen distinct.",
+    duplicateReviewRun: "Chercher des doublons",
+    duplicateReviewLoading: "Recherche en cours…",
+    duplicateReviewFailed: "Impossible de terminer l'examen des doublons.",
+    duplicateReviewUnavailable:
+      "Jev n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
+    duplicateReviewEmpty: "Aucun doublon probable trouvé.",
+    duplicateRuleConfidence: "Correspondance par règles : {{percent}} %",
+    duplicateJevProbability: "Probabilité Jev de même entité : {{percent}} %",
+    duplicateMatchedOn: "Indices communs : {{values}}",
     evidenceAttached: "Preuve d’appel jointe.",
     evidenceAttachFailed: "Impossible de joindre la preuve.",
     addEvidence: "Ajouter une preuve",

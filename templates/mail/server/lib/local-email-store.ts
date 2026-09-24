@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import {
   getSettingsEmitter,
   getUserSetting,
@@ -33,7 +33,7 @@ interface LocalEmailLease {
 }
 
 function settingsTable(): string {
-  return isPostgres() ? "public.settings" : "settings";
+  return "public.settings";
 }
 
 function lockStorageKey(ownerEmail: string): string {
@@ -65,7 +65,7 @@ async function readLeaseRow(
   // settings cache so every lease attempt sees the latest committed owner row.
   await getUserSetting(ownerEmail, LOCK_SETTING_KEY);
   const { rows } = await getDbExec().execute({
-    sql: `SELECT value FROM ${settingsTable()} WHERE key = ?`,
+    sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
     args: [lockStorageKey(ownerEmail)],
   });
   const raw = rows.length ? String(rows[0].value ?? rows[0][0]) : null;
@@ -81,15 +81,13 @@ async function compareAndSwapLease(
   const key = lockStorageKey(ownerEmail);
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
       args: [key, nextRaw, Date.now()],
     });
     return result.rowsAffected === 1;
   }
   const result = await client.execute({
-    sql: `UPDATE ${settingsTable()} SET value = ?, updated_at = ? WHERE key = ? AND value = ?`,
+    sql: `UPDATE ${settingsTable()} SET value = $1, updated_at = $2 WHERE key = $3 AND value = $4`,
     args: [nextRaw, Date.now(), key, expectedRaw],
   });
   return result.rowsAffected === 1;
@@ -120,7 +118,7 @@ async function releaseDatabaseLease(
   for (let attempt = 0; attempt < LOCK_RELEASE_ATTEMPTS; attempt += 1) {
     try {
       await getDbExec().execute({
-        sql: `DELETE FROM ${settingsTable()} WHERE key = ? AND value = ?`,
+        sql: `DELETE FROM ${settingsTable()} WHERE key = $1 AND value = $2`,
         args: [lockStorageKey(ownerEmail), leaseRaw],
       });
       return;
@@ -136,7 +134,7 @@ async function readMailboxRow(ownerEmail: string): Promise<string | null> {
   // attempts always compare against the latest committed mailbox snapshot.
   await getUserSetting(ownerEmail, "local-emails");
   const { rows } = await getDbExec().execute({
-    sql: `SELECT value FROM ${settingsTable()} WHERE key = ?`,
+    sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
     args: [mailboxStorageKey(ownerEmail)],
   });
   return rows.length ? String(rows[0].value ?? rows[0][0]) : null;
@@ -161,15 +159,13 @@ async function compareAndSwapMailbox(
   const key = mailboxStorageKey(ownerEmail);
   if (expectedRaw === null) {
     const result = await client.execute({
-      sql: isPostgres()
-        ? `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`
-        : `INSERT OR IGNORE INTO ${settingsTable()} (key, value, updated_at) VALUES (?, ?, ?)`,
+      sql: `INSERT INTO ${settingsTable()} (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
       args: [key, nextRaw, Date.now()],
     });
     return result.rowsAffected === 1;
   }
   const result = await client.execute({
-    sql: `UPDATE ${settingsTable()} SET value = ?, updated_at = ? WHERE key = ? AND value = ?`,
+    sql: `UPDATE ${settingsTable()} SET value = $1, updated_at = $2 WHERE key = $3 AND value = $4`,
     args: [nextRaw, Date.now(), key, expectedRaw],
   });
   return result.rowsAffected === 1;

@@ -84,12 +84,12 @@ export default createAgentChatPlugin({
 可用的模式有:
 
 - `off`。默认值。生产环境中不会注册任何代码执行工具。
-- `sandboxed`。注册 `run-code`,一个隔离的 Node.js JavaScript 运行器,带有一个清理过的环境、一个全新的临时目录、输出/时间限制,以及一个连接到允许列表中已注册工具(例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`,以及 `workspaceRead` / `workspaceWrite` 所使用的、由 Resources 支持的工作区文件桥)的本地主机桥。
+- `sandboxed`。注册 `run-code`,一个强化的 QuickJS 评估器,具有限制的内存、堆栈、源代码、结果和输出,并通过主机函数连接到允许列表中的已注册工具,例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request` 以及 `workspaceRead` / `workspaceWrite` 使用的 Resources 工作区文件桥。来宾代码无法访问 Node 模块、文件系统、环境变量、网络、计时器或 imports。
 - `trusted`。注册 `run-code` 以及完整的编码工具注册表(`bash`、`read`、`edit`、`write`)。只在单租户或由操作员完全掌控、有意允许对主机进行完整 shell 访问的部署中使用它。
 
 设置 `AGENT_PROD_CODE_EXECUTION=sandboxed` 或 `AGENT_PROD_CODE_EXECUTION=trusted`,可以在不改代码的情况下,为某个特定部署覆盖插件选项。即使插件选项启用了代码执行,`AGENT_PROD_CODE_EXECUTION=off` 也会强制将其关闭。
 
-`run-code` 沙箱是进程级别的隔离,不是一个操作系统容器。它会从子进程环境中剥离应用密钥,并在可用时使用 Node 的权限模型,但出站网络并不会被 Node 本身阻止。经过身份验证的调用应该通过这个工具暴露的桥接辅助函数来进行。
+生产环境的 `run-code` 评估器使用强化的 QuickJS,而不是 Node 子进程。它不是操作系统容器:主机函数仍是受信任的能力并负责身份验证和授权,评估器则限制来宾代码资源和桥接调用。
 
 ## 下一步
 

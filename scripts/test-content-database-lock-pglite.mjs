@@ -133,18 +133,15 @@ const driverLinks = driverScopes.map((scopeDirectory) => ({
   scopeDirectory,
   scopeExisted: existsSync(scopeDirectory),
   driverLink: join(scopeDirectory, "pglite"),
+  linkedByScript: false,
 }));
-for (const { driverLink } of driverLinks) {
-  if (existsSync(driverLink)) {
-    throw new Error(
-      `Refusing to replace existing PGlite driver at ${driverLink}`,
-    );
-  }
-}
 try {
-  for (const { scopeDirectory, driverLink } of driverLinks) {
+  for (const link of driverLinks) {
+    const { scopeDirectory, driverLink } = link;
+    if (existsSync(driverLink)) continue;
     mkdirSync(scopeDirectory, { recursive: true });
     symlinkSync(driverPackage, driverLink, "dir");
+    link.linkedByScript = true;
   }
   const actionSuite = spawnSync(
     "pnpm",
@@ -174,8 +171,13 @@ try {
     );
   }
 } finally {
-  for (const { scopeDirectory, scopeExisted, driverLink } of driverLinks) {
-    if (existsSync(driverLink)) rmSync(driverLink);
+  for (const {
+    scopeDirectory,
+    scopeExisted,
+    driverLink,
+    linkedByScript,
+  } of driverLinks) {
+    if (linkedByScript && existsSync(driverLink)) rmSync(driverLink);
     if (!scopeExisted && existsSync(scopeDirectory)) rmdirSync(scopeDirectory);
   }
 }

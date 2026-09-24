@@ -42,7 +42,7 @@ description: "app/ 用来读取、写入数据，并与代理调用的同一批 
   </div>
   <div class="fmcmp-vs diagram-muted">vs</div>
   <div class="fmcmp-col">
-    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="fmcmp-label diagram-muted">Agent-Native</div>
     <div class="diagram-node">组件</div>
     <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
     <div class="diagram-node">useActionQuery("get-lead")</div>
@@ -398,7 +398,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-该钩子用于让 UI 与发生在您自己的 actions 之外的数据库变更保持同步，例如代理写入、webhook，或来自另一个浏览器标签页的变更。它通过 server-sent events 监听变更，在 server-sent events 不可用时回退到轮询。
+该钩子用于让 UI 与发生在您自己的 actions 之外的数据库变更保持同步，例如代理写入、webhook，或来自另一个浏览器标签页的变更。它通过 server-sent events 监听变更，在 server-sent events 不可用时回退到轮询。在生产环境无服务器部署上，应用自身的 `/_agent-native/events` 流按设计不可用——服务器会立即返回 204，而不是保持函数实例开启——因此那里的全部同步都由轮询以相同节奏承担，除非应用已接入[托管实时同步网关](/docs/real-time-collaboration#hosted-gateway)。
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

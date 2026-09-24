@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
+import { runWithRequestContext } from "./request-context.js";
+import {
   fireInternalDispatch,
+  resolveDeploymentBaseUrl,
   resolveSelfDispatchBaseUrl,
 } from "./self-dispatch.js";
 
@@ -11,6 +17,70 @@ describe("fireInternalDispatch", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it("uses the Agent-Native dev port when retrying outside a request", () => {
+    const keys = [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "PORT",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    for (const key of keys) delete process.env[key];
+
+    try {
+      expect(resolveSelfDispatchBaseUrl()).toBe("http://localhost:3000");
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("uses HTTP for a loopback dev host behind an HTTPS tunnel", () => {
+    const keys = [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    for (const key of keys) delete process.env[key];
+
+    try {
+      expect(
+        resolveSelfDispatchBaseUrl({
+          node: {
+            req: {
+              headers: {
+                host: "127.0.0.1:8092",
+                "x-forwarded-proto": "https",
+              },
+            },
+          },
+        }),
+      ).toBe("http://127.0.0.1:8092");
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("rejects quickly returned non-2xx processor responses", async () => {
@@ -72,6 +142,32 @@ describe("fireInternalDispatch", () => {
     // The /starter base path must be stripped for the host-root function url.
     expect(calledUrl).toBe(
       "https://workspace.example.test/.netlify/functions/starter-agent-background",
+    );
+  });
+
+  it("carries the synthetic marker into a background handoff", async () => {
+    let requestHeaders: HeadersInit | undefined;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      requestHeaders = init?.headers;
+      return {
+        ok: true,
+        status: 202,
+        statusText: "Accepted",
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      fireInternalDispatch({
+        baseUrl: "https://slides.example.test",
+        path: "/.netlify/functions/server-agent-background",
+        taskId: "task-synthetic",
+        awaitResponse: true,
+      }),
+    );
+
+    expect(new Headers(requestHeaders).get(SYNTHETIC_TRAFFIC_HEADER)).toBe(
+      SYNTHETIC_TRAFFIC_BETA_E2E,
     );
   });
 
@@ -340,5 +436,103 @@ describe("fireInternalDispatch", () => {
       if (previous.A2A_SECRET === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previous.A2A_SECRET;
     }
+  });
+});
+
+describe("resolveSelfDispatchBaseUrl with AGENT_NATIVE_SELF_DISPATCH_URL", () => {
+  const originalFetch = globalThis.fetch;
+
+  function stubPlatformUrls() {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(
+      "DEPLOY_PRIME_URL",
+      "https://deploy-preview-7--app.example.test",
+    );
+    vi.stubEnv("DEPLOY_URL", "https://7--app.example.test");
+    vi.stubEnv("URL", "https://app.example.test");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("APP_BASE_PATH", "");
+  }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
+  });
+
+  it("wins over every platform and app URL", () => {
+    stubPlatformUrls();
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080/");
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080");
+  });
+
+  it("is enough on its own in production", () => {
+    for (const key of [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "APP_BASE_PATH",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080");
+  });
+
+  it("gets the configured app base path", async () => {
+    stubPlatformUrls();
+    vi.stubEnv("APP_BASE_PATH", "/starter");
+    vi.stubEnv("A2A_SECRET", "test-secret");
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+    let calledUrl = "";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return { ok: true, status: 200, statusText: "OK", text: async () => "" };
+    }) as unknown as typeof fetch;
+
+    expect(resolveSelfDispatchBaseUrl()).toBe("http://127.0.0.1:8080/starter");
+    await fireInternalDispatch({
+      path: "/_agent-native/agent-chat/_process-run",
+      taskId: "task-loopback",
+      settleMs: 1000,
+    });
+    expect(calledUrl).toBe(
+      "http://127.0.0.1:8080/starter/_agent-native/agent-chat/_process-run",
+    );
+  });
+
+  it("rejects a value that is not an absolute http(s) URL", () => {
+    stubPlatformUrls();
+    for (const value of ["127.0.0.1:8080", "localhost:3000", "ftp://host"]) {
+      vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", value);
+      expect(() => resolveSelfDispatchBaseUrl()).toThrow(
+        /AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http\(s\) URL/,
+      );
+    }
+  });
+
+  it("keeps today's order when unset or blank", () => {
+    stubPlatformUrls();
+    for (const value of ["", "   "]) {
+      vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", value);
+      expect(resolveSelfDispatchBaseUrl()).toBe(
+        "https://deploy-preview-7--app.example.test",
+      );
+    }
+  });
+
+  it("is ignored by resolveDeploymentBaseUrl, which outside callers use", () => {
+    stubPlatformUrls();
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "http://127.0.0.1:8080");
+
+    expect(resolveDeploymentBaseUrl()).toBe(
+      "https://deploy-preview-7--app.example.test",
+    );
   });
 });

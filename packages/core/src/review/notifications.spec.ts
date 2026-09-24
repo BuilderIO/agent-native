@@ -7,6 +7,12 @@ const mocks = vi.hoisted(() => ({
   getReviewableResource: vi.fn(),
   resolveReviewableResourceAccess: vi.fn(),
   filterRecipientsByResourceAccess: vi.fn(),
+  filterUnmutedReviewThreadRecipients: vi.fn(),
+  reviewCommentNotificationCompleted: vi.fn(),
+  markReviewCommentNotificationCompleted: vi.fn(),
+  claimReviewNotificationDelivery: vi.fn(),
+  finishReviewNotificationDelivery: vi.fn(),
+  releaseReviewNotificationDelivery: vi.fn(),
 }));
 
 vi.mock("../server/activity-notifications.js", async () => {
@@ -48,12 +54,25 @@ vi.mock("./registry.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  claimReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.claimReviewNotificationDelivery(...args),
+  finishReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.finishReviewNotificationDelivery(...args),
+  releaseReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.releaseReviewNotificationDelivery(...args),
+  reviewCommentNotificationCompleted: (...args: unknown[]) =>
+    mocks.reviewCommentNotificationCompleted(...args),
+  markReviewCommentNotificationCompleted: (...args: unknown[]) =>
+    mocks.markReviewCommentNotificationCompleted(...args),
+  filterUnmutedReviewThreadRecipients: (...args: unknown[]) =>
+    mocks.filterUnmutedReviewThreadRecipients(...args),
   queryReviewComments: (...args: unknown[]) =>
     mocks.queryReviewComments(...args),
 }));
 
 import {
   notifyReviewComment,
+  notifyReviewCommentWithReceipt,
   REVIEW_NOTIFICATION_PREFS_KEY,
 } from "./notifications.js";
 import type { ReviewComment } from "./types.js";
@@ -98,7 +117,15 @@ beforeEach(() => {
     sent: [],
     failed: [],
   });
+  mocks.reviewCommentNotificationCompleted.mockResolvedValue(false);
+  mocks.claimReviewNotificationDelivery.mockResolvedValue({
+    status: "claimed",
+    token: "claim-1",
+  });
   mocks.queryReviewComments.mockResolvedValue([]);
+  mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
+    async (_threadId: string, recipients: string[]) => recipients,
+  );
   mocks.getReviewableResource.mockReturnValue(undefined);
   // Default: everyone offered still has access. Access filtering has its own
   // tests; these assert who is *offered*.
@@ -108,7 +135,128 @@ beforeEach(() => {
   );
 });
 
+describe("notifyReviewCommentWithReceipt", () => {
+  it("does not resend successful recipients when another recipient fails", async () => {
+    const delivered = new Set<string>();
+    mocks.notifyActivity.mockImplementation(
+      async ({ send }: { send: (to: string) => Promise<void> }) => {
+        const sent: string[] = [];
+        const failed: { email: string; error: string }[] = [];
+        for (const email of ["first@example.com", "second@example.com"]) {
+          try {
+            await send(email);
+            sent.push(email);
+          } catch (error) {
+            failed.push({ email, error: String(error) });
+          }
+        }
+        return {
+          status: failed.length ? "delivered" : "delivered",
+          sent,
+          failed,
+        };
+      },
+    );
+    mocks.claimReviewNotificationDelivery.mockImplementation(
+      async (_id: string, email: string) =>
+        delivered.has(email)
+          ? { status: "sent" }
+          : { status: "claimed", token: email },
+    );
+    mocks.finishReviewNotificationDelivery.mockImplementation(
+      async (_id: string, email: string) => {
+        delivered.add(email);
+      },
+    );
+    mocks.sendEmail
+      .mockImplementationOnce(async () => {})
+      .mockImplementationOnce(async () => {
+        throw new Error("offline");
+      })
+      .mockImplementationOnce(async () => {});
+
+    expect(
+      (await notifyReviewCommentWithReceipt(comment()))?.failed,
+    ).toHaveLength(1);
+    expect(
+      (await notifyReviewCommentWithReceipt(comment()))?.failed,
+    ).toHaveLength(0);
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(3);
+    expect(mocks.sendEmail.mock.calls.map(([input]) => input.to)).toEqual([
+      "first@example.com",
+      "second@example.com",
+      "second@example.com",
+    ]);
+  });
+
+  it("reports a receipt read failure without rejecting an already saved comment", async () => {
+    mocks.reviewCommentNotificationCompleted.mockRejectedValue(
+      new Error("database unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "notification-error",
+    );
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
+  it("retries after a failed delivery, then suppresses a completed replay", async () => {
+    mocks.notifyActivity.mockResolvedValueOnce({
+      status: "delivery-failed",
+      sent: [],
+      failed: [{ email: "owner@example.com", error: "offline" }],
+    });
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivery-failed",
+    );
+    expect(mocks.markReviewCommentNotificationCompleted).not.toHaveBeenCalled();
+
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivered",
+    );
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+
+    mocks.reviewCommentNotificationCompleted.mockResolvedValue(true);
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(mocks.notifyActivity).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("notifyReviewComment", () => {
+  it("honors thread mute for reply emails, including explicit mentions", async () => {
+    mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([
+      "participant@example.com",
+    ]);
+    mocks.queryReviewComments.mockResolvedValue([
+      { threadId: "t1", authorEmail: "participant@example.com" },
+    ]);
+    await notifyReviewComment(
+      comment({
+        parentCommentId: "root",
+        mentions: [{ label: "Owner", email: "owner@example.com" }],
+      }),
+    );
+    expect(mocks.filterUnmutedReviewThreadRecipients).toHaveBeenCalledWith(
+      "t1",
+      expect.arrayContaining(["owner@example.com", "participant@example.com"]),
+    );
+    expect(notifyArgs().candidates).toEqual(["participant@example.com"]);
+  });
+
+  it("reports unreadable mute preferences without sending reply emails", async () => {
+    mocks.filterUnmutedReviewThreadRecipients.mockRejectedValue(
+      new Error("preference store unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await notifyReviewComment(
+      comment({ parentCommentId: "root" }),
+    );
+    expect(result.status).toBe("notification-error");
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
   it("notifies the owner and mentions against the shared preference key", async () => {
     await notifyReviewComment(
       comment({

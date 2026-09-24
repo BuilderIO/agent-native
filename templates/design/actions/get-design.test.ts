@@ -17,8 +17,16 @@ const mocks = vi.hoisted(() => {
     })),
     resolveAccess: vi.fn(),
     selectChain,
+    track: vi.fn(),
+    getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
   };
 });
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   registerShareableResource: vi.fn(),
@@ -40,6 +48,10 @@ vi.mock("../server/db/index.js", () => ({
       createdAt: "designFiles.createdAt",
     },
   },
+}));
+
+vi.mock("./get-design-system.js", () => ({
+  default: { run: mocks.getDesignSystemRun },
 }));
 
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
@@ -116,6 +128,36 @@ describe("get-design", () => {
     expect(result.data).not.toContain("example-private-bridge-token");
   });
 
+  it("includes readable linked design-system context", async () => {
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: {
+        id: "design_123",
+        title: "Public checkout",
+        description: "Shared preview",
+        projectType: "prototype",
+        designSystemId: "system-7",
+        data: JSON.stringify({ canvasFrames: [] }),
+        visibility: "public",
+        createdAt: "2026-06-29T00:00:00.000Z",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    });
+
+    const result = await action.run({ id: "design_123" });
+
+    expect(mocks.getDesignSystemRun).toHaveBeenCalledWith(
+      expect.objectContaining({ compact: "true" }),
+    );
+    expect(result.designSystem).toMatchObject({
+      status: "available",
+      scope: "summary",
+      id: "system-7",
+      agentContext: "Use --brand-accent: #123456.",
+      next: expect.any(String),
+    });
+  });
+
   it("returns files in a stable order so a design lays itself out the same way twice", async () => {
     // Heap order is not stable across writes, and this array feeds the overview
     // screen stack plus each screen's index within its layout group.
@@ -125,6 +167,24 @@ describe("get-design", () => {
       { asc: "designFiles.createdAt" },
       { asc: "designFiles.id" },
     );
+  });
+
+  it("tracks one view per signed-in viewer across repeated reads", async () => {
+    mocks.track.mockClear();
+    const ctx = { userEmail: "viewer-a@example.com" } as never;
+    await action.run({ id: "design_views" }, ctx);
+    await action.run({ id: "design_views" }, ctx);
+    await action.run({ id: "design_views" }, {
+      userEmail: "viewer-b@example.com",
+    } as never);
+    await action.run({ id: "design_views" });
+    await action.run({ id: "design_views" });
+
+    const views = mocks.track.mock.calls.filter(
+      ([name]) => name === "design_viewed",
+    );
+    // viewer-a once, viewer-b once, and each anonymous read.
+    expect(views).toHaveLength(4);
   });
 
   it("returns an explicit not-found error for a deleted or inaccessible design", async () => {

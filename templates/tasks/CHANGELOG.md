@@ -2,6 +2,12 @@
 
 All notable user-facing changes to this app are documented here.
 
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-11
 
 ### Fixed
@@ -18,7 +24,7 @@ All notable user-facing changes to this app are documented here.
 
 ### Improved
 
-- Clicking the Agent Native logo now toggles the app sidebar.
+- Clicking the Agent-Native logo now toggles the app sidebar.
 
 ## 2026-07-29
 

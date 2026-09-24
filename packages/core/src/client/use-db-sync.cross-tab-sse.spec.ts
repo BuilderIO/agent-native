@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   _resetSyncTransportRegistryForTests,
+  REALTIME_CAP_POLL_LIVE,
   subscribeSyncEvents,
   type SyncEvent,
 } from "./use-db-sync";
@@ -293,6 +294,63 @@ describe("cross-tab SSE sharing", () => {
 
     unsub();
     unsubOther();
+  });
+
+  it("broadcasts poll-live to followers when the leader's own stream is refused before opening", async () => {
+    const unsub = subscribeSyncEvents({ onEvents: () => {}, interval: 500 });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const source = FakeEventSource.instances[0];
+    source.readyState = FakeEventSource.CLOSED;
+    source.onerror?.();
+
+    // setSseConnected's broadcast only fires on a `connected` transition —
+    // this stream was never connected, so the refusal branch must broadcast
+    // the capability change itself for a follower tab to ever learn it.
+    const channel = FakeBroadcastChannel.instances.at(-1)!;
+    expect(channel.posted).toContainEqual({
+      type: "sse-state",
+      connected: false,
+      capabilities: [REALTIME_CAP_POLL_LIVE],
+    });
+
+    unsub();
+  });
+
+  it("notifies a follower's own subscribers of a capability-only frame (connected unchanged)", async () => {
+    FakeLockManager.grant = false;
+    const states: Array<{
+      connected: boolean;
+      capabilities: readonly string[] | undefined;
+    }> = [];
+    const unsub = subscribeSyncEvents({
+      onEvents: () => {},
+      onSseStateChange: (connected, capabilities) =>
+        states.push({ connected, capabilities }),
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(states.at(-1)).toEqual({ connected: false, capabilities: [] });
+
+    // The leader's refusal frame (or its reply to this follower's own
+    // sse-state-request) leaves `connected: false` unchanged — only
+    // `capabilities` differs. setSseConnected() alone no-ops on that, so this
+    // follower's own subscribers need their own notify to ever see it.
+    const channel = FakeBroadcastChannel.instances.at(-1)!;
+    channel.onmessage?.({
+      data: {
+        type: "sse-state",
+        connected: false,
+        capabilities: [REALTIME_CAP_POLL_LIVE],
+      },
+    });
+
+    expect(states.at(-1)).toEqual({
+      connected: false,
+      capabilities: [REALTIME_CAP_POLL_LIVE],
+    });
+
+    unsub();
   });
 
   it("keeps one stream per tab when Web Locks is unavailable", async () => {

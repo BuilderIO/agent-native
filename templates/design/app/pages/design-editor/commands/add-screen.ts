@@ -1,6 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { getFrameGroupBounds } from "@shared/canvas-math";
 import type { QueryClient } from "@tanstack/react-query";
+import type { RefObject } from "react";
 import { toast } from "sonner";
 
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
@@ -11,15 +13,20 @@ import {
   nextBlankScreenFilename,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { getAllScreenFrameEntries } from "../overview-camera";
+
 export interface AddScreenArgs {
   canEditDesign: boolean;
-  canvasFrameGeometryById: CanvasFrameGeometryById;
+  boardContentBounds?: FrameGeometry | null;
+  boardFileId?: string | null;
   createFileMutation: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >;
+  designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
   focusCreatedScreen: (screenId: string, geometry: FrameGeometry) => void;
   id: string | undefined;
@@ -42,8 +49,10 @@ export interface AddScreenArgs {
 
 export function runAddScreen({
   canEditDesign,
-  canvasFrameGeometryById,
+  boardContentBounds,
+  boardFileId,
   createFileMutation,
+  designDataJsonRef,
   files,
   focusCreatedScreen,
   id,
@@ -57,10 +66,29 @@ export function runAddScreen({
   if (!id || !canEditDesign) return;
   const filename = nextBlankScreenFilename(files);
   const content = blankScreenHtml(prettyScreenName(filename));
-  const nextGeometry = getInitialFrameGeometry(overviewScreens.length, {
+  const defaultGeometry = getInitialFrameGeometry(overviewScreens.length, {
     width: 1280,
     height: 2560,
   });
+  const bounds = getFrameGroupBounds(
+    getAllScreenFrameEntries({
+      overviewScreens,
+      canvasFrameGeometryById: getCanvasFrameGeometry(
+        designDataJsonRef.current,
+      ),
+      boardContentBounds,
+      boardFileId,
+      includeResponsivePreviews: true,
+    }),
+  );
+  const nextGeometry = bounds
+    ? {
+        x: bounds.right + 56,
+        y: bounds.top,
+        width: defaultGeometry.width,
+        height: defaultGeometry.height,
+      }
+    : defaultGeometry;
   createFileMutation.mutate(
     {
       designId: id,
@@ -80,7 +108,7 @@ export function runAddScreen({
             result,
           });
           writeFrameGeometrySnapshot({
-            ...canvasFrameGeometryById,
+            ...getCanvasFrameGeometry(designDataJsonRef.current),
             [nextId]: nextGeometry,
           });
           focusCreatedScreen(nextId, nextGeometry);
@@ -95,7 +123,7 @@ export function runAddScreen({
         // a whole-design refetch re-downloads every screen's HTML, which is
         // what made adding a frame feel slow.
         if (!nextId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         }

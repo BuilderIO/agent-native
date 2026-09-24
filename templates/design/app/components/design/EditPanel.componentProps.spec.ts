@@ -72,13 +72,15 @@ describe("truncateOpeningTag", () => {
 });
 
 describe("elementHtmlPreview", () => {
-  it("collapses a selected element to an opening tag, literal ellipsis, and close tag", () => {
+  it("includes the selected element's content in the inspect output", () => {
     expect(
       elementHtmlPreview({
         html: `<article class="card" data-kind="story"><h1>Hello</h1></article>`,
         tagName: "article",
       }),
-    ).toBe(`<article class="card" data-kind="story">\n  ...\n</article>`);
+    ).toBe(
+      `<article class="card" data-kind="story">\n  <h1>Hello</h1>\n</article>`,
+    );
   });
 
   it("uses tag metadata when outer HTML is unavailable", () => {

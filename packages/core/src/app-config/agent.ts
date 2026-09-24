@@ -25,6 +25,22 @@ export const agentConfig = z.object({
       env: ["AGENT_MODEL"],
       doc: "Model the agent runs with, when the caller does not pass one.",
     }),
+  builtInEngines: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_BUILT_IN_ENGINES"],
+      doc: 'Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.',
+    }),
+  buildEnginePackages: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      doc: "Build-derived JSON list of runtime packages available to bundled agent engines.",
+    }),
   mode: z
     .string()
     .min(1)
@@ -39,6 +55,51 @@ export const agentConfig = z.object({
     .meta({
       env: ["AGENT_ENGINE_PREFER_BYO_KEY"],
       doc: "Skip the Builder-managed engine and select a directly configured provider key first.",
+    }),
+  // ── Output-token budget ─────────────────────────────────────────────────
+  //
+  // Every value here is a CEILING on one request's completion, not a spend:
+  // an unused ceiling costs nothing, while a ceiling that is too low truncates
+  // the answer — and on reasoning models extended thinking can consume the
+  // whole budget, leaving an empty visible response. Each is clamped down to
+  // the model's documented ceiling by `agent/engine/output-tokens.ts`, which
+  // is the only reader; the constants there carry the same numbers and
+  // `output-tokens.spec.ts` pins the two together.
+  maxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({
+      env: ["AGENT_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling for engine calls that do not pass one explicitly. Unset uses the per-engine defaults.",
+    }),
+  mainChatMaxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .default(64_000)
+    .meta({
+      env: ["AGENT_MAIN_CHAT_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling for the first attempt of an interactive chat turn.",
+    }),
+  emptyResponseRetryMaxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .default(128_000)
+    .meta({
+      env: ["AGENT_EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling used when retrying a turn that came back with an empty final response. Must be at or above mainChatMaxOutputTokens to raise anything.",
+    }),
+  sourceSweepToolCallThreshold: z
+    .number()
+    .int()
+    .positive()
+    .default(24)
+    .meta({
+      env: ["AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD"],
+      doc: "Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.",
     }),
   // These three stay `.optional()` rather than carrying a default: the value
   // that applies when they are unset depends on whether the run is hosted and

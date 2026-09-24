@@ -6,7 +6,12 @@ import {
   ActionContractError,
   isActionContractError,
   AgentActionStopError,
+  AgentConnectionRequiredError,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
+  isActionExposedToExternalAgents,
+  isActionHiddenFromEveryAgentSurface,
+  validateActionArgs,
 } from "./action.js";
 
 describe("ActionContractError", () => {
@@ -121,6 +126,16 @@ describe("defineAction", () => {
     expect(action.parallelSafe).toBe(true);
   });
 
+  it("preserves explicit endsTurn metadata", () => {
+    const action = defineAction({
+      description: "puts a question form on screen",
+      parameters: { x: { type: "string" } },
+      endsTurn: true,
+      run: async () => "ok",
+    });
+    expect(action.endsTurn).toBe(true);
+  });
+
   it("preserves explicit duplicate-read opt-out metadata", () => {
     const action = defineAction({
       description: "volatile polling read",
@@ -196,6 +211,94 @@ describe("defineAction", () => {
     expect(action.agentTool).toBeUndefined();
   });
 
+  it("threads through mcpTool and deferLoading, and leaves both undefined by default", () => {
+    const external = defineAction({
+      description: "share a plan with an external agent",
+      parameters: { id: { type: "string" } },
+      mcpTool: true,
+      deferLoading: false,
+      run: async () => "ok",
+    });
+    expect(external.mcpTool).toBe(true);
+    expect(external.deferLoading).toBe(false);
+
+    const inAppOnly = defineAction({
+      description: "open the inspector panel",
+      parameters: { id: { type: "string" } },
+      mcpTool: false,
+      deferLoading: true,
+      run: async () => "ok",
+    });
+    expect(inAppOnly.mcpTool).toBe(false);
+    expect(inAppOnly.deferLoading).toBe(true);
+
+    // Undefined is a third state both surfaces read — it must not collapse to
+    // the default value here, or the declaration becomes unreadable.
+    const plain = defineAction({
+      description: "normal action",
+      parameters: { id: { type: "string" } },
+      run: async () => "ok",
+    });
+    expect(plain.mcpTool).toBeUndefined();
+    expect(plain.deferLoading).toBeUndefined();
+  });
+
+  it("resolves external exposure from mcpTool, falling back to agentTool", () => {
+    // Inheritance, not a flat default: one flag stays one decision until an
+    // action says otherwise.
+    expect(isActionExposedToExternalAgents({})).toBe(true);
+    expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);
+    expect(isActionExposedToExternalAgents({ mcpTool: false })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: true }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
+    ).toBe(false);
+
+    // A turn-ending action (e.g. an in-app question form) is in-app only by
+    // default — the user's answer flows back through the in-app chat that
+    // an external caller is not on — unless `mcpTool: true` is explicit.
+    expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ uiOnly: true, mcpTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, agentTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: true }),
+    ).toBe(true);
+
+    // The runtime backstop refuses only what no surface may run, so an
+    // MCP-only action stays callable through the external registries.
+    expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(
+      true,
+    );
+    expect(
+      isActionHiddenFromEveryAgentSurface({ agentTool: false, mcpTool: true }),
+    ).toBe(false);
+    expect(isActionHiddenFromEveryAgentSurface({ mcpTool: false })).toBe(false);
+    expect(isActionHiddenFromEveryAgentSurface({ uiOnly: true })).toBe(true);
+  });
+
+  it("requires the frontend caller for UI-only actions", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "delete data",
+      parameters: {},
+      uiOnly: true,
+      run,
+    });
+
+    await expect(action.run({}, { caller: "tool" })).rejects.toMatchObject({
+      errorCode: "ui_only_action",
+      statusCode: 403,
+    });
+    await expect(action.run({}, { caller: "frontend" })).resolves.toBe("ok");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("preserves valid MCP Apps resource metadata", () => {
     const action = defineAction({
       description: "review draft",
@@ -214,6 +317,17 @@ describe("defineAction", () => {
     expect(action.mcpApp?.resource.csp).toEqual({
       connectDomains: ["https://mail.agent-native.com"],
     });
+  });
+
+  it("preserves an action title for WebMCP and MCP hosts", () => {
+    const action = defineAction({
+      title: "Review draft",
+      description: "review draft",
+      parameters: {},
+      run: async () => "ok",
+    });
+
+    expect(action.tool.title).toBe("Review draft");
   });
 
   it("drops malformed MCP Apps config", () => {
@@ -282,6 +396,18 @@ describe("defineAction", () => {
       run: async () => "sent",
     });
     expect(action.needsApproval).toBe(gate);
+  });
+
+  it("preserves a per-call-only approval policy on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      allowPersistentApproval: false,
+      run: async () => "sent",
+    });
+
+    expect(action.allowPersistentApproval).toBe(false);
   });
 
   it("leaves needsApproval undefined when not specified (default off)", () => {
@@ -690,6 +816,122 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
   });
+
+  it("validateActionArgs lets a matching schema's run() skip re-validation when passed the same ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    // The marker is keyed by `ctx` (see `preValidatedForContext`), not by
+    // `args` — so the exact same context object must be passed to both calls.
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(
+      schema,
+      { tag: "a" },
+      undefined,
+      ctx,
+    );
+    await action.run(validated, ctx);
+    // A second pass through the non-idempotent preprocess would have produced
+    // "a!!"; the marker means run() executes with the exact value validated.
+    expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("re-validates normally when run() is called without the marking ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    // Validated with no ctx, so nothing is marked and run() validates as usual
+    // — a primitive-valued schema result (which a WeakMap/WeakSet can't key
+    // on directly) still goes through the normal path safely.
+    const validated = await validateActionArgs(schema, { tag: "a" });
+    await action.run(validated);
+    expect(received).toEqual({ tag: "a!!" });
+  });
+
+  it("does not let a value validated for one action's schema skip a different action's validation", async () => {
+    const schemaA = z.object({ tag: z.string() });
+    const schemaB = z.object({ name: z.string() });
+    let ranB = false;
+    const actionB = defineAction({
+      description: "needs name",
+      schema: schemaB,
+      run: async () => {
+        ranB = true;
+        return "ok";
+      },
+    });
+
+    // Validated against schemaA, so it satisfies schemaA but is missing the
+    // field schemaB requires.
+    const validatedForA = await validateActionArgs(schemaA, { tag: "x" });
+    await expect(actionB.run(validatedForA)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ranB).toBe(false);
+  });
+
+  it("skips re-validation for a schema that validates down to a primitive", async () => {
+    // A WeakMap/WeakSet can't key on a primitive value at all — this is why
+    // the marker is keyed by `ctx` instead of by the validated value.
+    let received: unknown;
+    const schema = z.preprocess((v) => `${v}!`, z.string());
+    const action = defineAction({
+      description: "primitive schema",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, "a", undefined, ctx);
+    expect(validated).toBe("a!");
+    await action.run(validated, ctx);
+    // A second pass would have produced "a!!"; skipping it keeps this the
+    // exact value a `needsApproval` predicate would have decided against.
+    expect(received).toBe("a!");
+  });
+
+  it("recognizes a cached NaN result via Object.is instead of ===", async () => {
+    // NaN !== NaN, so a `===` comparison would miss the cache entry and
+    // silently re-invoke a schema transform a caller already validated
+    // against — reopening the same non-idempotent-transform gap for any
+    // schema that legitimately validates down to NaN.
+    let transformCalls = 0;
+    const schema = z.preprocess(() => {
+      transformCalls += 1;
+      return NaN;
+    }, z.any());
+    const action = defineAction({
+      description: "nan schema",
+      schema,
+      run: async () => "ok",
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, {}, undefined, ctx);
+    expect(Number.isNaN(validated)).toBe(true);
+    expect(transformCalls).toBe(1);
+    await action.run(validated, ctx);
+    expect(transformCalls).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -909,15 +1151,17 @@ describe("defineAction — authorize", () => {
 // AgentActionStopError — the stop-the-turn signal used by actions.
 // ---------------------------------------------------------------------------
 describe("AgentActionStopError", () => {
-  it("carries the stop marker, errorCode, and toolResult", () => {
+  it("carries the stop marker, safe details, errorCode, and toolResult", () => {
     const err = new AgentActionStopError("nothing more to do", {
       errorCode: "DONE",
+      details: { reason: "complete" },
       toolResult: "Stopped.",
     });
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe("AgentActionStopError");
     expect(err.agentNativeStop).toBe(true);
     expect(err.errorCode).toBe("DONE");
+    expect(err.details).toEqual({ reason: "complete" });
     expect(err.toolResult).toBe("Stopped.");
   });
 
@@ -932,6 +1176,28 @@ describe("AgentActionStopError", () => {
     expect(isAgentActionStopError({ agentNativeStop: false })).toBe(false);
     expect(isAgentActionStopError(null)).toBe(false);
     expect(isAgentActionStopError("agentNativeStop")).toBe(false);
+  });
+});
+
+describe("AgentConnectionRequiredError", () => {
+  it("carries only a trusted provider reference and resumable reason", () => {
+    const error = new AgentConnectionRequiredError("Slack must be connected.", {
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      agentNativeStop: true,
+      agentConnectionRequired: true,
+      errorCode: "connection_required",
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+    expect(error).not.toHaveProperty("url");
+    expect(error).not.toHaveProperty("scopes");
   });
 });
 

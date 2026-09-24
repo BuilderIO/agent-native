@@ -2,6 +2,7 @@
 // Import everything from "@agent-native/core".
 
 export * from "./config.js";
+export * from "./authorization/index.js";
 
 // Agent (production mode)
 export {
@@ -28,6 +29,8 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  fail,
+  type FailOptions,
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
@@ -109,13 +112,20 @@ export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
-  type AgentChatPluginOptions,
-} from "./server/agent-chat-plugin.js";
-export {
   createAgentNativeEmbeddedPlugin,
   mountAgentNativeEmbedded,
+  createServer,
+  createSSEHandler,
+  defineNitroPlugin,
+  autoMountAuth,
+  getSession,
+  type AgentChatPluginOptions,
   type AgentNativeEmbeddedPluginOptions,
-} from "./server/embedded.js";
+  type AuthSession,
+  type AuthOptions,
+  type CreateServerOptions,
+  type SSEHandlerOptions,
+} from "./root-server-compat.js";
 export {
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,
@@ -154,6 +164,8 @@ export {
   type JsonSchema,
 } from "./automation/index.js";
 export {
+  BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+  CONNECT_APPS_FLAG,
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,
@@ -172,19 +184,24 @@ export {
   createFeatureFlagA2AActionRouteAuth,
   createFeatureFlagsPlugin,
 } from "./feature-flags/server.js";
-
-// Server
 export {
-  createServer,
-  createSSEHandler,
-  defineNitroPlugin,
-  autoMountAuth,
-  getSession,
-  type CreateServerOptions,
-  type SSEHandlerOptions,
-  type AuthSession,
-  type AuthOptions,
-} from "./server/index.js";
+  defineLab,
+  defineLabs,
+  getLabDefinition,
+  listLabs,
+  registerLabs,
+  type LabDefinition,
+} from "./labs/index.js";
+export { createLabsPlugin } from "./labs/server.js";
+export {
+  defineExperiment,
+  defineExperiments,
+  getExperimentDefinition,
+  listExperiments,
+  registerExperiments,
+  type ExperimentDefinition,
+} from "./experiments/index.js";
+export { createExperimentsPlugin } from "./experiments/server.js";
 
 // Client
 //
@@ -208,6 +225,7 @@ export {
 // Shared (isomorphic)
 export {
   agentChat,
+  isQaTestEmail,
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";
@@ -424,7 +442,6 @@ export {
   isValidPath,
   isValidProjectPath,
   ensureDir,
-  fail,
 } from "./scripts/index.js";
 
 // Secrets registry — import from "@agent-native/core/secrets" when possible

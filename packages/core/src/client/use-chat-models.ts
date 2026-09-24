@@ -7,6 +7,7 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { fetchOllamaModels } from "./agent-engine-key.js";
 import {
   buildChatModelGroups,
   type ChatModelEngineEntry,
@@ -46,6 +47,20 @@ interface Options {
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
+
+/**
+ * `useChatModels` takes the raw localStorage key while `MultiTabAssistantChat`
+ * takes only the namespace suffix — a surface that hand-writes either one stops
+ * sharing the selection with the chat it sits next to.
+ */
+export function chatModelSelectionStorageKey(
+  namespace?: string | null,
+): string {
+  return namespace
+    ? `${DEFAULT_STORAGE_KEY}:${namespace}`
+    : DEFAULT_STORAGE_KEY;
+}
+
 export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
   "agent-native:chat-model-selection-changed";
 const MODEL_DISCOVERY_RETRY_DELAYS_MS = [250, 1_000] as const;
@@ -296,15 +311,50 @@ export function useChatModels({
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
 
+          // The static catalog only has the curated suggestion models for
+          // Ollama. Once the engine list is in, ask the configured Ollama
+          // server what it actually has installed and swap those in — a
+          // second, later render, so it never blocks the picker's first
+          // paint on a local network round trip. Gated on Ollama actually
+          // being the current engine (not merely present in the catalog,
+          // which it always is): every app registers it by default, so an
+          // unconditional probe would 502 on every chat load for the vast
+          // majority of setups that never touched Ollama.
+          if (currentEngineName === "ai-sdk:ollama") {
+            void fetchOllamaModels()
+              .then((liveModels) => {
+                if (!isCurrentRefresh() || liveModels.length === 0) return;
+                const liveEngines = enginesData.engines.map((engine) =>
+                  engine.name === "ai-sdk:ollama"
+                    ? { ...engine, supportedModels: liveModels }
+                    : engine,
+                );
+                setAvailableModels(
+                  buildChatModelGroups({
+                    engines: liveEngines,
+                    configuredKeys,
+                    builderConnected,
+                    currentEngineName,
+                    currentModel,
+                  }),
+                );
+              })
+              .catch(() => {
+                // No local Ollama server reachable — keep the static
+                // suggestion list already rendered above.
+              });
+          }
+
           const selection = selectionRef.current;
 
           // Default only to a CONFIGURED group, and to nothing when there is
           // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
           // unless Builder is connected, and unconfigured groups are kept in the
-          // list for their connect affordance — so both `?? DEFAULT_MODEL` and
-          // `?? groups[0]` yield a selection the app cannot route, which the
-          // server silently replaces with its own default. An empty selection
-          // hides the picker instead of showing a model that will not be used.
+          // list for their connect affordance where that is useful — so both
+          // `?? DEFAULT_MODEL` and `?? groups[0]` yield a selection the app
+          // cannot route, which the server silently replaces with its own
+          // default. An empty selection hides the picker instead of showing a
+          // model that will not be used.
           const configuredGroups = groups.filter((g) => g.configured);
           const resolveRoutableSelection = () => {
             const group =

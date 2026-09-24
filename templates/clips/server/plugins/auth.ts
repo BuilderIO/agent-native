@@ -8,29 +8,44 @@ export default createAuthPlugin({
   // Keep the native tray token and the Better Auth cookie useful between
   // infrequent recording sessions without making them permanent.
   maxAge: 60 * 60 * 24 * 90,
+  workspaceAppPublicPaths: ["/"],
   // Clips owns `/_agent-native/google/*` so the same registered Google
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
+    screenshotPath: "/auth-marketing/clips.webp",
+    screenshotWidth: 914,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
-      "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
-      "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+      "Calendar-synced meeting notes with live transcripts and AI action items",
+      "Push-to-talk voice dictation - hold Fn anywhere, get clean text back",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },
   publicPaths: [
     "/share",
-    "/r",
     "/embed",
     // Prerendered to static HTML, so the CDN answers without ever reaching this
     // middleware. Sharing the constant keeps "prerendered" a strict subset of
     // "public" instead of two lists that can drift into an auth bypass.
     ...PRERENDERED_PUBLIC_PAGE_PATHS,
+    // Legacy recording links are auth-aware: the route keeps the owner shell
+    // for signed-in viewers and redirects anonymous viewers to /share/:id.
+    "/r",
     "/bug-report",
+    // The recorder is public only so a signed intake URL can reach the
+    // browser capture UI. Recording creation and upload remain token-scoped.
+    "/record",
+    // Anonymous intake is a signed, write-only capability. The recording
+    // action and transport handlers perform their own token and recording-
+    // scope checks. Agent-link exchange stays behind normal auth.
+    "/_agent-native/actions/create-intake-recording",
+    "/api/clip-intake",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it
     // as JSON, fails, and can't resolve any public route the user lands

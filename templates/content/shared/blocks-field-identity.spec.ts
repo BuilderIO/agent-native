@@ -42,6 +42,38 @@ describe("Blocks field identity", () => {
     expect(first.identityStatus).toBe("legacy");
   });
 
+  it("materializes ordinary Markdown details bodies as toggle children", () => {
+    const identity = legacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown: [
+        "<details>",
+        "<summary>Toggle</summary>",
+        "Paragraph",
+        "## Heading",
+        "- item",
+        "</details>",
+      ].join("\n"),
+    });
+    const [toggle, ...children] = identity.blocks;
+
+    expect(toggle?.kind).toBe("notionToggle");
+    expect(children.map((block) => block.kind)).toEqual([
+      "paragraph",
+      "heading",
+      "bulletList",
+      "listItem",
+      "paragraph",
+    ]);
+    expect(children.map((block) => block.parentId)).toEqual([
+      toggle?.id,
+      toggle?.id,
+      toggle?.id,
+      children[2]?.id,
+      children[3]?.id,
+    ]);
+  });
+
   it("field-scopes identical preferred and generated IDs at first materialization", () => {
     const markdown = '<registry-block blockId="shared-id" />';
     const first = materializeLegacyBlocksFieldIdentity({

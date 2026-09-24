@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
@@ -109,6 +109,8 @@ export interface EmbedSessionTicketConsumeDiagnostic {
 export interface ConsumeEmbedSessionTicketOptions {
   expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
+  /** Capability tickets are resource-scoped, not bound to the browser's account. */
+  allowCapabilityIdentityMismatch?: boolean;
   onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
 
@@ -173,9 +175,6 @@ export function resolvedEmbedCapabilityScope(
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      // Build the CREATE SQL here (not at module scope) so intType() runs at
-      // RUNTIME, not import time — a module-scope call breaks any consumer whose
-      // db/client mock doesn't stub intType (e.g. db-admin specs).
       const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
@@ -183,23 +182,15 @@ export async function ensureTable(): Promise<void> {
           org_id TEXT,
           target_path TEXT NOT NULL,
           scope TEXT,
-          created_at ${intType()} NOT NULL,
-          expires_at ${intType()} NOT NULL,
-          consumed_at ${intType()}
+          created_at BIGINT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          consumed_at BIGINT
         )
       `;
-      if (isPostgres()) {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
-        await ensureTableExists(
-          "agent_native_embed_tickets",
-          embedTicketsCreateSql,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      const client = getDbExec();
-      await client.execute(embedTicketsCreateSql);
+      await ensureTableExists(
+        "agent_native_embed_tickets",
+        embedTicketsCreateSql,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -686,6 +677,9 @@ export async function consumeEmbedSessionTicket(
   const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
+  const capabilityScope = isEmbedCapabilityScope(stringOrUndefined(row.scope));
+  const identityMismatchAllowed =
+    options.allowCapabilityIdentityMismatch && capabilityScope;
   if (consumedAt != null) {
     options.onResult?.({
       outcome: "already-consumed",
@@ -715,6 +709,7 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   if (
+    !identityMismatchAllowed &&
     expectedOwnerEmail &&
     ownerEmail &&
     normalizedEmail(ownerEmail) !== expectedOwnerEmail
@@ -732,7 +727,12 @@ export async function consumeEmbedSessionTicket(
     });
     return null;
   }
-  if (options.expectedOrgId && orgId && orgId !== options.expectedOrgId) {
+  if (
+    !identityMismatchAllowed &&
+    options.expectedOrgId &&
+    orgId &&
+    orgId !== options.expectedOrgId
+  ) {
     options.onResult?.({
       outcome: "org-mismatch",
       ticketKey,
@@ -971,7 +971,7 @@ export async function resolveEmbedSessionFromRequest(
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);
-        setResponseHeader(event, "Referrer-Policy", "no-referrer");
+        setResponseHeader(event, "Referrer-Policy", "same-origin");
       } catch {
         // Some tests and edge runtimes expose read-only request shims. The
         // query token itself is still valid for this request.

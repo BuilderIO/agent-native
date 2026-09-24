@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
+import {
+  CLI_STATUS_TTL_MS,
+  cachedCliStatus,
+  createCliStatusCache,
+  invalidateCliStatusCache,
+} from "./cli-status-cache.js";
 
 describe("cachedCliStatus", () => {
   it("probes synchronously only on the first call, then serves the cache", () => {
@@ -57,6 +62,46 @@ describe("cachedCliStatus", () => {
     ).toBe("fresh");
   });
 
+  it("refreshes explicitly without clearing the current value", async () => {
+    const cache = createCliStatusCache<string>();
+    let asyncProbes = 0;
+    let releaseProbe!: (value: string) => void;
+    const probe = new Promise<string>((resolve) => {
+      releaseProbe = resolve;
+    });
+
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        async () => "initial async result",
+      ),
+    ).toBe("stale");
+    const current = cachedCliStatus(
+      cache,
+      () => "stale",
+      async () => {
+        asyncProbes += 1;
+        return probe;
+      },
+      Date.now,
+      CLI_STATUS_TTL_MS,
+      { refresh: true },
+    );
+
+    expect(current).toBe("stale");
+    expect(asyncProbes).toBe(1);
+    releaseProbe("fresh");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        async () => "unexpected second probe",
+      ),
+    ).toBe("fresh");
+  });
+
   it("does not stack concurrent refreshes while one is in flight", async () => {
     const cache = createCliStatusCache<string>();
     let clock = 0;
@@ -100,5 +145,67 @@ describe("cachedCliStatus", () => {
         1000,
       ),
     ).toBe("fresh");
+  });
+
+  it("allows an explicit refresh to re-probe immediately", () => {
+    const cache = createCliStatusCache<string>();
+    let value = "signed out";
+    const probe = () => value;
+
+    expect(cachedCliStatus(cache, probe, async () => value)).toBe("signed out");
+    value = "signed in";
+    invalidateCliStatusCache(cache);
+
+    expect(cachedCliStatus(cache, probe, async () => value)).toBe("signed in");
+  });
+
+  it("does not let an older refresh overwrite an explicit refresh", async () => {
+    const cache = createCliStatusCache<string>();
+    let clock = 0;
+    let releaseOldProbe!: (value: string) => void;
+    const oldProbe = new Promise<string>((resolve) => {
+      releaseOldProbe = resolve;
+    });
+
+    cachedCliStatus(
+      cache,
+      () => "initial",
+      () => oldProbe,
+      () => clock,
+      1000,
+    );
+    clock = 5000;
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "initial",
+        () => oldProbe,
+        () => clock,
+        1000,
+      ),
+    ).toBe("initial");
+
+    invalidateCliStatusCache(cache);
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "explicit refresh",
+        async () => "unexpected stale result",
+        () => clock,
+        1000,
+      ),
+    ).toBe("explicit refresh");
+
+    releaseOldProbe("old async result");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "explicit refresh",
+        async () => "unexpected stale result",
+        () => clock,
+        1000,
+      ),
+    ).toBe("explicit refresh");
   });
 });

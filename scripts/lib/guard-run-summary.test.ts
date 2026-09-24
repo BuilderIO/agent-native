@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
 
 import { GUARD_EXIT_COULD_NOT_RUN } from "./changed-lines.mjs";
@@ -17,6 +19,22 @@ describe("resultStatus", () => {
       "SKIPPED",
     );
     expect(resultStatus(outcome("d", null, "SIGKILL"))).toBe("FAIL");
+  });
+
+  it("reports truncated guard output as could-not-run", () => {
+    const helper = new URL("./changed-lines.mjs", import.meta.url).href;
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { execGuardCommand } from ${JSON.stringify(helper)}; execGuardCommand(process.execPath, ["-e", "process.stdout.write('x'.repeat(1024))"], { encoding: "utf8", maxBuffer: 16 });`,
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(child.status).toBe(GUARD_EXIT_COULD_NOT_RUN);
+    expect(child.stderr).toContain("guard command could not run");
   });
 });
 

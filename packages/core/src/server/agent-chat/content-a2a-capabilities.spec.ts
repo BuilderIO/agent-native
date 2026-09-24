@@ -11,6 +11,7 @@ import {
   buildAuthenticatedAgentA2ASkills,
   createA2AEngineToolSurface,
   filterDirectA2AActions,
+  shouldSelectedA2AReceiverOwnObjective,
 } from "./action-filters-a2a.js";
 
 const contentProjectRoot = path.resolve(
@@ -32,6 +33,68 @@ async function loadContentActions() {
 }
 
 describe("Content authenticated A2A capabilities", () => {
+  it(
+    "keeps a selected Content intake local for a managed Slack channel service principal",
+    async () => {
+      const managedChannelPrincipal =
+        "scope-test-content-app@integration.local";
+      const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+        authenticatedCallerEmail: managedChannelPrincipal,
+        enabled: true,
+        selectedReceiverApp: "content",
+        appId: "content",
+      });
+      const actions = await loadContentActions();
+      const availableTools = [
+        ...actionsToEngineTools(actions),
+        {
+          name: "tool-search",
+          description: "Find a local action",
+          inputSchema: { type: "object" as const },
+        },
+        {
+          name: "call-agent",
+          description: "Delegate to another app",
+          inputSchema: { type: "object" as const },
+        },
+      ];
+      const surface = createA2AEngineToolSurface(
+        availableTools,
+        ["update-document"],
+        {
+          receiverOwnsObjective,
+          localCapabilityNames: [
+            "list-content-databases",
+            "describe-content-database",
+          ],
+        },
+      );
+
+      expect(receiverOwnsObjective).toBe(true);
+      expect(surface.tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([
+          "list-content-databases",
+          "describe-content-database",
+          "update-document",
+          "tool-search",
+        ]),
+      );
+      expect(surface.tools.map((tool) => tool.name)).not.toContain(
+        "call-agent",
+      );
+
+      expect(
+        shouldSelectedA2AReceiverOwnObjective({
+          authenticatedCallerEmail: managedChannelPrincipal,
+          enabled: false,
+          selectedReceiverApp: "analytics",
+          appId: "analytics",
+        }),
+      ).toBe(false);
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
   it(
     "publishes bounded reads and message-only intake mutations for generic Dispatch delegation",
     async () => {

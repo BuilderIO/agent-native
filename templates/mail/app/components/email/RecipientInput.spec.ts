@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, it, expect } from "vitest";
 
 import {
@@ -91,5 +93,24 @@ describe("parse/serialize round-trip", () => {
     expect(serializeRecipients(parseRecipients("a@x.com,  b@y.com , "))).toBe(
       "a@x.com, b@y.com",
     );
+  });
+});
+
+describe("recipient autocomplete interaction contract", () => {
+  it("keeps the recipient field and suggestions connected for keyboard users", () => {
+    const source = readFileSync(
+      new URL("./RecipientInput.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("data-mail-recipient-input");
+    expect(source).toContain('role="combobox"');
+    expect(source).toContain('role="listbox"');
+    expect(source).toContain('role="option"');
+    expect(source).toContain(
+      "showSuggestions && hasSuggestions ? suggestionListId : undefined",
+    );
+    expect(source).toContain("getActiveDescendantId(");
+    expect(source).toContain("aria-activedescendant");
   });
 });

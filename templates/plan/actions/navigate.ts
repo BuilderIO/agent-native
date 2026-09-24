@@ -15,8 +15,8 @@
  *   --path   URL path to navigate to
  */
 
-import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { defineAction } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -53,7 +53,7 @@ export default defineAction({
     if (args.localPlanPath) nav.localPlanPath = args.localPlanPath;
     if (args.path) nav.path = args.path;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${nav.view}${
       args.localPlanSlug
         ? ` (local ${args.localPlanSlug})`

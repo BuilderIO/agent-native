@@ -31,7 +31,7 @@ private enum AgentNativeAppIntentLink {
 @available(iOS 16.0, *)
 struct StartAgentNativeDictationIntent: AppIntent {
   static let title: LocalizedStringResource = "Start Dictation"
-  static let description = IntentDescription("Open Agent Native and start dictating.")
+  static let description = IntentDescription("Open Agent-Native and start dictating.")
   static let openAppWhenRun = true
 
   @MainActor
@@ -44,7 +44,7 @@ struct StartAgentNativeDictationIntent: AppIntent {
 @available(iOS 16.0, *)
 struct RecordAgentNativeAudioIntent: AppIntent {
   static let title: LocalizedStringResource = "Record Audio"
-  static let description = IntentDescription("Open Agent Native and start an audio recording.")
+  static let description = IntentDescription("Open Agent-Native and start an audio recording.")
   static let openAppWhenRun = true
 
   @MainActor
@@ -57,7 +57,7 @@ struct RecordAgentNativeAudioIntent: AppIntent {
 @available(iOS 16.0, *)
 struct CaptureAgentNativeVideoIntent: AppIntent {
   static let title: LocalizedStringResource = "Capture Video"
-  static let description = IntentDescription("Open Agent Native and start a video capture.")
+  static let description = IntentDescription("Open Agent-Native and start a video capture.")
   static let openAppWhenRun = true
 
   @MainActor
@@ -70,7 +70,7 @@ struct CaptureAgentNativeVideoIntent: AppIntent {
 @available(iOS 16.0, *)
 struct OpenAgentNativeClipsIntent: AppIntent {
   static let title: LocalizedStringResource = "Open Clips"
-  static let description = IntentDescription("Open Clips in Agent Native.")
+  static let description = IntentDescription("Open Clips in Agent-Native.")
   static let openAppWhenRun = true
 
   @MainActor

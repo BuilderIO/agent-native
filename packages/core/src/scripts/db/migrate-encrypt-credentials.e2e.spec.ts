@@ -2,10 +2,28 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  const client = await createPostgresScriptClient(url);
+  return {
+    async execute(input: string | { sql: string; args?: unknown[] }) {
+      return client.unsafe(
+        typeof input === "string" ? input : input.sql,
+        typeof input === "string" ? undefined : input.args,
+      );
+    },
+    close: () => client.end(),
+  };
+}
 /**
  * End-to-end test for the `db-migrate-encrypt-credentials` script against a
- * REAL (temp-file) SQLite database. Validates the command we tell operators to
+ * REAL (temp-file) PostgreSQL database. Validates the command we tell operators to
  * run in production: it encrypts plaintext credential rows in place, leaves
  * already-encrypted and non-credential rows alone, is idempotent, and refuses
  * to run without an encryption key.
@@ -20,13 +38,13 @@ import {
 
 const KEY = "migrate-encrypt-spec-key";
 
-describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
+describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
   let dir: string;
   let dbFile: string;
   let url: string;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url });
+    const c = await createClient({ url });
     try {
       return await fn(c);
     } finally {
@@ -40,7 +58,7 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
         sql: `SELECT value FROM settings WHERE key = ?`,
         args: [key],
       });
-      const stored = JSON.parse(r.rows[0].value as string);
+      const stored = JSON.parse(r[0].value as string);
       return stored.value as string;
     });
   }
@@ -60,8 +78,8 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
   beforeEach(async () => {
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", KEY);
     dir = await mkdtemp(path.join(os.tmpdir(), "an-migrate-"));
-    dbFile = path.join(dir, "app.db");
-    url = "file:" + dbFile;
+    dbFile = path.join(dir, "app");
+    url = "pglite:" + dbFile;
     await withClient(async (c) => {
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
@@ -126,7 +144,9 @@ describe("db-migrate-encrypt-credentials (e2e, real sqlite)", () => {
   it("refuses to run without an encryption key", async () => {
     vi.stubEnv("SECRETS_ENCRYPTION_KEY", "");
     vi.stubEnv("BETTER_AUTH_SECRET", "");
-    await expect(runMigrate()).rejects.toThrow(/encryption key/i);
+    await expect(runMigrate()).rejects.toThrow(
+      /SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET/,
+    );
     // Nothing was modified.
     expect(await rawValue("u:a@x.com:credential:OPENAI_API_KEY")).toBe(
       "sk-plain-AAA",

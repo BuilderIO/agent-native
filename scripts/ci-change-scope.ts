@@ -69,6 +69,7 @@ const CHECK_NAMES = [
   "guards",
   "drizzle",
   "qa_static",
+  "agentkit_acceptance",
 ] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
@@ -107,9 +108,7 @@ export function isDocsPath(path: string): boolean {
 export function isWorkspacePath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
-    normalized.startsWith("examples/") ||
-    normalized.startsWith("packages/") ||
-    normalized.startsWith("templates/")
+    normalized.startsWith("packages/") || normalized.startsWith("templates/")
   );
 }
 
@@ -117,7 +116,7 @@ function workspaceRootForPath(path: string): string | undefined {
   const segments = normalizeChangedPath(path).split("/");
   const parent = segments[0];
 
-  if ((parent === "examples" || parent === "packages") && segments[1]) {
+  if (parent === "packages" && segments[1]) {
     return `${parent}/${segments[1]}`;
   }
 
@@ -181,6 +180,12 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
+  const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
+  const sharedAppConfigChanged = hasPath(
+    changedPaths,
+    "packages/shared-app-config/",
+  );
+  const chatChanged = hasPath(changedPaths, "templates/chat/");
   const schedulingChanged = hasPath(changedPaths, "packages/scheduling/");
   const dispatchChanged = hasPath(changedPaths, "packages/dispatch/");
   const contentChanged = hasPath(changedPaths, "templates/content/");
@@ -212,7 +217,7 @@ function buildChecks(
       coreChanged ||
       dispatchChanged ||
       schedulingChanged ||
-      hasPath(changedPaths, "templates/chat/") ||
+      chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
@@ -235,6 +240,12 @@ function buildChecks(
       );
     }),
     qa_static: templateChanged,
+    agentkit_acceptance:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      chatChanged,
   };
 }
 
@@ -254,8 +265,12 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     full,
     nonDocsPaths,
     checks: docsOnly
-      ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [name, false]),
+      ? // `fmt:check` formats the whole tree, docs included, so it is the one
+        // check a docs-only change can still fail. Skipping it here let
+        // unformatted .md/.mdx land on main and turn Lint red on every
+        // unrelated PR afterwards.
+        (Object.fromEntries(
+          CHECK_NAMES.map((name) => [name, name === "lint"]),
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
     workspaceFilters,

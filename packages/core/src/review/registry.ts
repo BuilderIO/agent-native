@@ -42,6 +42,7 @@ function accessContextFrom(
   return {
     userEmail: ctx.userEmail ?? undefined,
     orgId: ctx.orgId ?? undefined,
+    transaction: ctx.transaction as AccessContext["transaction"],
   };
 }
 

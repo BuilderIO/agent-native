@@ -4,7 +4,9 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
-import type { CalendarEvent } from "@shared/api";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { getCalendarAttendeeCount, type CalendarEvent } from "@shared/api";
 import {
   IconClock,
   IconMapPin,
@@ -14,16 +16,16 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.eventPreview }];
+  return [{ title: enUSMessages.routeTitles.eventPreview }];
 }
 
 function formatDuration(start: string, end: string): string {
@@ -38,6 +40,10 @@ function formatDuration(start: string, end: string): string {
 function EventCard({ event }: { event: CalendarEvent }) {
   const t = useT();
   const inEmbed = isInAgentEmbed();
+  const visibleAttendees = (event.attendees ?? []).slice(0, 5);
+  const hiddenAttendeeCount =
+    getCalendarAttendeeCount(event.attendees) -
+    getCalendarAttendeeCount(visibleAttendees);
 
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-4">
@@ -106,7 +112,7 @@ function EventCard({ event }: { event: CalendarEvent }) {
             <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
               <IconUsers className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex flex-col gap-0.5">
-                {event.attendees.slice(0, 5).map((a) => (
+                {visibleAttendees.map((a) => (
                   <span key={a.email} className="truncate">
                     {a.displayName ? (
                       <>
@@ -120,9 +126,9 @@ function EventCard({ event }: { event: CalendarEvent }) {
                     )}
                   </span>
                 ))}
-                {event.attendees.length > 5 && (
+                {hiddenAttendeeCount > 0 && (
                   <span className="text-muted-foreground/60 text-xs">
-                    +{event.attendees.length - 5} more
+                    +{hiddenAttendeeCount} more
                   </span>
                 )}
               </div>
@@ -175,20 +181,29 @@ export default function EventPreviewRoute() {
     id ? { id, calendarId } : undefined,
     { enabled: !!id, retry: false },
   );
+  const result = data as EventPreviewResult | undefined;
+  const event = result && !("error" in result) ? result : null;
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      event?.title,
+      "Event",
+    )} — Calendar`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [event?.title]);
 
   if (!id) {
     return <ErrorCard message={t("eventPreview.noEventId")} />;
   }
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Spinner className="size-6 text-primary" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
-  const result = data as EventPreviewResult | undefined;
   if (error || !result || "error" in result) {
     return (
       <ErrorCard

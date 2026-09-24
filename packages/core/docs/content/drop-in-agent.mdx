@@ -210,7 +210,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — create a separate chat thread for this prompt.
 - **`background`** — with `newTab`, run without focusing the new thread. The hidden run is tracked in `RunsTray`.
 - **`openSidebar`** — use `true` for visible user-initiated AI work. Set to `false` only for explicitly silent background or system-initiated sends. The default opens the sidebar so the user sees the response.
-- **`type`** — `"content"` (default) keeps the work in the embedded app agent, which operates through app tools unless its frame is intentionally granted workspace and write tooling. `"code"` routes to a separate code-capable frame (for repository source changes, see [Frames](/docs/frames)).
+- **`type`** — `"content"` (default) keeps the work in the embedded app agent, which operates through app tools unless its host is intentionally granted workspace and write tooling. `"code"` routes to a separate code-capable host (for repository source changes, see [Agent-Native Code UI](/docs/code-agents-ui)).
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
 

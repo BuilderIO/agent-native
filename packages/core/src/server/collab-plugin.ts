@@ -28,14 +28,14 @@ import {
   postCollabText,
   postCollabSearchReplace,
 } from "../collab/routes.js";
-import { listCollabDocIds } from "../collab/storage.js";
+import { hasCollabState } from "../collab/storage.js";
 import {
   postCollabJson,
   getCollabJson,
   postCollabPatch,
 } from "../collab/struct-routes.js";
 import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import { resolveAccess, assertAccess } from "../sharing/access.js";
 import { getSession } from "./auth.js";
@@ -105,10 +105,16 @@ export interface CollabPluginOptions {
   contentColumn?: string;
   /** Column name for the document ID. Default: "id" */
   idColumn?: string;
-  /** Whether to auto-seed existing documents on startup. Default: true */
+  /** Whether to lazily seed a source row on its first collab request. Default: true */
   autoSeed?: boolean;
   /** Map a source-table id to the id used by the collab document store. */
   resolveCollabDocumentId?: (sourceId: string) => string;
+  /**
+   * Map a collab document id back to the source-table id for lazy seeding.
+   * Without this, the legacy forward resolver is supported with a first-load
+   * compatibility scan because arbitrary functions are not invertible.
+   */
+  resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
   /**
    * Callback invoked after a collab update to sync the content column.
    * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
@@ -213,6 +219,55 @@ function warnForImplicitAllAuthenticatedAccess(table: string): void {
   );
 }
 
+/**
+ * Coalesce concurrent first loads for one document. The optional lock lets a
+ * database-backed caller extend that guarantee across server instances.
+ */
+export function createCollabSourceSeeder(options: {
+  hasState: (docId: string) => Promise<boolean>;
+  loadSource: (docId: string) => Promise<string | null>;
+  seed: (docId: string, source: string, client?: DbExec) => Promise<void>;
+  withLock?: (
+    docId: string,
+    run: (client?: DbExec) => Promise<void>,
+  ) => Promise<void>;
+}): (docId: string) => Promise<void> {
+  const inFlight = new Map<string, Promise<void>>();
+
+  return async (docId) => {
+    const existing = inFlight.get(docId);
+    if (existing) return existing;
+
+    const seed = async (client?: DbExec) => {
+      if (await options.hasState(docId)) return;
+      const source = await options.loadSource(docId);
+      if (source === null) return;
+      if (client) {
+        await options.seed(docId, source, client);
+      } else {
+        await options.seed(docId, source);
+      }
+    };
+    const pending = (async () => {
+      // Keep the normal seeded-document path out of a transaction. The second
+      // check inside the lock closes the cross-instance race for cold docs.
+      if (await options.hasState(docId)) return;
+      if (options.withLock) {
+        await options.withLock(docId, seed);
+      } else {
+        await seed();
+      }
+    })();
+    inFlight.set(docId, pending);
+
+    try {
+      await pending;
+    } finally {
+      if (inFlight.get(docId) === pending) inFlight.delete(docId);
+    }
+  };
+}
+
 export function createCollabPlugin(
   options: CollabPluginOptions = {},
 ): NitroPluginDef {
@@ -224,8 +279,13 @@ export function createCollabPlugin(
     autoSeed = true,
     maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
   } = options;
-  const resolveCollabDocumentId =
-    options.resolveCollabDocumentId ?? ((sourceId: string) => sourceId);
+  const resolveSourceIdFromCollabDocumentId =
+    options.resolveSourceIdFromCollabDocumentId ?? ((docId: string) => docId);
+  const isJson = options.contentType === "json";
+  const seedColumn = isJson
+    ? options.jsonColumn || contentColumn
+    : contentColumn;
+  const legacyResolveCollabDocumentId = options.resolveCollabDocumentId;
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -241,6 +301,135 @@ export function createCollabPlugin(
   ) {
     warnForImplicitAllAuthenticatedAccess(table);
   }
+
+  const ensureDocumentSeeded = autoSeed
+    ? createCollabSourceSeeder({
+        hasState: hasCollabState,
+        loadSource: async (docId) => {
+          const readSource = (
+            row: Record<string, unknown>,
+            sourceId: string,
+          ): string => {
+            const source = row[seedColumn];
+            if (typeof source !== "string") {
+              throw new Error(
+                `[collab] ${table}.${seedColumn} for ${sourceId} is unreadable`,
+              );
+            }
+            return source;
+          };
+
+          if (
+            legacyResolveCollabDocumentId &&
+            !options.resolveSourceIdFromCollabDocumentId
+          ) {
+            // An arbitrary forward resolver cannot be inverted. Preserve
+            // existing consumers with a request-lazy compatibility scan; new
+            // configs should provide the reverse resolver to use the indexed
+            // source-id lookup.
+            const { rows } = await getDbExec().execute({
+              sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
+            });
+            for (const row of rows as Record<string, unknown>[]) {
+              const rawSourceId = row[idColumn];
+              if (
+                rawSourceId === null ||
+                rawSourceId === undefined ||
+                (typeof rawSourceId !== "string" &&
+                  typeof rawSourceId !== "number" &&
+                  typeof rawSourceId !== "bigint")
+              ) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              const sourceId = String(rawSourceId);
+              if (!sourceId) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              if (legacyResolveCollabDocumentId(sourceId) !== docId) continue;
+              return readSource(row, sourceId);
+            }
+            return null;
+          }
+
+          const sourceId = resolveSourceIdFromCollabDocumentId(docId);
+          const { rows } = await getDbExec().execute({
+            sql: `SELECT ${seedColumn} FROM ${table} WHERE ${idColumn} = ?`,
+            args: [sourceId],
+          });
+          if (rows.length === 0) return null;
+          return readSource(rows[0] as Record<string, unknown>, sourceId);
+        },
+        seed: async (docId, source, client) => {
+          if (!isJson) {
+            if (client) {
+              await seedFromText(docId, source, "content", client);
+            } else {
+              await seedFromText(docId, source);
+            }
+            return;
+          }
+
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(source);
+          } catch (error) {
+            throw new Error(
+              `[collab] ${table}.${seedColumn} for ${docId} contains invalid JSON`,
+              { cause: error },
+            );
+          }
+          const type = Array.isArray(parsed) ? "array" : "map";
+          if (client) {
+            await seedFromJson(docId, parsed, "data", type, client);
+          } else {
+            await seedFromJson(docId, parsed, "data", type);
+          }
+        },
+        withLock: async (docId, run) => {
+          const client = getDbExec();
+          if (typeof client.transaction !== "function") return run();
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            const acquired = await client.transaction(async (tx) => {
+              const { rows } = await tx.execute({
+                sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0)) AS acquired",
+                args: [`${table}:${docId}`],
+                timeoutMs: 1_000,
+              });
+              const result = rows[0]?.acquired;
+              const acquired =
+                result === true || result === "t"
+                  ? true
+                  : result === false || result === "f"
+                    ? false
+                    : null;
+              if (acquired === null) {
+                throw new Error(
+                  `[collab] advisory lock result for ${docId} is unreadable`,
+                );
+              }
+              if (!acquired) return false;
+              await withDbExec(tx, () => run(tx));
+              return true;
+            });
+            if (acquired) return;
+
+            // Do not leave every cold instance blocked on a database session
+            // while the first seed runs. This bounded retry keeps the wait in
+            // application memory and fails loudly if a seed cannot finish.
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, Math.min(200, 25 * (attempt + 1))),
+            );
+          }
+          throw new Error(
+            `[collab] timed out waiting to seed ${docId}; retry the request`,
+          );
+        },
+      })
+    : async () => {};
 
   return async (nitroApp: any) => {
     await awaitBootstrap(nitroApp);
@@ -459,6 +648,15 @@ export function createCollabPlugin(
             }
           }
 
+          const needsSeed =
+            (action === "state" && method === "GET") ||
+            (action === "update" && method === "POST") ||
+            (action === "text" && method === "POST") ||
+            (action === "search-replace" && method === "POST") ||
+            (action === "json" && (method === "GET" || method === "POST")) ||
+            (action === "patch" && method === "POST");
+          if (needsSeed) await ensureDocumentSeeded(docId);
+
           if (action === "state" && method === "GET")
             return getCollabState(event);
           if (action === "update" && method === "POST")
@@ -483,75 +681,8 @@ export function createCollabPlugin(
       }),
     );
 
-    // Auto-seed existing documents into collab state
-    if (autoSeed) {
-      const isJson = options.contentType === "json";
-      const seedColumn = isJson
-        ? options.jsonColumn || contentColumn
-        : contentColumn;
-
-      // Run in background so it doesn't block startup
-      setTimeout(async () => {
-        try {
-          // Read existing ids once, then apply the plugin's document-id
-          // mapping before filtering. A source-table SQL predicate can use
-          // the wrong id for integrations such as Analytics' dash-* docs.
-          const existingDocIds = await listCollabDocIds();
-          const client = getDbExec();
-          const { rows } = await client.execute(
-            `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
-          );
-          for (const { row, docId } of selectUnseededCollabRows(
-            rows,
-            idColumn,
-            existingDocIds,
-            resolveCollabDocumentId,
-          )) {
-            let seeded = false;
-
-            if (isJson) {
-              const raw = (row[seedColumn] as string) ?? "{}";
-              try {
-                const parsed = JSON.parse(raw);
-                const inferredType: "map" | "array" = Array.isArray(parsed)
-                  ? "array"
-                  : "map";
-                await seedFromJson(docId, parsed, "data", inferredType);
-                seeded = true;
-              } catch {
-                // Invalid JSON — skip
-              }
-            } else {
-              const content = (row[seedColumn] as string) ?? "";
-              await seedFromText(docId, content);
-              seeded = true;
-            }
-            if (seeded) existingDocIds.add(docId);
-          }
-        } catch {
-          // Table may not exist yet on first boot — that's fine
-        }
-      }, 1000);
-    }
+    // Source rows are seeded lazily by the request path above. A cold-start
+    // scan here stampedes serverless instances and does work for documents no
+    // caller will ever open.
   };
-}
-
-export function selectUnseededCollabRows(
-  rows: ReadonlyArray<Record<string, unknown>>,
-  idColumn: string,
-  existingDocIds: ReadonlySet<string>,
-  resolveCollabDocumentId: (sourceId: string) => string = (sourceId) =>
-    sourceId,
-): Array<{ row: Record<string, unknown>; docId: string }> {
-  const seenDocIds = new Set(existingDocIds);
-  const unseeded: Array<{ row: Record<string, unknown>; docId: string }> = [];
-  for (const row of rows) {
-    const sourceId = String(row[idColumn] ?? "");
-    if (!sourceId) continue;
-    const docId = resolveCollabDocumentId(sourceId);
-    if (seenDocIds.has(docId)) continue;
-    seenDocIds.add(docId);
-    unseeded.push({ row, docId });
-  }
-  return unseeded;
 }

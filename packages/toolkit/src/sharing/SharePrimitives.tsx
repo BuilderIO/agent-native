@@ -62,6 +62,10 @@ export interface ShareCopyRowProps {
   onCopy: (value: string) => Promise<boolean | void> | boolean | void;
 }
 
+function accessibleLabel(value: ReactNode, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 /** Compact copy-only row. The underlying URL is deliberately not rendered. */
 export function ShareCopyRow({
   value,
@@ -105,7 +109,11 @@ export function ShareCopyRow({
         emphasis="outline"
         size="compact"
         disabled={disabled}
-        aria-label={copied ? String(copiedLabel) : String(copyLabel)}
+        aria-label={
+          copied
+            ? accessibleLabel(copiedLabel, "Copied")
+            : accessibleLabel(copyLabel, "Copy")
+        }
         onPress={() => void handleCopy()}
         className="h-9 shrink-0"
       >

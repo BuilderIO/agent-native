@@ -5,7 +5,7 @@ description: "Déployez une application agent-native sur Netlify avec le préré
 
 # Netlify
 
-Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid bien plus rapides que Cloudflare Pages (~200ms TTFB contre ~9s) pour les templates qui communiquent avec un Postgres externe (Neon). Définissez soit le préréglage dans `vite.config.ts` :
+Le préréglage Nitro `netlify` fonctionne bien et, en pratique, nous a donné des démarrages à froid bien plus rapides que Cloudflare Pages (~200ms TTFB contre ~9s) pour les templates qui communiquent avec un Postgres externe (Neon). Pour une configuration minimale en dehors du scaffold généré, définissez le préréglage dans `vite.config.ts` :
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
@@ -13,7 +13,23 @@ export default defineConfig({
 });
 ```
 
+Dans le scaffold Chat généré, l’import reste `agentNative`. La configuration l’assigne à un alias
+local `agentNativePlugins` avec une assertion de type, puis étale le tableau de plugins renvoyé
+pour aligner les types des paquets Vite. Il accepte les mêmes options que l’exemple `agentNative`
+ci-dessus. Pour déployer ce scaffold sur Netlify, ajoutez `nitro: { preset: "netlify" }` aux
+options de l’appel `agentNativePlugins({ ... })` existant. Conservez les autres plugins, options et
+alias propres à Chat.
+
 …soit définissez `NITRO_PRESET=netlify` au moment du build.
+
+Pour une application autonome, construisez la sortie Netlify puis déployez les assets et les fonctions :
+
+```bash
+NITRO_PRESET=netlify pnpm build
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+```
+
+Avant le premier déploiement en production, définissez `DATABASE_URL` et un `BETTER_AUTH_SECRET` stable dans les variables d’environnement du site Netlify. Ne vous fiez pas à la base PGlite locale ; `DATABASE_URL` doit pointer vers une base PostgreSQL persistante accessible par la fonction déployée.
 
 Pour un workspace, déployez chaque application depuis un seul site Netlify en exécutant :
 

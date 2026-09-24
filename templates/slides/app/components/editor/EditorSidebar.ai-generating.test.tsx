@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "test-tab",
   useAvatarUrl: () => null,
 }));
 
@@ -26,6 +28,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  useEagerFileUploads: () => ({
+    commitFiles: vi.fn(),
+    discardFiles: vi.fn(),
+    retainFiles: vi.fn(),
+    syncFiles: vi.fn(),
+    uploadFiles: vi.fn(() => Promise.resolve([])),
+    uploading: false,
+    reset: vi.fn(),
+  }),
   PromptComposer: ({
     onSubmit,
   }: {
@@ -194,6 +205,10 @@ describe("EditorSidebar AI-active slide", () => {
       <EditorSidebar {...props} describeSlideId={null} />,
     );
     rerender(<EditorSidebar {...props} describeSlideId="slide-2" />);
+    await act(async () => {
+      await import("./AddSlidePopover");
+    });
+    await waitFor(() => screen.getByText("submit-prompt"));
 
     await act(async () => {
       fireEvent.click(screen.getByText("submit-prompt"));
@@ -203,5 +218,9 @@ describe("EditorSidebar AI-active slide", () => {
     const [, context] = addSlideAgentSubmit.mock.calls[0];
     expect(context).toContain("id: slide-2");
     expect(context).toContain("do not call `add-slide`");
+    expect(context).toContain(
+      'call `get-deck` with id="deck-1" and compact=true',
+    );
+    expect(context).toContain("designSystem.agentContext and deckStyle");
   });
 });

@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -15,13 +15,18 @@ import {
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+import {
+  ensureNodePtyBuildDependency,
+  parseWorkspaceScope,
+  workspacifyApp,
+} from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
@@ -150,7 +155,7 @@ const HEADLESS_OPTION = {
 const COMMUNITY_OPTION = {
   name: "community",
   label: "Community template",
-  hint: "Install a third-party Agent Native app from a public GitHub repository",
+  hint: "Install a third-party Agent-Native app from a public GitHub repository",
 };
 
 export interface CreateAppOptions {
@@ -568,6 +573,7 @@ async function createWorkspaceInteractive(
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
+        agentKitDependencyVersion: getAgentKitDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
@@ -913,11 +919,13 @@ async function scaffoldOneAppIntoWorkspace(
       coreDependencyVersion: getCoreDependencyVersion(),
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
+      agentKitDependencyVersion: getAgentKitDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
       shape: "workspace",
     });
+    ensureScaffoldEmailBrandingConfig(appDir, appName, templateName);
     ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
@@ -1075,9 +1083,8 @@ function cleanupOnFailure(targetDir: string): void {
  * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
  * that don't already exist into the current directory so pre-existing files
  * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
- * the staging dir. Git init/commit is skipped when the current directory is
- * already a repo so we never write an unexpected commit into the user's
- * history.
+ * the staging dir. Git init/commit is skipped when the scaffold lands inside a
+ * repo so we never write an unexpected commit into the user's history.
  */
 function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
   if (!inPlace) {
@@ -1094,8 +1101,91 @@ function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
 }
 
 function tryGitInitUnlessRepo(dir: string): void {
-  if (fs.existsSync(path.join(dir, ".git"))) return;
+  // Only "git says there is no repository here" earns an init. A discovery
+  // failure has to fall through to doing nothing.
+  if (discoverEnclosingRepo(dir).state !== "outside") return;
   tryGitInit(dir);
+}
+
+/**
+ * The variables that bind git to a particular repository.
+ *
+ * Deliberately narrower than git's `local_repo_env`: that list also clears
+ * `GIT_CONFIG*`, because git is entering a different repository and the
+ * caller's `-c` overrides were scoped to the old one. Here the caller is
+ * configuring the scaffold that is about to exist, so `init.defaultBranch`,
+ * `core.hooksPath` and `commit.gpgsign` have to survive.
+ */
+const GIT_REPO_LOCATION_ENV = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_INTERNAL_SUPER_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_QUARANTINE_PATH",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+/**
+ * Env with any inherited repository context dropped.
+ *
+ * Whatever launched the process — a hook, a `rebase --exec`, a `receive-pack`
+ * quarantine — may have pinned git to its own repository. Inheriting that makes
+ * discovery answer about that repository rather than the directory being
+ * scaffolded, and makes an init write into it. Picking the variables off one at
+ * a time invites the next gap, so mirror the list git clears for exactly this
+ * reason. The discovery controls are deliberately not in it: where the search
+ * stops really is the caller's to configure.
+ */
+function envWithoutRepoOverrides(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of GIT_REPO_LOCATION_ENV) delete env[key];
+  return env;
+}
+
+type RepoDiscovery =
+  | { state: "inside"; root: string }
+  | { state: "outside" }
+  | { state: "unknown"; reason: string };
+
+/**
+ * Whether `dir` sits inside a repository, as git itself resolves it.
+ *
+ * Matching a `.git` entry by hand looks equivalent and is not: discovery also
+ * turns on symlinked paths, filesystem boundaries, `GIT_CEILING_DIRECTORIES`
+ * and `GIT_DISCOVERY_ACROSS_FILESYSTEM`. Running git is free here, since the
+ * only alternative to finding a repo is shelling out to `git init` anyway.
+ *
+ * "No repository" and "could not tell" are separate answers on purpose. Git
+ * exits 128 for a checkout it refuses — dubious ownership, a corrupt gitfile —
+ * as readily as for a genuinely repo-less directory, and reading the first as
+ * the second is how a guard against nested repositories comes to create one.
+ * `LC_ALL` is pinned so the message they are told apart by is not translated.
+ */
+function discoverEnclosingRepo(dir: string): RepoDiscovery {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...envWithoutRepoOverrides(), LC_ALL: "C" },
+  });
+  if (result.error) return { state: "unknown", reason: result.error.message };
+  if (result.status === 0) {
+    const root = result.stdout.trim();
+    return root
+      ? { state: "inside", root }
+      : { state: "unknown", reason: "git reported no toplevel" };
+  }
+  const stderr = (result.stderr ?? "").trim();
+  if (/not a git repository/i.test(stderr)) return { state: "outside" };
+  return { state: "unknown", reason: stderr || `git exited ${result.status}` };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1459,7 +1549,7 @@ function communityTemplateTrustMessage(selection: string): string | undefined {
   const community = parseCommunityTemplateSelection(selection, false);
   if (!community) return undefined;
   return [
-    `${community.repo} is third-party code and is not reviewed or maintained by Agent Native.`,
+    `${community.repo} is third-party code and is not reviewed or maintained by Agent-Native.`,
     "The CLI downloads source only; it does not install dependencies or run template scripts.",
     "Review the generated files before running pnpm install.",
     community.ref
@@ -1512,18 +1602,26 @@ function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
 
+  ensureLocalPackageBuildOutputs(packageDir);
+
   const packDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
+  const npmCacheDir = path.join(packDir, "npm-cache");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  // npm prints one notice per packed corpus file; piping that output through
+  // execFileSync's default buffer makes local linking fail as the corpus grows.
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", packDir],
     {
       cwd: packageDir,
-      encoding: "utf-8",
-      env: { ...process.env, npm_config_ignore_scripts: "true" },
-      stdio: "pipe",
+      env: {
+        ...process.env,
+        npm_config_cache: npmCacheDir,
+        npm_config_ignore_scripts: "true",
+      },
+      stdio: "ignore",
     },
   );
 
@@ -1550,14 +1648,18 @@ function localPackageTarball(packageDir: string): string {
   const repackDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
+  const repackNpmCacheDir = path.join(repackDir, "npm-cache");
   execFileSync(
     npm,
     ["pack", "--ignore-scripts", "--pack-destination", repackDir],
     {
       cwd: path.join(unpackDir, "package"),
-      encoding: "utf-8",
-      env: { ...process.env, npm_config_ignore_scripts: "true" },
-      stdio: "pipe",
+      env: {
+        ...process.env,
+        npm_config_cache: repackNpmCacheDir,
+        npm_config_ignore_scripts: "true",
+      },
+      stdio: "ignore",
     },
   );
   const repackedTarballs = fs
@@ -1574,6 +1676,91 @@ function localPackageTarball(packageDir: string): string {
   ).href;
   localPackageTarballs.set(packageDir, tarball);
   return tarball;
+}
+
+interface LocalPackageManifest {
+  name?: unknown;
+  main?: unknown;
+  types?: unknown;
+  exports?: unknown;
+  scripts?: { build?: unknown };
+}
+
+function collectLocalPackageBuildOutputs(
+  value: unknown,
+  outputs: Set<string>,
+): void {
+  if (typeof value === "string") {
+    if (value.startsWith("./dist/") && !value.includes("*")) {
+      outputs.add(value.slice(2));
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectLocalPackageBuildOutputs(item, outputs);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const item of Object.values(value)) {
+    collectLocalPackageBuildOutputs(item, outputs);
+  }
+}
+
+/**
+ * Local framework packages publish compiled entrypoints only. Build a clean
+ * checkout before packing it so generated apps never receive a tarball whose
+ * package.json points at absent dist files.
+ */
+function ensureLocalPackageBuildOutputs(packageDir: string): void {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  const packageJson = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf-8"),
+  ) as LocalPackageManifest;
+  const outputs = new Set<string>();
+  collectLocalPackageBuildOutputs(packageJson.main, outputs);
+  collectLocalPackageBuildOutputs(packageJson.types, outputs);
+  collectLocalPackageBuildOutputs(packageJson.exports, outputs);
+  const missing = [...outputs].filter(
+    (output) => !fs.existsSync(path.join(packageDir, output)),
+  );
+  if (missing.length === 0) return;
+
+  if (typeof packageJson.scripts?.build !== "string") {
+    throw new Error(
+      `Cannot pack local package ${String(packageJson.name ?? packageDir)} because ${missing.join(
+        ", ",
+      )} is missing and package.json has no build script.`,
+    );
+  }
+
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmCacheDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
+  );
+  try {
+    execFileSync(npm, ["run", "build"], {
+      cwd: packageDir,
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_cache: npmCacheDir },
+      stdio: "pipe",
+    });
+  } catch (cause) {
+    throw new Error(
+      `Could not build local package ${String(packageJson.name ?? packageDir)} before packing it.`,
+      { cause },
+    );
+  }
+
+  const stillMissing = missing.filter(
+    (output) => !fs.existsSync(path.join(packageDir, output)),
+  );
+  if (stillMissing.length > 0) {
+    throw new Error(
+      `Local package ${String(packageJson.name ?? packageDir)} built without producing ${stillMissing.join(
+        ", ",
+      )}.`,
+    );
+  }
 }
 
 function rewritePublishedPackageManifest(manifestPath: string): void {
@@ -1877,6 +2064,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureScaffoldEmailBrandingConfig(targetDir, name, templateName);
   ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -1900,6 +2088,7 @@ function postProcessStandalone(
   // catalog: references only resolve inside a pnpm workspace with a catalog
   // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
   const catalog = loadCatalog();
+  let hasNodePty = false;
   const pkgPath = path.join(targetDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -1919,6 +2108,8 @@ function postProcessStandalone(
             deps[key] = getCoreDependencyVersion();
           } else if (key === "@agent-native/toolkit") {
             deps[key] = getToolkitDependencyVersion();
+          } else if (key === "@agent-native/agentkit") {
+            deps[key] = getAgentKitDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -1927,10 +2118,22 @@ function postProcessStandalone(
         }
       }
       pkg.dependencies = pkg.dependencies ?? {};
+      pkg.dependencies["@electric-sql/pglite"] ??= PGLITE_DEPENDENCY_VERSION;
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
+      hasNodePty = [
+        pkg.dependencies,
+        pkg.devDependencies,
+        pkg.peerDependencies,
+        pkg.optionalDependencies,
+      ].some((deps) => Boolean(deps?.["node-pty"]));
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-    } catch {}
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not finalize ${pkgPath}: ${detail}`, {
+        cause: error,
+      });
+    }
   }
 
   // Write pnpm-workspace.yaml for pnpm v11 compatibility. pnpm v11 no longer
@@ -1944,7 +2147,6 @@ function postProcessStandalone(
       : "";
     const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
-        "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
         "tesseract.js": "true",
@@ -1963,11 +2165,10 @@ function postProcessStandalone(
         ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
-    const localToolkit = localToolkitOverride();
-    if (localToolkit) {
+    const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
+    if (Object.keys(localFrameworkOverrides).length > 0) {
       sections.overrides ??= {};
-      sections.overrides['"@agent-native/toolkit"'] =
-        JSON.stringify(localToolkit);
+      Object.assign(sections.overrides, localFrameworkOverrides);
     }
     const localRecapCli = localRecapCliOverride();
     if (localRecapCli) {
@@ -1985,6 +2186,7 @@ function postProcessStandalone(
       fs.writeFileSync(wsPath, updated);
     }
   } catch {}
+  if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
 
@@ -2207,10 +2409,13 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  discoverEnclosingRepo as _discoverEnclosingRepo,
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
+  getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
+  ensureLocalPackageBuildOutputs as _ensureLocalPackageBuildOutputs,
   getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
@@ -2241,6 +2446,7 @@ export {
   rewriteTrackingAppId as _rewriteTrackingAppId,
   rewriteAgentChatAppId as _rewriteAgentChatAppId,
   applyScaffoldIdentity as _applyScaffoldIdentity,
+  ensureScaffoldEmailBrandingConfig as _ensureScaffoldEmailBrandingConfig,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
   localTemplateSourceKind as _localTemplateSourceKind,
@@ -2506,7 +2712,7 @@ function assertSafeCommunityArchiveListing(listing: string): void {
   });
   if (unsafeEntry) {
     throw new ValidationError(
-      "Community template archives may only contain Agent Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
+      "Community template archives may only contain Agent-Native's canonical internal symlinks (CLAUDE.md and .claude/skills). Remove other symbolic or hard links and try again.",
     );
   }
 }
@@ -2617,7 +2823,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   const packagePath = path.join(targetDir, "package.json");
   if (!fs.existsSync(packagePath)) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root: package.json was not found. Point to a repository whose root is the app.`,
     );
   }
 
@@ -2644,7 +2850,7 @@ function assertCommunityTemplateRoot(targetDir: string, repo: string): void {
   );
   if (!usesAgentNativeCore) {
     throw new ValidationError(
-      `Community template ${repo} is not an Agent Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
+      `Community template ${repo} is not an Agent-Native app at the repository root. Its package.json must directly depend on @agent-native/core in dependencies, devDependencies, or peerDependencies.`,
     );
   }
 }
@@ -3272,6 +3478,34 @@ function fixPackageJsonName(
   } catch {}
 }
 
+function ensureScaffoldEmailBrandingConfig(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  if (!templateName || appName === templateName) return;
+  const pluginsDir = path.join(appDir, "server", "plugins");
+  const configPath = path.join(pluginsDir, "agent-native-email-branding.ts");
+  if (fs.existsSync(configPath)) return;
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  const appTitle = JSON.stringify(appTitleForScaffold(appName));
+  const sourceTemplate = JSON.stringify(
+    trackingTemplateName(templateName) ?? templateName,
+  );
+  const homePathConfig =
+    scaffoldGuidanceForTemplate(templateName) === "default"
+      ? [
+          "    // Keep the template's authenticated entry explicit after renaming the app.",
+          '    homePath: "/home",',
+        ].join("\n") + "\n"
+      : "";
+
+  fs.writeFileSync(
+    configPath,
+    `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({\n  app: {\n    // This name appears in transactional emails. Change it to your product name.\n    name: ${appTitle},\n    // The source template keeps a renamed app from inheriting first-party email branding.\n    sourceTemplate: ${sourceTemplate},\n${homePathConfig}    // Optional: use your own absolute HTTPS logo URL in transactional emails.\n    // logoUrl: "https://example.com/logo.png",\n  },\n});\n`,
+  );
+}
+
 function scaffoldGuidanceForTemplate(
   templateName: string | undefined,
 ): "default" | "headless" | undefined {
@@ -3383,6 +3617,31 @@ function getToolkitDependencyVersion(): string {
   return getOwnPackageDependencyVersion("@agent-native/toolkit");
 }
 
+function getAgentKitDependencyVersion(): string {
+  const localAgentKit = findLocalPackage("agentkit");
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" && localAgentKit) {
+    return localPackageTarball(localAgentKit);
+  }
+
+  const publishedRange = getOwnPackageDependencyVersion(
+    "@agent-native/agentkit",
+  );
+  if (publishedRange !== "latest") return publishedRange;
+
+  if (localAgentKit) {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(localAgentKit, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    if (typeof manifest.version === "string" && manifest.version.length > 0) {
+      return `^${manifest.version}`;
+    }
+  }
+
+  throw new Error(
+    "Cannot determine a compatible @agent-native/agentkit version from @agent-native/core. Reinstall Core before scaffolding Chat.",
+  );
+}
+
 /**
  * Toolkit is versioned and published independently of core, so its npm
  * `latest` dist-tag can briefly point to an incompatible release relative to
@@ -3413,6 +3672,25 @@ function localToolkitOverride(): string | null {
   return localToolkit ? localPackageTarball(localToolkit) : null;
 }
 
+function getLocalFrameworkPackageOverrides(): Record<string, string> {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return {};
+
+  const overrides: Record<string, string> = {};
+  const localToolkit = localToolkitOverride();
+  if (localToolkit) {
+    overrides['"@agent-native/toolkit"'] = JSON.stringify(localToolkit);
+  }
+
+  const localAgentKit = findLocalPackage("agentkit");
+  if (localAgentKit) {
+    overrides['"@agent-native/agentkit"'] = JSON.stringify(
+      localPackageTarball(localAgentKit),
+    );
+  }
+
+  return overrides;
+}
+
 function localRecapCliOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localRecapCli = findLocalPackage("recap-cli");
@@ -3420,9 +3698,10 @@ function localRecapCliOverride(): string | null {
 }
 
 function applyLocalWorkspaceOverrides(targetDir: string): void {
-  const localToolkit = localToolkitOverride();
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
   const localRecapCli = localRecapCliOverride();
-  if (!localToolkit && !localRecapCli) return;
+  if (Object.keys(localFrameworkOverrides).length === 0 && !localRecapCli)
+    return;
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
   const existing = fs.existsSync(wsPath)
@@ -3430,9 +3709,7 @@ function applyLocalWorkspaceOverrides(targetDir: string): void {
     : "";
   const updated = mergeWorkspaceYamlSections(existing, {
     overrides: {
-      ...(localToolkit
-        ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
-        : {}),
+      ...localFrameworkOverrides,
       ...(localRecapCli
         ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
         : {}),
@@ -3841,9 +4118,10 @@ function hasTrackingTemplate(content: string): boolean {
 }
 
 function tryGitInit(dir: string): boolean {
+  const env = envWithoutRepoOverrides();
   try {
-    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
-    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe", env });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe", env });
     execFileSync(
       "git",
       ["commit", "-m", "Initial commit from agent-native create"],
@@ -3851,7 +4129,7 @@ function tryGitInit(dir: string): boolean {
         cwd: dir,
         stdio: "pipe",
         env: {
-          ...process.env,
+          ...env,
           GIT_AUTHOR_NAME: "agent-native",
           GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
           GIT_COMMITTER_NAME: "agent-native",
@@ -3868,7 +4146,18 @@ function tryGitInit(dir: string): boolean {
 function renameGitignore(dir: string): void {
   const src = path.join(dir, "_gitignore");
   const dst = path.join(dir, ".gitignore");
-  if (fs.existsSync(src)) fs.renameSync(src, dst);
+  if (!fs.existsSync(src)) return;
+  fs.renameSync(src, dst);
+  const contents = fs.readFileSync(dst, "utf8");
+  const missingRules = [
+    !contents.includes("data/*.lock") ? "data/*.lock" : null,
+    !contents.includes(".agent-native/") ? ".agent-native/" : null,
+  ].filter((rule): rule is string => Boolean(rule));
+  if (missingRules.length === 0) return;
+  fs.appendFileSync(
+    dst,
+    `${contents.endsWith("\n") ? "" : "\n"}${missingRules.join("\n")}\n`,
+  );
 }
 
 function replacePlaceholders(
@@ -4007,5 +4296,8 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  return name.endsWith(".tmp.json") || /\.db(?:-shm|-wal)?$/.test(name);
+  return (
+    (name === "pglite" && pathParts?.at(-2) === "data") ||
+    name.endsWith(".tmp.json")
+  );
 }

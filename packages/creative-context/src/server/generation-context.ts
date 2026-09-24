@@ -1,5 +1,8 @@
 import { readAppState } from "@agent-native/core/application-state";
-import { getRequestOrgId } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 import {
   getGenerationCreativeContext as getGenerationCreativeContextLocal,
@@ -23,6 +26,7 @@ import {
   sanitizeUntrustedReference,
   UNTRUSTED_REFERENCE_ROLE,
 } from "../untrusted-reference.js";
+import { getCreativeContext } from "./context.js";
 import {
   assertGenerationArtifactAccess,
   createGenerationArtifactAccessCapability,
@@ -35,6 +39,7 @@ import {
   isolatedResolvePayload,
   type IsolatedRecordPayload,
 } from "./isolated-a2a.js";
+import { isCreativeContextLabAvailable } from "./labs.js";
 import { performCreativeContextSearch } from "./retrieval.js";
 
 export type CreativeGenerationRole =
@@ -55,6 +60,13 @@ const SPECIALTY_STOP_WORDS = new Set([
   "this",
   "with",
 ]);
+
+async function creativeContextLabEnabled() {
+  return isCreativeContextLabAvailable(
+    getRequestUserEmail(),
+    getCreativeContext().labKey,
+  );
+}
 
 function specialtyTokens(value: string) {
   return new Set(
@@ -249,16 +261,23 @@ export async function resolveGenerationCreativeContext(
   if (input.contextModeOverride === "off") {
     return resolveGenerationCreativeContextLocal(input);
   }
+  if (!(await creativeContextLabEnabled())) {
+    return resolveGenerationCreativeContextLocal({
+      ...input,
+      contextModeOverride: "off",
+    });
+  }
   if (hasIsolatedCreativeContextA2A()) {
-    const state = (await readAppState("creative-context").catch(
-      () => null,
-    )) as {
+    const state = (await readAppState("creative-context")) as {
       contextMode?: "auto" | "off";
       pinnedPackId?: string | null;
       selectedContextId?: string | null;
     } | null;
     if (state?.contextMode === "off") {
-      return resolveGenerationCreativeContextLocal(input);
+      return resolveGenerationCreativeContextLocal({
+        ...input,
+        contextModeOverride: "off",
+      });
     }
     return callIsolatedCreativeContextA2A("resolve", {
       ...isolatedResolvePayload(input),
@@ -295,7 +314,7 @@ export async function resolveGenerationCreativeContextLocal(
       results: [],
     };
   }
-  const state = (await readAppState("creative-context").catch(() => null)) as {
+  const state = (await readAppState("creative-context")) as {
     contextMode?: "auto" | "off";
     pinnedPackId?: string | null;
     selectedContextId?: string | null;
@@ -449,14 +468,21 @@ export async function validateGenerationCreativeContext(
   if (input.contextModeOverride === "off") {
     return validateGenerationCreativeContextLocal(input);
   }
+  if (!(await creativeContextLabEnabled())) {
+    return validateGenerationCreativeContextLocal({
+      ...input,
+      contextModeOverride: "off",
+    });
+  }
   if (hasIsolatedCreativeContextA2A()) {
-    const state = (await readAppState("creative-context").catch(
-      () => null,
-    )) as {
+    const state = (await readAppState("creative-context")) as {
       contextMode?: "auto" | "off";
     } | null;
     if (state?.contextMode === "off") {
-      return validateGenerationCreativeContextLocal(input);
+      return validateGenerationCreativeContextLocal({
+        ...input,
+        contextModeOverride: "off",
+      });
     }
     return callIsolatedCreativeContextA2A("validate", {
       contextPackId: input.contextPackId,
@@ -500,7 +526,7 @@ export async function validateGenerationCreativeContextLocal(
       results: [],
     };
   }
-  const state = (await readAppState("creative-context").catch(() => null)) as {
+  const state = (await readAppState("creative-context")) as {
     contextMode?: "auto" | "off";
   } | null;
   if (state?.contextMode === "off") {
@@ -557,6 +583,7 @@ export async function recordGenerationCreativeContext(
   input: IsolatedRecordPayload,
   options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
 ) {
+  if (!(await creativeContextLabEnabled())) return null;
   const artifactAccessTarget = collaborativeArtifactTarget(
     input,
     options.artifactAccess,
@@ -582,7 +609,7 @@ export async function recordGenerationCreativeContext(
     ? await assertGenerationArtifactAccess(
         input,
         artifactAccessTarget,
-        "editor",
+        "record",
       )
     : undefined;
   return recordGenerationCreativeContextLocal(input, {
@@ -602,14 +629,13 @@ export async function getGenerationCreativeContext(
     db?: any;
   } = {},
 ) {
+  if (!(await creativeContextLabEnabled())) return null;
   const artifactAccessTarget = collaborativeArtifactTarget(
     input,
     options.artifactAccess,
   );
   if (!options.db && hasIsolatedCreativeContextA2A()) {
-    const state = (await readAppState("creative-context").catch(
-      () => null,
-    )) as {
+    const state = (await readAppState("creative-context")) as {
       contextMode?: "auto" | "off";
     } | null;
     if (state?.contextMode !== "off") {
@@ -627,11 +653,7 @@ export async function getGenerationCreativeContext(
     }
   }
   const artifactAccess = artifactAccessTarget
-    ? await assertGenerationArtifactAccess(
-        input,
-        artifactAccessTarget,
-        "viewer",
-      )
+    ? await assertGenerationArtifactAccess(input, artifactAccessTarget, "read")
     : undefined;
   return getGenerationCreativeContextLocal(input, {
     artifactAccess,

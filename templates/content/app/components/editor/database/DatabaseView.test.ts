@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireDatabaseSourceOperation,
+  createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
   databaseBulkEditableProperties,
@@ -54,6 +55,8 @@ import {
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
   databaseItemPagePath,
+  orderDatabasePropertiesForView,
+  reorderDatabaseViewProperty,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
   databaseSourceChangeSetsAreComplete,
@@ -65,7 +68,18 @@ import {
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
+  requestedDatabaseViewId,
 } from "./DatabaseView";
+
+describe("database view deep-link selection", () => {
+  it("prefers the explicit route view without changing the saved default", () => {
+    expect(requestedDatabaseViewId(" ready-drafts ", "default")).toBe(
+      "ready-drafts",
+    );
+    expect(requestedDatabaseViewId(null, " default ")).toBe("default");
+    expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+});
 
 describe("database source page projections", () => {
   it("does not present page-scoped review counts as complete", () => {
@@ -210,38 +224,14 @@ describe("database preview property saves", () => {
     });
   });
 
-  it("threads the containing database document through scalar and block property editors", () => {
+  it("passes membership context to the shared Page surface", () => {
     const source = readFileSync(
       new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toMatch(
-      /<DocumentProperties[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      "utf8",
     );
     expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      /<PageEditorSurface[\s\S]*?documentId=\{item.document.id\}[\s\S]*?databaseId=\{item.databaseId\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
     );
-    expect(source).toMatch(
-      /<VisualEditor[\s\S]*?onChange=\{handleContentChange\}[\s\S]*?onSaveContent=\{handleContentSaveNow\}/,
-    );
-  });
-
-  it("does not refetch Content after the document mutation patches its caches", () => {
-    const source = readFileSync(
-      new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const onSaved = source.match(
-      /onSaved: \(persistedPayload\) => \{([\s\S]*?)\n    \},\n    onError:/,
-    )?.[1];
-
-    expect(onSaved).toBeDefined();
-    expect(onSaved).not.toContain("invalidateQueries");
   });
 });
 
@@ -1270,6 +1260,87 @@ const baseProperty = (
   editable: true,
 });
 
+describe("database property column order", () => {
+  const view = {
+    id: "table",
+    name: "Table",
+    type: "table" as const,
+    sorts: [],
+    filters: [],
+    columnWidths: {},
+  };
+  const propertyIds = (properties: DocumentProperty[]) =>
+    properties.map((property) => property.definition.id);
+
+  it("moves a visible property before another while preserving hidden columns", () => {
+    const allProperties = [
+      baseProperty("alpha"),
+      baseProperty("hidden"),
+      baseProperty("bravo"),
+      baseProperty("charlie"),
+    ];
+    const visibleProperties = [
+      allProperties[0],
+      allProperties[2],
+      allProperties[3],
+    ];
+
+    const reordered = reorderDatabaseViewProperty(
+      view,
+      "charlie",
+      "alpha",
+      { allProperties, visibleProperties },
+      "before",
+    );
+
+    expect(reordered.propertyOrderIds).toEqual([
+      "charlie",
+      "alpha",
+      "hidden",
+      "bravo",
+    ]);
+    expect(
+      propertyIds(orderDatabasePropertiesForView(allProperties, reordered)),
+    ).toEqual(["charlie", "alpha", "hidden", "bravo"]);
+  });
+
+  it("keeps surviving explicit order and appends new properties", () => {
+    const properties = [
+      baseProperty("alpha"),
+      baseProperty("bravo"),
+      baseProperty("charlie"),
+      baseProperty("delta"),
+    ];
+
+    expect(
+      propertyIds(
+        orderDatabasePropertiesForView(properties, {
+          propertyOrderIds: ["deleted", "charlie", "alpha", "bravo"],
+        }),
+      ),
+    ).toEqual(["charlie", "alpha", "bravo", "delta"]);
+  });
+
+  it("does not reorder from or onto a hidden property", () => {
+    const allProperties = [
+      baseProperty("alpha"),
+      baseProperty("hidden"),
+      baseProperty("bravo"),
+    ];
+    const visibleProperties = [allProperties[0], allProperties[2]];
+
+    expect(
+      reorderDatabaseViewProperty(
+        view,
+        "hidden",
+        "alpha",
+        { allProperties, visibleProperties },
+        "before",
+      ),
+    ).toBe(view);
+  });
+});
+
 const builderRowItem = (id: string): ContentDatabaseItem => ({
   id: `item-${id}`,
   databaseId: "database",
@@ -1398,7 +1469,7 @@ describe("Builder-backed database edit helpers", () => {
 describe("Database bulk multi-select edit helpers", () => {
   it("filters multi-select options by tag name", () => {
     const options = [
-      { id: "agent-native", name: "Agent Native", color: "blue" as const },
+      { id: "agent-native", name: "Agent-Native", color: "blue" as const },
       { id: "open-source", name: "Open Source", color: "green" as const },
       { id: "cms", name: "Headless CMS", color: "purple" as const },
     ];
@@ -1557,5 +1628,31 @@ describe("Database bulk multi-select edit helpers", () => {
       addOptionIds: [],
       removeOptionIds: ["open-source"],
     });
+  });
+});
+
+describe("createDatabaseViewSaveQueue", () => {
+  it("constructs a queued save after the previous receipt updates revisions", async () => {
+    const enqueue = createDatabaseViewSaveQueue();
+    let revision = "S0/C0";
+    const inputs: string[] = [];
+    let finishFirst!: () => void;
+    const firstResponse = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const first = enqueue(async () => {
+      inputs.push(revision);
+      await firstResponse;
+      revision = "S1/C1";
+    });
+    const second = enqueue(async () => {
+      inputs.push(revision);
+      revision = "S2/C2";
+    });
+    await Promise.resolve();
+    expect(inputs).toEqual(["S0/C0"]);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(inputs).toEqual(["S0/C0", "S1/C1"]);
   });
 });

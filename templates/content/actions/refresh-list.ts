@@ -1,10 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
   description:
     "Refresh the document list in the UI by writing a signal to application state.",
+  deferLoading: false,
   schema: z.object({}),
   http: false,
   run: async () => {

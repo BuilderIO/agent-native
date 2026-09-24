@@ -1,11 +1,12 @@
-import { defineAction } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import { defineAction, fail } from "@agent-native/core/action";
+import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { getDeckUrl } from "./_app-url.js";
 
@@ -13,8 +14,61 @@ function slidesDeepLink(): string {
   return buildDeepLink({ app: "slides", view: "list" });
 }
 
+function parseJsonProjection(value: unknown, label: string): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid ${label} JSON projection`, { cause: error });
+  }
+}
+
+// Postgres 22P02 ("invalid_text_representation") is what the `::jsonb` cast
+// below throws for a row whose `data` isn't valid JSON. Drizzle wraps the
+// driver error in a DrizzleQueryError with the original on `.cause`.
+const INVALID_TEXT_REPRESENTATION = "22P02";
+
+function isInvalidJsonCastError(error: unknown): boolean {
+  const err = error as { code?: unknown; cause?: { code?: unknown } };
+  return (
+    err?.code === INVALID_TEXT_REPRESENTATION ||
+    err?.cause?.code === INVALID_TEXT_REPRESENTATION
+  );
+}
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
+function encodeDeckCursor(updatedAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ updatedAt, id })).toString("base64url");
+}
+
+function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.updatedAt !== "string" ||
+      !parsed.updatedAt ||
+      typeof parsed.id !== "string" ||
+      !parsed.id
+    ) {
+      throw new Error("invalid cursor shape");
+    }
+    return parsed;
+  } catch {
+    fail("Invalid deck list cursor.", {
+      errorCode: "invalid_deck_list_cursor",
+      statusCode: 400,
+    });
+  }
+}
+
 export default defineAction({
-  description: "List all decks from the database with metadata.",
+  description:
+    "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -26,18 +80,44 @@ export default defineAction({
       .describe(
         "Set to 'true' for full frontend deck payloads; omitted returns metadata only",
       ),
+    includePreview: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "Set to 'true' with light mode to include only the first slide preview",
+      ),
     light: z
       .enum(["true", "false"])
       .optional()
       .describe(
         "Set to 'true' for a minimal id/title/updatedAt/visibility listing " +
           "used for cheap add/remove diffing (e.g. background polling). " +
-          "Never reads the deck body — no slides, no slideCount.",
+          "By default never reads the deck body — no slides, no slideCount. " +
+          "Use includePreview for the first slide only.",
       ),
     createdBy: z
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    updatedSince: z
+      .string()
+      .datetime({ offset: true })
+      .optional()
+      .describe("Only return decks updated after this timestamp"),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_PAGE_SIZE)
+      .optional()
+      .describe("Maximum number of decks to return in a bounded page"),
+    cursor: z
+      .string()
+      .trim()
+      .min(1)
+      .max(512)
+      .optional()
+      .describe("Opaque cursor returned by the previous page"),
   }),
   http: { method: "GET" },
   link: () => ({
@@ -50,7 +130,7 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     if (
-      args.includeSlides === "true" &&
+      (args.includeSlides === "true" || args.includePreview === "true") &&
       ctx?.caller === "frontend" &&
       normalizedOwnerEmail === null
     ) {
@@ -72,12 +152,191 @@ export default defineAction({
           )
         : visibleDecks;
 
+    const paged =
+      args.updatedSince !== undefined ||
+      args.limit !== undefined ||
+      args.cursor !== undefined;
+    if (paged) {
+      const cursor = args.cursor ? decodeDeckCursor(args.cursor) : undefined;
+      const updatedSince = args.updatedSince
+        ? new Date(args.updatedSince).toISOString()
+        : undefined;
+      const pageConditions = [
+        ...(updatedSince
+          ? [sql`${schema.decks.updatedAt} > ${updatedSince}`]
+          : []),
+        ...(cursor
+          ? [
+              sql`(${schema.decks.updatedAt} < ${cursor.updatedAt} OR (${schema.decks.updatedAt} = ${cursor.updatedAt} AND ${schema.decks.id} < ${cursor.id}))`,
+            ]
+          : []),
+      ];
+      const pagedWhere = pageConditions.length
+        ? and(where, ...pageConditions)
+        : where;
+      const pageSize = args.limit ?? DEFAULT_PAGE_SIZE;
+      const rows = await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          ownerEmail: schema.decks.ownerEmail,
+          designSystemId: schema.decks.designSystemId,
+          createdAt: schema.decks.createdAt,
+          updatedAt: schema.decks.updatedAt,
+          visibility: schema.decks.visibility,
+        })
+        .from(schema.decks)
+        .where(pagedWhere)
+        .orderBy(desc(schema.decks.updatedAt), desc(schema.decks.id))
+        .limit(pageSize + 1);
+      const hasNextPage = rows.length > pageSize;
+      const visibleRows = hasNextPage ? rows.slice(0, pageSize) : rows;
+      const lastRow = visibleRows[visibleRows.length - 1];
+      if (hasNextPage && !lastRow?.updatedAt) {
+        fail("Cannot paginate a deck without an updated timestamp.", {
+          errorCode: "deck_pagination_unavailable",
+          statusCode: 409,
+        });
+      }
+      const nextCursor =
+        hasNextPage && lastRow?.updatedAt
+          ? encodeDeckCursor(lastRow.updatedAt, lastRow.id)
+          : undefined;
+      const decks = visibleRows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        url: getDeckUrl(row.id),
+        appUrl: getDeckUrl(row.id),
+        visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
+        createdByMe:
+          normalizedOwnerEmail !== null &&
+          normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }));
+      return {
+        count: decks.length,
+        decks,
+        ...(nextCursor ? { nextCursor } : {}),
+      };
+    }
+
     if (args.light === "true") {
       // Column-projected listing for cheap add/remove diffing (the client's
       // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large — never select it
-      // here. Callers that need slide content use `includeSlides: "true"` or
-      // fetch the specific deck via `get-deck`.
+      // each deck's entire slide JSON and can be large. The client requests
+      // the preview projection below only while showing the grid, where
+      // DeckCard renders it; while a deck is open it uses the metadata-only
+      // path, since previewSlide is never displayed there.
+      if (args.includePreview === "true") {
+        // Keep the list bounded at the database boundary. `data` is an opaque
+        // full-deck blob, so selecting it and parsing it here scales with every
+        // slide even though the caller only needs the first one.
+        const previewSlideProjection = sql<
+          string | null
+        >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
+        const aspectRatioProjection = sql<
+          string | null
+        >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
+        const previewQuery = db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            ownerEmail: schema.decks.ownerEmail,
+            previewSlide: previewSlideProjection,
+            aspectRatio: aspectRatioProjection,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt));
+
+        let rows: Awaited<typeof previewQuery>;
+        try {
+          rows = await previewQuery;
+        } catch (error) {
+          // The `::jsonb` cast above runs per row inside the query itself, so
+          // one deck whose `data` isn't valid JSON (a legacy/corrupted row)
+          // fails this cast and 500s the whole listing, not just that deck's
+          // owner. Fall back to reading `data` as plain text and parsing it
+          // per row in JS, so one bad deck loses only its own preview. Only
+          // that specific failure gets the fallback — a timeout, a dropped
+          // connection, or pool exhaustion is a real failure, and retrying it
+          // as a second, heavier full-`data` scan would double the load on
+          // the DB at the worst possible moment.
+          if (!isInvalidJsonCastError(error)) throw error;
+          captureError(error, {
+            route: "list-decks",
+            extra: { includePreview: true },
+          });
+          const rawRows = await db
+            .select({
+              id: schema.decks.id,
+              title: schema.decks.title,
+              updatedAt: schema.decks.updatedAt,
+              visibility: schema.decks.visibility,
+              ownerEmail: schema.decks.ownerEmail,
+              data: schema.decks.data,
+            })
+            .from(schema.decks)
+            .where(where)
+            .orderBy(desc(schema.decks.updatedAt));
+          rows = rawRows.map(({ data, ...meta }) => {
+            let previewSlide: string | null = null;
+            let aspectRatio: string | null = null;
+            try {
+              const parsed = JSON.parse(data);
+              const firstSlide = Array.isArray(parsed?.slides)
+                ? parsed.slides[0]
+                : undefined;
+              if (firstSlide !== undefined) {
+                previewSlide = JSON.stringify(firstSlide);
+              }
+              if (typeof parsed?.aspectRatio === "string") {
+                aspectRatio = parsed.aspectRatio;
+              }
+            } catch (parseError) {
+              // This is the specific deck that broke the fast path above —
+              // surface its id so it can be fixed instead of silently
+              // missing its preview on every future listing too.
+              captureError(parseError, {
+                route: "list-decks",
+                extra: { deckId: meta.id },
+              });
+            }
+            return { ...meta, previewSlide, aspectRatio };
+          });
+        }
+
+        return {
+          count: rows.length,
+          decks: rows.map((row) => {
+            const previewSlide = parseJsonProjection(
+              row.previewSlide,
+              "first slide preview",
+            );
+            return {
+              id: row.id,
+              title: row.title,
+              updatedAt: row.updatedAt,
+              visibility: row.visibility,
+              appUrl: getDeckUrl(row.id),
+              createdByMe:
+                normalizedOwnerEmail !== null &&
+                normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+              ...(previewSlide && typeof previewSlide === "object"
+                ? { previewSlide }
+                : {}),
+              ...(typeof row.aspectRatio === "string"
+                ? { aspectRatio: row.aspectRatio }
+                : {}),
+            };
+          }),
+        };
+      }
+
       const rows = await db
         .select({
           id: schema.decks.id,
@@ -96,6 +355,7 @@ export default defineAction({
           title: row.title,
           updatedAt: row.updatedAt,
           visibility: row.visibility,
+          appUrl: getDeckUrl(row.id),
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
@@ -127,6 +387,7 @@ export default defineAction({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckUrl(row.id),
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
           createdByMe:
@@ -156,11 +417,12 @@ export default defineAction({
           ...data,
           id: row.id,
           title: row.title,
+          appUrl: getDeckUrl(row.id),
           visibility: row.visibility,
           createdByMe:
             normalizedOwnerEmail !== null &&
             normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
-          designSystemId: row.designSystemId ?? data.designSystemId ?? null,
+          designSystemId: resolveDeckDesignSystemId(row, data),
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
           updatedAt: row.updatedAt,
@@ -173,6 +435,7 @@ export default defineAction({
           id: row.id,
           title: row.title,
           url: getDeckUrl(row.id),
+          appUrl: getDeckUrl(row.id),
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
@@ -183,6 +446,7 @@ export default defineAction({
         id: row.id,
         title: row.title,
         url: getDeckUrl(row.id),
+        appUrl: getDeckUrl(row.id),
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,

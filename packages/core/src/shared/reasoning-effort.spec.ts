@@ -9,6 +9,7 @@ import {
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
+  supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
@@ -23,6 +24,17 @@ describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
   it("includes xhigh for claude-opus-4-7", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-7");
     expect(opts).toContain("xhigh");
+  });
+
+  it("supports direct GPT-6 and Opus 5.5 reasoning", () => {
+    expect(getReasoningEffortOptionsForModel("gpt-6-sol")).toContain("xhigh");
+    expect(getReasoningEffortOptionsForModel("openai/gpt-6-luna")).toContain(
+      "xhigh",
+    );
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-opus-5.5"),
+    ).toContain("xhigh");
+    expect(supportsClaudeAdaptiveThinking("claude-opus-5-5")).toBe(true);
   });
 
   it("includes xhigh for claude-opus-4-8", () => {
@@ -181,6 +193,7 @@ describe("allowsSamplingParams", () => {
       "claude-opus-4-7",
       "claude-opus-4-8",
       "claude-opus-5",
+      "claude-opus-5-5",
       "claude-fable-5",
       "anthropic/claude-sonnet-5",
     ]) {
@@ -196,6 +209,7 @@ describe("allowsSamplingParams", () => {
       "claude-opus-4-6",
       "claude-sonnet-4-6",
       "gpt-5.6-sol",
+      "gpt-6-sol",
       "gemini-3-1-pro",
     ]) {
       expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(

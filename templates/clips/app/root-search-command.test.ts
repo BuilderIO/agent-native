@@ -3,15 +3,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("Clips command-menu search action", () => {
-  it("routes Search through the focus intent instead of a no-op", () => {
+  it("registers Search through the dynamic Clips command menu", () => {
     const source = readFileSync(new URL("./root.tsx", import.meta.url), "utf8");
+    const menuSource = readFileSync(
+      new URL("./components/clips-command-menu.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(source).toContain(
-      'import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";',
-    );
-    expect(source).toContain(
-      "<CommandMenu.Item onSelect={() => navigate(SEARCH_FOCUS_PATH)}>",
-    );
-    expect(source).not.toContain("<CommandMenu.Item onSelect={() => {}}>");
+    expect(source).toContain("<ClipsCommandMenu");
+    expect(menuSource).toContain("useRecordingSearch(search.trim())");
+    expect(menuSource).toContain("useMeetingCommandSearch(search)");
+    expect(menuSource).toContain("useDictationCommandSearch(search)");
+    expect(menuSource).toContain("SEARCH_FOCUS_PATH");
+    expect(menuSource).toContain("openBugReportDialog");
+    expect(menuSource).not.toContain("<CommandMenu.Item onSelect={() => {}}>");
   });
 });

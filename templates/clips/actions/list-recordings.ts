@@ -1,5 +1,6 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import {
   and,
   asc,
@@ -15,11 +16,13 @@ import {
 import { z } from "zod";
 
 import { effectiveDuration, parseEdits } from "../app/lib/timestamp-mapping.js";
+import { parseRedactions } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   countedViewCondition,
@@ -27,6 +30,7 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -188,9 +192,19 @@ export default defineAction({
       // Meeting recordings are transcript-only (no playable media) and live on
       // the /meetings surface, so keep them out of clip library views. The link
       // is meetings.recordingId (no meetingId column on recordings), so exclude
-      // any recording referenced by a meeting. The subquery filters out NULLs
-      // so NOT IN doesn't collapse to an empty result under SQL NULL semantics.
-      const meetingRecordingIds = db
+      // any recording referenced by a meeting. Keep the exclusion database-side
+      // as a NOT IN (SELECT ...) subquery instead of pulling every meeting's
+      // recording id into memory — this table only grows. `await db` with no
+      // chain resolves the lazy proxy from create-get-db.ts to the real db
+      // instance without issuing a query; only *then* build the subquery off
+      // that resolved instance. Building it off `db` directly and handing the
+      // still-unresolved chain straight to notInArray() is the cold-start bug
+      // this used to have — drizzle reads `.getSQL()` on it synchronously, and
+      // the proxy throws rather than silently building wrong SQL. The subquery
+      // filters out NULLs so NOT IN doesn't collapse to an empty result under
+      // SQL NULL semantics.
+      const resolvedDb = await Promise.resolve(db);
+      const meetingRecordingIds = resolvedDb
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)
         .where(isNotNull(schema.meetings.recordingId));
@@ -200,6 +214,9 @@ export default defineAction({
     // Lifecycle view filters
     if (args.view === "trash") {
       whereClauses.push(isNotNull(schema.recordings.trashedAt));
+      if (orgId) {
+        whereClauses.push(eq(schema.recordings.organizationId, orgId));
+      }
     } else {
       whereClauses.push(isNull(schema.recordings.trashedAt));
       if (args.view === "archive") {
@@ -213,6 +230,8 @@ export default defineAction({
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
+      } else {
+        whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 
@@ -224,7 +243,7 @@ export default defineAction({
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
       // Match recordings where spaceIds JSON array contains spaceId.
-      // Use a LIKE check — works across SQLite/Postgres without JSON ops.
+      // Use a LIKE check - works across Postgres and PGlite without JSON ops.
       const needle = `%"${args.spaceId.replace(/%/g, "")}"%`;
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
@@ -269,8 +288,8 @@ export default defineAction({
     )`;
     // Same floor as `countRecordingViews`: `recording_views` only exists from
     // migration v46, so pre-migration clips have no log rows and must fall back
-    // to the counted-viewer count instead of sorting as zero. CASE rather than
-    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    // to the counted-viewer count instead of sorting as zero. CASE keeps the
+    // ordering expression explicit about which count wins.
     const viewCountOrder = sql<number>`(
       CASE WHEN ${viewLogCount} > ${countedViewerCount}
         THEN ${viewLogCount}
@@ -311,6 +330,13 @@ export default defineAction({
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
           visibility: schema.recordings.visibility,
+          hasPassword: sql<number>`(
+            CASE WHEN ${schema.recordings.password} IS NOT NULL
+              AND ${schema.recordings.password} <> ''
+              THEN 1 ELSE 0
+            END
+          )`,
+          expiresAt: schema.recordings.expiresAt,
           ownerEmail: schema.recordings.ownerEmail,
           folderId: schema.recordings.folderId,
           spaceIds: schema.recordings.spaceIds,
@@ -352,27 +378,20 @@ export default defineAction({
       .offset(args.offset);
 
     const ids = rows.map((r) => r.recording.id);
+    const ownerProfilesPromise = getUserProfiles(
+      rows.map((row) => row.recording.ownerEmail),
+    );
 
-    // Gather tags for the result set in one query
-    let tagsByRec: Record<string, string[]> = {};
-    if (ids.length) {
-      const tagRows = await db
-        .select()
-        .from(schema.recordingTags)
-        .where(inArray(schema.recordingTags.recordingId, ids));
-      for (const t of tagRows) {
-        tagsByRec[t.recordingId] ??= [];
-        tagsByRec[t.recordingId].push(t.tag);
-      }
-    }
-
-    // Count views per recording — set-wide grouped reads, never one per
-    // recording.
-    let viewsByRec: Record<string, number> = {};
-    let agentViewsByRec: Record<string, number> = {};
-    if (ids.length) {
-      const [countedViewerRows, viewLogRows, agentViewRows] = await Promise.all(
-        [
+    // These set-wide reads are independent. Start them together so profile,
+    // tag, and view latency does not add up for every library page.
+    const tagRowsPromise = ids.length
+      ? db
+          .select()
+          .from(schema.recordingTags)
+          .where(inArray(schema.recordingTags.recordingId, ids))
+      : Promise.resolve([]);
+    const viewRowsPromise = ids.length
+      ? Promise.all([
           db
             .select({
               recordingId: schema.recordingViewers.recordingId,
@@ -402,8 +421,27 @@ export default defineAction({
             .from(schema.recordingAgentViews)
             .where(inArray(schema.recordingAgentViews.recordingId, ids))
             .groupBy(schema.recordingAgentViews.recordingId),
-        ],
-      );
+        ])
+      : Promise.resolve(null);
+    const [ownerProfiles, tagRows, viewRows] = await Promise.all([
+      ownerProfilesPromise,
+      tagRowsPromise,
+      viewRowsPromise,
+    ]);
+
+    // Gather tags for the result set in one query.
+    const tagsByRec: Record<string, string[]> = {};
+    for (const t of tagRows) {
+      tagsByRec[t.recordingId] ??= [];
+      tagsByRec[t.recordingId].push(t.tag);
+    }
+
+    // Count views per recording — set-wide grouped reads, never one per
+    // recording.
+    let viewsByRec: Record<string, number> = {};
+    let agentViewsByRec: Record<string, number> = {};
+    if (viewRows) {
+      const [countedViewerRows, viewLogRows, agentViewRows] = viewRows;
       viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
       agentViewsByRec = Object.fromEntries(
         agentViewRows.map((r) => [r.recordingId, Number(r.count ?? 0)]),
@@ -412,6 +450,7 @@ export default defineAction({
 
     const recordings = rows.map((row) => {
       const r = row.recording;
+      const edits = parseEdits(r.editsJson);
       return {
         id: r.id,
         title: r.title,
@@ -419,8 +458,10 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
-        thumbnailUrl: r.thumbnailUrl,
-        animatedThumbnailUrl: r.animatedThumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(r),
+        animatedThumbnailUrl: r.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(r, { animated: true })
+          : null,
         // Raw source length. StitchManager sums this across queued
         // recordings to size the concatenated export, which always
         // includes each source's full untrimmed media — trims are applied
@@ -428,18 +469,22 @@ export default defineAction({
         durationMs: r.durationMs,
         // Edited length, not the original recorded length — matches what
         // the clip page itself shows once trims/cuts are applied.
-        effectiveDurationMs: effectiveDuration(
-          r.durationMs,
-          parseEdits(r.editsJson),
-        ),
+        effectiveDurationMs: effectiveDuration(r.durationMs, edits),
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
         visibility: r.visibility,
+        hasPassword: Number(r.hasPassword ?? 0) > 0,
+        expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,
+        ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],
+        // Redactions drawn but not burned into the file. The library needs it
+        // to hold sharing back from the card menu — every route to a share
+        // link has to refuse, or the guard is decoration.
+        pendingRedactions: parseRedactions(edits.overlays).length,
         viewCount: viewsByRec[r.id] ?? 0,
         agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,

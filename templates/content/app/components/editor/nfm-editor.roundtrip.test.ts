@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import {
+  docToNfm,
+  nfmToDoc,
+  serializeInlineNode,
+  serializeInlineTextNodeWithOffsets,
+  type PMNode,
+} from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 
@@ -23,6 +29,36 @@ function editorRoundTrip(nfm: string): string {
 }
 
 const L = (...lines: string[]) => lines.join("\n");
+
+describe("inline text source offsets", () => {
+  it.each([
+    {
+      text: "a``b",
+      source: "```a``b```",
+      offsets: [3, 4, 5, 6, 7],
+    },
+    {
+      text: "`edge`",
+      source: "`` `edge` ``",
+      offsets: [3, 4, 5, 6, 7, 8, 9],
+    },
+    {
+      text: " edge ",
+      source: "`  edge  `",
+      offsets: [2, 3, 4, 5, 6, 7, 8],
+    },
+  ])(
+    "keeps code serialization and every visible boundary aligned for $source",
+    ({ text, source, offsets }) => {
+      const node: PMNode = { type: "text", text, marks: [{ type: "code" }] };
+      expect(serializeInlineTextNodeWithOffsets(node)).toEqual({
+        source,
+        textOffsets: offsets,
+      });
+      expect(serializeInlineNode(node)).toBe(source);
+    },
+  );
+});
 
 const CASES: Array<{ name: string; nfm: string }> = [
   { name: "plain paragraph", nfm: "Just a paragraph." },
@@ -345,6 +381,39 @@ describe("NFM ⇄ real TipTap editor round-trip", () => {
       expect(editorRoundTrip(nfm)).toBe(nfm);
     });
   }
+
+  it("promotes mixed MDX pipe tables through the live editor schema", () => {
+    const source = L(
+      '<Aside type="note">',
+      "Keep this source.",
+      "</Aside>",
+      "| Component | Responsibility |",
+      "| --- | --- |",
+      "| Content | Preserve structure |",
+      "```mermaid",
+      "flowchart TD",
+      "  Import --> Repair",
+      "```",
+      "Trailing content.",
+    );
+
+    const result = editorRoundTrip(source);
+    expect(result).toContain(
+      '<Aside type="note">\nKeep this source.\n</Aside>',
+    );
+    expect(result).toContain('<table header-row="true">');
+    expect(result).toContain("<td>Component</td>");
+    expect(result).toContain("```mermaid\nflowchart TD");
+    expect(result.endsWith("Trailing content.")).toBe(true);
+  });
+
+  it("keeps aligned table cells editable through the live editor", () => {
+    const source = "| Left | Right |\n| :--- | ---: |\n| A | B |";
+    const result = editorRoundTrip(source);
+    expect(result).toContain('<td align="left">Left</td>');
+    expect(result).toContain('<td align="right">Right</td>');
+    expect(result).toContain('<td align="right">B</td>');
+  });
 });
 
 /**

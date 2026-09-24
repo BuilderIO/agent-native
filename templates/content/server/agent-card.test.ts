@@ -52,7 +52,7 @@ describe("content agent card", () => {
       const card = generateAgentCard(
         {
           name: "Content",
-          description: "Agent-native content agent",
+          description: "Agent-Native content agent",
           skills: Object.entries(actions).map(([name, entry]) => ({
             id: name,
             name,
@@ -64,7 +64,7 @@ describe("content agent card", () => {
       );
 
       expect(card.name).toBe("Content");
-      expect(card.description).toBe("Agent-native content agent");
+      expect(card.description).toBe("Agent-Native content agent");
       expect(card.skills.map((skill) => skill.id)).toEqual(
         expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
       );

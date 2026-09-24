@@ -7,6 +7,11 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
@@ -22,6 +27,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -30,6 +36,7 @@ import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -42,34 +49,34 @@ const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
 export const databaseMutationTargetSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema,
   spaceId: z.string().min(1).describe("Exact Content space ID"),
-  databaseId: z.string().min(1).describe("Exact Content database ID"),
+  databaseId: z.string().min(1).describe("Exact Content collection ID"),
   databaseDocumentId: z
     .string()
     .min(1)
-    .describe("Exact page ID backing the Content database"),
+    .describe("Exact page ID backing the Content collection"),
 });
 
 export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected database.",
+      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
     ),
   spaceId: z
     .string()
     .min(1)
-    .describe("Exact Content space ID returned by database discovery"),
+    .describe("Exact Content space ID returned by collection discovery"),
   databaseId: z
     .string()
     .min(1)
     .describe(
-      "Exact Content database ID returned by database discovery; never derive it from a title or number in the request",
+      "Exact Content collection ID returned by collection discovery; never derive it from a title or number in the request",
     ),
   databaseDocumentId: z
     .string()
     .min(1)
     .describe(
-      "Exact page ID backing the database, returned by database discovery",
+      "Exact page ID backing the collection, returned by collection discovery",
     ),
 });
 
@@ -243,11 +250,25 @@ function acceptedShape(type: DocumentPropertyType): string {
   }
 }
 
+export function systemDatabaseMutationMessage(systemRole: string) {
+  switch (systemRole) {
+    case "workspaces":
+      return "This is the Workspaces catalog, which only lists workspaces. A workspace row here is not the workspace's collection: to add pages inside a workspace, call create-document with that workspace's spaceId or spaceName (see list-content-spaces), and to add rows to a collection inside it, target that collection's databaseId.";
+    case "files":
+      return "This is a workspace's Files collection. Create pages in it with create-document using the workspace spaceId rather than a row mutation.";
+    case "favorites":
+      return "This is the Favorites collection, whose rows follow the favorite flag on each page. Change a page's favorite state instead of creating rows here.";
+    default:
+      return "Reliable row mutations are supported only for ordinary Content collections.";
+  }
+}
+
 export async function loadContext(
   target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
+  includeDeleted = false,
 ): Promise<MutationContext> {
   const [database] = await db
     .select()
@@ -255,7 +276,7 @@ export async function loadContext(
     .where(
       and(
         eq(schema.contentDatabases.id, target.databaseId),
-        isNull(schema.contentDatabases.deletedAt),
+        includeDeleted ? undefined : isNull(schema.contentDatabases.deletedAt),
       ),
     );
   if (!database) {
@@ -272,7 +293,7 @@ export async function loadContext(
           .where(
             and(
               eq(schema.documents.id, database.documentId),
-              isNull(schema.documents.trashedAt),
+              includeDeleted ? undefined : isNull(schema.documents.trashedAt),
             ),
           )
       )[0]
@@ -307,7 +328,7 @@ export async function loadContext(
   }
   if (database.systemRole) {
     throw new ActionContractError(
-      "Reliable row mutations are supported only for ordinary Content databases.",
+      systemDatabaseMutationMessage(database.systemRole),
       { errorCode: "SYSTEM_DATABASE_UNSUPPORTED", statusCode: 400 },
     );
   }
@@ -316,7 +337,11 @@ export async function loadContext(
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
   const sourceFields = await db
-    .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
       schema.contentDatabaseSources,
@@ -326,11 +351,8 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
-  const sourceManagedPropertyIds = new Set(
-    sourceFields.flatMap((field) =>
-      field.propertyId ? [field.propertyId] : [],
-    ),
-  );
+  const sourceManagedPropertyIds =
+    contentDatabaseSourceManagedPropertyIds(sourceFields);
   return {
     database,
     databaseDocument,
@@ -832,7 +854,7 @@ function resultForReceipt(
     row: {
       itemId: snapshot.item.id,
       documentId: snapshot.document.id,
-      urlPath: `/page/${snapshot.document.id}`,
+      urlPath: `/page/${encodeURIComponent(snapshot.document.id)}?${new URLSearchParams({ databaseId: context.database.id, databaseDocumentId: context.database.documentId }).toString()}`,
       rowRevision: snapshot.revision,
     },
     affected: {
@@ -976,10 +998,11 @@ async function createInsideTransaction(
   },
 ) {
   const now = new Date().toISOString();
+  const actor = requireDocumentRequestActor();
   const documentId = args.documentId ?? nanoid();
   const itemId = args.itemId ?? nanoid();
   const [maxDoc] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.documents)
     .where(
       and(
@@ -988,7 +1011,7 @@ async function createInsideTransaction(
       ),
     );
   const [maxItem] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
   const shares = await tx
@@ -1008,10 +1031,11 @@ async function createInsideTransaction(
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,
-    position: (maxDoc?.max ?? -1) + 1,
+    position: nextAppendPosition(maxDoc?.max),
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
+    ...documentCreationAttribution(actor),
     createdAt: now,
     updatedAt: now,
   });
@@ -1021,7 +1045,7 @@ async function createInsideTransaction(
     orgId: context.database.orgId,
     databaseId: context.database.id,
     documentId,
-    position: (maxItem?.max ?? -1) + 1,
+    position: nextAppendPosition(maxItem?.max),
     createdAt: now,
     updatedAt: now,
   });
@@ -1081,7 +1105,7 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
-  await assertAccess("document", args.documentId, "editor");
+  const actor = requireDocumentRequestActor();
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1144,7 +1168,11 @@ async function updateInsideTransaction(
           ).toISOString();
     const [updatedDocument] = await tx
       .update(schema.documents)
-      .set({ title: args.title!.trim(), updatedAt: nextUpdatedAt })
+      .set({
+        title: args.title!.trim(),
+        updatedAt: nextUpdatedAt,
+        ...documentEditAttribution(actor),
+      })
       .where(
         and(
           eq(schema.documents.id, args.documentId),
@@ -1230,8 +1258,15 @@ export async function createDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1240,6 +1275,7 @@ export async function createDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
@@ -1281,8 +1317,8 @@ export async function createDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1309,8 +1345,16 @@ export async function updateDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    await assertAccess("document", input.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1319,6 +1363,7 @@ export async function updateDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
@@ -1371,8 +1416,8 @@ export async function updateDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1458,8 +1503,18 @@ export async function upsertDatabaseRow(
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    if (initialClaim) {
+      await assertAccess("document", initialClaim.documentId, "editor");
+    }
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1468,6 +1523,7 @@ export async function upsertDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
       const lockedReplay = await replayReceipt(
         locked,
@@ -1609,7 +1665,7 @@ export async function upsertDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }

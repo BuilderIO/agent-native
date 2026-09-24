@@ -10,6 +10,7 @@ import {
 export type PostFinalizeJobKind =
   | "media-ready"
   | "seekable"
+  | "thumbnail"
   | "transcript"
   | "brain-export"
   | "loom-import";

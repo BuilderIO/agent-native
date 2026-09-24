@@ -202,7 +202,8 @@ function ConnectionStatus({
 
 export function MessagingSetupPanel() {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const [statuses, setStatuses] = useState<ClientIntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [envStatuses, setEnvStatuses] = useState<IntegrationEnvStatus[]>([]);

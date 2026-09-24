@@ -70,9 +70,10 @@ contract.
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
   checkout.
+- Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
-- On every response, consider whether the chat title still matches the work.
+- Keep the chat title accurate.
 - Do the work instead of asking whether to do it. If a step is inside the task
   you were given and is not destructive, irreversible, or a spend/send/publish
   action, run it and report the result — deploys, database reads and writes,
@@ -142,10 +143,11 @@ exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
 Code, and a human equally). `pnpm guards --list` prints the current set;
-`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`, and
-`no-heavy-dashboard-list-reads` check only lines this branch added, so the
-pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma, and every opt-out is a decision a reviewer should see.
+`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
+`no-heavy-dashboard-list-reads`, and `external-result-contract` check only
+lines this branch added, so the pre-existing backlog stays a separate
+cleanup. Each guard has a documented opt-out pragma, and every opt-out is a
+decision a reviewer should see.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
@@ -199,15 +201,14 @@ argument rots into exactly the patchwork it warns about.
 
 ## Architecture Contract
 
-- Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts
+- Data lives in PostgreSQL via Drizzle by default. Explicit Local File Mode artifacts
   declared through `agent-native.json` may use repo files as the source of truth,
   but app state, auth, settings, and hosted/collaborative mode still use SQL.
-  Keep schemas provider-agnostic.
-- Keep app and template database code dialect-agnostic. Never call adapter-only
-  methods such as libSQL/SQLite `run()`, `all()`, or `get()`, or PostgreSQL-only
-  client APIs. Use Drizzle's shared query builder for normal reads and writes
-  and `getDbExec().execute()` for reviewed portable raw SQL; keep dialect
-  branching inside core database helpers.
+  Keep schemas PostgreSQL-specific.
+- Keep app and template database code PostgreSQL-specific. Use Drizzle's
+  PostgreSQL query builder for normal reads and writes and
+  `getDbExec().execute()` for reviewed PostgreSQL raw SQL. Never call
+  adapter-specific `run()`, `all()`, or `get()` methods.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.
@@ -279,7 +280,8 @@ instructions, and application state.
 ## Data And Security
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
-  alter tables or columns in migrations or startup code.
+  alter tables or columns in migrations or startup code. New columns must
+  default or allow null.
 - SQL stores structured app state, metadata, references, and searchable text. Do
   not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
   screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
@@ -330,9 +332,9 @@ instructions, and application state.
   `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
   path — personalization is client-side after load. Enforced by
   `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
-- UIs should be optimistic by default: update cache and navigate immediately,
-  roll back on error, and avoid click-blocking spinners except for destructive or
-  irreversible operations.
+- UIs should update optimistically, roll back errors, and avoid blocking spinners
+  except for destructive work.
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density

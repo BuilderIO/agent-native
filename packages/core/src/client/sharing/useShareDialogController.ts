@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import { useT } from "../i18n.js";
 import {
@@ -144,13 +145,15 @@ export function useShareDialogController({
     query: sharesQuery,
     queryKey: shareQueryKey,
     queryClient,
-  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId);
+  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId, open);
   const {
     share: shareMutation,
     unshare: unshareMutation,
     setVisibility: visibilityMutation,
   } = useShareMutations();
-  const memberSearch = useShareOrgMemberSearch("", true, {
+  // Hosts mount one closed dialog per list row (e.g. every deck card), so
+  // these fetches must wait for `open` or a list page fans out N requests.
+  const memberSearch = useShareOrgMemberSearch("", open, {
     limit: undefined,
     debounceMs: 0,
   });
@@ -380,17 +383,25 @@ export function useShareDialogController({
       unshareMutation,
     ],
   );
-  const copy = useCallback(async (field: string, value: string) => {
-    const copied = await writeClipboardText(value);
-    if (!copied) {
-      setCopiedField(null);
-      return false;
-    }
-    setCopiedField(field);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
-    return true;
-  }, []);
+  const copy = useCallback(
+    async (field: string, value: string) => {
+      const copied = await writeClipboardText(value);
+      if (!copied) {
+        setCopiedField(null);
+        return false;
+      }
+      setCopiedField(field);
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: field,
+      });
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
+      return true;
+    },
+    [resourceId, resourceType],
+  );
 
   const currentVisibility = visibilityOption(visibility, t);
   const people = buildPeople(data, orgMembers, t);

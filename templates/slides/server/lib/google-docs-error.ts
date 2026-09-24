@@ -1,6 +1,10 @@
 export function formatGoogleOAuthError(error: unknown): string {
   const rawMessage =
-    error instanceof Error ? error.message : String(error || "Unknown error");
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error ?? "Unknown error");
   const message = rawMessage.replace(/\s+/g, " ").trim();
   const normalized = message.toLowerCase();
 

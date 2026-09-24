@@ -1,5 +1,6 @@
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import type { TweakDefinition } from "@shared/api";
+import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import type { TweakSelections } from "@shared/resolve-tweaks";
 import { toast } from "sonner";
 
@@ -67,10 +68,11 @@ export function runTweakPromptSubmit(
     "Add or update live tweak controls for this design. Keep existing useful tweak controls unless the user explicitly asks to replace them.",
     "If a requested control needs a new CSS custom property, first read the live design with `get-design-snapshot`, update the relevant HTML/CSS so the property is used, then persist the complete updated tweak definition list through `generate-design`.",
     "For tiny source changes, prefer `edit-design`, but make sure the tweak definitions are saved so the Tweaks panel updates.",
+    DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ].join("\n");
 
   sendToDesignAgentChat({
-    message: `Add tweak controls to "${design.title}": ${trimmed}`,
+    message: prompt,
     context,
     submit: true,
     openSidebar: true,

@@ -2,7 +2,7 @@
  * Plan helper commands.
  *
  * The `plan local` commands are intentionally separate from the Plan app
- * actions. They do not call MCP, hosted write actions, SQLite, or hosted
+ * actions. They do not call MCP, hosted write actions, or hosted
  * storage; they only read local files or serve them from a localhost bridge so
  * privacy-focused users have an auditable no-DB path. The top-level
  * `plan blocks` command is a schema-only, no-auth helper for fetching the
@@ -3092,7 +3092,7 @@ the local repo, the Plan bridge, or GitHub and authored structured Plan blocks.
 The local subcommands are the privacy-focused no-DB path. They only read and
 write local files: plan.mdx, optional canvas.mdx, optional prototype.mdx, and
 optional .plan-state.json. They do not call the Plan MCP server, the Plan app
-write actions, hosted storage, or SQLite.
+write actions, or hosted storage.
 
 Common flow:
   agent-native plan blocks --out plan-blocks.md

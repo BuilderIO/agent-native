@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  registerPrivateBlobProvider,
+  type PrivateBlobProvider,
+} from "@agent-native/core/private-blob";
 import {
   registerFileUploadProvider,
   type FileUploadProvider,
@@ -19,6 +23,7 @@ const MIME_EXTENSIONS = new Map([
   ["image/webp", "webp"],
   ["image/gif", "gif"],
   ["image/avif", "avif"],
+  ["image/svg+xml", "svg"],
 ]);
 
 export function isLocalFigmaQaUploadEnabled(
@@ -43,7 +48,7 @@ export function localFigmaQaAssetPath(
   assetId: string,
   rootDir = QA_UPLOAD_ROOT,
 ): string | null {
-  if (!/^[a-f0-9-]{36}\.(?:png|jpg|webp|gif|avif)$/.test(assetId)) {
+  if (!/^[a-f0-9-]{36}\.(?:png|jpg|webp|gif|avif|svg)$/.test(assetId)) {
     return null;
   }
   const ownerRoot = ownerDirectory(ownerEmail, rootDir);
@@ -107,6 +112,59 @@ export function createLocalFigmaQaUploadProvider(options?: {
   };
 }
 
+/**
+ * Design version checkpoints over the inline SQL limit are private blobs. The
+ * public-upload fallback cannot back them here: it reads each blob back over
+ * HTTP, and this QA storage only serves images to a signed-in browser. Without
+ * a private store no local QA design can grow past 256 KiB.
+ */
+export function createLocalFigmaQaPrivateBlobProvider(options?: {
+  rootDir?: string;
+  enabled?: () => boolean;
+}): PrivateBlobProvider {
+  const rootDir = path.join(options?.rootDir ?? QA_UPLOAD_ROOT, "private");
+  const enabled = options?.enabled ?? isLocalFigmaQaUploadEnabled;
+  const blobPath = (id: string) => {
+    if (!/^[a-f0-9-]{36}\.blob$/.test(id)) {
+      throw new Error("Invalid local QA private blob id.");
+    }
+    return path.join(rootDir, id);
+  };
+  return {
+    id: "design-local-figma-qa-private",
+    name: "Design local QA private blobs",
+    isConfigured: enabled,
+    put: async ({ data, mimeType, metadata }) => {
+      if (!enabled()) throw new Error("Local QA private blobs are disabled.");
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+      const id = `${randomUUID()}.blob`;
+      await mkdir(rootDir, { recursive: true, mode: 0o700 });
+      await writeFile(blobPath(id), bytes, { flag: "wx", mode: 0o600 });
+      return {
+        id,
+        provider: "design-local-figma-qa-private",
+        opaque: true,
+        encrypted: false,
+        mimeType,
+        size: bytes.byteLength,
+        createdAt: new Date().toISOString(),
+        metadata,
+      };
+    },
+    read: async (handle) => ({
+      data: new Uint8Array(await readFile(blobPath(handle.id))),
+      mimeType: handle.mimeType,
+      metadata: handle.metadata,
+      handle,
+    }),
+    delete: async (handle) => {
+      await rm(blobPath(handle.id), { force: true });
+      return { deleted: true, provider: handle.provider };
+    },
+  };
+}
+
 export function registerLocalFigmaQaUploadProvider(): void {
   registerFileUploadProvider(createLocalFigmaQaUploadProvider());
+  registerPrivateBlobProvider(createLocalFigmaQaPrivateBlobProvider());
 }

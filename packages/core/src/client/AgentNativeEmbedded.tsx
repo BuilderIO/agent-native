@@ -1,11 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 
-import {
-  AgentChatSurface,
-  AgentSidebar,
-  type AgentChatSurfaceProps,
-  type AgentSidebarProps,
-} from "./AgentPanel.js";
+import { AgentChatSurface, type AgentChatSurfaceProps } from "./AgentPanel.js";
+import { AgentSidebar, type AgentSidebarProps } from "./AgentSidebar.js";
 import {
   createAgentNativeBrowserSessionBridge,
   type AgentNativeBrowserSessionBridge,
@@ -21,6 +17,7 @@ import {
   type AgentNativeHostSession,
   type AgentNativeScreenSnapshotOptions,
 } from "./host-bridge.js";
+import type { AgentNativeWebMcpClient } from "./webmcp.js";
 
 export interface AgentNativeEmbeddedCommandCallbackInfo {
   command: string;
@@ -31,7 +28,7 @@ export interface AgentNativeEmbeddedCommandCallbackInfo {
 export type AgentNativeEmbeddedCommandCallback = (
   payload: unknown,
   info: AgentNativeEmbeddedCommandCallbackInfo,
-) => unknown | Promise<unknown>;
+) => unknown;
 
 export interface AgentNativeEmbeddedBrowserSessionOptions {
   endpoint?: string;
@@ -50,6 +47,8 @@ export interface UseAgentNativeEmbeddedBrowserSessionOptions {
   getContext?: AgentNativeHostContextGetter;
   screen?: boolean | AgentNativeScreenSnapshotOptions;
   commands?: AgentNativeHostCommandHandlers;
+  /** WebMCP tools this chat may consume from the current page. */
+  webmcp?: AgentNativeWebMcpClient;
   session?: string | Partial<AgentNativeHostSession>;
   browserSession?: AgentNativeEmbeddedBrowserSessionOptions;
   onRefresh?: AgentNativeEmbeddedCommandCallback;
@@ -175,6 +174,7 @@ export function useAgentNativeEmbeddedBrowserSession({
   getContext,
   screen = true,
   commands,
+  webmcp,
   session,
   browserSession,
   onNavigate,
@@ -215,6 +215,7 @@ export function useAgentNativeEmbeddedBrowserSession({
       session,
       getContext: getMergedContext,
       actions,
+      webmcp,
       commands: mergedCommands,
     }).start();
 
@@ -234,6 +235,7 @@ export function useAgentNativeEmbeddedBrowserSession({
     getMergedContext,
     mergedCommands,
     session,
+    webmcp,
   ]);
 }
 
@@ -245,6 +247,7 @@ export function AgentNativeEmbedded({
   enabled,
   screen,
   commands,
+  webmcp,
   session,
   browserSession,
   onNavigate,
@@ -261,6 +264,7 @@ export function AgentNativeEmbedded({
     getContext,
     screen,
     commands,
+    webmcp,
     session,
     browserSession,
     onNavigate,

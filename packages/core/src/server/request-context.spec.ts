@@ -157,6 +157,14 @@ describe("server/request-context", () => {
       });
     });
 
+    it("inherits synthetic traffic through nested request contexts", () => {
+      runWithRequestContext({ isSyntheticTraffic: true }, () => {
+        runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+          expect(getRequestContext()?.isSyntheticTraffic).toBe(true);
+        });
+      });
+    });
+
     it("marks contexts when authenticated request identity is read", () => {
       runWithRequestContext({ userEmail: "alice@example.com" }, () => {
         const ctx = getRequestContext();

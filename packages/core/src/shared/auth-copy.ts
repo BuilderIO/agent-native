@@ -4,6 +4,8 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 
+export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
+
 /**
  * The native sign-in surfaces use the same copy keys as the hosted onboarding
  * form. Keep this browser-safe subset here so Electron and mobile do not load
@@ -11,8 +13,12 @@ import {
  */
 export interface NativeAuthCopy {
   googleButton: string;
+  ssoButton: string;
+  ssoEmailPlaceholder: string;
+  ssoFailed: string;
   dividerOr: string;
   welcomeTitle: string;
+  welcomeToApp: string;
   welcomeSubtitle: string;
   email: string;
   emailPlaceholder: string;
@@ -29,6 +35,7 @@ export interface NativeAuthCopy {
   magicLinkSent: string;
   magicLinkSentCopy: string;
   magicLinkFailed: string;
+  signupInviteOnly: string;
   usePasswordInstead: string;
   backToMagicLink: string;
   signIn: string;
@@ -41,14 +48,41 @@ export interface NativeAuthCopy {
   failedToConnect: string;
   googleNeverFinished: string;
   checking: string;
+  twoFactorTitle: string;
+  twoFactorSubtitle: string;
+  twoFactorCodeLabel: string;
+  twoFactorCodePlaceholder: string;
+  twoFactorVerify: string;
+  twoFactorVerifying: string;
+  twoFactorInvalid: string;
+  twoFactorBack: string;
 }
+
+const TWO_FACTOR_COPY = {
+  twoFactorTitle: "Two-step verification",
+  twoFactorSubtitle: "Enter the six-digit code from your authenticator app.",
+  twoFactorCodeLabel: "Authentication code",
+  twoFactorCodePlaceholder: "000000",
+  twoFactorVerify: "Verify code",
+  twoFactorVerifying: "Verifying...",
+  twoFactorInvalid: "That code is invalid or expired. Try again.",
+  twoFactorBack: "Back to sign in",
+} as const;
 
 export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "en-US": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Sign in with Google",
+    ssoButton: "Continue with SSO",
+    ssoEmailPlaceholder: "Work email",
+    ssoFailed: "No SSO provider was found for that email.",
     dividerOr: "or",
     welcomeTitle: "Welcome",
-    welcomeSubtitle: "Create an account or sign in",
+    welcomeToApp: "Welcome to {appName}",
+    // No surface using this subtitle renders an account chooser: one email
+    // field both registers and signs in. Naming a separate "create an account"
+    // step sends new users hunting for a control that is not there.
+    welcomeSubtitle: "Sign in or create your account",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "By signing up, you accept our",
@@ -60,11 +94,13 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "Confirm password",
     enterPasswordPlaceholder: "Enter password",
     forgotPassword: "Forgot password?",
-    sendMagicLink: "Continue",
+    sendMagicLink: "Continue with email",
     magicLinkSent: "Check your email",
     magicLinkSentCopy: "We sent a secure sign-in link to",
     magicLinkFailed:
       "We couldn't send a sign-in link. Check your email and try again.",
+    signupInviteOnly:
+      "This workspace is invite-only. Ask an administrator for an invitation.",
     usePasswordInstead: "Use a password instead",
     backToMagicLink: "Use a sign-in link instead",
     signIn: "Sign in",
@@ -76,14 +112,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "The email or password is incorrect.",
     failedToConnect: "We couldn't connect. Please try again.",
     googleNeverFinished:
-      "Google sign-in did not finish. Check the Google OAuth redirect URI and server logs for [agent-native][google-oauth].",
+      "Unable to sign in with Google right now. Please try again or use another sign-in method.",
     checking: "Checking...",
   },
   "zh-CN": {
+    ...TWO_FACTOR_COPY,
     googleButton: "使用 Google 登录",
+    ssoButton: "使用 SSO 继续",
+    ssoEmailPlaceholder: "工作邮箱",
+    ssoFailed: "未找到该邮箱对应的 SSO 提供商。",
     dividerOr: "或",
     welcomeTitle: "欢迎",
-    welcomeSubtitle: "创建账户或登录",
+    welcomeToApp: "欢迎使用 {appName}",
+    welcomeSubtitle: "继续以登录或创建账户",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
     legalPrefix: "注册即表示你接受我们的",
@@ -95,10 +136,11 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "确认密码",
     enterPasswordPlaceholder: "输入密码",
     forgotPassword: "忘记密码？",
-    sendMagicLink: "继续",
+    sendMagicLink: "使用邮箱继续",
     magicLinkSent: "检查你的邮箱",
     magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
     magicLinkFailed: "无法发送登录链接。",
+    signupInviteOnly: "此工作区仅限受邀用户访问。请联系管理员获取邀请。",
     usePasswordInstead: "改用密码",
     backToMagicLink: "改用登录链接",
     signIn: "登录",
@@ -110,14 +152,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "邮箱或密码无效",
     failedToConnect: "连接失败。请重试。",
     googleNeverFinished:
-      "Google 登录未完成。请检查 Google OAuth 重定向 URI 和服务器日志中的 [agent-native][google-oauth]。",
+      "暂时无法使用 Google 登录。请重试，或使用其他登录方式。",
     checking: "正在检查...",
   },
   "zh-TW": {
+    ...TWO_FACTOR_COPY,
     googleButton: "使用 Google 登入",
+    ssoButton: "使用 SSO 繼續",
+    ssoEmailPlaceholder: "工作電子郵件",
+    ssoFailed: "找不到該電子郵件對應的 SSO 提供者。",
     dividerOr: "或",
     welcomeTitle: "歡迎",
-    welcomeSubtitle: "建立帳戶或登入",
+    welcomeToApp: "歡迎使用 {appName}",
+    welcomeSubtitle: "繼續以登入或建立帳戶",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
     legalPrefix: "註冊即表示你接受我們的",
@@ -129,10 +176,11 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
     forgotPassword: "忘記密碼？",
-    sendMagicLink: "繼續",
+    sendMagicLink: "使用電子郵件繼續",
     magicLinkSent: "檢查你的電子郵件",
     magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
     magicLinkFailed: "無法寄送登入連結。",
+    signupInviteOnly: "此工作區僅限受邀使用者存取。請聯絡管理員取得邀請。",
     usePasswordInstead: "改用密碼",
     backToMagicLink: "改用登入連結",
     signIn: "登入",
@@ -144,14 +192,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "電子郵件或密碼無效",
     failedToConnect: "連線失敗。請重試。",
     googleNeverFinished:
-      "Google 登入未完成。請檢查 Google OAuth 重新導向 URI，以及伺服器記錄中的 [agent-native][google-oauth]。",
+      "目前無法使用 Google 登入。請再試一次，或改用其他登入方式。",
     checking: "正在檢查...",
   },
   "es-ES": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Iniciar sesión con Google",
+    ssoButton: "Continuar con SSO",
+    ssoEmailPlaceholder: "Correo de trabajo",
+    ssoFailed: "No se encontró un proveedor SSO para ese correo.",
     dividerOr: "o",
     welcomeTitle: "Bienvenido",
-    welcomeSubtitle: "Crea una cuenta o inicia sesión",
+    welcomeToApp: "Bienvenido a {appName}",
+    welcomeSubtitle: "Continúa para iniciar sesión o crear tu cuenta",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Al registrarte, aceptas nuestros",
@@ -163,10 +216,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
     forgotPassword: "¿Olvidaste tu contraseña?",
-    sendMagicLink: "Continuar",
+    sendMagicLink: "Continuar con email",
     magicLinkSent: "Revisa tu email",
     magicLinkSentCopy: "Enviamos un enlace seguro a",
     magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
+    signupInviteOnly:
+      "Este espacio de trabajo es solo por invitación. Pide una invitación a un administrador.",
     usePasswordInstead: "Usar una contraseña",
     backToMagicLink: "Usar un enlace de inicio de sesión",
     signIn: "Iniciar sesión",
@@ -178,14 +233,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "Email o contraseña no válidos",
     failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
     googleNeverFinished:
-      "El inicio de sesión con Google no terminó. Comprueba el URI de redirección de Google OAuth y los logs del servidor para [agent-native][google-oauth].",
+      "No se pudo iniciar sesión con Google. Inténtalo de nuevo o usa otro método de inicio de sesión.",
     checking: "Comprobando...",
   },
   "fr-FR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Se connecter avec Google",
+    ssoButton: "Continuer avec SSO",
+    ssoEmailPlaceholder: "E-mail professionnel",
+    ssoFailed: "Aucun fournisseur SSO n'a été trouvé pour cet e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bienvenue",
-    welcomeSubtitle: "Créez un compte ou connectez-vous",
+    welcomeToApp: "Bienvenue sur {appName}",
+    welcomeSubtitle: "Continuez pour vous connecter ou créer votre compte",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
@@ -197,10 +257,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
     forgotPassword: "Mot de passe oublié ?",
-    sendMagicLink: "Continuer",
+    sendMagicLink: "Continuer avec l’e-mail",
     magicLinkSent: "Vérifiez votre e-mail",
     magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
     magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
+    signupInviteOnly:
+      "Cet espace de travail est accessible uniquement sur invitation. Demandez une invitation à un administrateur.",
     usePasswordInstead: "Utiliser un mot de passe",
     backToMagicLink: "Utiliser un lien de connexion",
     signIn: "Connexion",
@@ -212,14 +274,20 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "E-mail ou mot de passe invalide",
     failedToConnect: "Connexion impossible. Veuillez réessayer.",
     googleNeverFinished:
-      "La connexion Google n'a pas abouti. Vérifiez l'URI de redirection Google OAuth et les logs serveur pour [agent-native][google-oauth].",
+      "Impossible de vous connecter avec Google pour le moment. Réessayez ou utilisez une autre méthode de connexion.",
     checking: "Vérification...",
   },
   "de-DE": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Mit Google anmelden",
+    ssoButton: "Mit SSO fortfahren",
+    ssoEmailPlaceholder: "Arbeits-E-Mail",
+    ssoFailed: "Für diese E-Mail wurde kein SSO-Anbieter gefunden.",
     dividerOr: "oder",
     welcomeTitle: "Willkommen",
-    welcomeSubtitle: "Konto erstellen oder anmelden",
+    welcomeToApp: "Willkommen bei {appName}",
+    welcomeSubtitle:
+      "Fahre fort, um dich anzumelden oder ein Konto zu erstellen",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
@@ -231,10 +299,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
     forgotPassword: "Passwort vergessen?",
-    sendMagicLink: "Weiter",
+    sendMagicLink: "Mit E-Mail fortfahren",
     magicLinkSent: "Prüfe deine E-Mail",
     magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
     magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
+    signupInviteOnly:
+      "Dieser Arbeitsbereich ist nur auf Einladung zugänglich. Bitte einen Administrator um eine Einladung.",
     usePasswordInstead: "Stattdessen Passwort verwenden",
     backToMagicLink: "Stattdessen Anmeldelink verwenden",
     signIn: "Anmelden",
@@ -246,14 +316,20 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "E-Mail oder Passwort ungültig",
     failedToConnect: "Verbindung fehlgeschlagen. Bitte erneut versuchen.",
     googleNeverFinished:
-      "Die Google-Anmeldung wurde nicht abgeschlossen. Prüfe die Google-OAuth-Redirect-URI und Serverlogs für [agent-native][google-oauth].",
+      "Die Anmeldung mit Google ist gerade nicht möglich. Bitte versuche es erneut oder nutze eine andere Anmeldemethode.",
     checking: "Prüfen...",
   },
   "ja-JP": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google でサインイン",
+    ssoButton: "SSO で続行",
+    ssoEmailPlaceholder: "仕事用メールアドレス",
+    ssoFailed:
+      "このメールアドレスに対応する SSO プロバイダーが見つかりません。",
     dividerOr: "または",
     welcomeTitle: "ようこそ",
-    welcomeSubtitle: "アカウントを作成するかサインインしてください",
+    welcomeToApp: "{appName}へようこそ",
+    welcomeSubtitle: "続けてサインインするか、アカウントを作成します",
     email: "メール",
     emailPlaceholder: "you@example.com",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
@@ -265,10 +341,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
     forgotPassword: "パスワードをお忘れですか？",
-    sendMagicLink: "続行",
+    sendMagicLink: "メールで続行",
     magicLinkSent: "メールを確認してください",
     magicLinkSentCopy: "安全なサインインリンクを送信しました：",
     magicLinkFailed: "サインインリンクを送信できませんでした。",
+    signupInviteOnly:
+      "このワークスペースは招待制です。管理者に招待を依頼してください。",
     usePasswordInstead: "パスワードを使用する",
     backToMagicLink: "サインインリンクを使用する",
     signIn: "サインイン",
@@ -281,14 +359,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "メールまたはパスワードが正しくありません",
     failedToConnect: "接続できませんでした。もう一度お試しください。",
     googleNeverFinished:
-      "Google サインインが完了しませんでした。Google OAuth リダイレクト URI と [agent-native][google-oauth] のサーバーログを確認してください。",
+      "現在 Google でログインできません。もう一度お試しいただくか、別の方法でログインしてください。",
     checking: "確認中...",
   },
   "ko-KR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google로 로그인",
+    ssoButton: "SSO로 계속",
+    ssoEmailPlaceholder: "회사 이메일",
+    ssoFailed: "해당 이메일에 대한 SSO 제공업체를 찾을 수 없습니다.",
     dividerOr: "또는",
     welcomeTitle: "환영합니다",
-    welcomeSubtitle: "계정을 만들거나 로그인하세요",
+    welcomeToApp: "{appName}에 오신 것을 환영합니다",
+    welcomeSubtitle: "계속해서 로그인하거나 계정을 만드세요",
     email: "이메일",
     emailPlaceholder: "you@example.com",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
@@ -300,10 +383,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
     forgotPassword: "비밀번호를 잊으셨나요?",
-    sendMagicLink: "계속",
+    sendMagicLink: "이메일로 계속",
     magicLinkSent: "이메일을 확인하세요",
     magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
     magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
+    signupInviteOnly:
+      "이 워크스페이스는 초대받은 사용자만 이용할 수 있습니다. 관리자에게 초대를 요청하세요.",
     usePasswordInstead: "비밀번호 사용",
     backToMagicLink: "로그인 링크 사용",
     signIn: "로그인",
@@ -315,14 +400,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "이메일 또는 비밀번호가 올바르지 않습니다",
     failedToConnect: "연결하지 못했습니다. 다시 시도하세요.",
     googleNeverFinished:
-      "Google 로그인이 완료되지 않았습니다. Google OAuth 리디렉션 URI와 [agent-native][google-oauth] 서버 로그를 확인하세요.",
+      "지금은 Google로 로그인할 수 없습니다. 다시 시도하거나 다른 로그인 방법을 이용해 주세요.",
     checking: "확인 중...",
   },
   "pt-BR": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Entrar com Google",
+    ssoButton: "Continuar com SSO",
+    ssoEmailPlaceholder: "E-mail de trabalho",
+    ssoFailed: "Nenhum provedor SSO foi encontrado para esse e-mail.",
     dividerOr: "ou",
     welcomeTitle: "Bem-vindo",
-    welcomeSubtitle: "Crie uma conta ou entre",
+    welcomeToApp: "Bem-vindo ao {appName}",
+    welcomeSubtitle: "Continue para entrar ou criar sua conta",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
@@ -334,10 +424,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
     forgotPassword: "Esqueceu a senha?",
-    sendMagicLink: "Continuar",
+    sendMagicLink: "Continuar com email",
     magicLinkSent: "Confira seu email",
     magicLinkSentCopy: "Enviamos um link seguro para",
     magicLinkFailed: "Não foi possível enviar o link de acesso.",
+    signupInviteOnly:
+      "Este espaço de trabalho é somente para convidados. Peça um convite a um administrador.",
     usePasswordInstead: "Usar uma senha",
     backToMagicLink: "Usar um link de acesso",
     signIn: "Entrar",
@@ -349,14 +441,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "Email ou senha inválidos",
     failedToConnect: "Não foi possível conectar. Tente novamente.",
     googleNeverFinished:
-      "O login com Google não terminou. Confira o URI de redirecionamento do Google OAuth e os logs do servidor para [agent-native][google-oauth].",
+      "Não foi possível entrar com o Google agora. Tente novamente ou use outra forma de entrar.",
     checking: "Verificando...",
   },
   "hi-IN": {
+    ...TWO_FACTOR_COPY,
     googleButton: "Google से साइन इन करें",
+    ssoButton: "SSO के साथ जारी रखें",
+    ssoEmailPlaceholder: "कार्य ईमेल",
+    ssoFailed: "इस ईमेल के लिए कोई SSO प्रदाता नहीं मिला।",
     dividerOr: "या",
     welcomeTitle: "स्वागत है",
-    welcomeSubtitle: "खाता बनाएं या साइन इन करें",
+    welcomeToApp: "{appName} में आपका स्वागत है",
+    welcomeSubtitle: "साइन इन करने या अपना खाता बनाने के लिए जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
     legalPrefix: "साइन अप करके, आप हमारी",
@@ -368,10 +465,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
     forgotPassword: "पासवर्ड भूल गए?",
-    sendMagicLink: "जारी रखें",
+    sendMagicLink: "ईमेल से जारी रखें",
     magicLinkSent: "अपना ईमेल देखें",
     magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
     magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
+    signupInviteOnly:
+      "यह वर्कस्पेस केवल आमंत्रण से उपलब्ध है। आमंत्रण के लिए किसी व्यवस्थापक से संपर्क करें।",
     usePasswordInstead: "पासवर्ड का उपयोग करें",
     backToMagicLink: "साइन-इन लिंक का उपयोग करें",
     signIn: "साइन इन",
@@ -383,14 +482,19 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "ईमेल या पासवर्ड अमान्य है",
     failedToConnect: "कनेक्ट नहीं हो सका। कृपया फिर कोशिश करें।",
     googleNeverFinished:
-      "Google साइन इन पूरा नहीं हुआ। Google OAuth redirect URI और [agent-native][google-oauth] के server logs देखें।",
+      "अभी Google से साइन इन नहीं हो सका। फिर से कोशिश करें या साइन इन का कोई दूसरा तरीका इस्तेमाल करें।",
     checking: "जांच हो रही है...",
   },
   "ar-SA": {
+    ...TWO_FACTOR_COPY,
     googleButton: "تسجيل الدخول باستخدام Google",
+    ssoButton: "المتابعة باستخدام SSO",
+    ssoEmailPlaceholder: "البريد الإلكتروني للعمل",
+    ssoFailed: "لم يتم العثور على موفر SSO لهذا البريد الإلكتروني.",
     dividerOr: "أو",
     welcomeTitle: "مرحبًا",
-    welcomeSubtitle: "أنشئ حسابًا أو سجّل الدخول",
+    welcomeToApp: "مرحبًا بك في {appName}",
+    welcomeSubtitle: "تابع لتسجيل الدخول أو إنشاء حسابك",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
     legalPrefix: "بالتسجيل، فإنك توافق على",
@@ -402,10 +506,12 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     confirmPassword: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",
     forgotPassword: "هل نسيت كلمة المرور؟",
-    sendMagicLink: "متابعة",
+    sendMagicLink: "المتابعة باستخدام البريد الإلكتروني",
     magicLinkSent: "تحقق من بريدك الإلكتروني",
     magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
     magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
+    signupInviteOnly:
+      "مساحة العمل هذه متاحة بالدعوة فقط. اطلب دعوة من أحد المسؤولين.",
     usePasswordInstead: "استخدام كلمة مرور بدلًا من ذلك",
     backToMagicLink: "استخدام رابط تسجيل الدخول بدلًا من ذلك",
     signIn: "تسجيل الدخول",
@@ -417,7 +523,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "البريد الإلكتروني أو كلمة المرور غير صحيحة",
     failedToConnect: "تعذر الاتصال. حاول مرة أخرى.",
     googleNeverFinished:
-      "لم يكتمل تسجيل الدخول عبر Google. تحقق من URI إعادة التوجيه في Google OAuth وسجلات الخادم لـ [agent-native][google-oauth].",
+      "تعذّر تسجيل الدخول باستخدام Google الآن. يُرجى المحاولة مرة أخرى أو استخدام طريقة أخرى لتسجيل الدخول.",
     checking: "جارٍ التحقق...",
   },
 };

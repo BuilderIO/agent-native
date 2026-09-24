@@ -356,6 +356,124 @@ const response = await callAgent(
 console.log(response); // "There were 1,247 signups last week..."
 ```
 
+## 호스팅 에이전트 연결 {#hosted-agent-connections}
+
+호스팅된 에이전트는 호환되는 A2A 엔드포인트를 노출할 때 A2A에 참여할 수
+있습니다. 모델 제공자나 에이전트 SDK만으로는 A2A 피어가 되지 않습니다.
+앱의 UI, actions, 데이터베이스는 일반 앱 호스트에 두고 어댑터 또는 자체
+A2A 엔드포인트를 통해 에이전트 런타임을 연결하세요.
+
+호스팅 연결에는 엔드포인트 메타데이터와 인증 설명자가 있습니다. 이
+메타데이터를 remote-agent 리소스 또는 연결 레코드와 함께 보관하세요.
+manifest에 토큰이나 클라이언트 비밀을 넣지 마세요.
+
+```json
+{
+  "id": "foundry-research",
+  "name": "Foundry Research",
+  "url": "https://example.services.ai.azure.com/a2a",
+  "cardUrl": "https://example.services.ai.azure.com/agentCard/v0.3",
+  "auth": {
+    "type": "bearer",
+    "credentialRef": "FOUNDRY_A2A_TOKEN"
+  }
+}
+```
+
+`url`은 호출 엔드포인트 또는 기본 URL입니다. 검색에서
+`/.well-known/agent-card.json`을 사용하면 `cardUrl`은 선택 사항입니다.
+제공자가 다른 경로에 카드를 게시할 때 사용하세요. 클라이언트는 에이전트
+카드에서 프로토콜 버전을 읽습니다. 제공자의 카드에 버전이 없으면
+`protocolVersion`을 `A2AClient`에 직접 전달하세요. `auth`는 서버 코드가
+bearer 토큰을 얻는 방법을 설명합니다. 지원되는 설명자는 Vault에 저장된
+`credentialRef`를 사용하는 `bearer`, 또는 `tokenUrl`, `clientId`,
+`clientSecretRef`, `scope`를 사용하는 `oauth-client-credentials`입니다.
+`credentialRef`와 `clientSecretRef`는 비밀 값이 아니라 비밀에 대한
+참조입니다.
+
+### 일반 bearer A2A {#generic-bearer-a2a}
+
+피어가 `Authorization: Bearer ...`를 수락하고 호환 가능한 카드를 제공하며
+Agent-Native JSON-RPC를 수락하면 표준 클라이언트를 사용하세요.
+
+```ts
+const client = new A2AClient(endpoint, token, {
+  cardUrl,
+  protocolVersion: "0.3",
+});
+```
+
+`token`은 workspace connection 또는 Vault에서 서버 측으로 확인하세요.
+브라우저 코드에서 보내거나 manifest에 쓰거나 프롬프트에 포함하지 마세요.
+정적 API 키는 원격 서비스의 전송 자격 증명일 뿐입니다. Agent-Native
+호출자 ID를 설정하거나 `approvedActions`를 전달하지 않습니다.
+
+### Microsoft Foundry {#microsoft-foundry}
+
+[Azure AI Foundry 호스팅 에이전트](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)는
+에이전트 코드 또는 컨테이너를 관리되는 엔드포인트, ID, 확장, 세션 상태,
+관측성 뒤에서 실행합니다. 이 모델은 에이전트 런타임을 호스팅합니다.
+Agent-Native UI, actions 및 PostgreSQL 배포는 앱 호스트에 두고 서버 코드에서
+Foundry 엔드포인트를 호출하세요.
+
+Foundry는 [Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint)를
+통해 A2A 엔드포인트를 노출할 수 있습니다. Microsoft Entra 인증이 필요하고
+호출자에게 Foundry Agent Consumer 권한이 필요합니다. 엔드포인트가
+Agent-Native JSON-RPC를 사용할 때 제공자의 v0.3 카드와 엔드포인트에
+`cardUrl` 및 `protocolVersion`을 사용하세요. 토큰 제공자는 Entra 액세스
+토큰을 발급받고 갱신해야 합니다. `A2A_SECRET`과 정적 API 키는 Foundry
+인증을 충족하지 않습니다.
+
+### Gemini Enterprise {#gemini-enterprise}
+
+[Gemini Enterprise는 외부 A2A 에이전트를 등록할 수 있으며](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+Agent Registry가 프록시 엔드포인트를 게시할 수 있습니다. HTTP+JSON 바인딩은
+제공자별 경로를 사용합니다. 검색은 `GET {url}/v1/card`, 호출은
+`POST {url}/v1/message:send`, 스트리밍은 `POST {url}/v1/message:stream`입니다.
+요청은 Google OAuth 또는 ADC bearer 토큰과 Google Cloud IAM 권한을
+사용합니다. 엔드포인트 및 권한 요구 사항은 [레지스트리 A2A 엔드포인트로 에이전트 호출](https://docs.cloud.google.com/gemini/enterprise/docs/invoke-agent-a2a)을
+참조하세요.
+
+이 경로는 Agent-Native JSON-RPC 경로
+(`/.well-known/agent-card.json` 및 `/_agent-native/a2a`)와 다릅니다. wire
+형식을 변환하고 Google 자격 증명을 발급 및 갱신하는 서버 측 어댑터를
+추가한 후 엔드포인트를 등록하세요. 대상이 별도의 표준 A2A 엔드포인트를
+제공하면 일반 bearer 안내를 사용하세요. Gemini Enterprise 등록 트래픽은
+Agent Gateway 정책을 거치지 않으므로 대상 자체의 인증 및 권한 부여
+정책을 적용하세요.
+
+### Anthropic Managed Agents {#anthropic-managed-agents}
+
+Anthropic Managed Agents는 인바운드 A2A 엔드포인트를 제공하지 않습니다. Agent-Native가 A2A 표면, 워크플로 상태와 승인을 관리하고 호스팅된 에이전트가 세션, 컨텍스트와 도구를 관리하도록 하려면 프레임워크 어댑터를 사용하세요. 어댑터는 Managed Agents 세션을 만들고 `user.message` 이벤트를 보내며 세션 이벤트 스트림을 읽습니다. 차단되는 `agent.tool_use` 또는 `agent.mcp_tool_use` 이벤트는 A2A `input-required` 작업과 `approval-request` 런타임 이벤트가 됩니다. 반환된 메타데이터에 명시적인 구조화 확인을 넣어 재개하고, 메시지에서 승인을 추론하지 마세요.
+
+```json
+{
+  "id": "anthropic-research",
+  "name": "Anthropic Research",
+  "url": "https://api.anthropic.com",
+  "kind": {
+    "provider": "anthropic-managed-agents",
+    "agentId": "agt_01...<AGENT_ID>",
+    "environmentId": "env_01...<ENVIRONMENT_ID>",
+    "credentialRef": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+`credentialRef`는 Vault에 저장된 Anthropic API 키의 참조입니다. 어댑터는 호출자의 사용자 및 조직 범위에서 이를 확인하고 필수 `anthropic-beta: managed-agents-2026-04-01` 및 `anthropic-version: 2023-06-01` 헤더를 보냅니다. 각 앱에서 기존 연결 권한을 재사용하려면 workspace connection catalog에 `anthropic-managed-agents`를 등록하세요. 어댑터는 일반 `A2AConfig.handler` seam에 연결합니다.
+
+```ts
+import { createAnthropicManagedAgentsHandler } from "@agent-native/core/a2a";
+
+const handler = createAnthropicManagedAgentsHandler({
+  agentId: "agt_01...<AGENT_ID>",
+  environmentId: "env_01...<ENVIRONMENT_ID>",
+  credentialRef: "ANTHROPIC_API_KEY",
+});
+
+// pass `handler` in the A2AConfig given to mountA2A()
+```
+
 ## 프로그래밍 방식 작업공간 호출 {#programmatic-invoke}
 
 에이전트 기본 작업 공간의 경우 코드 또는 작업 시 `agentNative` 도우미를 선호하세요.
@@ -428,7 +546,7 @@ agent-native invoke analytics "Summarize signups" --json
 
 ## 위임된 에이전트 활동 {#delegated-agent-activity}
 
-Agent Native 피어는 작업 상태 메시지에
+Agent-Native 피어는 작업 상태 메시지에
 `kind: "agent-native/agent-activity"`가 포함된 선택적 `data` 파트를 첨부할
 수 있습니다. 이 파트에는 사용자에게 표시되는 추론 요약, 도구 이름과 완료
 상태, 경과 시간, 점진적인 응답 텍스트가 제한된 스냅샷으로 담깁니다. 호출

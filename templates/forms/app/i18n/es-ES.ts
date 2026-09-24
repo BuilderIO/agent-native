@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contiene",
     conditionValue: "Respuesta",
     conditionValuePlaceholder: "Escribe una respuesta...",
+    allowMultiple: "Permitir varios archivos",
+    accept: "Tipos de archivo aceptados",
+    acceptPlaceholder: "p. ej., image/*, .pdf",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -110,6 +113,7 @@ const messages = {
       date: "Fecha",
       rating: "Clasificación",
       scale: "Escala",
+      file: "Carga de archivos",
     },
   },
   builder: {
@@ -181,6 +185,7 @@ const messages = {
       dateLabel: "Fecha",
       ratingLabel: "Valoración",
       scaleLabel: "Escala",
+      fileLabel: "Carga de archivos",
       option1: "Opción 1",
       option2: "Opción 2",
       option3: "Opción 3",
@@ -205,6 +210,12 @@ const messages = {
       successMessage: "Mensaje de éxito",
       defaultSuccessMessage: "Gracias! Tu respuesta se ha registrado.",
       redirectUrl: "URL de redirección (opcional)",
+      completionMode: "Después del envío",
+      completionMessage: "Mostrar mensaje hasta actualizar",
+      completionRedirect: "Redirigir a una URL",
+      completionMessageThenRefresh: "Mostrar mensaje y después actualizar",
+      completionRefresh: "Actualizar con un formulario nuevo",
+      completionRefreshSeconds: "Actualizar después de (segundos)",
       anonymousResponses: "Respuestas anónimas",
       anonymousResponsesDescription:
         "No conservar direcciones IP, identidad del remitente ni metadatos de origen.",
@@ -324,12 +335,9 @@ const messages = {
     sharePubliclyDescription:
       "Para compartir contenido públicamente, conecta una base de datos en la nube.",
     providerDescriptions: {
-      turso: "SQLite en el borde",
       neon: "Postgres sin servidor",
       supabase: "Alternativa de código abierto a Firebase",
-      d1: "SQLite en el borde",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Pasos de configuración",
     authToken: "Token de autenticación",
     connectedReloading: "Conectado correctamente. Recargando...",
@@ -350,6 +358,10 @@ const messages = {
     responseSubmitted: "Respuesta enviada",
     noFields: "Este formulario aún no tiene campos.",
     failedSubmit: "No se pudo enviar el formulario",
+    uncheckablePattern:
+      "La regla de este formulario para {label} no se puede comprobar. Pide al propietario del formulario que la corrija.",
+    patternTooLong:
+      "El valor de {label} es demasiado largo para comprobarlo con la regla de este formulario.",
   },
   responseInsights: {
     unavailable: "Insights no disponibles",
@@ -399,6 +411,13 @@ const messages = {
     page: "Pagina",
     source: "Origen",
     sortBy: "Ordenar por {{label}}",
+    communityReview: "Revisar",
+    communityPublish: "Publicar en el sitio",
+    communityPublishing: "Publicando...",
+    communityPublished: "Publicado",
+    communityView: "Ver en el sitio",
+    communityNeedsCheck: "Comprueba Builder antes de reintentar",
+    communityPromotionFailed: "No se pudo publicar este envío.",
   },
 };
 

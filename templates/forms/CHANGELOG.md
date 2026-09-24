@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Forms are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-15
+
+### Fixed
+
+- Asking the agent for a second, unrelated form now creates a separate form instead of overwriting the one already open in the chat.
+
+## 2026-09-12
+
+### Fixed
+
+- Creating a form no longer dead-ends when a field is missing its type; the agent is told exactly which field and which property to correct.
+
+## 2026-08-25
+
+### Fixed
+
+- Forms agents now retry rejected field edits with valid field objects.
+
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-11
 
 ### Improved
@@ -41,7 +65,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 
@@ -177,7 +201,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
-- Anonymous feedback no longer shows internal Agent Native anonymous-owner emails as submitter addresses.
+- Anonymous feedback no longer shows internal Agent-Native anonymous-owner emails as submitter addresses.
 - Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 ## 2026-06-26

@@ -26,12 +26,15 @@ generation, or embed target is unclear.
   use the right agent sidebar only on non-Create routes with view-transition
   handoff back to `/`.
 
-## Generation preset editor
+## Templates
 
-- Humans can edit an existing generation preset from
-  `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
-  `{ view: "preset", libraryId, presetId }` when sending a user to that editor.
-- Preset skeletons are edited from the same route; see `logo-composite` for the
+- Humans browse Templates at `/templates` and edit one at
+  `/templates/:templateId`. Use `navigate` with `{ view: "templates" }` or
+  `{ view: "template", templateId }`. Legacy `{ view: "preset", libraryId,
+  presetId }` navigation still resolves for existing conversations.
+- Global templates work with any accessible brand kit. Associated templates are
+  limited to their kit and are required for pinned images, skeletons, and logo
+  compositing. See `logo-composite` for the
   `settings.skeletonSpec` shape and compositing behavior.
 
 ## Context tab

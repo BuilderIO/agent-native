@@ -1,4 +1,6 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
@@ -8,6 +10,7 @@ import {
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import { isCalendarEventOrganizer } from "../shared/event-permissions.js";
 import {
   availabilityInput,
   attachmentsInput,
@@ -17,13 +20,16 @@ import {
   cliBoolean,
   googleColorIdInput,
   normalizeAttendees,
-  normalizeGoogleEventId,
+  googleEventResultId,
+  normalizeWritableGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
+  validateEventTimeOrder,
   validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
@@ -65,6 +71,23 @@ function mergeAttendees(
   }
 
   return Array.from(merged.values());
+}
+
+/**
+ * Whether raw `attendeesInput` names at least one guest Google would actually
+ * invite. Like every `needsApproval` input this arrives unparsed, as either the
+ * array or the comma-separated string the schema accepts — and anything without
+ * an `@` is dropped before `run` counts attendees, so it mails nobody.
+ * Delegating to the same normalizer `run` uses keeps the gate from drifting
+ * away from what it is gating; re-implementing the address check here would let
+ * a future change to that filter silently skip an approval.
+ */
+function namesGuests(value: unknown): boolean {
+  if (typeof value !== "string" && !Array.isArray(value)) return false;
+  return (
+    (normalizeAttendees(value as Parameters<typeof normalizeAttendees>[0])
+      ?.length ?? 0) > 0
+  );
 }
 
 function workingLocationTitle(
@@ -152,6 +175,9 @@ export default defineAction({
     addGoogleMeet: cliBoolean
       .optional()
       .describe("Generate and attach a Google Meet link to the event"),
+    removeGoogleMeet: cliBoolean
+      .optional()
+      .describe("Remove an attached Google Meet link from the event"),
     addZoom: cliBoolean
       .optional()
       .describe(
@@ -191,10 +217,36 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  run: async (args) => {
+  // Ordinary field edits are reversible in place and stay unblocked. Two paths
+  // are not: notifying guests mails people outside the app, and a move deletes
+  // the event from the source calendar after recreating it elsewhere, defaulting
+  // to notifying every attendee. A move cannot be previewed, and the predicate
+  // must stay pure, so it gates on targetAccountEmail rather than reading the
+  // event to find out whether that move would email anyone.
+  needsApproval: ({
+    sendUpdates,
+    notificationMessage,
+    targetAccountEmail,
+    addAttendees,
+  }) =>
+    targetAccountEmail !== undefined ||
+    sendUpdates === "all" ||
+    // The companion note sends on its own, whatever sendUpdates says.
+    !!notificationMessage?.trim() ||
+    // Adding a guest is an invitation: `run` leaves sendUpdates to Google's
+    // default of "all" whenever addAttendees names anyone, so this mirrors that
+    // `??` instead of gating every attendee edit. Replacing the list through
+    // `attendees` does not reach it, and so is not gated here.
+    (sendUpdates === undefined && namesGuests(addAttendees)),
+  run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
+    }
+    if (args.addGoogleMeet && args.removeGoogleMeet) {
+      throw new Error(
+        "Choose either adding or removing Google Meet, not both.",
+      );
     }
     if (args.attendees !== undefined && args.addAttendees !== undefined) {
       throw new Error("Use either attendees or addAttendees, not both.");
@@ -206,11 +258,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const targetAccountEmail =
       args.targetAccountEmail !== undefined
         ? await resolveOwnedAccountEmail(args.targetAccountEmail, ownerEmail)
@@ -257,6 +309,7 @@ export default defineAction({
       attendeesToAdd !== undefined ||
       Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
+      args.removeGoogleMeet === true ||
       args.addZoom === true ||
       hasWorkingLocationPatch;
 
@@ -311,6 +364,9 @@ export default defineAction({
       }
 
       const existingEvent = await loadExistingEvent();
+      if (!isCalendarEventOrganizer(existingEvent)) {
+        fail("Only the event organizer can move or reschedule this event.");
+      }
       const hasOtherEventPatch =
         args.title !== undefined ||
         args.description !== undefined ||
@@ -330,6 +386,7 @@ export default defineAction({
         args.reminderMinutes !== undefined ||
         args.reminderMethod !== undefined ||
         args.addGoogleMeet !== undefined ||
+        args.removeGoogleMeet !== undefined ||
         args.addZoom !== undefined ||
         args.recurrence !== undefined ||
         args.attendees !== undefined ||
@@ -376,10 +433,22 @@ export default defineAction({
           })
         : undefined;
 
+      track(
+        "event_rescheduled",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          event_id: `google-${result.id}`,
+          output_id: `google-${result.id}`,
+          output_type: "calendar_event",
+          change_type: "account_move",
+        },
+        actionContext,
+      );
       return {
         success: true,
-        id: `google-${result.id}`,
-        replacedId: `google-${googleEventId}`,
+        id: googleEventResultId(args.id, result.id, targetAccountEmail!),
+        replacedId: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail: targetAccountEmail,
         updated: ["accountEmail"],
         htmlLink: result.htmlLink,
@@ -400,6 +469,9 @@ export default defineAction({
 
     if (hasTimePatch) {
       const existingEvent = await loadExistingEvent();
+      if (!isCalendarEventOrganizer(existingEvent)) {
+        fail("Only the event organizer can move or reschedule this event.");
+      }
       const existingStatusEventType =
         existingEvent.eventType === "outOfOffice" ||
         existingEvent.eventType === "focusTime" ||
@@ -408,6 +480,11 @@ export default defineAction({
           : "default";
       validateStatusEventTiming({
         eventType: existingStatusEventType,
+        allDay: args.allDay ?? existingEvent.allDay,
+        start: args.start ?? existingEvent.start,
+        end: args.end ?? existingEvent.end,
+      });
+      validateEventTimeOrder({
         allDay: args.allDay ?? existingEvent.allDay,
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,
@@ -510,7 +587,7 @@ export default defineAction({
     if (updatedKeys.length === 0 && zoomAlreadyPresent) {
       return {
         success: true,
-        id: `google-${googleEventId}`,
+        id: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail,
         updated: [],
         meetingLink: zoomMeetingLink,
@@ -618,6 +695,7 @@ export default defineAction({
             ? "all"
             : undefined),
         addGoogleMeet: args.addGoogleMeet,
+        removeGoogleMeet: args.removeGoogleMeet,
         scope: args.scope,
       });
     }
@@ -653,11 +731,32 @@ export default defineAction({
           })
         : undefined;
 
+    if (hasTimePatch) {
+      track(
+        "event_rescheduled",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          event_id: `google-${returnedGoogleEventId}`,
+          output_id: `google-${returnedGoogleEventId}`,
+          output_type: "calendar_event",
+          change_type: "time",
+        },
+        actionContext,
+      );
+    }
+
     return {
       success: true,
-      id: `google-${returnedGoogleEventId}`,
+      id: googleEventResultId(args.id, returnedGoogleEventId, accountEmail),
       ...(returnedGoogleEventId !== googleEventId
-        ? { replacedId: `google-${googleEventId}` }
+        ? {
+            replacedId: googleEventResultId(
+              args.id,
+              googleEventId,
+              accountEmail,
+            ),
+          }
         : {}),
       accountEmail,
       updated: updatedKeys,
@@ -665,6 +764,7 @@ export default defineAction({
       hangoutLink: result.meetLink,
       meetingLink: zoomMeetingLink,
       conferenceData: result.conferenceData,
+      ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
       ...(guestNotification ? { guestNotification } : {}),
     };

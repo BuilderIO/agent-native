@@ -3,17 +3,131 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
-  it("keeps the raised app surface on the semantic background color", () => {
+  it("does not add a streaming cursor to chat markdown", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const conversationCss = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).not.toContain("agent-streaming-cursor");
+    expect(conversationCss).not.toContain("agent-markdown-stream-caret");
+  });
+
+  it("does not pull recessed queue rows into the composer", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).not.toContain(
+      'data-agent-message-queue-variant="recessed"][data-empty="false"]',
+    );
+    expect(css).not.toContain("margin-bottom: -1.25rem");
+  });
+
+  it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toContain('@import "./tokens/agent-kit.css";');
+    expect(css).toContain(".agent-kit-density");
+    expect(css).toContain(".agent-kit-activity-row");
+    expect(css).toContain(".agent-kit-tone-positive");
+    expect(css).toContain("var(--agent-kit-composer-elevation)");
+    expect(tokens).toContain("--agent-kit-conversation-max-width:");
+    expect(tokens).toContain("--agent-kit-density-font-size:");
+    expect(tokens).toContain("--agent-kit-composer-radius:");
+    expect(tokens).toContain("--agent-kit-composer-toolbar-control-size:");
+    expect(tokens).toContain("--agent-kit-composer-toolbar-control-font-size:");
+    expect(tokens).toContain(
+      "--agent-kit-composer-toolbar-control-line-height:",
+    );
+    expect(tokens).toContain(
+      "--agent-kit-composer-toolbar-control-font-weight:",
+    );
+    expect(tokens).toContain("--agent-kit-positive:");
+    expect(tokens).toContain("--agent-kit-subtle-surface:");
+    expect(tokens).toContain("--agent-kit-popover-surface:");
+    expect(tokens).toContain("--agent-kit-text:");
+    expect(tokens).toContain("--agent-kit-muted-text:");
+    expect(tokens).toContain("--agent-kit-border:");
+  });
+
+  it("keeps AgentKit activity components on semantic roles", () => {
+    const sources = [
+      "../client/chat/agent-activity-trace.tsx",
+      "../client/chat/tool-chips.tsx",
+      "../client/chat/tool-call-display.tsx",
+      "../client/tool-cells/FilesChangedSummary.tsx",
+    ].map((path) =>
+      readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
+    );
+    const source = sources.join("\n");
+
+    expect(source).not.toMatch(/text-(?:green|red|blue|gray|slate|zinc)-/);
+    expect(source).not.toContain("text-[13px]");
+    expect(source).not.toContain("max-w-[60%]");
+    expect(source).toContain("agent-kit-activity-row");
+    expect(source).toContain("agent-kit-activity-object-boundary");
+    expect(source).toContain("agent-kit-tone-positive");
+
+    const messages = readFileSync(
+      new URL("../client/chat/message-components.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    expect(messages).not.toContain("max-w-[95%]");
+    expect(messages).toContain("agent-kit-tool-content-boundary");
+  });
+
+  it("restores standard markdown list markers", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list,\s*\.agent-markdown ul\.contains-task-list,\s*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
+    );
+  });
+
+  it("keeps the shell surface hierarchy on semantic roles", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
 
     expect(css).toContain(
-      "--agent-native-raised-surface: hsl(var(--background));",
+      "--agent-native-raised-surface: var(--agent-kit-recessed-surface);",
     );
-    expect(css).toContain("--agent-native-card-surface: hsl(var(--card));");
+    expect(css).toContain(
+      "--agent-native-lower-surface: var(--agent-kit-nav-surface);",
+    );
+    expect(css).toContain(
+      "--agent-native-card-surface: var(--agent-kit-raised-surface);",
+    );
     expect(css).not.toMatch(/--agent-native-raised-surface:\s*color-mix\(/);
     expect(css).not.toMatch(/--agent-native-card-surface:\s*color-mix\(/);
+    expect(
+      readFileSync(new URL("./tokens/agent-kit.css", import.meta.url), {
+        encoding: "utf8",
+      }),
+    ).toMatch(
+      /--agent-kit-recessed-surface:[\s\S]*?--agent-kit-nav-surface:[\s\S]*?--agent-kit-raised-surface:/s,
+    );
   });
 
   it("keeps app and agent main surfaces borderless", () => {
@@ -33,6 +147,53 @@ describe("agent-native shell surface tokens", () => {
     expect(frameCss).toMatch(
       /\.agent-frame-main-surface\[data-agent-frame-main-state="open"\] \{[^}]*box-shadow: none;/s,
     );
+  });
+
+  /**
+   * A search field that draws its own clear button must drop WebKit's cancel
+   * widget or it shows two "x" controls. The selector must stay scoped to the
+   * opt-in class: a bare `input[type="search"]` rule would also strip the only
+   * pointer-accessible clear from the fields that render no button of their
+   * own. `guard:single-search-clear` keeps the class and the button paired.
+   */
+  it("suppresses the native search widgets only for fields that own their clear button", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-native-search-input::-webkit-search-cancel-button,\s*\.agent-native-search-input::-webkit-search-decoration,\s*\.agent-native-search-input::-webkit-search-results-button,\s*\.agent-native-search-input::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+    );
+    expect(css).not.toMatch(
+      /(^|[\s,])input\[type="search"\]::-webkit-search-cancel-button/m,
+    );
+  });
+
+  it("keeps the dedicated Chat canvas square against its navigation rail", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-layout-main-surface\[data-agent-chat-canvas="true"\] \{[^}]*border-radius: 0;/s,
+    );
+  });
+
+  it("coordinates the AgentKit workspace reveal with the remaining chat canvas", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body--workspace-open \{[^}]*width: calc\(100% - var\(--agent-kit-workspace-panel-width\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body \{[^}]*transition-property: width;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-workspace-panel \{[^}]*transition-property: transform;/s,
+    );
+    expect(css).not.toContain("--agent-kit-workspace-panel-opacity-duration");
   });
 
   it("removes shell transitions while the agent sidebar is being resized", () => {
@@ -75,15 +236,43 @@ describe("agent-native shell surface tokens", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
 
     expect(css).toMatch(
-      /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow: 0 0% 0%;[\s\S]*?box-shadow:[\s\S]*?hsl\(var\(--agent-shadow\) \/ var\(--agent-shadow-o\)\);/s,
+      /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?box-shadow: var\(--agent-kit-drawer-elevation\);/s,
     );
-    expect(css).toMatch(
-      /\.dark \.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow-o: 0\.08;/s,
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-drawer-elevation:/s,
+    );
+    expect(css).not.toContain("hsl(var(--foreground) / 0.07)");
+    expect(css).not.toContain("hsl(var(--foreground) / 0.12)");
+    expect(css).not.toContain("hsl(var(--agent-shadow)");
+    expect(tokens).toContain("--agent-kit-shadow-color: var(--foreground);");
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-composer-elevation:[\s\S]*?hsl\(var\(--agent-kit-shadow-color\) \/ 0\.22\)/s,
     );
     expect(css).toMatch(
       /::view-transition-old\(agent-native-sidebar-drawer\),\s*::view-transition-new\(agent-native-sidebar-drawer\)[\s\S]*?height: 100%;/s,
+    );
+  });
+
+  it("gives the light composer a quiet boundary without a dark-mode highlight", () => {
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(tokens).toMatch(
+      /:root\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0\.82;[\s\S]*?--agent-kit-composer-focus-border-opacity: 1;/s,
+    );
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0;[\s\S]*?--agent-kit-composer-focus-border-opacity: 0;/s,
+    );
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-color: transparent;[\s\S]*?--agent-kit-composer-focus-border-color: transparent;/s,
     );
   });
 
@@ -93,10 +282,29 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain(".agent-loading-label");
+    expect(css).toContain("transition: width 220ms var(--ease-out-strong);");
     expect(css).toContain("background-clip: text;");
     expect(css).not.toContain(
       '.agent-tool-call[data-active-tail="true"]::after',
     );
+  });
+
+  it("uses a shared linear whole-surface shimmer for skeletons", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.skeleton-shimmer,[\s\S]*?background-image: linear-gradient\([\s\S]*?animation: skeleton-shimmer 1\.6s linear infinite;/s,
+    );
+    expect(css).toMatch(
+      /@keyframes skeleton-shimmer[\s\S]*?background-position: 150% 0;[\s\S]*?background-position: -50% 0;/s,
+    );
+    expect(css).toContain(
+      "hsl(var(--foreground, var(--ui-foreground)) / 0.043)",
+    );
+    expect(css).not.toContain("skeleton-pulse");
   });
 
   it("uses a surface-independent mask for the scrolled chat fade", () => {
@@ -113,6 +321,23 @@ describe("agent-native shell surface tokens", () => {
     expect(css).toContain("black var(--message-scroller-top-fade-size)");
     expect(source).toContain("message-scroller-viewport--top-fade");
     expect(source).not.toContain("bg-gradient-to-b from-background");
+  });
+
+  it("restores markers for standard markdown lists without affecting task lists", () => {
+    const css = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-conversation-markdown ul\.contains-task-list,[\s\S]*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
+    );
   });
 });
 
@@ -183,7 +408,7 @@ describe("agent chat sidebar compositing invariants", () => {
 
   it("applies view-transition-name only while the drawer morph is running", () => {
     const source = readFileSync(
-      new URL("../client/AgentPanel.tsx", import.meta.url),
+      new URL("../client/AgentSidebar.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 

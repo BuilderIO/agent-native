@@ -7,9 +7,11 @@ import React, {
   useState,
 } from "react";
 
-import { DefaultSpinner } from "../DefaultSpinner.js";
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
+import { AppShellSkeleton } from "../AppShellSkeleton.js";
 import { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 import { fetchFirstRunOnboardingStatus } from "./first-run-status.js";
+import { trackOnboardingEvent } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 const FirstRunOnboarding = lazy(() =>
@@ -22,6 +24,15 @@ type FirstRunDecision = "pending" | "eligible" | "ineligible";
 
 const FirstRunOnboardingGateContext = createContext(false);
 
+function hasFirstRunOnboardingCookie(): boolean {
+  if (typeof document === "undefined") return true;
+  const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
+  return document.cookie.split(";").some((cookie) => {
+    const entry = cookie.trim();
+    return entry.startsWith(prefix) && entry.slice(prefix.length) === "1";
+  });
+}
+
 export function useFirstRunOnboardingGateOwnsSurface(): boolean {
   return useContext(FirstRunOnboardingGateContext);
 }
@@ -32,7 +43,9 @@ export function FirstRunOnboardingStartupGate({
   children: React.ReactNode;
 }) {
   const previewMode = useOnboardingPreviewMode();
-  const shouldResolve = isFirstRunOnboardingEnabled() && !previewMode;
+  const [hadFirstRunCookie] = useState(hasFirstRunOnboardingCookie);
+  const shouldResolve =
+    isFirstRunOnboardingEnabled() && !previewMode && hadFirstRunCookie;
   const [decision, setDecision] = useState<FirstRunDecision>(
     shouldResolve ? "pending" : "ineligible",
   );
@@ -45,6 +58,7 @@ export function FirstRunOnboardingStartupGate({
 
     let cancelled = false;
     const handleFirstRunCompleted = () => {
+      trackOnboardingEvent("onboarding_app_entered", { flow: "first_run" });
       cancelled = true;
       setDecision("ineligible");
     };
@@ -72,11 +86,17 @@ export function FirstRunOnboardingStartupGate({
 
   const ownsSurface = decision === "eligible";
   const hideApp = decision !== "ineligible";
-  const app = hideApp ? (
+  // Keep the app at one React tree position while the async eligibility check
+  // settles. Switching between a wrapper and a bare child remounts stateful
+  // app chrome; a consumed one-shot URL preference then cannot be restored.
+  const app = shouldResolve ? (
     <div
-      aria-hidden="true"
-      data-first-run-app-hidden="true"
-      style={{ display: "contents", visibility: "hidden" }}
+      aria-hidden={hideApp ? "true" : undefined}
+      data-first-run-app-hidden={hideApp ? "true" : undefined}
+      style={{
+        display: "contents",
+        ...(hideApp ? { visibility: "hidden" } : {}),
+      }}
     >
       {children}
     </div>
@@ -104,7 +124,7 @@ function FirstRunOnboardingStartupLoading() {
       aria-busy="true"
       className="fixed inset-0 z-[110] bg-background"
     >
-      <DefaultSpinner />
+      <AppShellSkeleton />
     </div>
   );
 }

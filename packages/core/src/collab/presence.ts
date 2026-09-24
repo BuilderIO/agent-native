@@ -26,6 +26,57 @@ export type {
   PresencePayload,
 } from "@agent-native/toolkit/collab-ui";
 
+export function deriveCollabUser(
+  state: Record<string, unknown>,
+  clientId: number,
+): CollabUser {
+  const isAgent = clientId === AGENT_CLIENT_ID;
+  const userState = state.user as Partial<CollabUser> | undefined;
+  const avatarUrl =
+    typeof userState?.avatarUrl === "string" && userState.avatarUrl.trim()
+      ? userState.avatarUrl
+      : undefined;
+
+  return {
+    name: userState?.name ?? (isAgent ? "AI Assistant" : "Unknown"),
+    email:
+      userState?.email ?? (isAgent ? "agent@system" : `client-${clientId}`),
+    // guard:allow-raw-color — collaboration protocol default, not theme UI
+    color: userState?.color ?? (isAgent ? "#00B5FF" : "#94a3b8"),
+    ...(avatarUrl ? { avatarUrl } : {}),
+  };
+}
+
+export function shallowEqualOthers(
+  a: readonly OtherPresence[],
+  b: readonly OtherPresence[],
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (left === right) continue;
+    if (
+      left.clientId !== right.clientId ||
+      left.isAgent !== right.isAgent ||
+      left.user.name !== right.user.name ||
+      left.user.email !== right.user.email ||
+      left.user.color !== right.user.color ||
+      left.user.avatarUrl !== right.user.avatarUrl
+    ) {
+      return false;
+    }
+    // Compare presence payloads with a stable JSON.stringify — presence
+    // fields (cursor/selection/viewport) are small JSON-safe records, so
+    // this is cheap and avoids a re-render when nothing actually changed.
+    if (JSON.stringify(left.presence) !== JSON.stringify(right.presence)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface UsePresenceResult {
   /** All remote participants (excludes local client). */
   others: OtherPresence[];
@@ -64,58 +115,13 @@ export function usePresence(
     // can bail out without triggering a subscriber re-render.
     let lastOthers: OtherPresence[] = [];
 
-    function shallowEqualOthers(
-      a: readonly OtherPresence[],
-      b: readonly OtherPresence[],
-    ): boolean {
-      if (a === b) return true;
-      if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i += 1) {
-        const left = a[i]!;
-        const right = b[i]!;
-        if (left === right) continue;
-        if (
-          left.clientId !== right.clientId ||
-          left.isAgent !== right.isAgent ||
-          left.user.name !== right.user.name ||
-          left.user.email !== right.user.email ||
-          left.user.color !== right.user.color
-        ) {
-          return false;
-        }
-        // Compare presence payloads with a stable JSON.stringify — presence
-        // fields (cursor/selection/viewport) are small JSON-safe records, so
-        // this is cheap and avoids a re-render when nothing actually changed.
-        if (JSON.stringify(left.presence) !== JSON.stringify(right.presence)) {
-          return false;
-        }
-      }
-      return true;
-    }
-
     function derive(): OtherPresence[] {
       const result: OtherPresence[] = [];
       awareness!.getStates().forEach((state, clientId) => {
         if (clientId === localClientId) return; // skip self
         const s = state as Record<string, unknown>;
-        const isAgent = clientId === AGENT_CLIENT_ID;
 
-        // User identity — fall back to agent defaults or anonymous.
-        let user: CollabUser;
-        if (isAgent) {
-          user = {
-            name: (s.user as CollabUser)?.name ?? "AI Assistant",
-            email: (s.user as CollabUser)?.email ?? "agent@system",
-            color: (s.user as CollabUser)?.color ?? "#00B5FF",
-          };
-        } else {
-          const u = s.user as CollabUser | undefined;
-          user = {
-            name: u?.name ?? "Unknown",
-            email: u?.email ?? `client-${clientId}`,
-            color: u?.color ?? "#94a3b8",
-          };
-        }
+        const user = deriveCollabUser(s, clientId);
 
         // Everything that isn't `user` or `visible` is presence payload.
         const presence: PresencePayload = {};
@@ -125,7 +131,12 @@ export function usePresence(
           }
         }
 
-        result.push({ clientId, user, presence, isAgent });
+        result.push({
+          clientId,
+          user,
+          presence,
+          isAgent: clientId === AGENT_CLIENT_ID,
+        });
       });
       return result;
     }

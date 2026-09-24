@@ -1,10 +1,15 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { calendarGetEvent } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+  parseGoogleCalendarSourceKey,
+} from "../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
@@ -20,13 +25,24 @@ export default defineAction({
       .optional()
       .default("primary")
       .describe('Calendar id — defaults to "primary"'),
+    calendarSourceKey: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque source key from list-google-calendars for a shared event",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const evt = result as { id?: string; start?: string; error?: string };
+    const evt = result as {
+      id?: string;
+      start?: string;
+      error?: string;
+      calendarSourceKey?: string;
+    };
     if (evt.error || !evt.id) return null;
     const date =
       typeof evt.start === "string" && evt.start
@@ -36,7 +52,11 @@ export default defineAction({
       url: buildDeepLink({
         app: "calendar",
         view: "calendar",
-        params: { eventId: evt.id, date },
+        params: {
+          eventId: evt.id,
+          date,
+          calendarSourceKey: evt.calendarSourceKey,
+        },
       }),
       label: "Open event in Calendar",
       view: "calendar",
@@ -45,26 +65,87 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    const accountEvent = parseGoogleAccountEventId(args.id);
 
-    const rawId = args.id.startsWith("google-")
-      ? args.id.slice("google-".length)
-      : args.id;
+    if (args.calendarSourceKey) {
+      const source = parseGoogleCalendarSourceKey(args.calendarSourceKey);
+      if (!source) throw new Error("Invalid Google Calendar source key");
+      if (accountEvent && accountEvent.accountEmail !== source.accountEmail) {
+        throw new Error(
+          "Google event account does not match the selected source",
+        );
+      }
+      const namespacedPrefix = `google-${args.calendarSourceKey}-`;
+      const rawId = accountEvent
+        ? accountEvent.googleEventId
+        : args.id.startsWith(namespacedPrefix)
+          ? args.id.slice(namespacedPrefix.length)
+          : args.id.startsWith("google-")
+            ? args.id.slice("google-".length)
+            : args.id;
+      const event = await googleCalendar.getEvent(
+        rawId,
+        { ownerEmail: email, accountEmail: source.accountEmail },
+        { calendarSourceKey: args.calendarSourceKey },
+      );
+      return accountEvent ? { ...event, id: args.id } : event;
+    }
+
+    const rawId = accountEvent
+      ? accountEvent.googleEventId
+      : args.id.startsWith("google-")
+        ? args.id.slice("google-".length)
+        : args.id;
     const calendarId = args.calendarId ?? "primary";
+    if (calendarId !== "primary") {
+      throw new Error(
+        "Non-primary Google calendars require a validated calendarSourceKey from list-google-calendars.",
+      );
+    }
 
-    const clients = await googleCalendar.getClients(email);
+    const { clients, errors } = accountEvent
+      ? await googleCalendar.getClientsWithErrors(email)
+      : { clients: await googleCalendar.getClients(email), errors: [] };
+    const accountError = accountEvent
+      ? errors.find(
+          ({ email: accountEmail }) =>
+            accountEmail.trim().toLowerCase() === accountEvent.accountEmail,
+        )
+      : undefined;
+    if (accountError) {
+      throw new Error(
+        `Google Calendar connection for ${accountEvent!.accountEmail} failed: ${accountError.error}`,
+      );
+    }
     if (clients.length === 0) {
       return {
         error: "Google Calendar not connected. Connect via Settings first.",
       };
     }
 
-    for (const { email: acctEmail, accessToken } of clients) {
+    const selectedClients = accountEvent
+      ? clients.filter(
+          ({ email: accountEmail }) =>
+            accountEmail.trim().toLowerCase() === accountEvent.accountEmail,
+        )
+      : clients;
+    if (accountEvent && selectedClients.length === 0) {
+      throw new Error(
+        `Google Calendar account is not connected: ${accountEvent.accountEmail}`,
+      );
+    }
+    for (const { email: acctEmail, accessToken } of selectedClients) {
       try {
         const evt = await calendarGetEvent(accessToken, calendarId, rawId);
         const selfAttendee = evt.attendees?.find((a: any) => a.self === true);
 
         const calEvent: CalendarEvent = {
-          id: `google-${evt.id}`,
+          id: accountEvent
+            ? createGoogleAccountEventId({
+                accountEmail: acctEmail,
+                googleEventId: evt.id,
+              })
+            : `google-${evt.id}`,
           title: evt.summary || "Untitled",
           titleIsGenerated: !evt.summary,
           description: evt.description || "",
@@ -91,6 +172,11 @@ export default defineAction({
             responseStatus: a.responseStatus || undefined,
             organizer: a.organizer || undefined,
             self: a.self || undefined,
+            optional: a.optional === true ? true : undefined,
+            additionalGuests:
+              typeof a.additionalGuests === "number" && a.additionalGuests > 0
+                ? a.additionalGuests
+                : undefined,
           })),
           remindersUseDefault: evt.reminders?.useDefault ?? true,
           reminders: evt.reminders?.overrides?.map((r: any) => ({
@@ -143,7 +229,8 @@ export default defineAction({
         };
 
         return calEvent;
-      } catch {
+      } catch (error) {
+        if (accountEvent) throw error;
         // Try next account
         continue;
       }

@@ -50,7 +50,7 @@ A teammate starts a Page Discussion about an unclear strategy, replies in one fo
 
 ## Boundaries and non-goals
 
-- Discussion is not another body Block, Database membership, task engine, or named Version.
+- Discussion is not another body Block, Collection membership, task engine, or named Version.
 - It does not replace Comments, Info, Annotations, Versions, or History; these are separate rails/modes.
 - Curated activity does not duplicate Event authority or expose inaccessible details.
 

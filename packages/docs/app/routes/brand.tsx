@@ -108,7 +108,7 @@ export default function BrandPage() {
   return (
     <main className="min-w-0">
       <header className="border-b border-[var(--docs-border)] px-6 py-16 sm:py-20">
-        <div className="mx-auto max-w-[1120px]">
+        <div className="mx-auto max-w-site">
           <p className="mb-4 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--docs-accent)]">
             {t("brandPage.eyebrow")}
           </p>
@@ -121,7 +121,7 @@ export default function BrandPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1120px] px-6 py-14 sm:py-20">
+      <div className="mx-auto max-w-site px-6 py-14 sm:py-20">
         <div className="flex flex-col gap-16 sm:gap-20">
           {BRAND_ASSETS.map((asset) => (
             <section key={asset.nameKey}>

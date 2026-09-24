@@ -2,13 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -19,32 +20,32 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
   },
 };
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
+beforeAll(async () => {
+  pglite = await createTestPglite();
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
-      if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+      const stmt = await pglite.prepare(sql);
+      if (/^\s*select/i.test(sql) || /\breturning\b/i.test(sql)) {
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("resourceEffectiveContext", () => {
@@ -116,17 +117,342 @@ describe("resourceEffectiveContext", () => {
     }
   });
 
-  it("exposes selected Dispatch workspace skills only to granted apps", async () => {
+  it("isolates organization workspace defaults and keeps legacy bare-owner rows readable", async () => {
     const {
       WORKSPACE_OWNER,
+      resourceDeleteByPath,
       resourceEffectiveContext,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
+      workspaceResourceOwner,
+    } = await import("./store.js");
+
+    const prefix = `context/org-workspace-${Date.now()}/`;
+    const path = `${prefix}company.md`;
+    const legacyPath = `${prefix}legacy.md`;
+    const orgAOwner = workspaceResourceOwner("org-a");
+    const orgBOwner = workspaceResourceOwner("org-b");
+    expect(orgAOwner).not.toBe(orgBOwner);
+    expect(workspaceResourceOwner(null)).toBe(WORKSPACE_OWNER);
+    try {
+      await resourcePut(orgAOwner, path, "Acme");
+      await resourcePut(orgBOwner, path, "Globex");
+      await resourcePut(WORKSPACE_OWNER, legacyPath, "legacy default");
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ owner: orgAOwner, content: "Acme" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "Globex" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: null }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, legacyPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        owner: WORKSPACE_OWNER,
+        content: "legacy default",
+      });
+
+      const orgAList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-a",
+      });
+      expect(
+        orgAList.map((resource) => [resource.path, resource.owner]),
+      ).toEqual(
+        expect.arrayContaining([
+          [path, orgAOwner],
+          [legacyPath, WORKSPACE_OWNER],
+        ]),
+      );
+      expect(orgAList.some((resource) => resource.owner === orgBOwner)).toBe(
+        false,
+      );
+
+      const orgA = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-a",
+      });
+      expect(orgA.effectiveScope).toBe("workspace");
+      expect(orgA.effectiveResource).toMatchObject({ owner: orgAOwner });
+      expect(orgA.layers[0]).toMatchObject({
+        scope: "workspace",
+        owner: orgAOwner,
+        effective: true,
+      });
+      const orgB = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-b",
+      });
+      expect(orgB.effectiveResource).toMatchObject({ owner: orgBOwner });
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(orgAOwner, path),
+        resourceDeleteByPath(orgBOwner, path),
+        resourceDeleteByPath(WORKSPACE_OWNER, legacyPath),
+      ]);
+    }
+  });
+
+  it("scopes direct organization workspace reads to the resolved organization", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
       resourceGet,
       resourceGetByPath,
       resourceList,
-      resourceListAccessible,
+      resourceListContentByOwnersAndPrefixes,
+      resourcePut,
+      workspaceResourceOwner,
+    } = await import("./store.js");
+    const prefix = `context/org-workspace-id-${Date.now()}/`;
+    const orgAOwner = workspaceResourceOwner("org-a");
+    const malformedOwner = "__workspace__:__organization__:bad%zz";
+    const orgAPath = `${prefix}org-a.md`;
+    const malformedPath = `${prefix}malformed.md`;
+    const barePath = `${prefix}default.md`;
+    const personalPath = `${prefix}personal.md`;
+
+    try {
+      const orgA = await resourcePut(orgAOwner, orgAPath, "org A only");
+      const malformed = await resourcePut(
+        malformedOwner,
+        malformedPath,
+        "malformed owner",
+      );
+      const bare = await resourcePut(
+        WORKSPACE_OWNER,
+        barePath,
+        "deployment default",
+      );
+      const personal = await resourcePut(
+        "member@example.test",
+        personalPath,
+        "personal resource",
+      );
+
+      await expect(
+        resourceGet(orgA.id, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        content: "org A only",
+      });
+      await expect(
+        resourceGetByPath(orgAOwner, orgAPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        resourceList(orgAOwner, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: orgAPath })]),
+      );
+      await expect(
+        resourceListContentByOwnersAndPrefixes([orgAOwner], [prefix], {
+          orgId: "org-a",
+        }),
+      ).resolves.toEqual([expect.objectContaining({ path: orgAPath })]);
+      await expect(
+        resourceGet(orgA.id, { orgId: "org-b" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(orgAOwner, orgAPath, { orgId: "org-b" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceList(orgAOwner, prefix, { orgId: "org-b" }),
+      ).resolves.toEqual([]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes(
+          [orgAOwner, WORKSPACE_OWNER],
+          [prefix],
+          { orgId: "org-b" },
+        ),
+      ).resolves.toEqual([expect.objectContaining({ path: barePath })]);
+      await expect(resourceGet(orgA.id, { orgId: null })).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () => resourceGet(orgA.id)),
+      ).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceGetByPath(orgAOwner, orgAPath),
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceList(orgAOwner, prefix),
+        ),
+      ).resolves.toEqual([]);
+      await expect(
+        runWithRequestContext({ orgId: undefined }, () =>
+          resourceListContentByOwnersAndPrefixes([orgAOwner], [prefix]),
+        ),
+      ).resolves.toEqual([]);
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () => resourceGet(orgA.id)),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGetByPath(orgAOwner, orgAPath),
+        ),
+      ).resolves.toMatchObject({ content: "org A only" });
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceList(orgAOwner, prefix),
+        ),
+      ).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: orgAPath })]),
+      );
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGet(orgA.id, { orgId: null }),
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        runWithRequestContext({ orgId: "org-a" }, () =>
+          resourceGetByPath(orgAOwner, orgAPath, { orgId: null }),
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGet(malformed.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(malformedOwner, malformedPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceList(malformedOwner, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual([]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes([malformedOwner], [prefix], {
+          orgId: "org-a",
+        }),
+      ).resolves.toEqual([]);
+      await expect(
+        resourceGet(bare.id, { orgId: "org-b" }),
+      ).resolves.toMatchObject({
+        content: "deployment default",
+      });
+      await expect(
+        resourceGet(bare.id, { orgId: null }),
+      ).resolves.toMatchObject({
+        content: "deployment default",
+      });
+      await expect(
+        resourceGet(personal.id, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "personal resource" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, barePath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, prefix, { orgId: "org-b" }),
+      ).resolves.toEqual([expect.objectContaining({ path: barePath })]);
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(orgAOwner, orgAPath),
+        resourceDeleteByPath(malformedOwner, malformedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, barePath),
+        resourceDeleteByPath("member@example.test", personalPath),
+      ]);
+    }
+  });
+
+  it("fails closed for tagged Dispatch workspace rows without tenancy schema", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourceListContentByOwnersAndPrefixes,
+      resourcePut,
+    } = await import("./store.js");
+    const prefix = `instructions/legacy-dispatch-missing-schema-${Date.now()}/`;
+    const taggedPath = `${prefix}private.md`;
+    const defaultPath = `${prefix}default.md`;
+
+    try {
+      const tagged = await resourcePut(
+        WORKSPACE_OWNER,
+        taggedPath,
+        "unscoped private copy",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "missing-tenancy-row",
+          },
+        },
+      );
+      await resourcePut(WORKSPACE_OWNER, defaultPath, "deployment default");
+
+      await expect(
+        resourceGet(tagged.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, taggedPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, defaultPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, prefix, { orgId: "org-a" }),
+      ).resolves.toEqual([expect.objectContaining({ path: defaultPath })]);
+      await expect(
+        resourceListContentByOwnersAndPrefixes([WORKSPACE_OWNER], [prefix], {
+          orgId: "org-a",
+        }),
+      ).resolves.toEqual([expect.objectContaining({ path: defaultPath })]);
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(WORKSPACE_OWNER, taggedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, defaultPath),
+      ]);
+    }
+  });
+
+  it("propagates non-schema tenancy lookup failures", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `instructions/legacy-dispatch-db-error-${Date.now()}.md`;
+    const databaseClient = sharedClient;
+
+    try {
+      await resourcePut(WORKSPACE_OWNER, path, "private copy", undefined, {
+        metadata: {
+          source: "dispatch-workspace-resource",
+          resourceId: "unreadable-tenancy-row",
+        },
+      });
+      sharedClient = {
+        async execute(arg) {
+          const sql = typeof arg === "string" ? arg : arg.sql;
+          if (sql.includes("SELECT id, org_id FROM workspace_resources")) {
+            throw new Error("Dispatch tenancy connection reset");
+          }
+          return databaseClient.execute(arg);
+        },
+      };
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, path, { orgId: "org-a" }),
+      ).rejects.toThrow("Dispatch tenancy connection reset");
+    } finally {
+      sharedClient = databaseClient;
+      await resourceDeleteByPath(WORKSPACE_OWNER, path);
+    }
+  });
+
+  it("keeps a pre-upgrade Dispatch copy visible only to the organization that authored it", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
     } = await import("./store.js");
 
-    sqlite.exec(`
+    await pglite.exec(`
       CREATE TABLE IF NOT EXISTS workspace_resources (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -138,8 +464,125 @@ describe("resourceEffectiveContext", () => {
         content TEXT NOT NULL,
         scope TEXT NOT NULL,
         created_by TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+    `);
+    const prefix = `instructions/legacy-dispatch-${Date.now()}/`;
+    const orgBPath = `${prefix}private.md`;
+    const untaggedPath = `${prefix}default.md`;
+    const orphanPath = `${prefix}orphan.md`;
+    await pglite
+      .prepare(
+        `INSERT INTO workspace_resources
+          (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "legacy_dispatch_org_b",
+        "owner@org-b.test",
+        "org-b",
+        "instruction",
+        "Private",
+        null,
+        orgBPath,
+        "org B private",
+        "all",
+        "owner@org-b.test",
+        1,
+        2,
+      );
+    try {
+      // Written by a pre-upgrade Dispatch under the bare owner; only the
+      // Dispatch resource id ties it back to org B.
+      const orgBRow = await resourcePut(
+        WORKSPACE_OWNER,
+        orgBPath,
+        "org B private",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "legacy_dispatch_org_b",
+          },
+        },
+      );
+      await resourcePut(WORKSPACE_OWNER, untaggedPath, "deployment default");
+      await resourcePut(
+        WORKSPACE_OWNER,
+        orphanPath,
+        "orphaned copy",
+        undefined,
+        {
+          metadata: {
+            source: "dispatch-workspace-resource",
+            resourceId: "legacy_dispatch_missing",
+          },
+        },
+      );
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orgBPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGet(orgBRow.id, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orgBPath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ content: "org B private" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, untaggedPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ content: "deployment default" });
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, orphanPath, { orgId: "org-a" }),
+      ).resolves.toBeNull();
+
+      const orgAList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-a",
+      });
+      expect(orgAList.map((resource) => resource.path)).toEqual([untaggedPath]);
+      const orgBList = await resourceList(WORKSPACE_OWNER, prefix, {
+        orgId: "org-b",
+      });
+      expect(orgBList.map((resource) => resource.path).sort()).toEqual(
+        [orgBPath, untaggedPath].sort(),
+      );
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(WORKSPACE_OWNER, orgBPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, untaggedPath),
+        resourceDeleteByPath(WORKSPACE_OWNER, orphanPath),
+        pglite
+          .prepare("DELETE FROM workspace_resources WHERE id = ?")
+          .run("legacy_dispatch_org_b"),
+      ]);
+    }
+  });
+
+  it("exposes selected Dispatch workspace skills only to granted apps", async () => {
+    const {
+      WORKSPACE_OWNER,
+      resourceEffectiveContext,
+      resourceGet,
+      resourceGetByPath,
+      resourceList,
+      resourceListAccessible,
+    } = await import("./store.js");
+
+    await pglite.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_resources (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS workspace_resource_grants (
         id TEXT PRIMARY KEY,
@@ -148,20 +591,22 @@ describe("resourceEffectiveContext", () => {
         resource_id TEXT NOT NULL,
         app_id TEXT NOT NULL,
         status TEXT NOT NULL,
-        synced_at INTEGER,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        synced_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       );
     `);
-    sqlite
+    const skillContent =
+      "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review \u{1F4CA}";
+    await pglite
       .prepare("DELETE FROM workspace_resource_grants WHERE id = ?")
       .run("grant_skill_analytics");
-    sqlite
+    await pglite
       .prepare("DELETE FROM workspace_resources WHERE id = ?")
       .run("selected_skill_analytics");
 
     const skillPath = "skills/analytics-review/SKILL.md";
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_resources
           (id, owner_email, org_id, kind, name, description, path, content, scope, created_by, created_at, updated_at)
@@ -175,13 +620,13 @@ describe("resourceEffectiveContext", () => {
         "Analytics Review",
         "Review analytics work",
         skillPath,
-        "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review",
+        skillContent,
         "selected",
         "owner@example.test",
         1,
         2,
       );
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO workspace_resource_grants
           (id, owner_email, org_id, resource_id, app_id, status, synced_at, created_at, updated_at)
@@ -213,6 +658,7 @@ describe("resourceEffectiveContext", () => {
       owner: WORKSPACE_OWNER,
       path: skillPath,
       mimeType: "text/markdown",
+      size: Buffer.byteLength(skillContent, "utf8"),
     });
 
     await expect(
@@ -226,6 +672,15 @@ describe("resourceEffectiveContext", () => {
       path: skillPath,
       content: expect.stringContaining("# Analytics Review"),
     });
+    await expect(
+      runWithRequestContext({ orgId: "org_123" }, () =>
+        resourceGet(selectedSkill!.id, {
+          workspaceAppId: "analytics",
+          userEmail: "member@example.test",
+          orgId: null,
+        }),
+      ),
+    ).resolves.toBeNull();
 
     await expect(
       resourceGetByPath(WORKSPACE_OWNER, skillPath, {
@@ -446,10 +901,17 @@ describe("resourceEffectiveContext", () => {
   it("surfaces local file mode control files as writable workspace resources", async () => {
     const {
       WORKSPACE_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
       resourceEffectiveContext,
       resourceGetByPath,
+      resourceList,
+      resourceListAllOwners,
       resourceListAccessible,
       resourcePut,
+      resourcePutIfAbsent,
+      resourcePutIfCurrent,
+      workspaceResourceOwner,
     } = await import("./store.js");
 
     const root = fs.mkdtempSync(
@@ -458,6 +920,16 @@ describe("resourceEffectiveContext", () => {
     const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
     const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
     const manifestPath = path.join(root, "agent-native.json");
+    const localPath = "skills/local-review/SKILL.md";
+    let bareSqlFallback:
+      | {
+          id: string;
+          content: string;
+          size: number;
+          updatedAt: number;
+          createdForTest: boolean;
+        }
+      | undefined;
     try {
       fs.writeFileSync(
         manifestPath,
@@ -510,7 +982,7 @@ describe("resourceEffectiveContext", () => {
 
       const effective = await resourceEffectiveContext(
         "member@example.test",
-        "AGENTS.md",
+        localPath,
       );
       expect(effective.effectiveScope).toBe("workspace");
       expect(effective.layers[0]).toMatchObject({
@@ -518,6 +990,158 @@ describe("resourceEffectiveContext", () => {
         exists: true,
         canWrite: true,
       });
+
+      const orgAOwner = workspaceResourceOwner("org-a");
+      const orgBOwner = workspaceResourceOwner("org-b");
+      const orgA = await resourcePut(orgAOwner, localPath, "# Org A");
+      await resourcePut(orgBOwner, localPath, "# Org B");
+      await expect(
+        resourcePut(orgAOwner, "context/org-only.md", "# Org-only"),
+      ).resolves.toMatchObject({ owner: orgAOwner });
+      await expect(
+        resourcePutIfAbsent(
+          orgAOwner,
+          "context/org-if-absent.md",
+          "# Org-only once",
+        ),
+      ).resolves.toMatchObject({ owner: orgAOwner });
+      expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8")).toBe(
+        "# Local Agents",
+      );
+
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({ owner: orgAOwner, content: "# Org A" });
+      await expect(
+        resourceGetByPath(orgBOwner, localPath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
+      await expect(
+        resourceList(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toEqual([expect.objectContaining({ owner: orgAOwner })]);
+      await expect(resourceListAllOwners(localPath)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            owner: WORKSPACE_OWNER,
+            content: expect.stringContaining("# Local Review"),
+          }),
+          expect.objectContaining({ owner: orgAOwner, content: "# Org A" }),
+          expect.objectContaining({ owner: orgBOwner, content: "# Org B" }),
+        ]),
+      );
+
+      const orgAContext = await resourceEffectiveContext(
+        "member@example.test",
+        localPath,
+        { orgId: "org-a" },
+      );
+      expect(orgAContext.effectiveResource).toMatchObject({
+        owner: orgAOwner,
+      });
+      await expect(
+        resourcePutIfCurrent({
+          owner: orgAOwner,
+          path: localPath,
+          content: "# Org A updated",
+          expectedId: orgA.id,
+          expectedUpdatedAt: orgA.updatedAt,
+          expectedContent: orgA.content,
+        }),
+      ).resolves.toMatchObject({ content: "# Org A updated" });
+      await expect(resourceDeleteByPath(orgAOwner, localPath)).resolves.toBe(
+        true,
+      );
+      const bareRows = (await pglite
+        .prepare(
+          "SELECT id, content, size, updated_at FROM resources WHERE owner = ? AND path = ?",
+        )
+        .all(WORKSPACE_OWNER, localPath)) as Array<{
+        id: string;
+        content: string;
+        size: number;
+        updated_at: number;
+      }>;
+      const bareRow = bareRows[0];
+      const now = Date.now();
+      if (bareRow) {
+        bareSqlFallback = {
+          id: bareRow.id,
+          content: bareRow.content,
+          size: Number(bareRow.size),
+          updatedAt: Number(bareRow.updated_at),
+          createdForTest: false,
+        };
+        await pglite
+          .prepare(
+            "UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ?",
+          )
+          .run(
+            "# Bare SQL fallback",
+            Buffer.byteLength("# Bare SQL fallback", "utf8"),
+            now,
+            bareSqlFallback.id,
+          );
+      } else {
+        const id = `bare-local-fallback-${Date.now()}`;
+        await pglite
+          .prepare(
+            `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            localPath,
+            WORKSPACE_OWNER,
+            "# Bare SQL fallback",
+            "text/markdown",
+            Buffer.byteLength("# Bare SQL fallback", "utf8"),
+            now,
+            now,
+          );
+        bareSqlFallback = {
+          id,
+          content: "",
+          size: 0,
+          updatedAt: 0,
+          createdForTest: true,
+        };
+      }
+      expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8")).toBe(
+        "# Local Agents",
+      );
+      await expect(
+        resourceGetByPath(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toMatchObject({
+        owner: WORKSPACE_OWNER,
+        content: expect.stringContaining("# Local Review"),
+      });
+      await expect(
+        resourceList(WORKSPACE_OWNER, localPath, { orgId: "org-a" }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          owner: WORKSPACE_OWNER,
+          metadata: expect.stringContaining("local-workspace-resource"),
+        }),
+      ]);
+      await expect(
+        resourceListAllOwners(localPath, {
+          includeShadowedWorkspaceRows: true,
+        }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: bareSqlFallback.id,
+            owner: WORKSPACE_OWNER,
+            content: "# Bare SQL fallback",
+          }),
+          expect.objectContaining({
+            owner: WORKSPACE_OWNER,
+            metadata: expect.stringContaining("local-workspace-resource"),
+          }),
+        ]),
+      );
+      await expect(
+        resourceGetByPath(orgBOwner, localPath, { orgId: "org-b" }),
+      ).resolves.toMatchObject({ owner: orgBOwner, content: "# Org B" });
 
       await resourcePut(
         WORKSPACE_OWNER,
@@ -531,10 +1155,54 @@ describe("resourceEffectiveContext", () => {
         ),
       ).toContain("# Generated");
 
+      const conditionalLocal = await resourcePut(
+        WORKSPACE_OWNER,
+        "skills/conditional/SKILL.md",
+        "---\nname: conditional\n---\n# Materialized",
+      );
+      await expect(resourceDeleteIfCurrent(conditionalLocal)).resolves.toBe(
+        true,
+      );
+      expect(
+        fs.existsSync(
+          path.join(root, ".agents", "skills", "conditional", "SKILL.md"),
+        ),
+      ).toBe(false);
+
       await expect(
         resourcePut(WORKSPACE_OWNER, "context/brand.md", "# Brand"),
       ).rejects.toThrow("Workspace resources in local file mode");
     } finally {
+      await Promise.all([
+        resourceDeleteByPath(workspaceResourceOwner("org-a"), localPath),
+        resourceDeleteByPath(
+          workspaceResourceOwner("org-a"),
+          "context/org-only.md",
+        ),
+        resourceDeleteByPath(
+          workspaceResourceOwner("org-a"),
+          "context/org-if-absent.md",
+        ),
+        resourceDeleteByPath(workspaceResourceOwner("org-b"), localPath),
+      ]);
+      if (bareSqlFallback) {
+        if (bareSqlFallback.createdForTest) {
+          await pglite
+            .prepare("DELETE FROM resources WHERE id = ?")
+            .run(bareSqlFallback.id);
+        } else {
+          await pglite
+            .prepare(
+              "UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ?",
+            )
+            .run(
+              bareSqlFallback.content,
+              bareSqlFallback.size,
+              bareSqlFallback.updatedAt,
+              bareSqlFallback.id,
+            );
+        }
+      }
       if (previousManifest === undefined) {
         delete process.env.AGENT_NATIVE_MANIFEST;
       } else {
@@ -582,5 +1250,195 @@ describe("resourceEffectiveContext", () => {
     await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toMatchObject({
       content: "after",
     });
+  });
+
+  it("does not overwrite an existing resource during conditional insert", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePutIfAbsent,
+    } = await import("./store.js");
+    const path = `context/conditional-insert-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const first = await resourcePutIfAbsent(SHARED_OWNER, path, "first");
+      expect(first?.content).toBe("first");
+
+      await expect(
+        resourcePutIfAbsent(SHARED_OWNER, path, "second"),
+      ).resolves.toBeNull();
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "first",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("guards snapshot writes and restores with the full SQL resource state", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+      resourcePutIfSnapshot,
+      resourceRestoreSnapshotIfCurrent,
+    } = await import("./store.js");
+    const path = `context/snapshot-${Date.now()}-${Math.random()}.md`;
+    try {
+      const before = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "before",
+        undefined,
+        {
+          metadata: { source: "before" },
+        },
+      );
+      const written = await resourcePutIfSnapshot({
+        previous: before,
+        owner: SHARED_OWNER,
+        path,
+        content: "written",
+        options: {
+          createdBy: "agent",
+          metadata: { source: "dispatch" },
+        },
+      });
+      expect(written?.resource).toMatchObject({
+        id: before.id,
+        content: "written",
+        createdBy: "agent",
+        metadata: expect.stringContaining("dispatch"),
+      });
+      await resourcePut(SHARED_OWNER, path, "written", undefined, {
+        metadata: { source: "replacement" },
+      });
+
+      await expect(
+        resourcePutIfSnapshot({
+          previous: written!.resource,
+          owner: SHARED_OWNER,
+          path,
+          content: "stale",
+        }),
+      ).resolves.toBeNull();
+      await expect(
+        resourceRestoreSnapshotIfCurrent(before, written!.resource),
+      ).resolves.toBe(false);
+
+      const replacement = await resourceGetByPath(SHARED_OWNER, path);
+      await expect(resourceDeleteIfCurrent(replacement!)).resolves.toBe(true);
+      await resourcePut(SHARED_OWNER, path, "new owner");
+      await expect(
+        resourceRestoreSnapshotIfCurrent(before, null),
+      ).resolves.toBe(false);
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("does not delete a replacement during conditional legacy cleanup", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-delete-${Date.now()}-${Math.random()}.md`;
+    const legacyMetadata = {
+      source: "workspace-files",
+      scope: "org",
+      scopeId: "org-a",
+    };
+
+    try {
+      const legacy = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "legacy",
+        undefined,
+        {
+          metadata: legacyMetadata,
+        },
+      );
+      await resourcePut(SHARED_OWNER, path, "global default", undefined, {
+        metadata: { source: "global" },
+      });
+
+      await expect(resourceDeleteIfCurrent(legacy)).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        content: "global default",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("conditionally deletes a resource without metadata", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-null-metadata-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(SHARED_OWNER, path, "content");
+
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(true);
+      await expect(resourceGetByPath(SHARED_OWNER, path)).resolves.toBeNull();
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("does not delete a same-timestamp MIME or visibility mutation", async () => {
+    const {
+      SHARED_OWNER,
+      resourceDeleteByPath,
+      resourceDeleteIfCurrent,
+      resourceGetByPath,
+      resourcePut,
+    } = await import("./store.js");
+    const path = `context/conditional-fields-${Date.now()}-${Math.random()}.md`;
+
+    try {
+      const resource = await resourcePut(
+        SHARED_OWNER,
+        path,
+        "content",
+        "text/plain",
+      );
+      await pglite
+        .prepare(
+          "UPDATE resources SET mime_type = ?, visibility = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(
+          "application/json",
+          "agent_scratch",
+          resource.updatedAt,
+          resource.id,
+        );
+
+      await expect(resourceDeleteIfCurrent(resource)).resolves.toBe(false);
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({
+        mimeType: "application/json",
+        visibility: "agent_scratch",
+      });
+    } finally {
+      await resourceDeleteByPath(SHARED_OWNER, path);
+    }
   });
 });

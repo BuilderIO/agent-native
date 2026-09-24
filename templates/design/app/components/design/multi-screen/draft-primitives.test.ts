@@ -1,6 +1,12 @@
+import { createCornerNode, serializePenPath } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
-import { draftPrimitiveToInsert } from "./draft-primitives";
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
+import {
+  createDraftPrimitive,
+  createPenDraftPrimitive,
+  draftPrimitiveToInsert,
+} from "./draft-primitives";
 import type {
   DraftPrimitive,
   FrameGeometry,
@@ -19,6 +25,103 @@ function frame(
 function rectDraft(geometry: FrameGeometry): DraftPrimitive {
   return { id: "draft-rect", kind: "rectangle", geometry } as DraftPrimitive;
 }
+
+describe("draftPrimitiveToInsert node id", () => {
+  it("never reuses the draft's own bookkeeping id as the committed node id", () => {
+    // draft.id ("draft-rect-<timestamp>-<random>") is host-side-only
+    // bookkeeping (the overlay's data-draft-id, selectedDraftIds, …). Reusing
+    // it as the insert's nodeId writes that literal "draft-" string into the
+    // saved document as the element's PERMANENT data-agent-native-node-id —
+    // it never becomes a stable, non-draft id, so anything keyed on it
+    // (selection, the layers row, a follow-up drag) waits forever or breaks.
+    const draft = rectDraft(frame(10, 10, 100, 80));
+    const result = draftPrimitiveToInsert(draft, frame(0, 0, 400, 400));
+    expect(result.nodeId).toBeDefined();
+    expect(result.nodeId).not.toBe(draft.id);
+    expect(result.nodeId).not.toMatch(/^draft-/);
+  });
+
+  it("mints a different id for two drafts created back to back", () => {
+    const geometry = frame(0, 0, 100, 100);
+    const first = draftPrimitiveToInsert(
+      rectDraft(geometry),
+      frame(0, 0, 400, 400),
+    );
+    const second = draftPrimitiveToInsert(
+      rectDraft(geometry),
+      frame(0, 0, 400, 400),
+    );
+    expect(first.nodeId).not.toBe(second.nodeId);
+  });
+});
+
+describe("draftPrimitiveToInsert Pen paths", () => {
+  it("carries the same screen-local PenPath that it serializes for persistence", () => {
+    const draft = createPenDraftPrimitive(
+      {
+        closed: false,
+        nodes: [
+          createCornerNode({ x: 20, y: 30 }),
+          createCornerNode({ x: 70, y: 60 }),
+        ],
+      },
+      { id: "draft-pen" },
+    );
+    const inserted = draftPrimitiveToInsert(draft, frame(10, 20, 100, 80));
+
+    expect(inserted.penPath?.nodes.map((node) => node.point)).toEqual([
+      { x: 10, y: 10 },
+      { x: 60, y: 40 },
+    ]);
+    expect(inserted.pathData).toBe(serializePenPath(inserted.penPath!));
+  });
+});
+
+describe("createDraftPrimitive default fill", () => {
+  const start = { x: 0, y: 0 };
+  const end = { x: 100, y: 100 };
+
+  it("gives a freshly drawn ellipse a real, removable default fill", () => {
+    const draft = createDraftPrimitive({
+      tool: "ellipse",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+  });
+
+  it("gives a freshly drawn rectangle a real, removable default fill", () => {
+    const draft = createDraftPrimitive({
+      tool: "rect",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+  });
+
+  it("keeps an explicitly chosen tool fill instead of overriding it", () => {
+    const draft = createDraftPrimitive({
+      tool: "rect",
+      start,
+      end,
+      moved: true,
+      toolProps: { fill: "rgb(1 2 3)" },
+    });
+    expect(draft.fill).toBe("rgb(1 2 3)");
+  });
+
+  it("leaves a freshly drawn frame transparent (no default fill)", () => {
+    const draft = createDraftPrimitive({
+      tool: "frame",
+      start,
+      end,
+      moved: true,
+    });
+    expect(draft.fill).toBeUndefined();
+  });
+});
 
 describe("draftPrimitiveToInsert draw scaling", () => {
   it("keeps a drawn rectangle the exact size it was dragged on a landscape inline frame", () => {

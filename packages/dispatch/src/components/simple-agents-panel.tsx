@@ -14,6 +14,7 @@ import {
   IconEdit,
   IconFileImport,
   IconFolder,
+  IconInfoCircle,
   IconLayoutGrid,
   IconMessageCircle,
   IconPlugConnected,
@@ -31,6 +32,14 @@ import {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { agentEndpointUrlError } from "../lib/agent-endpoint-url.js";
+import {
+  AGENT_PACK_FILE_ACCEPT,
+  AGENT_PROFILE_FILE_ACCEPT,
+  AGENT_PROFILE_FILE_EXTENSIONS,
+  isImportableAgentPackFile,
+  isImportableAgentProfileFile,
+} from "../lib/agent-pack.js";
 import {
   buildSimpleAgentContent,
   slugifyAgentName,
@@ -107,6 +116,64 @@ interface AgentPackResponse {
 interface AgentPackFileInput {
   path: string;
   content: string;
+}
+
+type AgentPackRead =
+  | {
+      ok: true;
+      root: string;
+      files: (WorkspaceAgentResource & { kind: string })[];
+    }
+  | { ok: false; loaded: boolean };
+
+/**
+ * A pack that failed to load or came back without its `files` array is
+ * unreadable, not empty. Spreading it threw during render and took the whole
+ * page down with the router error boundary; reporting it as an empty pack
+ * instead would let the dialog write a new file into a guessed root.
+ */
+export function readAgentPack(
+  data: AgentPackResponse | undefined,
+  failed = false,
+): AgentPackRead {
+  if (failed) return { ok: false, loaded: true };
+  if (!data) return { ok: false, loaded: false };
+  if (!data.profile || !Array.isArray(data.files) || !data.root) {
+    return { ok: false, loaded: true };
+  }
+  return {
+    ok: true,
+    root: data.root,
+    files: [{ ...data.profile, kind: "agent" as const }, ...data.files],
+  };
+}
+
+const MAX_LISTED_SKIPPED_FILES = 3;
+
+/**
+ * Folder pickers cannot filter by extension, so unsupported files are only
+ * visible after selection. Name them without turning a 40-file photo folder
+ * into a 40-line warning.
+ */
+export function summarizeSkippedPackFiles(
+  skipped: string[],
+  keptCount: number,
+): string[] {
+  if (skipped.length === 0) return [];
+  if (keptCount === 0) {
+    return [
+      "No importable files in that folder. Agent folders take text files such as Markdown, JSON, and YAML.",
+    ];
+  }
+  const listed = skipped.slice(0, MAX_LISTED_SKIPPED_FILES);
+  const remaining = skipped.length - listed.length;
+  const names =
+    remaining > 0
+      ? `${listed.join(", ")}, and ${remaining} more`
+      : listed.join(", ");
+  return [
+    `Skipped ${skipped.length} non-text ${skipped.length === 1 ? "file" : "files"}: ${names}. The rest of the folder will still be imported.`,
+  ];
 }
 
 const AGENT_ICON_KEYS = [
@@ -456,9 +523,8 @@ function AgentPackDialog({
     onError: (error) => toast.error(error.message),
   });
 
-  const files = query.data
-    ? [{ ...query.data.profile, kind: "agent" as const }, ...query.data.files]
-    : [];
+  const pack = readAgentPack(query.data, query.isError);
+  const files = pack.ok ? pack.files : [];
   const selected = files.find((file) => file.id === selectedId) ?? files[0];
 
   useEffect(() => {
@@ -473,6 +539,12 @@ function AgentPackDialog({
   }, [selected?.id, selected?.content]);
 
   function addFile() {
+    if (!pack.ok) {
+      toast.error(
+        "This agent pack could not be read, so files cannot be added",
+      );
+      return;
+    }
     const relativePath = newPath.trim().replaceAll("\\", "/");
     if (
       !relativePath ||
@@ -491,7 +563,7 @@ function AgentPackDialog({
     create.mutate({
       kind: newKind,
       name,
-      path: `${query.data?.root || `agents/${slugifyAgentName(resource.name)}`}/${packPath}`,
+      path: `${pack.root}/${packPath}`,
       content: newContent,
       scope: resource.scope,
     });
@@ -523,6 +595,12 @@ function AgentPackDialog({
             to this agent.
           </DialogDescription>
         </DialogHeader>
+        {!pack.ok && pack.loaded ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            This agent pack could not be read. Retry, and if it keeps failing
+            the pack contents may need repair.
+          </div>
+        ) : null}
         <div className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
@@ -586,7 +664,7 @@ function AgentPackDialog({
                   <DialogFooter>
                     <Button
                       onClick={addFile}
-                      disabled={!newPath.trim() || create.isPending}
+                      disabled={!pack.ok || !newPath.trim() || create.isPending}
                     >
                       {create.isPending ? "Adding..." : "Add file"}
                     </Button>
@@ -607,7 +685,7 @@ function AgentPackDialog({
                     onClick={() => setSelectedId(file.id)}
                   >
                     <span className="min-w-0 truncate text-xs">
-                      {file.path.replace(`${query.data?.root || ""}/`, "")}
+                      {file.path.replace(`${pack.ok ? pack.root : ""}/`, "")}
                     </span>
                   </Button>
                 ))}
@@ -692,6 +770,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
   const [fileName, setFileName] = useState("");
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [url, setUrl] = useState("");
+  const urlError = url.trim() ? agentEndpointUrlError(url) : null;
   const [endpointName, setEndpointName] = useState("");
   const [endpointDescription, setEndpointDescription] = useState("");
   const [packFiles, setPackFiles] = useState<AgentPackFileInput[]>([]);
@@ -739,12 +818,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     onError: (error) => toast.error(error.message),
   });
 
-  useEffect(() => {
-    if (!folderRef.current) return;
-    folderRef.current.setAttribute("webkitdirectory", "");
-    folderRef.current.setAttribute("directory", "");
-  }, [mode, open]);
-
   function reset() {
     setMode("file");
     setSource("");
@@ -760,24 +833,33 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
+    // `accept` is only a picker hint: every OS dialog lets the user switch to
+    // "All Files", and reading a PDF with file.text() yields mojibake that
+    // looks like a valid definition.
+    if (!isImportableAgentProfileFile(file.name)) {
+      toast.error(
+        `${file.name} is not a supported agent file. Choose a ${AGENT_PROFILE_FILE_EXTENSIONS.join(", ")} file.`,
+      );
+      return;
+    }
     setFileName(file.name);
     setSource(await file.text());
   }
 
   async function handleFolder(event: ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
     if (selectedFiles.length === 0) return;
-    const warnings: string[] = [];
-    const textExtensions =
-      /\.(md|markdown|txt|json|yaml|yml|csv|html|xml|toml|ts|tsx|js|mjs|py|sh)$/i;
+    const skipped: string[] = [];
     const pack = await Promise.all(
       selectedFiles.map(async (file) => {
         const path =
           (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
           file.name;
-        if (!textExtensions.test(path)) {
-          warnings.push(`Skipped non-text file: ${path}`);
+        if (!isImportableAgentPackFile(path)) {
+          skipped.push(path);
           return null;
         }
         return { path, content: await file.text() };
@@ -788,7 +870,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     );
     setPackFiles(files);
     setPackName(files[0]?.path.split("/")[0] || "Selected folder");
-    setPackWarnings(warnings);
+    setPackWarnings(summarizeSkippedPackFiles(skipped, files.length));
   }
 
   return (
@@ -837,7 +919,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".md,.markdown,.json,.txt"
+                accept={AGENT_PROFILE_FILE_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleFile(event)}
               />
@@ -900,18 +982,37 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 ref={folderRef}
                 type="file"
                 multiple
+                // Set declaratively: an effect keyed on the tab runs before
+                // Radix mounts this panel, so the ref is still null and the
+                // input silently stays a plain file picker.
+                {...({ webkitdirectory: "", directory: "" } as {
+                  webkitdirectory: string;
+                  directory: string;
+                })}
+                // Directory pickers ignore accept; it only applies where
+                // webkitdirectory is unsupported and this falls back to
+                // multi-file selection.
+                accept={AGENT_PACK_FILE_ACCEPT}
                 className="hidden"
                 onChange={(event) => void handleFolder(event)}
               />
               <span className="text-xs text-muted-foreground">
                 {packName
                   ? `${packName} · ${packFiles.length} files`
-                  : "Claude Project or Cowork-style folder"}
+                  : "Claude Project or Cowork-style folder · text files only"}
               </span>
             </div>
             {packWarnings.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                {packWarnings.join(" ")}
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                <IconInfoCircle
+                  size={16}
+                  className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+                />
+                <span>{packWarnings.join(" ")}</span>
               </div>
             ) : null}
             <div className="flex flex-col gap-2">
@@ -946,7 +1047,19 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://agent.example.com"
+                aria-invalid={!!urlError}
+                aria-describedby={
+                  urlError ? "external-agent-url-error" : undefined
+                }
               />
+              {urlError ? (
+                <p
+                  id="external-agent-url-error"
+                  className="text-xs text-destructive"
+                >
+                  {urlError}
+                </p>
+              ) : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
@@ -988,7 +1101,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                     scope: "shared",
                   })
                 }
-                disabled={!url.trim() || connect.isPending}
+                disabled={!url.trim() || !!urlError || connect.isPending}
               >
                 <IconPlugConnected size={16} />
                 {connect.isPending ? "Connecting..." : "Connect agent"}
@@ -1222,7 +1335,12 @@ interface AgentAppCreationInput {
 }
 
 interface AgentAppCreationResult {
-  mode: "builder" | "local-agent" | "builder-unavailable" | "coming-soon";
+  mode:
+    | "builder"
+    | "local-agent"
+    | "builder-unavailable"
+    | "app-id-taken"
+    | "coming-soon";
   message: string;
   prompt?: string;
   url?: string;

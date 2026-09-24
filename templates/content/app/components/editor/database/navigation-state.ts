@@ -87,6 +87,7 @@ export function databaseNavigationState({
   totalItemCount,
   selectedItems = [],
   previewItem,
+  effectiveFrozenColumnIds,
 }: {
   document: Pick<Document, "id" | "title">;
   databaseId: string;
@@ -108,6 +109,8 @@ export function databaseNavigationState({
     | "endDatePropertyId"
     | "calculations"
     | "wrapCells"
+    | "columnWrapOverrides"
+    | "frozenThroughColumnId"
     | "rowDensity"
     | "openPagesIn"
     | "formQuestions"
@@ -124,6 +127,7 @@ export function databaseNavigationState({
   totalItemCount?: number;
   selectedItems?: ContentDatabaseItem[];
   previewItem: ContentDatabaseItem | null;
+  effectiveFrozenColumnIds?: string[];
 }) {
   const trimmedSearchQuery = searchQuery.trim();
   const calculations = activeView.calculations ?? {};
@@ -211,6 +215,9 @@ export function databaseNavigationState({
     databaseCalculationResults:
       calculationResults.length > 0 ? calculationResults : undefined,
     databaseWrapCells: activeView.wrapCells === true || undefined,
+    databaseColumnWrapOverrides: activeView.columnWrapOverrides,
+    databaseFrozenThroughColumnId: activeView.frozenThroughColumnId,
+    databaseEffectiveFrozenColumnIds: effectiveFrozenColumnIds,
     databaseRowDensity:
       activeView.rowDensity && activeView.rowDensity !== "default"
         ? activeView.rowDensity

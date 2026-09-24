@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   downloadDirectVideo: vi.fn(),
   isCandidateDirectVideoUrl: vi.fn(),
   queueBuilderMediaCompression: vi.fn(),
+  dispatchPostFinalizeJob: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -77,6 +78,10 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: (...args: unknown[]) =>
     mocks.queueBuilderMediaCompression(...args),
+}));
+vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: (...args: unknown[]) =>
+    mocks.dispatchPostFinalizeJob(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -147,6 +152,7 @@ describe("first imported recording transactional email", () => {
     mocks.eq.mockImplementation((column, value) => ({ column, value }));
     mocks.gte.mockImplementation((column, value) => ({ column, value }));
     mocks.inArray.mockImplementation((column, values) => ({ column, values }));
+    mocks.dispatchPostFinalizeJob.mockResolvedValue(undefined);
   });
 
   it("enqueues only when this recording is the first ready import after enablement", async () => {
@@ -262,6 +268,133 @@ describe("first imported recording transactional email", () => {
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({ videoFormat: "webm" }),
     );
+    expect(mocks.dispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "recording-webm",
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
+  });
+
+  it("does not hide a failed direct-import thumbnail enqueue", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    const db = {
+      insert: vi.fn(() => ({ values: insertValues })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-no-thumb-job");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-no-thumb-job.mp4",
+      provider: "builder",
+    });
+    mocks.dispatchPostFinalizeJob.mockRejectedValueOnce(
+      new Error("thumbnail queue unavailable"),
+    );
+
+    await expect(
+      importLoomRecording.run({
+        url: "https://media.example.com/source.mp4",
+      }),
+    ).rejects.toThrow("thumbnail queue unavailable");
+  });
+
+  it("does not reuse an automatic thumbnail from an earlier direct import", async () => {
+    const sourceUrl = "https://media.example.com/source.mp4";
+    const updateValues = vi.fn();
+    const existing = {
+      id: "recording-retry",
+      organizationId: "org-1",
+      ownerEmail: "owner@example.com",
+      status: "uploading",
+      videoUrl: null,
+      failureReason:
+        "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
+      sourceAppName: "Video link",
+      sourceWindowTitle: sourceUrl,
+      thumbnailUrl: "https://media.example.com/old-thumbnail.jpg",
+      editsJson: "{}",
+      title: "Earlier import",
+      titleSource: "upload",
+      spaceIds: "[]",
+      visibility: "private",
+      folderId: null,
+      description: "",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    };
+    const selectWhere = vi
+      .fn()
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValueOnce([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: selectWhere })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: (values: unknown) => {
+          updateValues(values);
+          return { where: vi.fn(async () => undefined) };
+        },
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-retry.mp4",
+      provider: "builder",
+    });
+    mocks.queueBuilderMediaCompression.mockResolvedValue(undefined);
+    mocks.ensureEnabledAt.mockRejectedValue(
+      new Error("email store unavailable"),
+    );
+
+    const result = await importLoomRecording.run({
+      url: sourceUrl,
+      recordingId: "recording-retry",
+    });
+
+    expect(updateValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        videoUrl: "https://media.example.com/recording-retry.mp4",
+        thumbnailUrl: null,
+      }),
+    );
+    expect(result).toMatchObject({
+      recordingId: "recording-retry",
+      thumbnailUrl: null,
+    });
   });
 
   it("completes a persisted import when transactional email enqueue fails", async () => {

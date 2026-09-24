@@ -66,9 +66,16 @@ import * as Y from "yjs";
 // collab layer's. `applyUpdate`/`getDoc` are the REAL Y.Doc CRDT merge —
 // nothing about the merge semantics under test is faked.
 // ---------------------------------------------------------------------------
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  rows: new Map<
+    string,
+    { yjs_state: string; text_snapshot: string; version: number }
+  >(),
+}));
 const collabTestControl = vi.hoisted(() => ({
   corruptNextValidatedApply: false,
+  peerContentBeforeNextValidatedApply: null as string | null,
 }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -77,9 +84,47 @@ function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
     | undefined;
   if (!doc) {
     doc = new Y.Doc();
+    const row = collabDocs.rows.get(docId);
+    if (row?.yjs_state) {
+      doc.getText("content").insert(0, row.text_snapshot);
+    }
     collabDocs.docs.set(docId, doc);
   }
   return doc;
+}
+
+function persistMockCollabRow(
+  docId: string,
+  text: string,
+  expectedVersion?: number | null,
+): void {
+  const existing = collabDocs.rows.get(docId);
+  if (expectedVersion !== undefined) {
+    if (
+      expectedVersion === null
+        ? existing !== undefined
+        : existing?.version !== expectedVersion
+    ) {
+      throw new Error("mock collaboration version conflict");
+    }
+  }
+  collabDocs.rows.set(docId, {
+    yjs_state: "mock-yjs-state",
+    text_snapshot: text,
+    version:
+      existing === undefined || expectedVersion === null
+        ? 0
+        : existing.version + 1,
+  });
+}
+
+function persistChangedMockCollabText(
+  docId: string,
+  before: string,
+  doc: InstanceType<typeof Y.Doc>,
+): void {
+  const after = doc.getText("content").toString();
+  if (after !== before) persistMockCollabRow(docId, after);
 }
 
 /** Minimal common-prefix/suffix-trim diff -> cursor-based Y.Text delete+insert. */
@@ -107,7 +152,13 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
-  hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
+  // source-workspace narrows on this class, so the mock has to expose it or
+  // the `instanceof` check throws instead of classifying the error.
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
+  hasCollabState: async (docId: string) => {
+    const row = collabDocs.rows.get(docId);
+    return row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId);
+  },
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
   applyText: async (
@@ -115,9 +166,21 @@ vi.mock("@agent-native/core/collab", () => ({
     newText: string,
     _fieldName?: string,
     _requestSource?: string,
-    options?: { validateSnapshot?: (snapshot: string) => void },
+    options?: {
+      validateBase?: (base: string) => void;
+      validateSnapshot?: (snapshot: string) => void;
+    },
   ) => {
     const doc = getOrCreateDoc(docId);
+    const beforePeer = doc.getText("content").toString();
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      applyTextDiff(doc, peerContent);
+      persistChangedMockCollabText(docId, beforePeer, doc);
+    }
+    const before = doc.getText("content").toString();
+    options?.validateBase?.(doc.getText("content").toString());
     applyTextDiff(doc, newText);
     if (
       collabTestControl.corruptNextValidatedApply &&
@@ -131,16 +194,87 @@ vi.mock("@agent-native/core/collab", () => ({
     }
     const snapshot = doc.getText("content").toString();
     options?.validateSnapshot?.(snapshot);
+    persistChangedMockCollabText(docId, before, doc);
     return snapshot;
   },
   seedFromText: async (docId: string, text: string) => {
-    if (collabDocs.docs.has(docId)) return;
+    const row = collabDocs.rows.get(docId);
+    if (row ? row.yjs_state.length > 0 : collabDocs.docs.has(docId)) return;
     const doc = getOrCreateDoc(docId);
     doc.getText("content").insert(0, text);
+    persistMockCollabRow(
+      docId,
+      text,
+      collabDocs.rows.get(docId)?.version ?? null,
+    );
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => {
+    if (collabTestControl.peerContentBeforeNextValidatedApply !== null) {
+      const peerContent = collabTestControl.peerContentBeforeNextValidatedApply;
+      collabTestControl.peerContentBeforeNextValidatedApply = null;
+      const peerDoc = getOrCreateDoc(FILE_ID);
+      const beforePeer = peerDoc.getText("content").toString();
+      applyTextDiff(peerDoc, peerContent);
+      persistChangedMockCollabText(FILE_ID, beforePeer, peerDoc);
+      throw new Error("Source file changed while the edit was being applied.");
+    }
+    applyTextDiff(doc, text);
+    if (collabTestControl.corruptNextValidatedApply) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+  },
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const baseVersion = collabDocs.rows.get(docId)?.version ?? null;
+    const doc = new Y.Doc();
+    if (base) {
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    } else if (baseVersion !== null) {
+      const row = collabDocs.rows.get(docId);
+      if (row?.yjs_state) doc.getText("content").insert(0, row.text_snapshot);
+    }
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion,
+        persist: async (_tx, text) => {
+          persistMockCollabRow(docId, text, baseVersion);
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
   getDoc: async (docId: string) => getOrCreateDoc(docId),
   applyUpdate: async (docId: string, update: Uint8Array) => {
-    Y.applyUpdate(getOrCreateDoc(docId), update);
+    const doc = getOrCreateDoc(docId);
+    const before = doc.getText("content").toString();
+    Y.applyUpdate(doc, update);
+    persistChangedMockCollabText(docId, before, doc);
   },
   releaseDoc: (docId: string) => {
     collabDocs.docs.delete(docId);
@@ -159,11 +293,12 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// update-file.ts imports isPostgres via the public "@agent-native/core/db"
-// specifier (unlike the collab package's internal relative import), so this
-// mock DOES intercept it: force the SQLite branch (no LOCK TABLE path).
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
+  checkpointSkippedResultField: (result: unknown) =>
+    result && typeof result === "object" && "skipped" in (result as object)
+      ? { checkpoint: result }
+      : {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -180,6 +315,9 @@ interface FileRow {
   filename: string;
   fileType: string;
   content: string;
+  contentOperationSource: string | null;
+  contentOperationRevision: number | null;
+  contentOperationResultHash: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -191,13 +329,20 @@ const designFilesStore = vi.hoisted(() => ({
 const FILE_ID = "file_shader_container";
 const DESIGN_ID = "design_1";
 
-function seedFile(content: string, updatedAt = "2026-07-06T00:00:00.000Z") {
+function seedFile(
+  content: string,
+  updatedAt = "2026-07-06T00:00:00.000Z",
+  fileType = "html",
+) {
   designFilesStore.rows.set(FILE_ID, {
     id: FILE_ID,
     designId: DESIGN_ID,
     filename: "index.html",
-    fileType: "html",
+    fileType,
     content,
+    contentOperationSource: null,
+    contentOperationRevision: null,
+    contentOperationResultHash: null,
     createdAt: updatedAt,
     updatedAt,
   });
@@ -233,6 +378,9 @@ vi.mock("../server/db/index.js", () => {
       filename: { name: "filename" },
       fileType: { name: "fileType" },
       content: { name: "content" },
+      contentOperationSource: { name: "contentOperationSource" },
+      contentOperationRevision: { name: "contentOperationRevision" },
+      contentOperationResultHash: { name: "contentOperationResultHash" },
       createdAt: { name: "createdAt" },
       updatedAt: { name: "updatedAt" },
     },
@@ -249,6 +397,12 @@ vi.mock("../server/db/index.js", () => {
     return withLimit;
   };
   const db = {
+    execute: async () => {
+      const row = collabDocs.rows.get(FILE_ID);
+      return { rows: row ? [row] : [], rowsAffected: 1 };
+    },
+    transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
+      callback(db),
     select: (_projection: unknown) => ({
       from: (_table: unknown) => ({
         where: whereBuilder,
@@ -289,6 +443,7 @@ import {
   readLiveSourceFile,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
 
@@ -357,7 +512,9 @@ function currentFileRef(): FileRow {
 
 beforeEach(() => {
   collabDocs.docs.clear();
+  collabDocs.rows.clear();
   collabTestControl.corruptNextValidatedApply = false;
+  collabTestControl.peerContentBeforeNextValidatedApply = null;
   designFilesStore.rows.clear();
   seedFile(buildDoc());
 });
@@ -441,6 +598,325 @@ describe("locked-layer write boundaries", () => {
         caller: "frontend",
       } as any),
     ).resolves.toMatchObject({ updated: true });
+  });
+});
+
+describe("verified identity-only source publication", () => {
+  const raw = buildDoc().replace(
+    ' data-agent-native-node-id="an-node-text-1"',
+    "",
+  );
+  const canonical = ensureCodeLayerNodeIdsInHtml(raw, {
+    source: { kind: "design-file", fileId: FILE_ID },
+  }).content;
+  const operationSource = "tab-identity-migration";
+  const operationRevision = 17;
+
+  const publish = (
+    content: string,
+    expectedVersionHash = sourceContentHash(raw),
+  ) =>
+    updateFileAction.run(
+      {
+        id: FILE_ID,
+        content,
+        identityOnly: true,
+        expectedVersionHash,
+        operationSource,
+        operationRevision,
+      } as any,
+      undefined as any,
+    );
+
+  it("accepts only the exact server-derived annotation and stores its operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+
+    const result = await publish(canonical);
+
+    expect(result).toMatchObject({
+      id: FILE_ID,
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      canonical,
+    );
+
+    // The retried request still carries the raw preimage hash. Only the exact
+    // content plus persisted operation marker may bypass that stale hash.
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+
+    const laterUserEdit = canonical.replace(
+      "Hello world",
+      "Hello after migration",
+    );
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: laterUserEdit,
+          syncCollab: true,
+          expectedVersionHash: sourceContentHash(canonical),
+          operationSource,
+          operationRevision: operationRevision + 1,
+        } as any,
+        { caller: "frontend" } as any,
+      ),
+    ).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(laterUserEdit),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: laterUserEdit,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(laterUserEdit),
+    });
+  });
+
+  it("rejects a higher same-source revision built from a stale full-document snapshot", async () => {
+    const base = buildDoc();
+    const afterReparent = base.replace(
+      "Hello world",
+      '<section data-parent="card">Hello world</section>',
+    );
+    const staleAutoLayout = base.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const composedAutoLayout = afterReparent.replace(
+      "background:#ffffff;",
+      "background:#ffffff;display:flex;gap:10px;",
+    );
+    const rapidSource = "tab-rapid-structure";
+
+    seedFile(base);
+    await applyText(FILE_ID, base, "content", "seed");
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: afterReparent,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 1,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: staleAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(base),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/i);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(afterReparent);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: composedAutoLayout,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(afterReparent),
+        operationSource: rapidSource,
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      composedAutoLayout,
+    );
+  });
+
+  it("repairs SQL when local publication already put canonical bytes in Yjs", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, canonical, "content", "local-preview");
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+
+    await expect(publish(canonical)).resolves.toMatchObject({
+      updated: true,
+      versionHash: sourceContentHash(canonical),
+    });
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("allows an exact identity stamp inside a locked legacy subtree while preserving the lock", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    seedFile(lockedRaw);
+    await applyText(FILE_ID, lockedRaw, "content", "seed");
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: lockedCanonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(lockedRaw),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).resolves.toMatchObject({ updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(lockedCanonical);
+    expect(lockedCanonical).toContain('data-agent-native-locked="true"');
+  });
+
+  it("does not let an older identity revision reset the accepted operation lineage", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: canonical,
+        identityOnly: true,
+        expectedVersionHash: sourceContentHash(raw),
+        operationSource,
+        operationRevision: operationRevision + 1,
+      } as any,
+      undefined as any,
+    );
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: canonical,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(canonical),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/newer source operation/i);
+    expect(designFilesStore.rows.get(FILE_ID)).toMatchObject({
+      content: canonical,
+      contentOperationSource: operationSource,
+      contentOperationRevision: operationRevision + 1,
+      contentOperationResultHash: sourceContentHash(canonical),
+    });
+  });
+
+  it("rejects malformed identity-only action shapes before source publication", async () => {
+    seedFile(raw);
+    const validShape = {
+      id: FILE_ID,
+      content: canonical,
+      identityOnly: true,
+      expectedVersionHash: sourceContentHash(raw),
+      operationSource,
+      operationRevision,
+    };
+    const invalidShapes = [
+      { ...validShape, content: undefined },
+      { ...validShape, expectedVersionHash: undefined },
+      { ...validShape, operationRevision: undefined },
+      { ...validShape, filename: "renamed.html" },
+      { ...validShape, fileType: "jsx" },
+      { ...validShape, syncCollab: false },
+    ];
+    for (const shape of invalidShapes) {
+      await expect(
+        updateFileAction.run(shape as any, undefined as any),
+      ).rejects.toThrow(/identity-only updates (require|cannot)/i);
+    }
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect(
+      designFilesStore.rows.get(FILE_ID)!.contentOperationRevision,
+    ).toBeNull();
+  });
+
+  it("rejects script, style, text, lock, and structure edits in the identity-only channel", async () => {
+    const lockedRaw = raw.replace(
+      'data-agent-native-node-id="an-node-container-1"',
+      'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+    );
+    const lockedCanonical = ensureCodeLayerNodeIdsInHtml(lockedRaw, {
+      source: { kind: "design-file", fileId: FILE_ID },
+    }).content;
+    const invalid = [
+      canonical.replace("Hello world", "changed text"),
+      canonical.replace("background:#ffffff", "background:#123456"),
+      canonical.replace(
+        "https://cdn.tailwindcss.com",
+        "https://example.com/x.js",
+      ),
+      lockedCanonical.replace(' data-agent-native-locked="true"', ""),
+      canonical.replace(
+        "<p data-agent-native-node-id",
+        "<section data-agent-native-node-id",
+      ),
+    ];
+
+    for (const candidate of invalid) {
+      seedFile(raw);
+      await applyText(FILE_ID, raw, "content", "seed");
+      await expect(publish(candidate)).rejects.toThrow(
+        /identity-only publication/i,
+      );
+      expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+      expect((await readLiveSourceFile(currentFileRef())).content).toBe(raw);
+    }
+  });
+
+  it("rejects a peer edit that lands after identity validation but before the Yjs apply", async () => {
+    seedFile(raw);
+    await applyText(FILE_ID, raw, "content", "seed");
+    const peerContent = raw.replace("Hello world", "Peer's newer text");
+    collabTestControl.peerContentBeforeNextValidatedApply = peerContent;
+
+    await expect(publish(canonical)).rejects.toThrow(
+      /changed while the edit was being applied/i,
+    );
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(raw);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      peerContent,
+    );
+  });
+
+  it("rejects URL-backed and non-HTML files", async () => {
+    const url = "https://preview.example.test";
+    seedFile(url);
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: url,
+          identityOnly: true,
+          expectedVersionHash: sourceContentHash(url),
+          operationSource,
+          operationRevision,
+        } as any,
+        undefined as any,
+      ),
+    ).rejects.toThrow(/inline HTML/i);
+
+    seedFile(raw, "2026-07-06T00:00:00.000Z", "css");
+    await expect(publish(canonical)).rejects.toThrow(/inline HTML/i);
   });
 });
 
@@ -704,6 +1180,72 @@ describe("update-file expectedVersionHash guard (server-discipline layer)", () =
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toBe(next);
     assertWellFormed(finalLive.content);
+  });
+
+  it("rejects a newer same-tab replay against the oldest queued base", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        // A stale replay remains subject to the source CAS; the server cannot
+        // trust a caller-controlled flag to authorize a bypass.
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(first);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(first);
+  });
+
+  it("rejects a same-tab replay after a later writer moves the mirror and collab text", async () => {
+    const initial = await readLiveSourceFile(currentFileRef());
+    const first = buildDoc(" data-first");
+    const intervening = buildDoc(" data-intervening");
+    const final = buildDoc(" data-first data-final");
+
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: first,
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: initial.versionHash,
+    } as never);
+
+    // Simulate a writer that updates both stores through a path that does not
+    // advance the browser operation marker left by revision 1.
+    await applyText(FILE_ID, intervening, "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = intervening;
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: final,
+        syncCollab: true,
+        operationSource: "tab-a",
+        operationRevision: 2,
+        expectedVersionHash: initial.versionHash,
+      } as never),
+    ).rejects.toThrow(/changed since it was read/);
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(intervening);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(
+      intervening,
+    );
   });
 
   it("checks the hash against LIVE collab text once collab state exists, not the SQL row", async () => {

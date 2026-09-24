@@ -1,7 +1,7 @@
 {
   "type": "widget",
   "name": "AgentNativeWidgets",
-  "displayName": "Agent Native Capture",
+  "displayName": "Agent-Native Capture",
   "bundleIdentifier": ".widgets",
   "deploymentTarget": "17.0",
   "frameworks": ["ActivityKit", "AppIntents", "SwiftUI", "WidgetKit"],

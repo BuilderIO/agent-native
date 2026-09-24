@@ -14,7 +14,12 @@ export default mergeConfig(
     },
     test: {
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
-      exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"],
+      exclude: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/.react-router/**",
+      ],
     },
   }),
 );

@@ -43,13 +43,12 @@ afterEach(async () => {
 describe("DesignCanvas one-shot bridge queue", () => {
   /**
    * A live-edit screen keeps its already-loaded iframe when the canvas
-   * remounts, so the replacement instance never sees the one-time
-   * `editor-chrome-ready` handshake. Before readiness was re-derived from any
-   * trusted frame message, every one-shot command (the board→live drop, text
-   * edits, deletes) sat in the pending queue forever with nothing to flush it:
-   * the gesture reported success and changed nothing.
+   * remounts, so the replacement instance can see ordinary bridge traffic
+   * before the editor-chrome listener has attached. Runtime inserts must not
+   * flush on that traffic: the board→live drop would otherwise be posted into
+   * an empty document and disappear before the explicit ready handshake.
    */
-  it("flushes a queued command when the bridge talks without a fresh ready handshake", async () => {
+  it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -140,7 +139,39 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(0);
 
-    // The bridge proves it is live in this document by posting anything else.
+    const sendStyleChangeForScreen = (
+      window as unknown as {
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
+          selector: string,
+          property: string,
+          value: string,
+        ) => boolean;
+      }
+    ).__designCanvasSendStyleForScreen;
+    await vi.waitFor(() =>
+      expect(sendStyleChangeForScreen).toBeTypeOf("function"),
+    );
+    await act(async () => {
+      expect(
+        sendStyleChangeForScreen!(
+          "screen-live",
+          "#anchor",
+          "borderRadius",
+          "12px",
+        ),
+      ).toBe(true);
+    });
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type === "style-change",
+      ),
+    ).toHaveLength(0);
+
+    // Ordinary bridge traffic proves the document is reachable, but not that
+    // the editor-chrome message listener is attached yet.
+    posted.length = 0;
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -152,6 +183,39 @@ describe("DesignCanvas one-shot bridge queue", () => {
           source: iframeWindow,
         }),
       );
+    });
+
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "runtime-structure-insert",
+      ),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: unknown }).type ===
+          "agent-native:editor-chrome-ready-probe",
+      ),
+    ).toHaveLength(1);
+    expect(posted).toContainEqual({
+      type: "set-text-editing-enabled",
+      enabled: true,
     });
 
     const inserts = posted.filter(
@@ -170,6 +234,155 @@ describe("DesignCanvas one-shot bridge queue", () => {
       placement: "after",
       anchorSourceId: "drop-1",
     });
+    const relevantTypes = posted
+      .map((message) => (message as { type?: string } | null)?.type)
+      .filter(
+        (type) =>
+          type === "runtime-structure-insert" || type === "style-change",
+      );
+    expect(relevantTypes).toEqual([
+      "runtime-structure-insert",
+      "runtime-structure-insert",
+      "style-change",
+    ]);
+  });
+
+  it("does not roll back a runtime insert from its informational structure echo", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const onVisualStructureChange = vi.fn(() => false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="runtime-insert-ack"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="runtime-insert-ack-preview-token"
+          runtimeStructureInsertRequest={{
+            requestId: 1,
+            screenId: "screen-live",
+            html: '<div data-agent-native-node-id="inserted" />',
+            anchor: { selector: "body", sourceId: "body" },
+            placement: "inside",
+          }}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          onVisualStructureChange={onVisualStructureChange}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    posted.length = 0;
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "visual-structure-change",
+            runtimeInsert: true,
+            requestId: "1",
+            transactionId: "runtime-insert-transaction",
+            selector: '[data-agent-native-node-id="inserted"]',
+            sourceId: "inserted",
+            anchorSelector: "body",
+            anchorSourceId: "body",
+            placement: "inside",
+            insertedHtml: '<div data-agent-native-node-id="inserted" />',
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onVisualStructureChange).not.toHaveBeenCalled();
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "visual-structure-ack",
+      ),
+    ).toEqual([]);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-insert-applied",
+            requestId: "1",
+            transactionId: "runtime-insert-transaction",
+            selector: '[data-agent-native-node-id="inserted"]',
+            applied: true,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: string } | null)?.type ===
+          "visual-structure-ack",
+      ),
+    ).toEqual([]);
   });
 
   /**
@@ -318,6 +531,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
         }),
       );
     });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
 
     expect(typesOf("style-change")).toEqual([
       {
@@ -359,6 +581,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
         }),
       );
     });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
     expect(typesOf("style-change")).toContainEqual({
       type: "style-change",
       selector: "#card",
@@ -378,6 +609,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
             correlationId: "",
             status: false,
           },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
           origin: bridgeUrl,
           source: iframeWindow,
         }),
@@ -497,6 +737,15 @@ describe("DesignCanvas one-shot bridge queue", () => {
             correlationId: "",
             status: false,
           },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready", routePath: "/" },
           origin: bridgeUrl,
           source: iframeWindow,
         }),

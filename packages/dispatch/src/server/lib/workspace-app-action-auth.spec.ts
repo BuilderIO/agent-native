@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/org", () => ({
 
 import {
   workspaceAppActionRouteAuth,
+  WORKSPACE_APP_CLAIM_ACTION_PATH,
   WORKSPACE_APPS_ACTION_PATH,
 } from "./workspace-app-action-auth.js";
 
@@ -61,37 +62,40 @@ describe("workspace app action auth", () => {
     ).rejects.toThrow("Invalid workspace registry authorization");
   });
 
-  it("returns the verified caller and local org scope", async () => {
-    mocks.verifyA2AToken.mockResolvedValue({
-      email: "steve@builder.io",
-      orgDomain: "builder.io",
-    });
-    mocks.resolveOrgByDomain.mockResolvedValue({
-      orgId: "org-builder",
-      orgName: "Builder.io",
-    });
-    mocks.isOrgMember.mockResolvedValue(true);
+  it.each([WORKSPACE_APPS_ACTION_PATH, WORKSPACE_APP_CLAIM_ACTION_PATH])(
+    "returns the verified caller and local org scope for %s",
+    async (actionPath) => {
+      mocks.verifyA2AToken.mockResolvedValue({
+        email: "steve@builder.io",
+        orgDomain: "builder.io",
+      });
+      mocks.resolveOrgByDomain.mockResolvedValue({
+        orgId: "org-builder",
+        orgName: "Builder.io",
+      });
+      mocks.isOrgMember.mockResolvedValue(true);
 
-    await expect(
-      workspaceAppActionRouteAuth.resolveCaller?.(
-        eventFor(WORKSPACE_APPS_ACTION_PATH, "Bearer verified"),
-      ),
-    ).resolves.toEqual({
-      owner: "steve@builder.io",
-      anonymous: false,
-      orgId: "org-builder",
-    });
-    expect(mocks.verifyA2AToken).toHaveBeenCalledWith(
-      "verified",
-      expect.anything(),
-    );
-    expect(mocks.resolveOrgByDomain).toHaveBeenCalledWith("builder.io");
-    expect(mocks.isOrgMember).toHaveBeenCalledWith(
-      "org-builder",
-      "steve@builder.io",
-    );
-    expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
-  });
+      await expect(
+        workspaceAppActionRouteAuth.resolveCaller?.(
+          eventFor(actionPath, "Bearer verified"),
+        ),
+      ).resolves.toEqual({
+        owner: "steve@builder.io",
+        anonymous: false,
+        orgId: "org-builder",
+      });
+      expect(mocks.verifyA2AToken).toHaveBeenCalledWith(
+        "verified",
+        expect.anything(),
+      );
+      expect(mocks.resolveOrgByDomain).toHaveBeenCalledWith("builder.io");
+      expect(mocks.isOrgMember).toHaveBeenCalledWith(
+        "org-builder",
+        "steve@builder.io",
+      );
+      expect(mocks.resolveOrgIdForEmail).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses the original mounted pathname after the route prefix is stripped", async () => {
     mocks.verifyA2AToken.mockResolvedValue({

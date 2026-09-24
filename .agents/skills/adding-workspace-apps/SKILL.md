@@ -1,7 +1,7 @@
 ---
 name: adding-workspace-apps
 description: >-
-  How to add an app to an Agent Native workspace: classifying an "agent"
+  How to add an app to an Agent-Native workspace: classifying an "agent"
   request, scaffolding `apps/<app-name>`, app discovery and descriptions,
   mounting and base paths, action-first data, and finishing a chat-template app.
   Use when asked to create, build, scaffold, or generate a new agent or app in a
@@ -70,14 +70,13 @@ proxy, or re-export an action; the action endpoint already exists at
 `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
-## Database Portability
+## PostgreSQL Database
 
-App database code must be provider-agnostic. Define schemas with
+App database code targets local PGlite and hosted Postgres. Define schemas with
 `@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's
-query builder and portable `drizzle-orm` operators. Do not import from
-`drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
-for additive migrations, health checks, or carefully scoped maintenance, and
-never write SQLite-only or Postgres-only product code. Do not use SQL as object
+PostgreSQL query builder and `drizzle-orm` operators. Do not import raw schema
+drivers in app templates. Keep raw SQL
+for additive migrations, health checks, or carefully scoped maintenance. Do not use SQL as object
 storage; file bytes belong in upload/private-blob providers with only references
 saved to app tables.
 
@@ -89,6 +88,16 @@ workspace root. In production, Dispatch posts new-app requests to Builder
 branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
+
+Scaffolding the directory is not the app being live. Before saying the app is
+created, request `/<app-name>` on the running gateway and confirm it returns
+the new app, not a fallback route or another app's shell — then tell the user
+that exact path to open, since the preview root can still show a different
+app. If the preview/host isn't running the workspace gateway (root `pnpm
+dev`), say plainly that its run/dev command must point at the workspace root
+`pnpm dev` and name where to set it (Builder: project settings → dev
+command); the agent cannot change a host's run/dev command itself. Never
+report the app as created while the preview still shows something else.
 
 ## Finishing A Chat-Template App
 
@@ -103,5 +112,5 @@ app.
 - **workspace-conventions** — Shared workspace rules this workflow assumes.
 - **actions** — How to define the app operations the agent and UI share.
 - **composable-mini-apps** — Splitting work across focused sibling apps.
-- **portability** — Keeping database and hosting assumptions provider-agnostic.
+- **portability** — Keeping PostgreSQL and hosting assumptions explicit.
 - **shadcn-ui** — Adding and upgrading the UI primitives.

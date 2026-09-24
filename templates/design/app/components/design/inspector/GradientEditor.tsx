@@ -1,4 +1,13 @@
-import { parseCssColor, rgbaToCss } from "@shared/color-utils";
+import {
+  defaultGradientEndColor,
+  parseCssColor,
+  rgbaToCss,
+} from "@shared/color-utils";
+import {
+  gradientStopWithFillOpacity,
+  gradientFillInterpolation,
+  readGradientFillOpacity,
+} from "@shared/gradient-opacity";
 import { IconTrash } from "@tabler/icons-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,6 +33,8 @@ export interface GradientStopValue {
 
 export interface GradientValue {
   kind: GradientKind;
+  opacity?: number;
+  interpolation?: string;
   /** Angle in degrees — used by linear and angular (conic) gradients. */
   angle: number;
   stops: GradientStopValue[];
@@ -78,10 +89,10 @@ export interface GradientEditSessionTarget {
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_A = "#e5e5e5";
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_B = "#f5f5f5";
-const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
-const CHECKER_SIZE = "8px 8px, 8px 8px, 8px 8px, 8px 8px";
-const CHECKER_POS = "0 0, 0 4px, 4px -4px, -4px 0";
+const CHECKER_B = "#ffffff";
+const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
+const CHECKER_SIZE = "8px 8px";
+const CHECKER_POS = "0 0";
 
 // ─── CSS serialization ─────────────────────────────────────────────────────────
 
@@ -91,23 +102,33 @@ function sortedStops(stops: GradientStopValue[]): GradientStopValue[] {
 
 /** Build a valid CSS gradient string for the given gradient value. */
 export function gradientToCss(value: GradientValue): string {
+  const interpolation =
+    value.interpolation ??
+    gradientFillInterpolation(
+      value.stops.map((stop) => stop.color),
+      value.opacity,
+    );
+  const colorSpace = interpolation ? ` ${interpolation}` : "";
   const stops = sortedStops(value.stops)
-    .map((stop) => `${normalizeColor(stop.color)} ${round(stop.position)}%`)
+    .map(
+      (stop) =>
+        `${gradientStopWithFillOpacity(normalizeColor(stop.color), value.opacity)} ${round(stop.position)}%`,
+    )
     .join(", ");
 
   switch (value.kind) {
     case "linear":
-      return `linear-gradient(${round(value.angle)}deg, ${stops})`;
+      return `linear-gradient(${round(value.angle)}deg${colorSpace}, ${stops})`;
     case "radial":
-      return `radial-gradient(circle at center, ${stops})`;
+      return `radial-gradient(circle at center${colorSpace}, ${stops})`;
     case "diamond":
       // CSS has no diamond gradient; a radial gradient with closest-side on a
       // non-circular ellipse reads as the diamond falloff the design editor shows.
-      return `radial-gradient(ellipse closest-side at center, ${stops})`;
+      return `radial-gradient(ellipse closest-side at center${colorSpace}, ${stops})`;
     case "angular":
-      return `conic-gradient(from ${round(value.angle)}deg at center, ${stops})`;
+      return `conic-gradient(from ${round(value.angle)}deg at center${colorSpace}, ${stops})`;
     default:
-      return `linear-gradient(${round(value.angle)}deg, ${stops})`;
+      return `linear-gradient(${round(value.angle)}deg${colorSpace}, ${stops})`;
   }
 }
 
@@ -182,17 +203,20 @@ export function defaultGradient(
   kind: GradientKind,
   baseColor = "#000000",
 ): GradientValue {
-  const parsed = parseCssColor(baseColor);
-  const solid = parsed ? rgbaToCss({ ...parsed, a: 1 }) : "#000000";
-  const transparent = parsed
-    ? rgbaToCss({ ...parsed, a: 0 })
-    : "rgba(0, 0, 0, 0)";
+  const opaque = {
+    ...(parseCssColor(baseColor) ?? { r: 0, g: 0, b: 0 }),
+    a: 1,
+  };
   return {
     kind,
-    angle: kind === "radial" || kind === "diamond" ? 0 : 90,
+    angle: kind === "linear" ? 180 : kind === "angular" ? 90 : 0,
     stops: [
-      { id: nextStopId(), color: solid, position: 0 },
-      { id: nextStopId(), color: transparent, position: 100 },
+      { id: nextStopId(), color: rgbaToCss(opaque), position: 0 },
+      {
+        id: nextStopId(),
+        color: rgbaToCss(defaultGradientEndColor(opaque)),
+        position: 100,
+      },
     ],
   };
 }
@@ -232,7 +256,8 @@ export function parseGradientCss(
   if (segments.length === 0) return null;
 
   let kind: GradientKind = fallbackKind;
-  let angle = 90;
+  // An angle-less linear-gradient runs "to bottom"; Chrome omits that default when serializing.
+  let angle = fn === "linear" ? 180 : 90;
   let stopStart = 0;
 
   const first = segments[0];
@@ -267,6 +292,13 @@ export function parseGradientCss(
     if (/from|at\s/i.test(first)) stopStart = 1;
   }
 
+  if (/^in\s/i.test(first)) stopStart = 1;
+  const interpolation =
+    stopStart === 1
+      ? first.match(
+          /\bin\s+[a-z0-9-]+(?:\s+(?:shorter|longer|increasing|decreasing)\s+hue)?/i,
+        )?.[0]
+      : undefined;
   const stopSegments = segments.slice(stopStart);
   const stops: GradientStopValue[] = [];
   stopSegments.forEach((seg, index) => {
@@ -280,7 +312,14 @@ export function parseGradientCss(
   });
 
   if (stops.length < 2) return null;
-  return { kind, angle, stops };
+  const fill = readGradientFillOpacity(stops);
+  return {
+    kind,
+    angle,
+    stops: fill.stops,
+    ...(interpolation ? { interpolation } : {}),
+    ...(fill.opacity !== 100 ? { opacity: fill.opacity } : {}),
+  };
 }
 
 // ─── AngleDial ────────────────────────────────────────────────────────────────

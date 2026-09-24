@@ -43,6 +43,22 @@ export interface FirstTouchAttribution {
 }
 
 /**
+ * Which flow created the account, as opposed to which credential it uses.
+ *
+ * Better Auth fires its `user.create.after` hook on every `user` row insert,
+ * but only some inserts are a person signing up in a browser. Every emitted
+ * `signup` event names its origin so a campaign report can select the ones
+ * that are acquisitions instead of counting row inserts.
+ */
+export type SignupOrigin =
+  /** A person completed a signup form or magic link in a browser. */
+  | "browser_signup"
+  /** The framework's Google OAuth callback owns this event. */
+  | "google_oauth"
+  /** Federated SSO provisioning an identity into a sibling app. */
+  | "sso_jit";
+
+/**
  * Request-scoped browser attribution captured at the signup boundary.
  * Better Auth may create the user in a later async callback where the
  * original request headers are no longer available, so the values must be
@@ -255,13 +271,22 @@ export function signupAttributionFromCookieHeader(
  * Capture all browser attribution needed by the server-side signup event.
  * Keep this as one boundary helper so every signup entry point carries the
  * same values into Better Auth's user-create hook.
+ *
+ * Returns `undefined` when the request carried neither cookie. A browser that
+ * ran our client script always has `an_ft`, so "no cookies at all" means no
+ * browser — a server-side backfill or provisioning call. Reporting that as
+ * `referral_source: "direct"` is the coercion that made this metric unusable:
+ * it renders "we never saw a visitor" identical to "a visitor arrived with no
+ * campaign", and only the second one is direct traffic.
  */
 export function signupAttributionContextFromCookieHeader(
   cookieHeader: string | null | undefined,
-): SignupAttributionContext {
+): SignupAttributionContext | undefined {
+  const firstTouch = readFirstTouchAttribution(cookieHeader);
   const anonymousId = readAnalyticsAnonymousId(cookieHeader);
+  if (!firstTouch && !anonymousId) return undefined;
   return {
-    attribution: signupAttributionFromCookieHeader(cookieHeader),
+    attribution: deriveSignupAttribution(firstTouch),
     ...(anonymousId ? { anonymousId } : {}),
   };
 }
@@ -320,12 +345,24 @@ export function decodeSignupAttributionContext(
   }
 }
 
-/** Add the explicit handoff to a Better Auth request/API header set. */
+/**
+ * Stamp the explicit handoff onto a Better Auth request/API header set.
+ *
+ * This is the only writer of the handoff header, and it always writes: with a
+ * context it sets ours, without one it deletes whatever was there. The header
+ * is unsigned and outranks the request cookie when the hook reads it, so an
+ * inbound copy from the public internet is an attacker-supplied `anonymous_id`
+ * and campaign for someone else's signup row. Never merge — replace.
+ */
 export function addSignupAttributionHeader(
   headers: HeadersInit | undefined,
-  context: SignupAttributionContext,
+  context: SignupAttributionContext | undefined,
 ): Headers {
   const result = new Headers(headers);
+  if (!context) {
+    result.delete(SIGNUP_ATTRIBUTION_HEADER_NAME);
+    return result;
+  }
   result.set(
     SIGNUP_ATTRIBUTION_HEADER_NAME,
     encodeSignupAttributionContext(context),

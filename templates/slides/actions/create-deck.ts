@@ -5,7 +5,9 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -18,13 +20,28 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
+import {
+  resolveDefaultDesignSystemId,
+  resolveDesignSystemIdByTitle,
+} from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  ensureUniqueSlideIds,
+  rebindCreativeContextSlideLabels,
+} from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { writeAppStateForCurrentTab } from "./_tab-state.js";
+import getDesignSystem from "./get-design-system.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -91,14 +108,23 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+function deckNavigationCommand(deckId: string): Record<string, string> {
+  return {
+    view: "editor",
+    deckId,
+    _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  };
+}
+
 export default defineAction({
+  title: "Create Slides deck",
   description:
-    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
     "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
-    "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
+    "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, and slide count.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -119,7 +145,15 @@ export default defineAction({
     designSystemId: z
       .string()
       .optional()
-      .describe("Optional design system ID to link to the deck"),
+      .describe(
+        "Optional design system ID to link to the deck; omit to use your default, or pass its exact title as `designSystem` instead.",
+      ),
+    designSystem: z
+      .string()
+      .optional()
+      .describe(
+        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -146,19 +180,44 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
-  run: async ({
-    title,
-    slides: rawSlides,
-    deckId,
-    aspectRatio,
-    designSystemId,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  http: { method: "POST" },
+  run: async (
+    {
+      title,
+      slides: rawSlides,
+      deckId,
+      aspectRatio,
+      designSystemId: explicitDesignSystemId,
+      designSystem,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const normalizedSlides = ensureUniqueSlideIds(
+      rawSlides.map((s) => ({
+        ...s,
+        content: normalizeSlidePadding(s.content),
+      })),
+    );
+    const slides = rebindCreativeContextSlideLabels(
+      normalizedSlides.slides,
+      normalizedSlides.originalIds,
+    );
+    track(
+      "generation_started",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        has_reference_deck: Boolean(contextPackId),
+        slide_count: slides.length,
+        ...(deckId ? { output_id: deckId } : {}),
+      },
+      ctx,
+    );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,
       contextModeOverride,
@@ -166,7 +225,7 @@ export default defineAction({
         new Map(
           [
             ...reuseLabels,
-            ...rawSlides.flatMap(
+            ...slides.flatMap(
               (slide) => slide.creativeContextReuseLabels ?? [],
             ),
           ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
@@ -186,7 +245,7 @@ export default defineAction({
         ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
         label: label.label,
       })),
-      ...rawSlides.flatMap((slide) => {
+      ...slides.flatMap((slide) => {
         const labels = slide.creativeContextReuseLabels ?? [];
         return labels.length
           ? labels.map((label) => ({
@@ -206,7 +265,7 @@ export default defineAction({
               },
             ];
       }),
-      ...(reuseLabels.length === 0 && rawSlides.length === 0
+      ...(reuseLabels.length === 0 && slides.length === 0
         ? [
             {
               elementId: "deck",
@@ -217,13 +276,17 @@ export default defineAction({
         : []),
     ];
 
-    const slides = rawSlides.map((s) => ({
-      ...s,
-      content: normalizeSlidePadding(s.content),
-    }));
     const firstSlideContent = slides[0]?.content;
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
+
+    // Resolve the title form before the branches split so replacing a deck
+    // honors it the same way creating one does.
+    const designSystemId =
+      explicitDesignSystemId ??
+      (designSystem
+        ? await resolveDesignSystemIdByTitle(designSystem)
+        : undefined);
 
     if (deckId) {
       if (designSystemId) {
@@ -243,37 +306,55 @@ export default defineAction({
         repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
         resolvedTitle;
       assertHumanReadableDeckTitle(existingDeckTitle);
-      await createDeckVersionSnapshot(
-        {
-          id: existing[0].id,
-          title: existing[0].title,
-          data: existing[0].data,
-          ownerEmail: existing[0].ownerEmail,
-        },
-        { force: true, label: "Before bulk replace" },
+      const writeNow = nextDeckRevision(existing[0].updatedAt);
+      const prevData = JSON.parse(existing[0].data);
+      const previousDesignSystemId = resolveDeckDesignSystemId(
+        existing[0],
+        prevData,
       );
-      const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
       const data = {
+        ...prevData,
         title: existingDeckTitle,
         slides,
-        updatedAt: now,
+        updatedAt: writeNow,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
-      await db
-        .update(schema.decks)
-        .set({
-          title: existingDeckTitle,
-          data: JSON.stringify(data),
-          designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: existing[0].id,
+            title: existing[0].title,
+            data: existing[0].data,
+            ownerEmail: existing[0].ownerEmail,
+          },
+          { force: true, label: "Before bulk replace", db: tx },
+        );
+        const updateResult = await tx
+          .update(schema.decks)
+          .set({
+            title: existingDeckTitle,
+            data: JSON.stringify(data),
+            designSystemId: designSystemId ?? previousDesignSystemId,
+            updatedAt: writeNow,
+          })
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+      });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
-      notifyClients(deckId);
-      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+      await notifyClients(deckId);
+      await writeAppStateForCurrentTab(
+        "navigate",
+        deckNavigationCommand(deckId),
+      );
+      await writeAppState("refresh-signal", {
+        ts: writeNow,
+        source: "create-deck",
+      });
       await recordGenerationCreativeContext({
         appId: "slides",
         artifactType: "deck",
@@ -281,11 +362,30 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
+      track(
+        "deck_edited",
+        {
+          app_name: "slides",
+          template_name: "slides",
+          output_id: deckId,
+          output_type: "deck",
+          slide_count: slides.length,
+          edit_mode: "replace_all",
+        },
+        ctx,
+      );
       return {
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
+        designSystemId: designSystemId ?? previousDesignSystemId,
+        designSystem: await loadAgentDesignSystemContext(
+          designSystemId ?? previousDesignSystemId,
+          getDesignSystem,
+          { full: true },
+        ),
         url: getDeckUrl(deckId),
+        appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         slides,
         ...creativeContextProvenance,
@@ -325,7 +425,8 @@ export default defineAction({
       updatedAt: now,
     });
 
-    notifyClients(id);
+    await notifyClients(id);
+    await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
       appId: "slides",
@@ -334,11 +435,29 @@ export default defineAction({
       ...creativeContextProvenance,
       ...(elementProvenance.length ? { elementProvenance } : {}),
     });
+    track(
+      "deck_created",
+      {
+        app_name: "slides",
+        template_name: "slides",
+        output_id: id,
+        output_type: "deck",
+        slide_count: slides.length,
+      },
+      ctx,
+    );
     return {
       id,
       title: resolvedTitle,
       slideCount: slides.length,
+      designSystemId: resolvedDesignSystemId ?? null,
+      designSystem: await loadAgentDesignSystemContext(
+        resolvedDesignSystemId,
+        getDesignSystem,
+        { full: true },
+      ),
       url: getDeckUrl(id),
+      appUrl: getDeckUrl(id),
       deepLink: deckDeepLink(id),
       slides,
       ...creativeContextProvenance,

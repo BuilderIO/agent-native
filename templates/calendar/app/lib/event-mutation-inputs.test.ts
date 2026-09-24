@@ -54,4 +54,40 @@ describe("buildDeleteEventMutationInput", () => {
       sendUpdates: "none",
     });
   });
+
+  it("keeps source identity for duplicate IDs in separate calendars", () => {
+    expect(
+      buildDeleteEventMutationInput(
+        {
+          id: "shared-provider-id",
+          accountEmail: "owner@example.com",
+          source: "google",
+          sourceId: "google-connection",
+          calendarSourceKey: "calendar-two",
+          calendarId: "calendar-two-id",
+        },
+        { scope: "single", sendUpdates: "none" },
+      ),
+    ).toMatchObject({
+      id: "shared-provider-id",
+      accountEmail: "owner@example.com",
+      cacheEventIdentity: {
+        source: "google",
+        sourceId: "google-connection",
+        accountEmail: "owner@example.com",
+        calendarSourceKey: "calendar-two",
+        calendarId: "calendar-two-id",
+      },
+    });
+  });
+
+  it("omits incomplete source identity when calendar provenance is unavailable", () => {
+    expect(
+      buildDeleteEventMutationInput({
+        id: "google-event-3",
+        accountEmail: "owner@example.com",
+        source: "google",
+      }),
+    ).toEqual({ id: "google-event-3", accountEmail: "owner@example.com" });
+  });
 });

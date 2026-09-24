@@ -1,18 +1,35 @@
+import { fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import type { WeekdayName } from "../server/lib/event-weekday.js";
 import {
   addDaysToDateOnly,
   zonedDateTimeToUtcIso,
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import type { CalendarEvent } from "../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+} from "../shared/google-calendar-sources.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
+
+/**
+ * Read a `cliBoolean` field the way the schema will. A `needsApproval`
+ * predicate is handed the raw tool input, before the schema runs, so
+ * `dryRun: "false"` still arrives as the truthy string `"false"`. Testing it
+ * with `!value` there would wave a real delete through as a dry run.
+ */
+export function rawCliBoolean(value: unknown): boolean {
+  return value === true || value === "true";
+}
 
 export const eventTypeInput = z
   .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
@@ -76,6 +93,7 @@ export const attendeeObjectInput = z.object({
   email: z.string(),
   displayName: z.string().optional(),
   optional: cliBoolean.optional(),
+  additionalGuests: z.coerce.number().int().nonnegative().optional(),
   comment: z.string().optional(),
   responseStatus: z
     .enum(["accepted", "declined", "tentative", "needsAction"])
@@ -93,6 +111,7 @@ export type NormalizedAttendee = {
   email: string;
   displayName?: string;
   optional?: boolean;
+  additionalGuests?: number;
   comment?: string;
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizer?: boolean;
@@ -117,6 +136,9 @@ export function normalizeAttendees(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.organizer === true ? { organizer: true } : {}),
@@ -172,7 +194,189 @@ export function requireActionUserEmail(): string {
 }
 
 export function normalizeGoogleEventId(id: string): string {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (accountEvent) return accountEvent.googleEventId;
   return id.startsWith("google-") ? id.slice("google-".length) : id;
+}
+
+export function googleEventResultId(
+  inputId: string,
+  googleEventId: string,
+  accountEmail: string,
+): string {
+  return parseGoogleAccountEventId(inputId)
+    ? createGoogleAccountEventId({ accountEmail, googleEventId })
+    : `google-${googleEventId}`;
+}
+
+export function resolveGoogleEventAccountEmail(
+  id: string,
+  accountEmail: string | undefined,
+): string | undefined {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (!accountEvent) return accountEmail;
+  if (
+    accountEmail &&
+    accountEmail.trim().toLowerCase() !== accountEvent.accountEmail
+  ) {
+    throw new Error("Google event account does not match the selected account");
+  }
+  return accountEvent.accountEmail;
+}
+
+export function resolveBulkGoogleEventAccountEmail(
+  ids: string[],
+  accountEmail: string | undefined,
+): string | undefined {
+  const scopedCount = ids.filter((id) => parseGoogleAccountEventId(id)).length;
+  if (scopedCount > 0 && scopedCount !== ids.length) {
+    throw new Error(
+      "Bulk event ids cannot mix account-scoped and legacy Google ids",
+    );
+  }
+  const accounts = new Set(
+    ids
+      .map((id) => resolveGoogleEventAccountEmail(id, accountEmail))
+      .filter((email): email is string => !!email)
+      .map((email) => email.trim().toLowerCase()),
+  );
+  if (accounts.size > 1) {
+    throw new Error("Bulk event ids must belong to one Google account");
+  }
+  return accounts.values().next().value ?? accountEmail;
+}
+
+export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("overlay-") && id.slice("overlay-".length).includes("@")) {
+    throw new Error("Overlay Google calendar events are read-only");
+  }
+  if (id.startsWith("google-google-calendar:")) {
+    throw new Error("Shared Google calendar events are read-only");
+  }
+  return normalizeGoogleEventId(id);
+}
+
+export const MAX_MATCHED_EVENTS = 200;
+export const BULK_EVENT_CONCURRENCY = 4;
+
+export type BulkEventRange = {
+  from: string;
+  to: string;
+  timezone: string;
+};
+
+export type BookedGoogleEvent = {
+  googleEventId: string;
+  calendarAccountId: string | null;
+};
+
+export type BulkEventOutcome =
+  | "updated"
+  | "deleted"
+  | "already_absent"
+  | "matched"
+  | "skipped"
+  | "failed";
+
+export interface BulkEventResult {
+  id: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  weekday?: WeekdayName;
+  accountEmail?: string;
+  outcome: BulkEventOutcome;
+  reason?: string;
+}
+
+export function isBookedOnAccount(
+  booked: readonly BookedGoogleEvent[],
+  googleEventId: string,
+  accountEmail: string | undefined,
+): boolean {
+  return booked.some(
+    (row) =>
+      row.googleEventId === googleEventId &&
+      (!row.calendarAccountId ||
+        !accountEmail ||
+        row.calendarAccountId.trim().toLowerCase() ===
+          accountEmail.trim().toLowerCase()),
+  );
+}
+
+export const BOOKED_EVENT_REASON =
+  'Is the Google event for an active booking; cancel the booking with "cancel-booking" instead';
+
+export function undeletableEventReason(
+  event: CalendarEvent,
+  booked: readonly BookedGoogleEvent[],
+): string | undefined {
+  if (
+    event.googleEventId &&
+    isBookedOnAccount(booked, event.googleEventId, event.accountEmail)
+  ) {
+    return BOOKED_EVENT_REASON;
+  }
+  if (event.source === "ical") {
+    return "Comes from a subscribed ICS feed, which is read-only";
+  }
+  if (event.source === "local") {
+    return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (event.overlayEmail) {
+    return "Comes from an overlaid Google calendar, which is read-only";
+  }
+  if (event.calendarReadOnly) {
+    return "Comes from a read-only Google calendar source";
+  }
+  if (!event.googleEventId) return "Has no Google event id to delete";
+  return undefined;
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function startsWithinRange(
+  start: string,
+  range: BulkEventRange,
+): boolean {
+  const startMs = DATE_ONLY_RE.test(start)
+    ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
+    : new Date(start).getTime();
+  return (
+    startMs >= new Date(range.from).getTime() &&
+    startMs < new Date(range.to).getTime()
+  );
+}
+
+export function requireExplicitBound(
+  value: string,
+  label: "from" | "to",
+): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} cannot be blank.`);
+  const datePart = trimmed.slice(0, 10);
+  if (DATE_ONLY_RE.test(datePart) && !isValidDateOnly(datePart)) {
+    throw new Error(`${label} is not a real calendar date: ${datePart}`);
+  }
+  return trimmed;
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await run(items[index], index);
+      }
+    }),
+  );
+  return results;
 }
 
 export async function resolveOwnedAccountEmail(
@@ -396,7 +600,7 @@ export function normalizeCreateEventInput(args: {
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
   if (!title && args.eventType !== "workingLocation") {
-    throw new Error("Event title is required.");
+    fail("Event title is required.");
   }
 
   if (args.eventType === "workingLocation" && args.allDay === true) {
@@ -505,6 +709,35 @@ function allDaySpanDays(start: string, end: string): number {
     Number(endDate.slice(8, 10)),
   );
   return Math.round((endMs - startMs) / 86_400_000);
+}
+
+/**
+ * Events must end strictly after they start. Only explicit all-day spans are
+ * excluded, because their end bound is inclusive for out-of-office and
+ * exclusive for working locations; `validateStatusEventTiming` covers those.
+ * A date-only bound on a non-all-day event is still ordered, since that is the
+ * shape a malformed timed update arrives in.
+ */
+export function validateEventTimeOrder(args: {
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (args.allDay === true) return;
+  // Date.parse reads a YYYY-MM-DD bound as UTC midnight, so date-only and
+  // instant bounds order against each other without a separate branch.
+  const startMs = Date.parse(args.start);
+  const endMs = Date.parse(args.end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    throw new Error(
+      `Event start and end must be valid timestamps: ${args.start} to ${args.end}`,
+    );
+  }
+  if (endMs <= startMs) {
+    throw new Error(
+      `Event end must be after its start: ${args.start} to ${args.end}`,
+    );
+  }
 }
 
 export function validateStatusEventTiming(args: {

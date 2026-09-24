@@ -148,7 +148,7 @@ export function ViewSqlPopover({
         onKeyDown={(e) => {
           if (canEditSql && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
-            handleSave();
+            void handleSave();
           }
         }}
       >

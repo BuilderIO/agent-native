@@ -98,6 +98,9 @@ const messages = {
     conditionContains: "contient",
     conditionValue: "Réponse",
     conditionValuePlaceholder: "Saisir une réponse...",
+    allowMultiple: "Autoriser plusieurs fichiers",
+    accept: "Types de fichiers acceptés",
+    acceptPlaceholder: "ex. image/*, .pdf",
     fieldTypes: {
       text: "Texte court",
       email: "E-mail",
@@ -110,6 +113,7 @@ const messages = {
       date: "Date",
       rating: "Notation",
       scale: "Échelle",
+      file: "Téléversement de fichiers",
     },
   },
   builder: {
@@ -182,6 +186,7 @@ const messages = {
       dateLabel: "Date",
       ratingLabel: "Note",
       scaleLabel: "Échelle",
+      fileLabel: "Téléversement de fichiers",
       option1: "Choix 1",
       option2: "Choix 2",
       option3: "Choix 3",
@@ -206,6 +211,12 @@ const messages = {
       successMessage: "Message de réussite",
       defaultSuccessMessage: "Merci ! Votre réponse a été enregistrée.",
       redirectUrl: "URL de redirection (facultatif)",
+      completionMode: "Après l'envoi",
+      completionMessage: "Afficher le message jusqu'à l'actualisation",
+      completionRedirect: "Rediriger vers une URL",
+      completionMessageThenRefresh: "Afficher le message, puis actualiser",
+      completionRefresh: "Actualiser avec un nouveau formulaire",
+      completionRefreshSeconds: "Actualiser après (secondes)",
       anonymousResponses: "Réponses anonymes",
       anonymousResponsesDescription:
         "Ne pas conserver les adresses IP, l’identité du répondant ni les métadonnées de provenance.",
@@ -325,12 +336,9 @@ const messages = {
     sharePubliclyDescription:
       "Pour partager du contenu publiquement, connectez une base de données cloud.",
     providerDescriptions: {
-      turso: "SQLite en périphérie",
       neon: "Postgres sans serveur",
       supabase: "Alternative open source à Firebase",
-      d1: "SQLite en périphérie",
     },
-    providerNames: { d1: "Cloudflare D1" },
     setupSteps: "Étapes de configuration",
     authToken: "Jeton d’authentification",
     connectedReloading: "Connexion réussie. Rechargement...",
@@ -351,6 +359,10 @@ const messages = {
     responseSubmitted: "Réponse envoyée",
     noFields: "Ce formulaire n’a pas encore de champs.",
     failedSubmit: "Impossible d’envoyer le formulaire",
+    uncheckablePattern:
+      "La règle de ce formulaire pour {label} ne peut pas être vérifiée. Demandez au propriétaire du formulaire de la corriger.",
+    patternTooLong:
+      "La valeur de {label} est trop longue pour être vérifiée avec la règle de ce formulaire.",
   },
   responseInsights: {
     unavailable: "Insights indisponibles",
@@ -401,6 +413,13 @@ const messages = {
     page: "Page",
     source: "Code source",
     sortBy: "Sort by {{label}}",
+    communityReview: "Réviser",
+    communityPublish: "Publier sur le site",
+    communityPublishing: "Publication...",
+    communityPublished: "Publié",
+    communityView: "Voir sur le site",
+    communityNeedsCheck: "Vérifiez Builder avant de réessayer",
+    communityPromotionFailed: "Impossible de publier cette soumission.",
   },
 };
 

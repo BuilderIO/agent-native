@@ -201,7 +201,7 @@ if (workflow) {
     );
   }
   const hasAuthSelectionCommandWithStatus =
-    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
+    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=\$\{\{\s*matrix\.project\s*\}\}[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
       workflow,
     );
   const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
@@ -266,6 +266,141 @@ if (workflow) {
   if (!workflow.includes("BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}")) {
     issues.push(
       `${workflowPath} passes raw inputs.apps to a non-sharded lane instead of discover's canonical app selection.`,
+    );
+  }
+}
+
+// The lanes share a database in production. Keep them ordered so a full
+// promotion run cannot turn its own anonymous and authenticated checks into a
+// connection-pool burst.
+if (workflow) {
+  try {
+    type WorkflowJob = {
+      needs?: string | string[];
+      if?: string;
+      strategy?: {
+        "max-parallel"?: unknown;
+        matrix?: {
+          include?: Array<{ project?: unknown }>;
+        };
+      };
+    };
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, WorkflowJob>;
+    };
+    const jobs = parsed.jobs ?? {};
+    const hasNeed = (job: string, dependency: string): boolean => {
+      const needs = jobs[job]?.needs;
+      return Array.isArray(needs)
+        ? needs.includes(dependency)
+        : needs === dependency;
+    };
+
+    for (const [job, dependency] of [
+      ["public", "discover"],
+      ["fleet", "public"],
+      ["advisory", "fleet"],
+      ["authed", "advisory"],
+    ] as const) {
+      if (!hasNeed(job, dependency)) {
+        issues.push(
+          `${workflowPath} must run ${job} after ${dependency}; the beta lanes share database capacity and must not fan out concurrently.`,
+        );
+      }
+    }
+
+    if (jobs.public?.strategy?.["max-parallel"] !== 4) {
+      issues.push(
+        `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
+      );
+    }
+
+    const authenticatedProjects =
+      jobs.authed?.strategy?.matrix?.include?.map((entry) => entry.project) ??
+      [];
+    const configuredProjects = new Set(
+      [...config.matchAll(/\bname:\s*["']([^"']+)["']/g)].map(
+        (match) => match[1],
+      ),
+    );
+    if (authenticatedProjects.length === 0) {
+      issues.push(
+        `${workflowPath} authed must declare authenticated matrix projects so registry, chat, and journey failures remain independently visible.`,
+      );
+    }
+    const seenAuthenticatedProjects = new Set<string>();
+    for (const project of authenticatedProjects) {
+      if (typeof project !== "string" || !project) {
+        issues.push(
+          `${workflowPath} authed contains an authenticated matrix entry without a project name.`,
+        );
+        continue;
+      }
+      if (seenAuthenticatedProjects.has(project)) {
+        issues.push(
+          `${workflowPath} authed lists authenticated project ${project} more than once.`,
+        );
+      }
+      seenAuthenticatedProjects.add(project);
+      if (!configuredProjects.has(project)) {
+        issues.push(
+          `${workflowPath} authed matrix project ${project} is not configured in ${configPath}.`,
+        );
+      }
+    }
+
+    if (
+      !config.includes(
+        'const isAuthedCiRun = isCi && process.env.BETA_E2E_AUTHED === "1";',
+      ) ||
+      !config.includes("workers: isCi ? (isAuthedCiRun ? 1 : 3) : 4")
+    ) {
+      issues.push(
+        `${configPath} must serialize CI authenticated workers so shared beta databases cannot be exhausted by parallel journeys.`,
+      );
+    }
+
+    const conjunctionParts = (condition: unknown): string[] | null => {
+      if (typeof condition !== "string") return null;
+      const expression = condition.match(
+        /^\s*\$\{\{\s*([\s\S]*?)\s*\}\}\s*$/,
+      )?.[1];
+      if (!expression || expression.includes("||")) return null;
+      const parts = expression
+        .split("&&")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return parts.length === 0 ? null : parts;
+    };
+
+    for (const job of ["fleet", "advisory", "authed"] as const) {
+      const parts = conjunctionParts(jobs[job]?.if);
+      if (!parts?.includes("always()") || !parts.includes("!cancelled()")) {
+        issues.push(
+          `${workflowPath} ${job} must use always() and !cancelled() as top-level conjunctions so ordinary failures do not suppress later evidence or cancellation starts new work.`,
+        );
+      }
+    }
+
+    for (const job of ["public", "fleet", "advisory"] as const) {
+      if (
+        !conjunctionParts(jobs[job]?.if)?.includes("inputs.lane != 'authed'")
+      ) {
+        issues.push(
+          `${workflowPath} ${job} must use inputs.lane != 'authed' as a top-level conjunction so authenticated-only runs skip it.`,
+        );
+      }
+    }
+    if (
+      !conjunctionParts(jobs.authed?.if)?.includes("inputs.lane != 'public'")
+    ) {
+      issues.push(
+        `${workflowPath} authed must use inputs.lane != 'public' as a top-level conjunction so public-only runs skip it.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${workflowPath} lane dependency graph could not be checked: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

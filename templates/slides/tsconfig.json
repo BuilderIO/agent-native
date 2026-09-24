@@ -2,6 +2,11 @@
   "extends": "@agent-native/core/tsconfig.base.json",
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
+    // The shared base targets ES2020, but `new Error(message, { cause })`
+    // needs ErrorOptions from lib.es2022.error.d.ts (matches packages/core's
+    // own tsconfig.json, which already targets ES2022 for the same reason).
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
       "*": ["./*"],

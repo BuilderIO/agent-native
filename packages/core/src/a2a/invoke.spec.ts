@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ANTHROPIC_MANAGED_AGENTS_METADATA_KEY } from "./anthropic-managed-agents.js";
 import {
   AgentInvocationError,
   buildAgentInvocationPrompt,
@@ -8,6 +9,24 @@ import {
   resolveAgentInvocationTarget,
   type AgentInvocationRuntime,
 } from "./invoke.js";
+
+const resolveRemoteAgentTokenMock = vi.hoisted(() => vi.fn());
+const managedHandlerFactoryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./remote-agent-auth.js", () => ({
+  resolveRemoteAgentToken: resolveRemoteAgentTokenMock,
+}));
+
+vi.mock("./anthropic-managed-agents.js", () => ({
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY:
+    "agent-native/anthropic-managed-agents",
+  createAnthropicManagedAgentsHandler: managedHandlerFactoryMock,
+}));
+
+beforeEach(() => {
+  resolveRemoteAgentTokenMock.mockReset();
+  managedHandlerFactoryMock.mockReset();
+});
 
 function runtime(
   overrides: Partial<AgentInvocationRuntime> = {},
@@ -94,6 +113,216 @@ describe("invokeAgent", () => {
       name: "Mail",
       url: "https://mail.agent-native.test",
     });
+  });
+
+  it("resolves discovered hosted auth without exposing it in the result", async () => {
+    const auth = { type: "bearer" as const, credentialRef: "mail-token" };
+    const callAgent = vi.fn(async () => "sent");
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "mail",
+        name: "Mail",
+        description: "Send and search email",
+        url: "https://mail.agent-native.test",
+        color: "#2563eb",
+        auth,
+      })),
+      callAgent,
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValue("resolved-mail-token");
+
+    const result = await invokeAgent({
+      target: "mail",
+      prompt: "Draft the update",
+      apiKey: "stale-caller-token",
+      userEmail: "alice@example.test",
+      runtime: rt,
+    });
+
+    expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
+      auth,
+      expect.objectContaining({ userEmail: "alice@example.test" }),
+    );
+    expect(callAgent).toHaveBeenCalledWith(
+      "https://mail.agent-native.test",
+      expect.stringContaining("Draft the update"),
+      expect.objectContaining({ apiKey: "resolved-mail-token" }),
+    );
+    expect(callAgent.mock.calls[0]?.[2]).not.toHaveProperty("userEmail");
+    expect(callAgent.mock.calls[0]?.[2]).not.toHaveProperty("orgSecret");
+    expect(result.target).not.toHaveProperty("auth");
+  });
+
+  it("invokes a discovered managed agent through its native handler", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "managed result" }],
+      },
+    }));
+    managedHandlerFactoryMock.mockReturnValueOnce(handler);
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "anthropic-research",
+        name: "Anthropic Research",
+        description: "Research",
+        url: "https://api.anthropic.com",
+        color: "#2563eb",
+        kind: {
+          provider: "anthropic-managed-agents" as const,
+          agentId: "agt_fixture",
+          environmentId: "env_fixture",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      })),
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValue("resolved-anthropic-key");
+
+    const result = await invokeAgent({
+      target: "anthropic-research",
+      prompt: "Research this repository",
+      userEmail: "alice@example.test",
+      contextId: "context_fixture",
+      runtime: rt,
+    });
+
+    expect(result.responseText).toBe("managed result");
+    expect(rt.callAgent).not.toHaveBeenCalled();
+    expect(managedHandlerFactoryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+        apiBaseUrl: "https://api.anthropic.com",
+      }),
+    );
+    expect(handler).toHaveBeenCalledWith(
+      {
+        role: "user",
+        parts: [{ type: "text", text: "Research this repository" }],
+      },
+      expect.objectContaining({
+        taskId: "context_fixture",
+        contextId: "context_fixture",
+      }),
+    );
+  });
+
+  it("preserves managed-agent approval continuation metadata", async () => {
+    const handler = vi.fn(async () => ({
+      message: {
+        role: "agent" as const,
+        parts: [{ type: "text" as const, text: "Approval required" }],
+        metadata: {
+          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+            continuationToken: "opaque-fixture-token",
+            pendingToolUseIds: ["tool_fixture"],
+          },
+        },
+      },
+      taskState: "input-required" as const,
+    }));
+    managedHandlerFactoryMock.mockReturnValueOnce(handler);
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "anthropic-research",
+        name: "Anthropic Research",
+        description: "Research",
+        url: "https://api.anthropic.com",
+        color: "#2563eb",
+        kind: {
+          provider: "anthropic-managed-agents" as const,
+          agentId: "agt_fixture",
+          environmentId: "env_fixture",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      })),
+    });
+
+    const result = await invokeAgent({
+      target: "anthropic-research",
+      prompt: "Research this repository",
+      contextId: "context_fixture",
+      runtime: rt,
+    });
+
+    expect(result).toMatchObject({
+      responseText: "Approval required",
+      taskState: "input-required",
+      continuation: {
+        continuationToken: "opaque-fixture-token",
+        pendingToolUseIds: ["tool_fixture"],
+      },
+    });
+  });
+
+  it("rejects direct actions for managed-agent targets", async () => {
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "anthropic-research",
+        name: "Anthropic Research",
+        description: "Research",
+        url: "https://api.anthropic.com",
+        color: "#2563eb",
+        kind: {
+          provider: "anthropic-managed-agents" as const,
+          agentId: "agt_fixture",
+          environmentId: "env_fixture",
+          credentialRef: "ANTHROPIC_API_KEY",
+        },
+      })),
+    });
+
+    await expect(
+      invokeAgentAction({
+        target: "anthropic-research",
+        action: "list-items",
+        runtime: rt,
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentInvocationError",
+      code: "unsupported-action",
+    });
+    expect(rt.callAction).not.toHaveBeenCalled();
+  });
+
+  it("uses resolved hosted auth for direct read-only actions", async () => {
+    const auth = { type: "bearer" as const, credentialRef: "analytics-token" };
+    const callAction = vi.fn(async () => ({
+      action: "gong-calls",
+      status: "completed" as const,
+      output: "ok",
+    }));
+    const rt = runtime({
+      findAgent: vi.fn(async () => ({
+        id: "analytics",
+        name: "Analytics",
+        description: "Read calls",
+        url: "https://analytics.agent-native.test",
+        color: "#2563eb",
+        auth,
+      })),
+      callAction,
+    });
+    resolveRemoteAgentTokenMock.mockResolvedValue("resolved-analytics-token");
+
+    const result = await invokeAgentAction({
+      target: "analytics",
+      action: "gong-calls",
+      input: { company: "Edmunds" },
+      apiKey: "stale-caller-token",
+      userEmail: "alice@example.test",
+      runtime: rt,
+    });
+
+    expect(callAction).toHaveBeenCalledWith(
+      "https://analytics.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds" },
+      expect.objectContaining({ apiKey: "resolved-analytics-token" }),
+    );
+    expect(callAction.mock.calls[0]?.[3]).not.toHaveProperty("userEmail");
+    expect(result.target).not.toHaveProperty("auth");
   });
 
   it("invokes one direct read-only action without a delegated prompt", async () => {

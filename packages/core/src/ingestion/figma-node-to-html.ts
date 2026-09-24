@@ -31,17 +31,20 @@
  * | Gradient fills (angle/position)              | exact (linear)/approximated (radial/angular/diamond) | derived from gradientHandlePositions, not a default angle |
  * | Multiple fills (layering)                    | exact         | reversed to match CSS background-image stacking |
  * | Image fills (scale modes)                    | exact (FILL/FIT/TILE/STRETCH-axis-aligned) / approximated (skewed imageTransform) | |
+ * | Per-paint opacity                            | exact         | folded into color/stop alpha; IMAGE paints become an overlay div (CSS background layers have no per-layer opacity) |
+ * | Per-paint blend mode                         | image fallback | a non-NORMAL paint blendMode escalates the whole node to a rendered PNG (see `needsImageFallback`) |
  * | Strokes (uniform, align)                     | exact         | CENTER via outline+negative offset, INSIDE via inset box-shadow, OUTSIDE via outline |
  * | Strokes (per-side weights)                   | approximated  | CSS has no per-side outline; falls back to per-side `border` (inside-only) |
  * | Corner radii (uniform + per-corner)          | exact         | |
  * | Effects: drop/inner shadow                   | exact         | |
- * | Effects: layer/background blur               | approximated  | Figma <-> CSS blur radius scale is not publicly specified as 1:1 |
+ * | Effects: layer/background blur               | approximated  | CSS blur() = 0.45x the Figma radius, fitted against Figma's own renders (see FIGMA_BLUR_RADIUS_TO_CSS_BLUR) |
  * | Opacity                                      | exact         | |
  * | Blend modes (CSS-supported)                   | exact         | |
  * | Blend modes (Figma-only: LINEAR_BURN/DODGE/LIGHTER/DARKER) | approximated | mapped to closest CSS equivalent |
  * | clipsContent                                  | exact        | overflow: hidden |
  * | Rotation                                      | approximated | pivots about the bounding-box center (see below) |
- * | Vector networks / boolean ops / unsupported types | image fallback | never approximated structurally |
+ * | Vectors / boolean ops WITH `fillGeometry` (geometry=paths) | exact | inline `<svg><path>`, real editable geometry |
+ * | Vectors / boolean ops / unsupported types WITHOUT geometry | image fallback | never approximated structurally |
  *
  * ### Rotation caveat
  * The REST API docs describe `rotation` as being in degrees, but the field
@@ -52,8 +55,17 @@
  * Figma does not expose the pre-rotation box directly. We reconstruct the
  * unrotated box by treating the AABB's center as invariant under rotation
  * (true for a shape rotated about its own center) and rotate the CSS element
- * about `transform-origin: center` by `-rotation` degrees (Figma's rotation
- * is clockwise-negative relative to CSS's clockwise-positive convention).
+ * about `transform-origin: center` by `rotation` degrees.
+ *
+ * The sign is NOT flipped: `relativeTransform`'s 2x2 block is exactly CSS's
+ * own `[[cos a, -sin a], [sin a, cos a]]` in the same y-down screen space.
+ * The `Rotated Radial` node in the `parity-stress` corpus frame reports
+ * `rotation: -0.2967` (= -17deg) with `relativeTransform`
+ * `[[0.9563, 0.2924, ...], [-0.2924, 0.9563, ...]]`, which solves to
+ * a = -17deg; `Masked Diamond Gradient` reports +9deg and solves to +9deg.
+ * Negating it (as this mapper did until the fidelity harness rendered that
+ * frame side by side) tilts every rotated node the wrong way by 2x the angle.
+ *
  * This is exact when Figma pivots rotation about the shape's center and only
  * approximated if Figma's internal pivot differs (rare in practice; visually
  * indistinguishable in the overwhelming majority of designs). A fully exact
@@ -65,6 +77,7 @@
 import {
   cssBlendMode,
   gradientAngleDegrees as gradientAngleDegreesMath,
+  gradientRayAngleDegreesFromHandles,
   remapLinearStopPosition as remapLinearStopPositionMath,
   resolveGradientHandles,
   vectorLength,
@@ -123,6 +136,13 @@ export interface FigmaEffect {
   color?: FigmaColor;
   offset?: { x: number; y: number };
   blendMode?: string;
+  /**
+   * Figma draws the shadow behind the layer instead of knocking it out from
+   * under the layer's own bounds. CSS `box-shadow` always knocks out, so a
+   * layer that does not paint its whole box — a frame whose silhouette is a
+   * transparent PNG — loses the shadow everywhere it is see-through.
+   */
+  showShadowBehindNode?: boolean;
 }
 
 export interface FigmaTypeStyle {
@@ -149,6 +169,18 @@ export interface FigmaTypeStyle {
   opentypeFlags?: Record<string, number>;
   hyperlink?: unknown;
   fills?: FigmaPaint[];
+}
+
+/**
+ * One flattened vector path as returned by
+ * `GET /v1/files/:key/nodes?...&geometry=paths`. `path` is SVG path data in
+ * the node's own coordinate space (origin = the node's `absoluteBoundingBox`
+ * top-left). `strokeGeometry` entries are the stroke *already outlined into a
+ * fillable region*, not a centerline to re-stroke.
+ */
+export interface FigmaVectorPath {
+  path?: string;
+  windingRule?: "NONZERO" | "EVENODD" | "NONE";
 }
 
 export interface FigmaIndividualStrokeWeights {
@@ -206,6 +238,8 @@ export interface FigmaNode {
   strokeAlign?: "INSIDE" | "OUTSIDE" | "CENTER";
   individualStrokeWeights?: FigmaIndividualStrokeWeights;
   strokeDashes?: number[];
+  fillGeometry?: FigmaVectorPath[];
+  strokeGeometry?: FigmaVectorPath[];
   cornerRadius?: number;
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
@@ -215,6 +249,8 @@ export interface FigmaNode {
   counterAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "BASELINE";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
+  /** Older spelling of main-axis sizing; still present in real community files. */
+  primaryAxisSizingMode?: "FIXED" | "AUTO";
   layoutWrap?: "NO_WRAP" | "WRAP";
   itemSpacing?: number;
   counterAxisSpacing?: number;
@@ -255,6 +291,16 @@ export interface FidelityReport {
 export interface MapFigmaNodeOptions {
   /** imageRef hash -> resolved public URL, from `/v1/files/:key/images`. */
   imageFillUrls?: Record<string, string>;
+  /**
+   * imageRef hash -> the image's own pixel size. Figma upscales an image fill
+   * with NEAREST-NEIGHBOUR sampling; a browser upscales with bilinear
+   * smoothing. Measured across a checkerboard edge on a 16x16 fill blown up to
+   * 180x90, Figma steps from 119,73,132 to 227,78,52 in ONE pixel
+   * while the browser ramps across twelve. Supplying the size lets the
+   * converter ask for the same sampling; without it the fill still renders,
+   * just smoothed.
+   */
+  imageFillSizes?: Record<string, { width: number; height: number }>;
   /** nodeId -> rendered PNG URL, from `/v1/images/:key` for fallback subtrees. */
   fallbackImageUrls?: Record<string, string>;
   /** Node ids that should be rendered as an image regardless of type. */
@@ -544,11 +590,22 @@ function paintToCssImage(
       const geometry = resolveGradientGeometry(paint);
       const cx = geometry ? round(geometry.start.x * 100, 2) : 50;
       const cy = geometry ? round(geometry.start.y * 100, 2) : 50;
-      const fromAngle = geometry ? gradientAngleDegrees(paint, box) : 0;
+      // In NORMALIZED space, not the node's pixel box. The angle aims at the
+      // end *handle*, so it does scale like a position — but `buildFills`
+      // routes every angular paint through `angularGradientOverlay`, which
+      // draws into a `side x side` SQUARE and then scales that square to the
+      // box. Both axes scale equally inside it, so the correct `from` is the
+      // normalized angle; passing the real box pre-compensated for a stretch
+      // that the overlay applies afterwards. The `.fig` walker already
+      // computes it normalized, and says why — the two disagreed on every
+      // non-square angular paint, and this side was the wrong one.
+      const fromAngle = geometry
+        ? gradientRayAngleDegreesFromHandles(geometry, { width: 1, height: 1 })
+        : 0;
       tracker.record(
         node,
-        "approximated",
-        "Conic (angular) gradient start angle derived from gradientHandlePositions using the same angle formula as linear gradients; CSS conic-gradient() has no elliptical distortion so non-uniform boxes may render slightly differently than Figma.",
+        "exact",
+        "Conic (angular) gradient start angle derived from the centre->end handle ray, and swept in the node's normalized space as Figma does — drawn into a square and scaled to the box, so a non-square box keeps its mid-sweep stop positions.",
       );
       return `conic-gradient(from ${round(fromAngle ?? 0, 2)}deg at ${cx}% ${cy}%, ${stops})`;
     }
@@ -587,13 +644,181 @@ interface BackgroundResult {
   backgroundSize?: string;
   backgroundPosition?: string;
   backgroundRepeat?: string;
+  /** `pixelated` when a fill is magnified; see `imageFillSizes`. */
+  imageRendering?: string;
+  /**
+   * Paint layers that cannot live in the CSS background stack (see
+   * `buildFills`), emitted as absolutely-positioned child divs which must be
+   * rendered *before* the node's real children so they stay beneath them.
+   */
+  overlayHtml?: string;
   color?: string; // for TEXT nodes, fill paints color the glyphs, not a background
+}
+
+/**
+ * A diamond gradient's iso-lines are rotated rectangles: the value at a point
+ * is `|dx|/rx + |dy|/ry`, an L1 distance rather than the L2 distance a radial
+ * gradient draws. CSS has no diamond gradient, and approximating it with an
+ * ellipse produced a soft blob where Figma draws a four-pointed star — 12% of
+ * the whole fills/effects fixture came from that one tile.
+ *
+ * Inside a single quadrant, though, that expression is LINEAR in (dx, dy), so
+ * four quadrant-sized linear gradients tiled around the centre reproduce it
+ * exactly. Each tile runs at atan2(ry, rx) mirrored into its own quadrant, and
+ * Figma's 0..1 stop range occupies the first half of the CSS gradient line:
+ * `t` reaches 1 at the diamond's points and 2 at the tile's outer corner, so
+ * the last colour holding from 50% on is Figma's own clamp, not a fudge.
+ */
+function diamondGradientLayers(
+  paint: FigmaPaint,
+  box: { width: number; height: number },
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): PaintLayer[] | null {
+  const geometry = resolveGradientGeometry(paint);
+  if (!geometry) return null;
+  const rx = vectorLength(geometry.start, geometry.end, box);
+  const ry = vectorLength(geometry.start, geometry.width, box);
+  if (!(rx > 0) || !(ry > 0)) return null;
+  const cx = geometry.start.x * box.width;
+  const cy = geometry.start.y * box.height;
+  const stops = gradientStopsCss(paint, (position) => position / 2);
+  const angle = (Math.atan2(ry, rx) * 180) / Math.PI;
+  const size = `${round(rx, 2)}px ${round(ry, 2)}px`;
+  const quadrants = [
+    { angle: 360 - angle, left: cx - rx, top: cy - ry },
+    { angle, left: cx, top: cy - ry },
+    { angle: 180 - angle, left: cx, top: cy },
+    { angle: 180 + angle, left: cx - rx, top: cy },
+  ];
+  const layers: PaintLayer[] = quadrants.map((quadrant) => ({
+    image: `linear-gradient(${round(quadrant.angle, 2)}deg, ${stops})`,
+    size,
+    position: `${round(quadrant.left, 2)}px ${round(quadrant.top, 2)}px`,
+    repeat: "no-repeat",
+  }));
+  // The four tiles only cover the diamond's bounding box. Figma clamps to the
+  // final stop everywhere beyond it, so a flat layer of that colour sits
+  // underneath — without it the rest of the node would be transparent.
+  const lastStop = (paint.gradientStops ?? []).at(-1);
+  const clampColor = lastStop
+    ? (colorToCss(lastStop.color, paint.opacity ?? 1) ?? "transparent")
+    : "transparent";
+  layers.push({
+    image: `linear-gradient(${clampColor}, ${clampColor})`,
+    size: "100% 100%",
+    position: "center",
+    repeat: "no-repeat",
+  });
+  tracker.record(
+    node,
+    "exact",
+    "Diamond gradient reproduced as four quadrant-tiled linear gradients; its falloff is linear within each quadrant, so this is the same shape Figma draws rather than an elliptical approximation.",
+  );
+  return layers;
+}
+
+/** One resolved paint layer, before routing to a background layer or an overlay div. */
+interface PaintLayer {
+  image: string;
+  size: string;
+  position: string;
+  repeat: string;
+}
+
+/**
+ * Render an angular (conic) gradient the way Figma sweeps it.
+ *
+ * Figma computes the sweep in the node's NORMALIZED space — the box is treated
+ * as a unit square and then stretched — while CSS `conic-gradient()` sweeps at
+ * a true uniform angular rate in real pixels. On a non-square box the two
+ * disagree everywhere except the axes, which is why the mid-sweep stops landed
+ * visibly early on a 180x85 tile.
+ *
+ * Drawing the gradient into a SQUARE and scaling that square to the box
+ * reproduces Figma's definition exactly rather than approximating it. The
+ * outer div carries the clipping (`border-radius: inherit`), because a
+ * transform on the painted div would scale the corner radii with it.
+ */
+/**
+ * A dashed stroke as an inline SVG rect laid over the node's box.
+ *
+ * Figma states a dash pattern as explicit lengths, and CSS `border-style:
+ * dashed` cannot: the browser picks dash and gap itself. Rasterizing the node
+ * was the previous answer, and it is expensive out of proportion to the
+ * feature — the PNG replaces the node AND its whole subtree, so a dashed
+ * container flattens every child frame, icon and text run inside it into
+ * pixels that can no longer be edited or re-themed. One real design hit this
+ * on six containers and lost 48 descendants to it.
+ *
+ * `stroke-dasharray` states the same lengths Figma does, so the border is
+ * exact and the subtree stays real DOM. Returns undefined when the shape is
+ * not a plain rounded rect, where a single `<rect>` would misdraw it.
+ */
+function angularGradientOverlay(
+  image: string,
+  box: { width: number; height: number },
+  paint: FigmaPaint,
+): string {
+  const side = box.width;
+  const scaleY = side > 0 ? box.height / side : 1;
+  const inner: Record<string, string | undefined> = {
+    position: "absolute",
+    left: "0",
+    top: "0",
+    width: px(side),
+    height: px(side),
+    transform: `scale(1, ${round(scaleY, 6)})`,
+    "transform-origin": "0 0",
+    "background-image": image,
+    "background-size": "100% 100%",
+    "background-repeat": "no-repeat",
+  };
+  const outer: Record<string, string | undefined> = {
+    position: "absolute",
+    inset: "0",
+    "border-radius": "inherit",
+    overflow: "hidden",
+    "pointer-events": "none",
+  };
+  return (
+    `<div data-figma-fill-layer="${escapeAttr(paint.type)}" style="${styleAttr(outer)}">` +
+    `<div style="${styleAttr(inner)}"></div></div>`
+  );
+}
+
+/**
+ * Render one paint layer as an absolutely-positioned child div. Used for
+ * layers CSS cannot express in the background stack -- today only per-paint
+ * `opacity` on an IMAGE paint, which has no `background-*` equivalent.
+ * `border-radius: inherit` reproduces the background stack's own clipping.
+ */
+function paintOverlayDiv(layer: PaintLayer, paint: FigmaPaint): string {
+  // IMAGE is the only paint type whose opacity is still outstanding here:
+  // `colorToCss`/`gradientStopsCss` already fold a SOLID's or a gradient's
+  // opacity into its alpha channel, so re-applying it on the div would square
+  // it. Only an image URL has nowhere to carry it.
+  const opacity = paint.type === "IMAGE" ? (paint.opacity ?? 1) : 1;
+  const styles: Record<string, string | undefined> = {
+    position: "absolute",
+    inset: "0",
+    "border-radius": "inherit",
+    "background-image": layer.image,
+    "background-size": layer.size,
+    "background-position": layer.position,
+    "background-repeat": layer.repeat,
+    opacity: opacity !== 1 ? String(round(opacity, 4)) : undefined,
+    "pointer-events": "none",
+  };
+  return `<div data-figma-fill-layer="${escapeAttr(paint.type)}" style="${styleAttr(styles)}"></div>`;
 }
 
 function imageScaleModeCss(
   paint: FigmaPaint,
   node: FigmaNode,
   tracker: FidelityTracker,
+  box: { width: number; height: number },
+  intrinsic: { width: number; height: number } | undefined,
 ): { size: string; position: string; repeat: string } {
   const transform = paint.imageTransform;
   const isAxisAligned =
@@ -612,9 +837,65 @@ function imageScaleModeCss(
     case "FIT":
       return { size: "contain", position: "center", repeat: "no-repeat" };
     case "TILE":
-      return { size: "auto", position: "top left", repeat: "repeat" };
-    case "STRETCH":
+      // `auto` IS a tile's size and renders identically, but it is also what
+      // an unset size looks like, so the export hop could not recover the
+      // tile's dimensions and drew one stretched copy over the whole box.
+      // Stating the size explicitly is the same pixels here and a recoverable
+      // tile there; without a resolved size `auto` stays and the exporter
+      // reports the tile it could not reproduce.
+      return {
+        size:
+          intrinsic && intrinsic.width > 0 && intrinsic.height > 0
+            ? `${px(intrinsic.width)} ${px(intrinsic.height)}`
+            : "auto",
+        position: "top left",
+        repeat: "repeat",
+      };
+    case "STRETCH": {
+      // STRETCH plus an `imageTransform` is Figma's CROP mode: the matrix
+      // picks a sub-rectangle of the image — origin (tx, ty), size (a, d) in
+      // the image's own normalized space — and stretches THAT to fill the box.
+      // Ignoring it draws the whole image instead, which reads as the artwork
+      // zoomed out: every illustration on the Positivus services cards came
+      // out visibly smaller than Figma draws it, and it was the largest
+      // non-text difference left on that page.
+      const a = transform?.[0][0];
+      const d = transform?.[1][1];
+      // Negative scales are a FLIP, which `background-size` cannot express —
+      // it has no negative form, and flipping needs a transform on an overlay.
+      // Falling through to the plain stretch is the same answer this walker
+      // has always given; saying so is the part that was missing.
+      if (
+        isAxisAligned &&
+        typeof a === "number" &&
+        typeof d === "number" &&
+        (a < -1e-6 || d < -1e-6)
+      ) {
+        tracker.record(
+          node,
+          "approximated",
+          `Image fill's crop transform flips the artwork (${a < 0 ? "horizontally" : ""}${a < 0 && d < 0 ? " and " : ""}${d < 0 ? "vertically" : ""}); CSS background-size has no negative form, so the crop was approximated without the flip.`,
+        );
+      }
+      if (
+        isAxisAligned &&
+        typeof a === "number" &&
+        typeof d === "number" &&
+        a > 1e-6 &&
+        d > 1e-6 &&
+        box.width > 0 &&
+        box.height > 0
+      ) {
+        const displayWidth = box.width / a;
+        const displayHeight = box.height / d;
+        return {
+          size: `${round(displayWidth, 2)}px ${round(displayHeight, 2)}px`,
+          position: `${round(-(transform![0][2] ?? 0) * displayWidth, 2)}px ${round(-(transform![1][2] ?? 0) * displayHeight, 2)}px`,
+          repeat: "no-repeat",
+        };
+      }
       return { size: "100% 100%", position: "center", repeat: "no-repeat" };
+    }
     default:
       return { size: "cover", position: "center", repeat: "no-repeat" };
   }
@@ -662,34 +943,53 @@ function buildFills(
   const sizes: string[] = [];
   const positions: string[] = [];
   const repeats: string[] = [];
+  const overlays: string[] = [];
   let backgroundColor: string | undefined;
 
   // Reverse so the topmost Figma fill becomes the first (topmost) CSS layer.
   const ordered = [...visible].reverse();
+
+  // A CSS background layer has no per-layer opacity, so an IMAGE paint with
+  // `opacity` < 1 cannot be expressed in the background stack at all -- it
+  // becomes an overlay div. Overlay divs paint above the whole background
+  // stack, so every paint stacked *above* such an image has to move to an
+  // overlay too or it would sink underneath. `ordered` is top-down, so the
+  // overlay set is the prefix ending at the deepest opacity-carrying image.
+  let overlayThrough = -1;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const fill = ordered[index]!;
+    if (fill.type === "IMAGE" && (fill.opacity ?? 1) < 1) {
+      overlayThrough = index;
+      break;
+    }
+  }
+
+  let magnified = false;
   for (let index = 0; index < ordered.length; index += 1) {
     const fill = ordered[index]!;
+    const isOverlay = index <= overlayThrough;
     const isBottommost = index === ordered.length - 1;
 
+    let layer: PaintLayer | null = null;
     if (fill.type === "SOLID") {
       const color = colorToCss(fill.color, fill.opacity ?? 1);
       if (!color) continue;
-      if (isBottommost) {
+      if (isBottommost && !isOverlay) {
         // A bottom-most solid always paints beneath every background-image
         // layer, so it can always become plain backgroundColor regardless of
         // how many gradient/image layers are stacked above it.
         backgroundColor = color;
-      } else {
-        // Solid above other layers: express as a flat gradient so it stacks
-        // in the correct z-order alongside gradient/image layers.
-        images.push(`linear-gradient(${color}, ${color})`);
-        sizes.push("100% 100%");
-        positions.push("center");
-        repeats.push("no-repeat");
+        continue;
       }
-      continue;
-    }
-
-    if (fill.type === "IMAGE") {
+      // Solid above other layers: express as a flat gradient so it stacks
+      // in the correct z-order alongside gradient/image layers.
+      layer = {
+        image: `linear-gradient(${color}, ${color})`,
+        size: "100% 100%",
+        position: "center",
+        repeat: "no-repeat",
+      };
+    } else if (fill.type === "IMAGE") {
       const url = fill.imageRef
         ? options.imageFillUrls?.[fill.imageRef]
         : undefined;
@@ -701,21 +1001,64 @@ function buildFills(
         );
         continue;
       }
-      const mode = imageScaleModeCss(fill, node, tracker);
-      images.push(`url("${url}")`);
-      sizes.push(mode.size);
-      positions.push(mode.position);
-      repeats.push(mode.repeat);
+      const intrinsic = fill.imageRef
+        ? options.imageFillSizes?.[fill.imageRef]
+        : undefined;
+      const mode = imageScaleModeCss(fill, node, tracker, box, intrinsic);
+      layer = { image: `url("${url}")`, ...mode };
+      // Only when magnified: `pixelated` is nearest in BOTH directions, and a
+      // photo scaled down with nearest aliases badly. A small tolerance keeps
+      // a fill that is effectively 1:1 on the smooth path.
+      if (
+        intrinsic &&
+        intrinsic.width > 0 &&
+        intrinsic.height > 0 &&
+        (box.width > intrinsic.width * 1.2 ||
+          box.height > intrinsic.height * 1.2)
+      ) {
+        magnified = true;
+      }
+    } else if (fill.type === "GRADIENT_ANGULAR") {
+      // Always an overlay: the square-and-scale trick needs its own element.
+      const cssImage = paintToCssImage(fill, box, tracker, node);
+      if (!cssImage) continue;
+      overlays.push(angularGradientOverlay(cssImage, box, fill));
       continue;
+    } else if (fill.type === "GRADIENT_DIAMOND") {
+      // The only paint that needs more than one CSS layer to draw correctly.
+      const quadrants = diamondGradientLayers(fill, box, node, tracker);
+      if (!quadrants) continue;
+      if (isOverlay) {
+        for (const quadrant of quadrants)
+          overlays.push(paintOverlayDiv(quadrant, fill));
+        continue;
+      }
+      for (const quadrant of quadrants) {
+        images.push(quadrant.image);
+        sizes.push(quadrant.size);
+        positions.push(quadrant.position);
+        repeats.push(quadrant.repeat);
+      }
+      continue;
+    } else {
+      const cssImage = paintToCssImage(fill, box, tracker, node);
+      if (!cssImage) continue;
+      layer = {
+        image: cssImage,
+        size: "100% 100%",
+        position: "center",
+        repeat: "no-repeat",
+      };
     }
 
-    const cssImage = paintToCssImage(fill, box, tracker, node);
-    if (cssImage) {
-      images.push(cssImage);
-      sizes.push("100% 100%");
-      positions.push("center");
-      repeats.push("no-repeat");
+    if (isOverlay) {
+      overlays.push(paintOverlayDiv(layer, fill));
+      continue;
     }
+    images.push(layer.image);
+    sizes.push(layer.size);
+    positions.push(layer.position);
+    repeats.push(layer.repeat);
   }
 
   const result: BackgroundResult = {};
@@ -725,6 +1068,14 @@ function buildFills(
     result.backgroundSize = sizes.join(", ");
     result.backgroundPosition = positions.join(", ");
     result.backgroundRepeat = repeats.join(", ");
+  }
+  // `image-rendering` is one property for the element, not per background
+  // layer, so a single magnified fill switches the whole stack to nearest —
+  // which is what Figma does too.
+  if (magnified) result.imageRendering = "pixelated";
+  if (overlays.length > 0) {
+    // Collected top-down; DOM order paints bottom-to-top.
+    result.overlayHtml = overlays.reverse().join("\n");
   }
   return result;
 }
@@ -736,6 +1087,8 @@ function buildFills(
 interface StrokeResult {
   styles: Record<string, string | undefined>;
   insetShadow?: string;
+  /** Per-side stroke bands, as box-shadow layers. */
+  strokeShadows?: string[];
 }
 
 function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
@@ -757,29 +1110,46 @@ function buildStrokes(node: FigmaNode, tracker: FidelityTracker): StrokeResult {
   const uniformWeight = node.strokeWeight ?? 0;
 
   if (hasPerSide) {
-    // CSS `outline`/inset-`box-shadow` tricks are single-weight only; per-side
-    // stroke weights can only be expressed as a real per-side `border`, which
-    // always renders fully inside the border-box regardless of strokeAlign.
-    // This is exact for INSIDE and an approximation for CENTER/OUTSIDE.
-    const top = iw?.top ?? uniformWeight;
-    const right = iw?.right ?? uniformWeight;
-    const bottom = iw?.bottom ?? uniformWeight;
-    const left = iw?.left ?? uniformWeight;
+    // A per-side stroke used to be a CSS `border`, which is always INSIDE the
+    // border box however Figma aligns it, and which eats into the content box
+    // — a Figma stroke does neither. A CENTER-aligned 1px top stroke straddles
+    // the edge: `strokeGeometry` for one runs y -0.5 to +0.5, so Figma covers
+    // half of each adjacent row and renders both at 50%. The border rendered
+    // one whole row at 100% instead: same ink, wrong place, on a divider that
+    // repeats down four designs in the corpus.
+    //
+    // One box-shadow band per side puts each half where Figma puts it: an
+    // `inset` copy offset INTO the box paints the inside half, and a plain
+    // copy offset out of it paints the outside half, since CSS clips an outer
+    // shadow to outside the border box. Neither moves a child.
+    const align = node.strokeAlign ?? "INSIDE";
+    const sides = [
+      { weight: iw?.top ?? uniformWeight, x: 0, y: 1 },
+      { weight: iw?.right ?? uniformWeight, x: -1, y: 0 },
+      { weight: iw?.bottom ?? uniformWeight, x: 0, y: -1 },
+      { weight: iw?.left ?? uniformWeight, x: 1, y: 0 },
+    ];
+    const bands: string[] = [];
+    for (const side of sides) {
+      if (!side.weight) continue;
+      const inside = align === "CENTER" ? side.weight / 2 : side.weight;
+      const outside = align === "CENTER" ? side.weight / 2 : 0;
+      if (align !== "OUTSIDE" && inside) {
+        bands.push(
+          `inset ${px(side.x * inside)} ${px(side.y * inside)} 0 0 ${color}`,
+        );
+      }
+      const out = align === "OUTSIDE" ? side.weight : outside;
+      if (out) {
+        bands.push(`${px(-side.x * out)} ${px(-side.y * out)} 0 0 ${color}`);
+      }
+    }
     tracker.record(
       node,
-      node.strokeAlign === "INSIDE" || !node.strokeAlign
-        ? "exact"
-        : "approximated",
-      `Per-side stroke weights rendered as CSS border (inside-aligned); strokeAlign="${node.strokeAlign ?? "INSIDE"}" cannot vary per-side with outline tricks.`,
+      "exact",
+      `Per-side stroke weights rendered as one box-shadow band per side, placed for strokeAlign="${align}" and taking no space from the content box.`,
     );
-    return {
-      styles: {
-        "border-top": top ? `${px(top)} solid ${color}` : undefined,
-        "border-right": right ? `${px(right)} solid ${color}` : undefined,
-        "border-bottom": bottom ? `${px(bottom)} solid ${color}` : undefined,
-        "border-left": left ? `${px(left)} solid ${color}` : undefined,
-      },
-    };
+    return { styles: {}, strokeShadows: bands };
   }
 
   if (!uniformWeight) return { styles: {} };
@@ -849,7 +1219,38 @@ interface EffectResult {
   boxShadowLayers: string[];
   filter?: string;
   backdropFilter?: string;
+  /**
+   * The shadows emitted as `filter: drop-shadow()`, written out in the exact
+   * `box-shadow` syntax they would otherwise have used. `drop-shadow()` has no
+   * spread, and the SVG export needs one — `feMorphology` can erode the alpha
+   * where CSS cannot. Carried as a custom property so anything reading computed
+   * style gets the values back losslessly.
+   */
+  contentShadow?: string;
 }
+
+/**
+ * Figma's LAYER_BLUR/BACKGROUND_BLUR `radius` is NOT a CSS `blur()` standard
+ * deviation, and mapping it 1:1 renders roughly twice as soft as Figma does.
+ *
+ * Measured, not guessed: the fidelity harness
+ * (`templates/design/scripts/figma-fidelity/run-import.ts`) renders the
+ * `fills-effects` corpus frame through this mapper and pixel-diffs it against
+ * Figma's own PNG render of the same node. Sweeping a scale factor over the
+ * two blurred nodes in that frame and keeping the per-node region diff:
+ *
+ *   LAYER_BLUR, radius 8   -> mean |delta| 4.73 at 2.4-2.9px, **3.15 at
+ *                             3.0-3.8px**, 4.74 at 4.0-4.5px, 5.58 at 5.0px
+ *   BACKGROUND_BLUR, r 12  -> mean |delta| 2.19 at 4.5px, 2.15 at 4.8-5.3px,
+ *                             **2.14 at 5.4-5.8px**, 2.21 at 6.0px
+ *
+ * Both minima sit at radius x ~0.45 (8 -> 3.4px, 12 -> 5.5px). Chromium
+ * quantises blur into integer box-blur passes, so the minima are plateaus
+ * rather than points; 0.45 is the centre of the band both radii agree on.
+ * Still recorded as `approximated`: this is a two-radius empirical fit against
+ * one renderer, not a published Figma constant.
+ */
+export const FIGMA_BLUR_RADIUS_TO_CSS_BLUR = 0.45;
 
 function buildEffects(
   node: FigmaNode,
@@ -862,6 +1263,35 @@ function buildEffects(
   const boxShadowLayers: string[] = [];
   let filter: string | undefined;
   let backdropFilter: string | undefined;
+  // Measured on Landify's phone mockup, a frame with no fill whose silhouette
+  // is a transparent bezel PNG: at its rounded corners — inside the node's box
+  // but outside what it paints — Figma renders the shadow at grey 224 and CSS
+  // `box-shadow` renders 255, because an outer box-shadow is clipped to
+  // OUTSIDE the border box. `filter: drop-shadow()` casts from the composited
+  // alpha and does not knock out, which is what `showShadowBehindNode` asks
+  // for. Only for a layer that does not paint its own box: a filled layer hides
+  // the difference, and box-shadow carries a spread that drop-shadow cannot.
+  const contentShadowLayers: string[] = [];
+  const paintsOwnBox =
+    (node.fills ?? []).some((fill) => fill.visible !== false) ||
+    (node.strokes ?? []).some((stroke) => stroke.visible !== false);
+  // Figma's REST `DropShadowEffect` documents `showShadowBehindNode` as
+  // defaulting to FALSE, so an omitted flag must not opt a layer into this
+  // path. And CSS chains `drop-shadow()` functions — the second casts from the
+  // first one's output, not from the source alpha — so a layer with more than
+  // one of these keeps `box-shadow`, which composes each shadow independently
+  // the way Figma does.
+  const dropShadows = effects.filter((effect) => effect.type === "DROP_SHADOW");
+  const castsFromContentAlpha =
+    !isTextNode &&
+    !paintsOwnBox &&
+    (node.children?.length ?? 0) > 0 &&
+    // Exactly one drop shadow, and it must ask for this. Two would chain —
+    // CSS feeds the first `drop-shadow()`'s output into the second — and a
+    // second UNFLAGGED one would split the layer's shadows across two
+    // mechanisms that cast from different shapes.
+    dropShadows.length === 1 &&
+    dropShadows[0]?.showShadowBehindNode === true;
 
   for (const effect of effects) {
     if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
@@ -873,35 +1303,90 @@ function buildEffects(
         !isTextNode && typeof effect.spread === "number"
           ? ` ${px(effect.spread)}`
           : "";
+      if (
+        effect.type === "DROP_SHADOW" &&
+        castsFromContentAlpha &&
+        effect.showShadowBehindNode === true
+      ) {
+        // drop-shadow()'s third length is a standard deviation, half the
+        // box-shadow blur LENGTH; spread has no equivalent and is folded in.
+        //
+        // Folding is wrong ON THIS HOP and still the better trade. Spread is
+        // not a softness term — Figma erodes or dilates the silhouette and
+        // blurs it with the radius unchanged — and dropping the fold does
+        // improve the import: Landify example 3.247% -> 3.183%. But the
+        // exporter reconstructs the blur from this very length, so a larger
+        // std-dev here comes back as a larger radius there, and the export hop
+        // paid more than the import gained: example export 3.309% -> 3.439%,
+        // tablet 4.549% -> 4.670%. Measured in all four combinations against
+        // the backdrop-filter clip below; unfolding lost 0.238 on export to
+        // gain 0.123 on import. Do not unfold this without fixing the export
+        // reconstruction in the same change. Building the erode properly as an
+        // feMorphology filter was fitted against Figma too and scored 6.22,
+        // worse than either. See FIGMA_INTEROPERABILITY.md.
+        const stdDev =
+          px(
+            Math.max(0, (effect.radius ?? 0) + (effect.spread ?? 0) * 2) / 2,
+          ) ?? "0px";
+        const cast = `drop-shadow(${x} ${y} ${stdDev} ${color})`;
+        filter = filter ? `${filter} ${cast}` : cast;
+        // Chromium's own `box-shadow` serialization order, so a reader can
+        // parse this with the same parser it uses for the real property.
+        contentShadowLayers.push(
+          `${color} ${x} ${y} ${blur}${spread}`.replace(/\s+/g, " ").trim(),
+        );
+        tracker.record(
+          node,
+          Math.abs(effect.spread ?? 0) > 1e-6 ? "approximated" : "exact",
+          `DROP_SHADOW with showShadowBehindNode rendered as filter: drop-shadow(), which casts from the layer's own alpha and is not knocked out under its bounds${Math.abs(effect.spread ?? 0) > 1e-6 ? `; its ${effect.spread}px spread has no CSS equivalent and was folded into the blur radius` : ""}.`,
+        );
+        continue;
+      }
       const inset = effect.type === "INNER_SHADOW" ? "inset " : "";
       boxShadowLayers.push(`${inset}${x} ${y} ${blur}${spread} ${color}`);
       tracker.record(
         node,
         "exact",
-        `${effect.type} rendered as ${isTextNode ? "text-shadow" : "box-shadow"}.`,
+        // Always `box-shadow`: this walker has no `text-shadow` path. Saying
+        // otherwise made the report claim a glyph-shaped shadow where a text
+        // layer actually gets a rectangular one around its whole box.
+        `${effect.type} rendered as box-shadow${
+          isTextNode
+            ? ", which follows the text layer's box rather than its glyphs"
+            : ""
+        }.`,
       );
     } else if (effect.type === "LAYER_BLUR") {
-      const radius = px(effect.radius ?? 0) ?? "0px";
+      const radius =
+        px((effect.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR) ?? "0px";
       filter = filter ? `${filter} blur(${radius})` : `blur(${radius})`;
       tracker.record(
         node,
         "approximated",
-        "LAYER_BLUR mapped 1:1 to CSS filter: blur(); Figma's blur radius-to-CSS-stdDeviation scale is not publicly documented, so the rendered softness may differ slightly.",
+        `LAYER_BLUR mapped to CSS filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (fitted against Figma's own renders; see FIGMA_BLUR_RADIUS_TO_CSS_BLUR).`,
       );
     } else if (effect.type === "BACKGROUND_BLUR") {
-      const radius = px(effect.radius ?? 0) ?? "0px";
+      const radius =
+        px((effect.radius ?? 0) * FIGMA_BLUR_RADIUS_TO_CSS_BLUR) ?? "0px";
       backdropFilter = backdropFilter
         ? `${backdropFilter} blur(${radius})`
         : `blur(${radius})`;
       tracker.record(
         node,
         "approximated",
-        "BACKGROUND_BLUR mapped 1:1 to CSS backdrop-filter: blur(); same radius-scale caveat as LAYER_BLUR.",
+        `BACKGROUND_BLUR mapped to CSS backdrop-filter: blur() at ${FIGMA_BLUR_RADIUS_TO_CSS_BLUR}x the Figma radius (same fit as LAYER_BLUR).`,
       );
     }
   }
 
-  return { boxShadowLayers, filter, backdropFilter };
+  return {
+    boxShadowLayers,
+    filter,
+    backdropFilter,
+    contentShadow: contentShadowLayers.length
+      ? contentShadowLayers.join(", ")
+      : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -952,7 +1437,7 @@ function resolveLineHeight(style: FigmaTypeStyle): string | undefined {
   return undefined;
 }
 
-function textTransformCss(
+export function textTransformCss(
   textCase: FigmaTypeStyle["textCase"],
 ): string | undefined {
   switch (textCase) {
@@ -967,7 +1452,23 @@ function textTransformCss(
   }
 }
 
-function textDecorationCss(
+/**
+ * Figma draws an underline lower than the browser's default does — measured on
+ * the typography fixture, row 336 against our 332 at an 18px font. `under`
+ * means "below the descender", which is where Figma puts it, and it closes 3
+ * of those 4 pixels.
+ *
+ * A keyword rather than a fitted offset on purpose: the exact position comes
+ * from the font's own `post` table, which is not readable at conversion time,
+ * and a number tuned to one sample would be a guess dressed as a measurement.
+ */
+export function textUnderlinePositionCss(
+  decoration: FigmaTypeStyle["textDecoration"],
+): string | undefined {
+  return decoration === "UNDERLINE" ? "under" : undefined;
+}
+
+export function textDecorationCss(
   decoration: FigmaTypeStyle["textDecoration"],
 ): string | undefined {
   switch (decoration) {
@@ -1058,12 +1559,30 @@ function buildAutoLayoutStyles(
     "align-items": counterAxisAlign(node.counterAxisAlignItems),
   };
   if (node.layoutWrap === "WRAP") styles["flex-wrap"] = "wrap";
-  if (typeof node.itemSpacing === "number" && node.itemSpacing !== 0) {
+  // Figma allows a NEGATIVE itemSpacing, which overlaps auto-layout children.
+  // CSS `gap` rejects a negative length outright, so emitting one drops the
+  // whole declaration and silently falls back to 0 — Positivus' contact block
+  // spaces its children by -367px, and losing that overflowed the row and made
+  // flex shrink both children (1240px -> 825px, 691px -> 415px), throwing the
+  // illustration out of its card. The overlap is reproduced with a negative
+  // margin on every child after the first instead; see `buildChildSizingStyles`.
+  // Figma IGNORES itemSpacing when the primary axis is SPACE_BETWEEN — the
+  // field is disabled in the UI and the spacing is derived from the free space
+  // — but it still reports whatever was last set. CSS treats `gap` as a
+  // MINIMUM that space-between distributes on top of, so emitting both spaced
+  // Positivus' logo row by the stale 206px instead of its real 96px and pushed
+  // the last logo 550px out of the frame.
+  const primaryDistributes = node.primaryAxisAlignItems === "SPACE_BETWEEN";
+  if (
+    typeof node.itemSpacing === "number" &&
+    node.itemSpacing > 0 &&
+    !primaryDistributes
+  ) {
     styles[isHorizontal ? "column-gap" : "row-gap"] = px(node.itemSpacing);
   }
   if (
     typeof node.counterAxisSpacing === "number" &&
-    node.counterAxisSpacing !== 0
+    node.counterAxisSpacing > 0
   ) {
     styles[isHorizontal ? "row-gap" : "column-gap"] = px(
       node.counterAxisSpacing,
@@ -1090,76 +1609,592 @@ function buildAutoLayoutStyles(
  * parents but wrong for column parents, where a FILL-width text/rect child
  * got `width: auto` with no stretch and overflowed to its content width.
  */
+/**
+ * Does this node have anything for a HUG axis to hug?
+ *
+ * Figma keeps an empty auto-layout frame at the size it resolved rather than
+ * collapsing it, so HUG on a childless frame still reports real dimensions —
+ * a 685x456 image placeholder on the Whitepace hero is one. Mapping that to
+ * `width: auto` collapses it to nothing in CSS, and because its sibling was a
+ * FILL child, the sibling then took the whole row and the heading stopped
+ * wrapping. Two visible defects, one dropped box.
+ */
+/**
+ * Would CSS compute this HUG differently from Figma?
+ *
+ * A cross-axis FILL child does not feed Figma's hug: Figma sizes the container
+ * from its other children and then stretches the FILL child to that. CSS has
+ * no such rule — `align-self: stretch` with `width: auto` still feeds the
+ * child's max-content into the container's shrink-to-fit width. A Positivus
+ * team card holds a FILL row with 76px of right padding, so the column hugged
+ * 393px where Figma hugs 317 and every sibling moved with it. Figma has
+ * already resolved the real size, so use it rather than asking CSS to derive
+ * a rule it does not have.
+ */
+function hugIsCircularInCss(
+  node: FigmaNode,
+  axisIsHorizontal: boolean,
+): boolean {
+  if (!node.layoutMode || node.layoutMode === "NONE") return false;
+  const crossIsHorizontal = node.layoutMode === "VERTICAL";
+  if (crossIsHorizontal !== axisIsHorizontal) return false;
+  return (node.children ?? []).some(
+    (child) =>
+      (crossIsHorizontal
+        ? child.layoutSizingHorizontal
+        : child.layoutSizingVertical) === "FILL",
+  );
+}
+
+function hasContentToHug(node: FigmaNode): boolean {
+  return (node.children?.length ?? 0) > 0 || node.type === "TEXT";
+}
+
+/**
+ * The overlap Figma actually draws for a negative `itemSpacing`.
+ *
+ * Figma clamps it so the children still fill a fixed-size container: the
+ * Positivus CTA row asks for -715px between a 1240px card and a 494px
+ * illustration inside a 1240px content box, and Figma lays the illustration
+ * flush with the card's right edge (-494), not 221px further left. Where the
+ * request does NOT overflow — the same page's contact block asks -367 between
+ * children that would need -692 to close up — the literal value stands.
+ *
+ * This is the same rule, and the same reasoning, as `overlapSpacing` in the
+ * .fig walker. Two walkers reading the same Figma semantics must not carry two
+ * different rules; a per-child variant considered here agreed with this one on
+ * every row in the corpus, so it would have been an unverified second rule for
+ * no measured gain.
+ */
+function resolveNegativeItemSpacing(node: FigmaNode): number {
+  const spacing = node.itemSpacing ?? 0;
+  if (spacing >= 0) return spacing;
+  const horizontal = node.layoutMode === "HORIZONTAL";
+  const mainSizing = horizontal
+    ? node.layoutSizingHorizontal
+    : node.layoutSizingVertical;
+  // Only a HUGGING axis has no container to fill — it resizes around whatever
+  // the overlap produces, so the literal value stands there. A FILL axis has a
+  // definite size just as much as a FIXED one: it takes its parent's. Bailing
+  // on FILL too left Positivus' team-card social icon at the raw -67 where
+  // Figma draws -34, and the .fig walker — whose kiwi payload calls the same
+  // node FIXED — already drew it correctly. Cross-path disagreement is what
+  // surfaced this; the two vocabularies describe one behaviour.
+  if (mainSizing === "HUG") return spacing;
+  const box = node.absoluteBoundingBox;
+  if (!box) return spacing;
+  const total = horizontal ? box.width : box.height;
+  const padStart = (horizontal ? node.paddingLeft : node.paddingTop) ?? 0;
+  const padEnd = (horizontal ? node.paddingRight : node.paddingBottom) ?? 0;
+  const children = (node.children ?? []).filter(
+    (child) =>
+      child.visible !== false &&
+      child.layoutPositioning !== "ABSOLUTE" &&
+      child.absoluteBoundingBox,
+  );
+  if (children.length < 2) return spacing;
+  let sum = 0;
+  for (const child of children) {
+    const size = horizontal
+      ? child.absoluteBoundingBox!.width
+      : child.absoluteBoundingBox!.height;
+    // An unknown child size makes the clamp meaningless; do not guess at it.
+    if (typeof size !== "number") return spacing;
+    sum += size;
+  }
+  const fill = (total - padStart - padEnd - sum) / (children.length - 1);
+  return Math.max(spacing, fill);
+}
+
 function buildChildSizingStyles(
   node: FigmaNode,
   parentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL",
+  parentItemSpacing = 0,
+  isFirstChild = true,
+  /**
+   * Whether the parent HUGS its own main axis. A main-axis FILL child has
+   * nothing to grow into then, and Figma falls back to the child's own size —
+   * but `flex-grow:1; flex-basis:0%` in an auto-height column collapses the
+   * child to ZERO. A 343x240 photo vanished that way, and because the column
+   * hugs, everything below it moved up by 240px.
+   */
+  parentHugsMainAxis = false,
 ): Record<string, string | undefined> {
   if (parentLayoutMode === "NONE") return {};
   const parentIsHorizontal = parentLayoutMode === "HORIZONTAL";
   const styles: Record<string, string | undefined> = {};
+  // Figma never shrinks an auto-layout child below its own size: a FIXED or
+  // HUG child keeps that size and the parent overflows. A CSS flex item
+  // shrinks by default, so an overflowing row silently redistributed the
+  // deficit across children and every one of them came out the wrong width.
+  // Only FILL is elastic, and it sets its own flex properties below.
+  const mainAxisSizing = parentIsHorizontal
+    ? node.layoutSizingHorizontal
+    : node.layoutSizingVertical;
+  if (mainAxisSizing !== "FILL") styles["flex-shrink"] = "0";
+  // Reproduce a negative itemSpacing as an overlap, since `gap` cannot. The
+  // value arriving here is already resolved by `resolveNegativeItemSpacing`.
+  if (parentItemSpacing < 0 && !isFirstChild) {
+    styles[parentIsHorizontal ? "margin-left" : "margin-top"] =
+      px(parentItemSpacing);
+  }
   if (node.layoutSizingHorizontal === "FILL") {
     if (parentIsHorizontal) {
-      styles["flex-grow"] = "1";
-      styles["flex-basis"] = "0%";
+      if (parentHugsMainAxis) {
+        // Nothing to grow into; keep the size Figma resolved.
+        styles.width = px(node.absoluteBoundingBox?.width ?? 0);
+        styles["flex-shrink"] = "0";
+      } else {
+        styles["flex-grow"] = "1";
+        styles["flex-basis"] = "0%";
+        styles.width = "auto";
+        // A flex item will not shrink below its content unless told to:
+        // `min-width` defaults to `auto`. Figma's FILL just takes the parent's
+        // width and lets the content overflow, so without this a card whose
+        // content plus padding exceeds its column pushed itself 76px wider
+        // than the column and dragged its siblings along.
+        if (node.minWidth === undefined) styles["min-width"] = "0";
+      }
     } else {
       styles["align-self"] = "stretch";
+      styles.width = "auto";
     }
-    styles.width = "auto";
   } else if (node.layoutSizingHorizontal === "HUG") {
-    styles.width = "auto";
+    // Figma rounds a hugging TEXT box to a whole pixel — every one of the 2619
+    // in the corpus is an integer — and lays its siblings out against that
+    // rounded width. Letting the browser hug to its own fractional width makes
+    // each label a fraction narrower, and in a row of them the fractions add
+    // up: an Untitled UI nav came out 5px short across six items, moving every
+    // one of them. Figma has already resolved the number it laid out with.
+    // As a MINIMUM, never a fixed width: pinning the width outright forces the
+    // text to wrap wherever our advances run a hair wider than Figma's, which
+    // is a different layout entirely (it scored 36% on the parity fixture and
+    // 19% on a pricing page). A minimum takes the rounding back without ever
+    // removing room the text needs.
+    const roundedTextWidth =
+      node.type === "TEXT" && node.minWidth === undefined
+        ? node.absoluteBoundingBox?.width
+        : undefined;
+    if (roundedTextWidth !== undefined)
+      styles["min-width"] = px(roundedTextWidth);
+    styles.width =
+      hasContentToHug(node) && !hugIsCircularInCss(node, true)
+        ? "auto"
+        : px(node.absoluteBoundingBox?.width ?? 0);
   }
   if (node.layoutSizingVertical === "FILL") {
     if (parentIsHorizontal) {
       styles["align-self"] = "stretch";
+      styles.height = "auto";
+    } else if (parentHugsMainAxis) {
+      // Nothing to grow into; keep the size Figma resolved.
+      styles.height = px(node.absoluteBoundingBox?.height ?? 0);
+      styles["flex-shrink"] = "0";
     } else {
       styles["flex-grow"] = "1";
       styles["flex-basis"] = "0%";
+      styles.height = "auto";
+      // See the horizontal case: `min-height: auto` would keep the item at its
+      // content height where Figma's FILL lets the content overflow.
+      if (node.minHeight === undefined) styles["min-height"] = "0";
     }
-    styles.height = "auto";
   } else if (node.layoutSizingVertical === "HUG") {
-    styles.height = "auto";
+    // Same reasoning as the width above, for the axis that carries line count.
+    // Where our advances differ from Figma's by a hair, a line wraps on one
+    // side and not the other, and the box comes out a whole line short — then
+    // every sibling below it moves. Figma's own resolved height is the number
+    // it laid the page out with, so take it as a MINIMUM: text that genuinely
+    // needs more room still gets it.
+    const roundedTextHeight =
+      node.type === "TEXT" && node.minHeight === undefined
+        ? node.absoluteBoundingBox?.height
+        : undefined;
+    if (roundedTextHeight !== undefined)
+      styles["min-height"] = px(roundedTextHeight);
+    // Text hugging BOTH axes cannot wrap, so its line count is fixed by the
+    // break characters and always matches Figma's. That removes the reason the
+    // height is only a minimum, and a minimum cannot help here anyway: Figma
+    // rounds `lines * lineHeight` to a whole pixel, and rounds DOWN as often as
+    // up. Two Space Grotesk headings at 38.28px line height hugged to 38.28
+    // each where Figma laid out 38, and the 0.56px pushed their whole column
+    // down. Wrapping text keeps the minimum — there our line count can differ.
+    const pinsTextHeight =
+      roundedTextHeight !== undefined &&
+      node.style?.textAutoResize === "WIDTH_AND_HEIGHT";
+    styles.height = pinsTextHeight
+      ? px(roundedTextHeight)
+      : hasContentToHug(node) && !hugIsCircularInCss(node, false)
+        ? "auto"
+        : px(node.absoluteBoundingBox?.height ?? 0);
   }
   return styles;
+}
+
+// ---------------------------------------------------------------------------
+// Vector geometry -> inline <svg>
+// ---------------------------------------------------------------------------
+
+/**
+ * Node types whose shape is only knowable from `fillGeometry`/`strokeGeometry`.
+ * RECTANGLE and full ELLIPSE are deliberately absent: a div with
+ * `border-radius` already reproduces them exactly and keeps auto-layout,
+ * children, and CSS effects working, which an `<svg>` wrapper would not.
+ */
+const VECTOR_GEOMETRY_TYPES = new Set([
+  "VECTOR",
+  "BOOLEAN_OPERATION",
+  "STAR",
+  "REGULAR_POLYGON",
+  "LINE",
+]);
+
+/** Paint types an SVG `fill` attribute can reproduce exactly-or-close. */
+const SVG_PAINT_TYPES = new Set([
+  "SOLID",
+  "GRADIENT_LINEAR",
+  "GRADIENT_RADIAL",
+]);
+
+/** A full-circle ELLIPSE keeps the cheaper `border-radius: 50%` div path. */
+function isFullCircleArc(node: FigmaNode): boolean {
+  if (!node.arcData) return true;
+  const start = node.arcData.startingAngle ?? 0;
+  const end = node.arcData.endingAngle ?? Math.PI * 2;
+  return (
+    Math.abs(Math.abs(end - start) - Math.PI * 2) < 1e-4 &&
+    Math.abs(node.arcData.innerRadius ?? 0) < 1e-4
+  );
+}
+
+function geometryPaths(node: FigmaNode): FigmaVectorPath[] {
+  return [...(node.fillGeometry ?? []), ...(node.strokeGeometry ?? [])].filter(
+    (entry) => Boolean(entry.path?.trim()),
+  );
+}
+
+/**
+ * True when this node carries real vector geometry (from
+ * `geometry=paths`) that this mapper can paint as an inline `<svg>` instead
+ * of a rendered PNG. IMAGE/VIDEO/EMOJI and conic/diamond gradient paints stay
+ * on the raster path: SVG has no conic gradient, and an image-filled vector
+ * needs a `<pattern>` whose crop/scale semantics are not the same as
+ * `background-size`, so guessing one would be a structural approximation this
+ * module does not make.
+ */
+/**
+ * A vector node's own painted silhouette as a CSS `clip-path`, so an effect
+ * that CSS applies to the border box lands only where the layer paints.
+ * Returns undefined when the shape is not knowable, because clipping to a
+ * guess is worse than not clipping at all.
+ */
+function vectorClipPath(
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): string | undefined {
+  // A stroke-only vector — a LINE, an open path — has `strokeGeometry` and no
+  // `fillGeometry`, and its ink IS that outlined stroke region. Reading only
+  // the fill left exactly those nodes with no clip, i.e. back to the
+  // rectangular wrapper this function exists to avoid.
+  const source =
+    (node.fillGeometry?.length ?? 0) > 0
+      ? node.fillGeometry
+      : node.strokeGeometry;
+  const paths = (source ?? [])
+    .map((entry) => entry.path?.trim())
+    .filter((d): d is string => Boolean(d));
+  if (paths.length === 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Background blur on a vector node was applied to its bounding box: the node has no fillGeometry to clip the blur to its own silhouette.",
+    );
+    return undefined;
+  }
+  const rule = source?.[0]?.windingRule === "EVENODD" ? "evenodd, " : "";
+  return `path(${rule}"${paths.join(" ").replace(/"/g, "'")}")`;
+}
+
+function rendersVectorGeometry(
+  node: FigmaNode,
+  options: MapFigmaNodeOptions,
+): boolean {
+  if (options.forceImageFallbackNodeIds?.has(node.id)) return false;
+  const isArcEllipse = node.type === "ELLIPSE" && !isFullCircleArc(node);
+  if (!VECTOR_GEOMETRY_TYPES.has(node.type) && !isArcEllipse) return false;
+  const box = node.absoluteBoundingBox;
+  // A zero-extent box gives an unusable `viewBox` (nothing renders); those
+  // nodes keep the PNG fallback, which is sized from absoluteRenderBounds.
+  //
+  // `buildVectorSvg` below CAN draw a collapsed axis — it gives that axis the
+  // stroke's width and recentres the geometry — and letting it try turns five
+  // rules in one real design from PNGs into editable vectors. Measured, it
+  // costs more than it gives: interior-checkout 1.297% -> 1.341% and
+  // interior-product-comparison 2.369% -> 2.423%, because Figma's own render
+  // of a hairline is more exact than the reconstruction. Do not relax this
+  // without a reconstruction that matches those two cases.
+  if (!box || box.width <= 0 || box.height <= 0) return false;
+  if (geometryPaths(node).length === 0) return false;
+  return [...(node.fills ?? []), ...(node.strokes ?? [])]
+    .filter((paint) => paint.visible !== false)
+    .every(
+      (paint) =>
+        SVG_PAINT_TYPES.has(paint.type) &&
+        (!paint.blendMode ||
+          paint.blendMode === "NORMAL" ||
+          paint.blendMode === "PASS_THROUGH"),
+    );
+}
+
+function svgId(nodeId: string, suffix: string): string {
+  return `fg-${nodeId.replace(/[^A-Za-z0-9_-]/g, "-")}-${suffix}`;
+}
+
+function svgGradientStops(paint: FigmaPaint): string {
+  return (paint.gradientStops ?? [])
+    .map((stop) => {
+      const color = stop.color ?? {};
+      // guard:allow-raw-color — SVG paint serializer: emits literal color values into the exported document, not app UI
+      const rgb = `rgb(${Math.round((color.r ?? 0) * 255)}, ${Math.round((color.g ?? 0) * 255)}, ${Math.round((color.b ?? 0) * 255)})`;
+      const alpha = round((color.a ?? 1) * (paint.opacity ?? 1), 4);
+      return `<stop offset="${round(stop.position ?? 0, 4)}" stop-color="${rgb}" stop-opacity="${alpha}" />`;
+    })
+    .join("");
+}
+
+/**
+ * Resolve one paint to an SVG `fill` value, pushing any `<defs>` it needs.
+ * Unlike the CSS path, Figma's `gradientHandlePositions` need no angle
+ * derivation or stop remapping here: they are already normalized to the
+ * node's box, which is exactly SVG `objectBoundingBox` space.
+ */
+function paintToSvgFill(
+  paint: FigmaPaint,
+  node: FigmaNode,
+  box: { width: number; height: number },
+  defsKey: string,
+  defs: string[],
+  tracker: FidelityTracker,
+): string | null {
+  if (paint.type === "SOLID") {
+    return colorToCss(paint.color, paint.opacity ?? 1);
+  }
+  const handles = resolveGradientHandles(paint.gradientHandlePositions);
+  if (!handles) {
+    tracker.record(
+      node,
+      "approximated",
+      `Vector ${paint.type} fill had no gradientHandlePositions; layer omitted.`,
+    );
+    return null;
+  }
+  const id = svgId(node.id, defsKey);
+  const stops = svgGradientStops(paint);
+  if (paint.type === "GRADIENT_LINEAR") {
+    defs.push(
+      `<linearGradient id="${id}" x1="${round(handles.start.x, 4)}" y1="${round(handles.start.y, 4)}" x2="${round(handles.end.x, 4)}" y2="${round(handles.end.y, 4)}">${stops}</linearGradient>`,
+    );
+    tracker.record(
+      node,
+      "exact",
+      "Vector linear gradient mapped to an SVG <linearGradient> using gradientHandlePositions directly.",
+    );
+    return `url(#${id})`;
+  }
+  const radiusX = vectorLength(handles.start, handles.end, box);
+  const radiusY = vectorLength(handles.start, handles.width, box);
+  if (radiusX <= 0 || radiusY <= 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Vector radial gradient collapsed to zero radius; layer omitted.",
+    );
+    return null;
+  }
+  // A unit circle transformed into the ellipse Figma's two radius handles
+  // describe -- the SVG equivalent of the CSS `radial-gradient(ellipse ...)`
+  // mapping used for non-vector nodes.
+  defs.push(
+    `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${round(handles.start.x * box.width, 2)} ${round(handles.start.y * box.height, 2)}) scale(${round(radiusX, 2)} ${round(radiusY, 2)})">${stops}</radialGradient>`,
+  );
+  tracker.record(
+    node,
+    "approximated",
+    "Vector radial gradient rendered as an axis-aligned ellipse sized from gradientHandlePositions; rotated/skewed radial gradients are not expressible without a full gradient transform.",
+  );
+  return `url(#${id})`;
+}
+
+/**
+ * Paint a node's flattened vector geometry as an inline `<svg>` sized to the
+ * node's own box. Returns null when nothing could be painted, so the caller
+ * can keep the node's failure visible instead of emitting an empty element.
+ */
+function buildVectorSvg(
+  node: FigmaNode,
+  box: { width: number; height: number },
+  tracker: FidelityTracker,
+): string | null {
+  const defs: string[] = [];
+  const paths: string[] = [];
+
+  const emit = (
+    geometry: FigmaVectorPath[] | undefined,
+    paints: FigmaPaint[] | undefined,
+    kind: "fill" | "stroke",
+  ) => {
+    const visible = (paints ?? []).filter((paint) => paint.visible !== false);
+    geometry?.forEach((entry, geometryIndex) => {
+      const d = entry.path?.trim();
+      if (!d) return;
+      const fillRule = entry.windingRule === "EVENODD" ? "evenodd" : "nonzero";
+      visible.forEach((paint, paintIndex) => {
+        const fill = paintToSvgFill(
+          paint,
+          node,
+          box,
+          `${kind}-${geometryIndex}-${paintIndex}`,
+          defs,
+          tracker,
+        );
+        if (!fill) return;
+        paths.push(
+          `<path d="${escapeAttr(d)}" fill="${escapeAttr(fill)}" fill-rule="${fillRule}" />`,
+        );
+      });
+    });
+  };
+
+  emit(node.fillGeometry, node.fills, "fill");
+  // `strokeGeometry` is the stroke already outlined into a region, so it is
+  // painted with `fill` (and the node's stroke paints), never re-stroked.
+  const strokeStart = paths.length;
+  emit(node.strokeGeometry, node.strokes, "stroke");
+  // ...but that outline is NOT clipped to the alignment Figma states. On an
+  // INSIDE stroke the region still reaches outside the shape, and a mitred
+  // corner reaches a long way: the parity fixture's star has a 5px inside
+  // stroke whose outline runs 16px past its top point, and it drew a band
+  // three times too thick over a silhouette bigger than Figma's own ink.
+  // Clipping the stroke region to the fill shape is what INSIDE means.
+  if (
+    node.strokeAlign === "INSIDE" &&
+    paths.length > strokeStart &&
+    (node.fillGeometry?.length ?? 0) > 0
+  ) {
+    // Node-scoped: a bare `stroke-inside` would collide across the many
+    // inline SVGs in one document, and `url(#id)` takes the first match.
+    const clipId = `stroke-inside-${node.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    defs.push(
+      `<clipPath id="${clipId}">` +
+        (node.fillGeometry ?? [])
+          .map((entry) =>
+            entry.path?.trim()
+              ? `<path d="${escapeAttr(entry.path.trim())}"${entry.windingRule === "EVENODD" ? ' clip-rule="evenodd"' : ""} />`
+              : "",
+          )
+          .join("") +
+        `</clipPath>`,
+    );
+    const stroked = paths.splice(strokeStart).join("");
+    paths.push(`<g clip-path="url(#${clipId})">${stroked}</g>`);
+  }
+
+  if (paths.length === 0) return null;
+  const defsMarkup = defs.length > 0 ? `<defs>${defs.join("")}</defs>` : "";
+  // A ZERO extent on either axis makes the viewBox degenerate, and the SVG
+  // spec says that DISABLES rendering of the element — the shape vanishes with
+  // no warning. Zero thickness is normal for the shapes that hit this: a rule,
+  // or the arrow inside a "Learn more" button, is a stroked path whose own box
+  // is 20x0. Give that axis the stroke's width and centre the geometry on it,
+  // which is where the outlined path already sits.
+  const strokeBand = Math.max(node.strokeWeight ?? 0, 1);
+  const viewWidth = box.width > 0 ? box.width : strokeBand;
+  const viewHeight = box.height > 0 ? box.height : strokeBand;
+  const originX = box.width > 0 ? 0 : -viewWidth / 2;
+  const originY = box.height > 0 ? 0 : -viewHeight / 2;
+  // `100%` of a zero-height box is zero, so a collapsed axis needs real pixels
+  // and an offset that puts the geometry's own centreline back on the box.
+  const sizing =
+    box.width > 0 && box.height > 0
+      ? `width="100%" height="100%"`
+      : `width="${round(viewWidth, 2)}" height="${round(viewHeight, 2)}"`;
+  const placement =
+    originX || originY
+      ? `position: absolute; left: ${round(originX, 2)}px; top: ${round(originY, 2)}px; `
+      : "";
+  // `overflow: visible` because an outlined stroke legitimately extends past
+  // the node's geometric bounding box.
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${sizing} viewBox="${round(originX, 2)} ${round(originY, 2)} ${round(viewWidth, 2)} ${round(viewHeight, 2)}" fill="none" style="${placement}overflow: visible; display: block">${defsMarkup}${paths.join("")}</svg>`;
 }
 
 // ---------------------------------------------------------------------------
 // Node type classification
 // ---------------------------------------------------------------------------
 
+/**
+ * True when the text uses a Private Use Area codepoint — the range icon fonts
+ * assign their glyphs from, which no substitute font can render.
+ */
+export function hasPrivateUseCharacters(text: string | undefined): boolean {
+  if (!text) return false;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      (codePoint >= 0xe000 && codePoint <= 0xf8ff) ||
+      (codePoint >= 0xf0000 && codePoint <= 0xffffd) ||
+      (codePoint >= 0x100000 && codePoint <= 0x10fffd)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function needsImageFallback(
   node: FigmaNode,
   options: MapFigmaNodeOptions,
 ): boolean {
   if (options.forceImageFallbackNodeIds?.has(node.id)) return true;
-  if (UNSUPPORTED_STRUCTURAL_TYPES.has(node.type)) return true;
   // A Figma mask affects its following siblings, not just the mask node. CSS
   // cannot reproduce that sibling-range operation on an arbitrary DOM tree,
   // so render the smallest containing subtree rather than importing a visibly
   // wrong unmasked composition. A mask imported as the root is also rendered.
   if (node.isMask || node.children?.some((child) => child.isMask)) return true;
-  // A CSS div with an outline is not a Figma line. Partial/ring ellipses also
-  // need real path geometry, which this structural mapper intentionally does
-  // not request because geometry=paths makes ordinary REST payloads enormous.
+  if (
+    (node.effects ?? []).some(
+      (effect) =>
+        effect.visible !== false &&
+        effect.blendMode &&
+        effect.blendMode !== "NORMAL" &&
+        effect.blendMode !== "PASS_THROUGH",
+    )
+  ) {
+    return true;
+  }
+  // Real path geometry beats a rendered PNG: it stays editable, scales, and
+  // is exact. Only reachable when the caller requested `geometry=paths`.
+  if (rendersVectorGeometry(node, options)) return false;
+  if (UNSUPPORTED_STRUCTURAL_TYPES.has(node.type)) return true;
+  // A CSS div with an outline is not a Figma line, and partial/ring ellipses
+  // need real path geometry — without it, both stay rendered PNGs.
   if (node.type === "LINE") return true;
-  if (node.type === "ELLIPSE" && node.arcData) {
-    const start = node.arcData.startingAngle ?? 0;
-    const end = node.arcData.endingAngle ?? Math.PI * 2;
-    const span = Math.abs(end - start);
-    const isFullCircle =
-      Math.abs(span - Math.PI * 2) < 1e-4 &&
-      Math.abs(node.arcData.innerRadius ?? 0) < 1e-4;
-    if (!isFullCircle) return true;
+  if (node.type === "ELLIPSE" && !isFullCircleArc(node)) return true;
+  // A Private Use Area codepoint means nothing outside the font that assigned
+  // it, and fonts reach an imported screen by family name from Google Fonts,
+  // which serves none of these icon fonts. No fallback can draw the glyph, so
+  // Chromium draws .notdef boxes across a sidebar Figma draws icons in.
+  if (node.type === "TEXT" && hasPrivateUseCharacters(node.characters)) {
+    return true;
   }
   const visibleStrokes = (node.strokes ?? []).filter(
     (stroke) => stroke.visible !== false,
   );
   if (
     visibleStrokes.length > 1 ||
-    visibleStrokes.some((stroke) => stroke.type !== "SOLID") ||
-    (node.strokeDashes?.length ?? 0) > 0
+    visibleStrokes.some((stroke) => stroke.type !== "SOLID")
   ) {
     return true;
   }
+  if ((node.strokeDashes?.length ?? 0) > 0) return true;
   const visibleFills = (node.fills ?? []).filter(
     (fill) => fill.visible !== false,
   );
@@ -1188,13 +2223,28 @@ function needsImageFallback(
       node.style,
       ...Object.values(node.styleOverrideTable ?? {}),
     ].filter((style): style is FigmaTypeStyle => Boolean(style));
+    // `paragraphSpacing` is the gap BETWEEN paragraphs and `listSpacing` the gap
+    // between list items — both are no-ops on a single-paragraph, non-list text
+    // node. Design systems set them on every text style regardless, so treating
+    // their mere presence as unsupported rasterized ordinary labels: on one real
+    // community landing page it turned 116 of 146 text nodes into PNGs, one of
+    // them the single word "Home". Only escalate when the property can actually
+    // affect this node's rendering.
+    // `lineTypes` is Figma's own line count. Without it, count the breaks in
+    // the text Figma actually draws — never the raw characters, whose trailing
+    // break would invent a second paragraph and rasterize a one-line label.
+    const paragraphCount =
+      node.lineTypes?.length ??
+      figmaDrawnText(node.characters ?? "", undefined).split(FIGMA_TEXT_BREAK)
+        .length;
+    const hasList = node.lineTypes?.some((type) => type !== "NONE") ?? false;
     const hasAdvancedTypography = styles.some(
       (style) =>
-        Math.abs(style.paragraphSpacing ?? 0) > 1e-6 ||
+        (paragraphCount > 1 && Math.abs(style.paragraphSpacing ?? 0) > 1e-6) ||
         Math.abs(style.paragraphIndent ?? 0) > 1e-6 ||
-        Math.abs(style.listSpacing ?? 0) > 1e-6 ||
+        (hasList && Math.abs(style.listSpacing ?? 0) > 1e-6) ||
         style.hangingPunctuation === true ||
-        style.hangingList === true ||
+        (hasList && style.hangingList === true) ||
         style.hyperlink !== undefined ||
         Object.values(style.opentypeFlags ?? {}).some((value) => value !== 0),
     );
@@ -1211,17 +2261,6 @@ function needsImageFallback(
     ) {
       return true;
     }
-  }
-  if (
-    (node.effects ?? []).some(
-      (effect) =>
-        effect.visible !== false &&
-        effect.blendMode &&
-        effect.blendMode !== "NORMAL" &&
-        effect.blendMode !== "PASS_THROUGH",
-    )
-  ) {
-    return true;
   }
   if (
     !SUPPORTED_CONTAINER_TYPES.has(node.type) &&
@@ -1281,6 +2320,9 @@ export function collectFallbackNodeIds(
       ids.push(current.id);
       return; // Don't recurse into a subtree that's rendered as one image.
     }
+    // A BOOLEAN_OPERATION's own geometry is already the flattened result, so
+    // its operand children are never rendered and need no images.
+    if (rendersVectorGeometry(current, options)) return;
     for (const child of current.children ?? []) visit(child);
   };
   visit(node);
@@ -1306,6 +2348,7 @@ export function collectImageFillRefs(
   const visit = (current: FigmaNode) => {
     if (current.visible === false || current.opacity === 0) return;
     if (needsImageFallback(current, options)) return;
+    if (rendersVectorGeometry(current, options)) return;
     visitPaints(current.fills);
     visitPaints(current.strokes);
     for (const child of current.children ?? []) visit(child);
@@ -1389,6 +2432,81 @@ function textOverrideCss(
   };
 }
 
+/**
+ * Did Figma lay this text out on a single line, in a box that only holds one?
+ *
+ * Such a node must not wrap. Our advances run a hair wider than Figma's on
+ * some strings, and the extra line pushes every sibling down and reads as
+ * broken where a few pixels of overflow does not.
+ *
+ * Text that HUGS its own width is included, not excluded — that is the case
+ * this matters most for. A hugging text node outside auto-layout is emitted at
+ * Figma's own resolved width, so a string whose advance runs wider wraps
+ * inside a box built to fit it on one line: DashStack's "Write Your task name
+ * here" placeholder is 193px of Nunito Sans SemiBold, and ours needs a few
+ * pixels more.
+ */
+export function figmaLaidOutOneLine(node: FigmaNode): boolean {
+  const lineHeight = node.style?.lineHeightPx;
+  const height = node.absoluteBoundingBox?.height;
+  if (!lineHeight || !height) return false;
+  return (
+    (node.lineTypes?.length ?? 1) === 1 && Math.round(height / lineHeight) === 1
+  );
+}
+
+const FIGMA_TEXT_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
+
+/**
+ * The text Figma draws, which is not always the text `characters` spells.
+ *
+ * Figma's stored text can carry break characters it does not lay out as
+ * breaks. A real footer stores "Get started for free.\rAdd your whole team as
+ * your needs grow." and draws it as ONE flowing paragraph, breaking at the
+ * width instead. Both formats state the truth: REST `lineTypes` and kiwi
+ * `textData.lines` hold one entry per line Figma actually laid out, so
+ * `laidOutLines` says how many of the breaks are real. Measured over every
+ * break-bearing text node in the corpus that count is never wrong, while
+ * trusting each break character overstates it on 8 of 20 REST nodes and 17 of
+ * 18 kiwi ones — which made that footer a line taller and moved 61 nodes.
+ *
+ * Figma draws a break it did not lay out as a space (a heading storing
+ * "Customise it\rto your needs" renders "Customise it to / your needs", wrapped
+ * at the width), and draws a trailing one as nothing at all.
+ *
+ * Trailing spaces go for the same reason: Figma neither draws them nor lets
+ * them widen a hugging box, while `pre-wrap` does both. Of the 943 hugging
+ * text nodes in the corpus the only ones that came out wider than Figma's own
+ * box are the 3 whose text ends in a space — one of them by 9px, which then
+ * pushed its whole row across.
+ */
+export function figmaDrawnText(
+  text: string,
+  laidOutLines: number | undefined,
+): string {
+  const breaks = [...text.matchAll(FIGMA_TEXT_BREAK)];
+  if (laidOutLines === undefined) {
+    // No line count to check against, so fall back to what held in every
+    // measured file: Figma draws neither a trailing break nor trailing space.
+    return text.replace(/\s+$/, "");
+  }
+  // Every break is one Figma laid out — a trailing one included, which is a
+  // real empty last line. Only the spaces go.
+  if (breaks.length + 1 <= laidOutLines) return text.replace(/[ \t]+$/, "");
+  // Figma laid out fewer lines than there are breaks, so the later ones are
+  // not paragraph breaks. Substitute per character rather than collapsing, so
+  // every index still lines up with `characterStyleOverrides`.
+  let drawn = text;
+  for (const match of breaks.slice(Math.max(0, laidOutLines - 1))) {
+    const at = match.index ?? 0;
+    drawn =
+      drawn.slice(0, at) +
+      " ".repeat(match[0].length) +
+      drawn.slice(at + match[0].length);
+  }
+  return drawn.replace(/[ \t]+$/, "");
+}
+
 /** Render contiguous Figma character-style override runs as inline spans. */
 function buildMixedTextHtml(
   node: FigmaNode,
@@ -1431,17 +2549,72 @@ function buildMixedTextHtml(
 // Main mapper
 // ---------------------------------------------------------------------------
 
+interface LocalBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /**
+   * True when the box came from `relativeTransform`/`size` and is already in
+   * the parent's own unrotated frame at the node's true pre-rotation size —
+   * i.e. the AABB un-rotation heuristic must NOT be applied on top of it.
+   */
+  exact: boolean;
+}
+
+/**
+ * A node's box in its PARENT's own (unrotated) coordinate frame, as CSS
+ * `left`/`top`/`width`/`height` for an element rotated about its center.
+ *
+ * `absoluteBoundingBox` is in absolute canvas space and is the AABB of the
+ * ALREADY-rotated shape, so subtracting the parent's AABB origin is wrong
+ * twice over for any node under a rotated ancestor: the offset is measured in
+ * rotated space, and the size is the inflated AABB. (Real case: `shapes` >
+ * "Rotated Nested Frame" > "Rotated Child", authored 60x30 at (20,20), came
+ * out 65.7x44.5 at (24.5,29.7) and drifted further as the parent's angle grew.)
+ *
+ * Figma also returns `relativeTransform` — whose translation is the node's
+ * local origin expressed in the parent's local frame — and `size`, the true
+ * pre-rotation size. Together they are exact, so they are preferred whenever
+ * present. The node's center is `M * (size/2)`, and CSS positions the
+ * unrotated box around that center because `transform-origin: center` rotates
+ * about it. `absoluteBoundingBox` remains the fallback for callers (and
+ * fixtures) that carry no transform.
+ */
 function frameRelativeBox(
   node: FigmaNode,
   parentBox: FigmaBoundingBox | null,
-): { left: number; top: number; width: number; height: number } {
+): LocalBox {
+  const transform = node.relativeTransform;
+  const size = node.size;
+  // A LINE is zero-thickness by definition, so requiring BOTH dimensions to be
+  // positive pushed every rotated rule onto the absoluteBoundingBox fallback —
+  // whose box is the ALREADY-ROTATED one. Rotating that again squared the
+  // turn: a 216x0 rule at 54 degrees drew a 216x205 diagonal where Figma draws
+  // 126x176. One positive dimension is enough to place the node exactly.
+  if (parentBox && transform && size && (size.x > 0 || size.y > 0)) {
+    const halfX = size.x / 2;
+    const halfY = size.y / 2;
+    const centerX =
+      transform[0][0] * halfX + transform[0][1] * halfY + transform[0][2];
+    const centerY =
+      transform[1][0] * halfX + transform[1][1] * halfY + transform[1][2];
+    return {
+      left: centerX - halfX,
+      top: centerY - halfY,
+      width: size.x,
+      height: size.y,
+      exact: true,
+    };
+  }
   const box = node.absoluteBoundingBox;
-  if (!box) return { left: 0, top: 0, width: 0, height: 0 };
+  if (!box) return { left: 0, top: 0, width: 0, height: 0, exact: false };
   return {
     left: box.x - (parentBox?.x ?? box.x),
     top: box.y - (parentBox?.y ?? box.y),
     width: box.width,
     height: box.height,
+    exact: false,
   };
 }
 
@@ -1511,6 +2684,21 @@ function frameRelativeRenderBox(
   };
 }
 
+/**
+ * Does this auto-layout frame size itself to its content along its own main
+ * axis? Figma reports it as `layoutSizingHorizontal`/`layoutSizingVertical`
+ * on current files and as `primaryAxisSizingMode: "AUTO"` on older ones, and
+ * both spellings appear in real community files.
+ */
+function hugsMainAxis(node: FigmaNode): boolean {
+  const mainSizing =
+    node.layoutMode === "HORIZONTAL"
+      ? node.layoutSizingHorizontal
+      : node.layoutSizingVertical;
+  if (mainSizing) return mainSizing === "HUG";
+  return node.primaryAxisSizingMode === "AUTO";
+}
+
 function buildNode(
   node: FigmaNode,
   parentBox: FigmaBoundingBox | null,
@@ -1518,6 +2706,11 @@ function buildNode(
   options: MapFigmaNodeOptions,
   tracker: FidelityTracker,
   isRoot: boolean,
+  /** The parent's `itemSpacing`; only a negative value reaches the child, as an overlap. */
+  parentItemSpacing = 0,
+  isFirstChild = true,
+  /** Whether the parent hugs its main axis — see `buildChildSizingStyles`. */
+  parentHugsMainAxis = false,
 ): string {
   const parentHasAutoLayout = parentLayoutMode !== "NONE";
   if (node.visible === false || node.opacity === 0) return "";
@@ -1538,12 +2731,34 @@ function buildNode(
     rotationDeg !== undefined && Math.abs(rotationDeg) > 0.001
       ? rotationDeg
       : undefined;
-  if (rotation !== undefined) {
-    // `box` (from absoluteBoundingBox) is the rotated shape's AABB; recover
-    // the true pre-rotation width/height/position so fills/effects/strokes
-    // below -- and the CSS `rotate()` applied later -- operate on the
-    // correct box instead of an oversized one. See `unrotateBox`.
-    box = unrotateBox(box, rotation);
+  // `rotation` is a decomposition, and it cannot express a mirror: a
+  // horizontally flipped node reports rotation = pi, exactly as a 180-degree
+  // one does. Rotating by 180 then adds a vertical flip the design does not
+  // have — Positivus' CTA illustration is mirrored that way, and every element
+  // inside it landed on the wrong side. `relativeTransform`'s 2x2 block is
+  // already CSS's own matrix in the same y-down space, so consume it directly
+  // whenever the box came from it; this is the exact path the header comment
+  // has always named as the follow-up for when a design surfaces the mismatch.
+  const linear = box.exact ? node.relativeTransform : undefined;
+  const isIdentityLinear =
+    linear !== undefined &&
+    Math.abs(linear[0][0] - 1) < 1e-6 &&
+    Math.abs(linear[0][1]) < 1e-6 &&
+    Math.abs(linear[1][0]) < 1e-6 &&
+    Math.abs(linear[1][1] - 1) < 1e-6;
+  const linearTransformCss =
+    linear !== undefined && !isIdentityLinear
+      ? `matrix(${round(linear[0][0], 6)}, ${round(linear[1][0], 6)}, ` +
+        `${round(linear[0][1], 6)}, ${round(linear[1][1], 6)}, 0, 0)`
+      : undefined;
+  if (rotation !== undefined && !box.exact) {
+    // `box` fell back to absoluteBoundingBox, which is the rotated shape's
+    // AABB; recover the true pre-rotation width/height/position so
+    // fills/effects/strokes below -- and the CSS `rotate()` applied later --
+    // operate on the correct box instead of an oversized one. When
+    // `frameRelativeBox` had `relativeTransform`/`size` it already returned
+    // the true box and this inversion would shrink it a second time.
+    box = { ...unrotateBox(box, rotation), exact: false };
   }
   const nameAttr = node.name
     ? ` data-agent-native-layer-name="${escapeAttr(node.name)}"`
@@ -1609,12 +2824,44 @@ function buildNode(
     // OUTSIDE-aligned stroke) is placed at its natural size instead of being
     // squished/cropped into the smaller geometric box.
     const renderBox = frameRelativeRenderBox(node, parentBox);
+    // In flow, that overflow must not take layout space: Figma stacks siblings
+    // against the GEOMETRIC box and paints the ink outside it. Negative margins
+    // for exactly the overflow keep the image at its natural size while its
+    // footprint stays the node's own box. A horizontal LINE is the extreme
+    // case — its box is zero-height and the stroke is entirely overflow, so
+    // every rule on a page was pushing everything below it down a pixel.
+    const overflow = isFlowChild
+      ? {
+          left: box.left - renderBox.left,
+          top: box.top - renderBox.top,
+          right: renderBox.left + renderBox.width - (box.left + box.width),
+          bottom: renderBox.top + renderBox.height - (box.top + box.height),
+        }
+      : null;
+    const negativeMargin = (value: number | undefined) =>
+      value !== undefined && Math.abs(value) > 1e-6 ? px(-value) : undefined;
     const styles: Record<string, string | undefined> = {
       position: isRoot || isFlowChild ? "relative" : "absolute",
       left: isRoot || isFlowChild ? undefined : px(renderBox.left),
       top: isRoot || isFlowChild ? undefined : px(renderBox.top),
       width: px(renderBox.width),
       height: px(renderBox.height),
+      // Never distort Figma's own render. `/images` does not always return a
+      // PNG whose aspect matches the `absoluteRenderBounds` it reports — a
+      // masked group came back 1210x594 for a 605x348 box, and 9 of the 28
+      // fallbacks on one product page were being stretched, four of them by
+      // more than 30%. Where the two agree, `contain` is a no-op.
+      //
+      // Anchored top-left, not centred: `absoluteRenderBounds` states where
+      // the ink STARTS, and the PNG covers it from that origin. Centring the
+      // leftover space instead splits it around the artwork and moves it —
+      // worth 1.1 points on that product page on its own.
+      "object-fit": "contain",
+      "object-position": "0 0",
+      "margin-left": negativeMargin(overflow?.left),
+      "margin-top": negativeMargin(overflow?.top),
+      "margin-right": negativeMargin(overflow?.right),
+      "margin-bottom": negativeMargin(overflow?.bottom),
       opacity:
         typeof node.opacity === "number" && node.opacity !== 1
           ? String(round(node.opacity, 4))
@@ -1624,26 +2871,40 @@ function buildNode(
   }
 
   const isTextNode = node.type === "TEXT";
-  const isEllipse = node.type === "ELLIPSE";
   const box2 = { width: box.width, height: box.height };
+  // A vector node paints its fills/strokes inside the <svg> (against the real
+  // path, not the bounding box), so the wrapper div must not also paint them.
+  const isVector = rendersVectorGeometry(node, options);
+  const vectorSvg = isVector ? buildVectorSvg(node, box2, tracker) : null;
+  const isEllipse = node.type === "ELLIPSE" && !isVector;
 
-  const fills = buildFills(
-    node,
-    node.fills,
-    box2,
-    options,
-    tracker,
-    isTextNode,
-  );
-  const strokeResult = buildStrokes(node, tracker);
+  const fills = isVector
+    ? {}
+    : buildFills(node, node.fills, box2, options, tracker, isTextNode);
+  const strokeResult: StrokeResult = isVector
+    ? { styles: {} }
+    : buildStrokes(node, tracker);
   const effects = buildEffects(node, isTextNode, tracker);
-  const cornerRadius = isEllipse ? "50%" : buildCornerRadius(node);
+  const cornerRadius = isVector
+    ? undefined
+    : isEllipse
+      ? "50%"
+      : buildCornerRadius(node);
   const blendMode = buildBlendMode(node, tracker);
 
   const boxShadowParts = [...effects.boxShadowLayers];
+  const contentShadowProperty = effects.contentShadow;
   if (strokeResult.insetShadow) boxShadowParts.push(strokeResult.insetShadow);
+  if (strokeResult.strokeShadows)
+    boxShadowParts.push(...strokeResult.strokeShadows);
 
-  if (rotation !== undefined) {
+  if (linearTransformCss !== undefined) {
+    tracker.record(
+      node,
+      "exact",
+      "Transform taken from relativeTransform's 2x2 block as a CSS matrix(), so rotation, mirroring and skew all survive.",
+    );
+  } else if (rotation !== undefined) {
     tracker.record(
       node,
       "approximated",
@@ -1652,7 +2913,13 @@ function buildNode(
   }
 
   const autoLayoutStyles = buildAutoLayoutStyles(node);
-  const childSizingStyles = buildChildSizingStyles(node, parentLayoutMode);
+  const childSizingStyles = buildChildSizingStyles(
+    node,
+    parentLayoutMode,
+    parentItemSpacing,
+    isFirstChild,
+    parentHugsMainAxis,
+  );
   const hasAutoLayout = Boolean(autoLayoutStyles.display);
   // A node is positioned relative to its parent's free canvas (absolute,
   // left/top from absoluteBoundingBox) unless its *parent* is an auto-layout
@@ -1673,13 +2940,29 @@ function buildNode(
     "background-size": fills.backgroundSize,
     "background-position": fills.backgroundPosition,
     "background-repeat": fills.backgroundRepeat,
+    "image-rendering": fills.imageRendering,
     color: fills.color,
     "border-radius": cornerRadius,
     "box-shadow":
       boxShadowParts.length > 0 ? boxShadowParts.join(", ") : undefined,
+    "--figma-content-shadow": contentShadowProperty,
     filter: effects.filter,
     "backdrop-filter": effects.backdropFilter,
     "-webkit-backdrop-filter": effects.backdropFilter,
+    // A vector node's wrapper div paints nothing — the shape is an inline
+    // <svg><path> child — and it never gets a border-radius, so CSS filtered
+    // the backdrop of the whole bounding RECTANGLE while Figma blurs only
+    // where the layer paints. Landify's hero shape blurs 1440x752 of backdrop
+    // for a path that stops at a diagonal; the first differing pixel sits
+    // exactly on that edge. Clipping the div to the path fixes it, and the
+    // geometry is already in border-box coordinates, so it needs no transform.
+    // Gated on backdrop-filter ALONE on purpose: `filter` is applied before
+    // `clip-path`, so a layer-blurred vector is already correct and clipping
+    // would shear its halo, and clipping an outer box-shadow deletes it.
+    "clip-path":
+      isVector && effects.backdropFilter
+        ? vectorClipPath(node, tracker)
+        : undefined,
     opacity:
       typeof node.opacity === "number" && node.opacity !== 1
         ? String(round(node.opacity, 4))
@@ -1687,8 +2970,12 @@ function buildNode(
     "mix-blend-mode": blendMode,
     overflow: node.clipsContent ? "hidden" : undefined,
     transform:
-      rotation !== undefined ? `rotate(${round(-rotation, 3)}deg)` : undefined,
-    "transform-origin": rotation !== undefined ? "center" : undefined,
+      linearTransformCss ??
+      (rotation !== undefined ? `rotate(${round(rotation, 3)}deg)` : undefined),
+    "transform-origin":
+      linearTransformCss !== undefined || rotation !== undefined
+        ? "center"
+        : undefined,
     "min-width": px(node.minWidth ?? undefined),
     "max-width": px(node.maxWidth ?? undefined),
     "min-height": px(node.minHeight ?? undefined),
@@ -1697,6 +2984,40 @@ function buildNode(
     ...strokeResult.styles,
     ...childSizingStyles,
   };
+
+  // A CSS transform does not change an element's LAYOUT size, but Figma lays a
+  // rotated auto-layout child out by its rotated footprint. A vertical rule is
+  // the common case: Figma stores it as a 186x0 line rotated 90deg, so it
+  // occupies no width in the row — ours occupied the full 186px and shoved
+  // every later sibling across (Positivus' case-studies row came out 372px too
+  // wide, exactly its two dividers). Compensate with margins so the footprint
+  // matches, leaving the element's own box and transform untouched: the
+  // transform pivots about the centre, which the margins keep in place.
+  if (
+    isFlexChild &&
+    (linearTransformCss !== undefined || rotation !== undefined)
+  ) {
+    const theta = ((rotation ?? 0) * Math.PI) / 180;
+    const m = linear ?? [
+      [Math.cos(theta), -Math.sin(theta), 0],
+      [Math.sin(theta), Math.cos(theta), 0],
+    ];
+    const spanX =
+      Math.abs(m[0][0]) * box.width + Math.abs(m[0][1]) * box.height;
+    const spanY =
+      Math.abs(m[1][0]) * box.width + Math.abs(m[1][1]) * box.height;
+    const marginX = (spanX - box.width) / 2;
+    const marginY = (spanY - box.height) / 2;
+    const add = (property: string, value: number) => {
+      if (Math.abs(value) < 0.01) return;
+      const existing = Number.parseFloat(baseStyles[property] ?? "0") || 0;
+      baseStyles[property] = px(existing + value);
+    };
+    add("margin-left", marginX);
+    add("margin-right", marginX);
+    add("margin-top", marginY);
+    add("margin-bottom", marginY);
+  }
 
   if (isTextNode) {
     const style = node.style ?? {};
@@ -1716,11 +3037,31 @@ function buildNode(
         : undefined;
     baseStyles["text-transform"] = textTransformCss(style.textCase);
     baseStyles["text-decoration"] = textDecorationCss(style.textDecoration);
+    baseStyles["text-underline-position"] = textUnderlinePositionCss(
+      style.textDecoration,
+    );
     baseStyles["text-align"] = textAlignCss(style.textAlignHorizontal);
+    const spanStyles: Record<string, string | undefined> = {};
     if (style.textAutoResize === "TRUNCATE") {
       baseStyles["white-space"] = "nowrap";
       baseStyles.overflow = "hidden";
-      baseStyles["text-overflow"] = "ellipsis";
+      // `text-overflow` ellipsizes the inline content of a *block* container.
+      // The text lives in a <span> flex item (the flex column below is how
+      // textAlignVertical is reproduced), so putting it only on the wrapper
+      // clips the string with no ellipsis -- which reads as a normal, correct
+      // truncation and is exactly the kind of near-miss this mapper must not
+      // ship. The span is the block that has to carry it.
+      spanStyles.display = "block";
+      spanStyles.overflow = "hidden";
+      spanStyles["text-overflow"] = "ellipsis";
+      spanStyles["min-width"] = "0";
+    } else if (figmaLaidOutOneLine(node)) {
+      // Figma fitted this on ONE line in a box only one line tall. Our
+      // advances run a hair wider on some strings, and left free to wrap CSS
+      // adds a second line — which pushes every sibling down and reads as
+      // broken, where a few pixels of overflow does not. `pre` keeps Figma's
+      // whitespace handling and refuses the break Figma did not take.
+      baseStyles["white-space"] = "pre";
     } else {
       // Figma preserves explicit newlines and repeated spaces. Normal HTML
       // whitespace collapsing changes both wrapping and measured geometry.
@@ -1733,36 +3074,70 @@ function buildNode(
     );
     tracker.record(node, "exact", "Text styling mapped from TypeStyle fields.");
 
-    const characters = node.characters ?? "";
+    const characters = figmaDrawnText(
+      node.characters ?? "",
+      node.lineTypes?.length,
+    );
     const textHtml = buildMixedTextHtml(node, characters, tracker);
-    return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}"><span>${textHtml}</span></div>`;
+    const spanAttr = styleAttr(spanStyles);
+    const spanOpen = spanAttr ? `<span style="${spanAttr}">` : "<span>";
+    return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">${spanOpen}${textHtml}</span></div>`;
   }
 
-  tracker.record(
-    node,
-    "exact",
-    "Position, size, fills, strokes, and effects mapped 1:1.",
-  );
+  if (vectorSvg) {
+    tracker.record(
+      node,
+      "exact",
+      `Node type "${node.type}" reconstructed from its real fillGeometry/strokeGeometry as inline SVG paths instead of a rendered PNG.`,
+    );
+  } else if (isVector) {
+    // Vector geometry was present but nothing was paintable (no visible fills
+    // or strokes). Say so rather than leaving a blank box unexplained.
+    tracker.record(
+      node,
+      "approximated",
+      `Node type "${node.type}" has vector geometry but no visible fill or stroke paint; rendered as an empty box.`,
+    );
+  } else {
+    tracker.record(
+      node,
+      "exact",
+      "Position, size, fills, strokes, and effects mapped 1:1.",
+    );
+  }
 
   // hasAutoLayout guarantees node.layoutMode is "HORIZONTAL" or "VERTICAL"
   // (buildAutoLayoutStyles returns {} -- no `display` -- for "NONE"/"GRID").
   const childParentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" =
     hasAutoLayout ? (node.layoutMode as "HORIZONTAL" | "VERTICAL") : "NONE";
-  const childrenHtml = (node.children ?? [])
-    .map((child) =>
-      buildNode(
-        child,
-        node.absoluteBoundingBox ?? null,
-        childParentLayoutMode,
-        options,
-        tracker,
-        false,
-      ),
-    )
+  // A vector node's geometry is already the flattened result of its operands
+  // (BOOLEAN_OPERATION children), so its children are never rendered.
+  const childrenHtml = isVector
+    ? (vectorSvg ?? "")
+    : (node.children ?? [])
+        .map((child, index) =>
+          buildNode(
+            child,
+            node.absoluteBoundingBox ?? null,
+            childParentLayoutMode,
+            options,
+            tracker,
+            false,
+            hasAutoLayout ? resolveNegativeItemSpacing(node) : 0,
+            index === 0,
+            hasAutoLayout && hugsMainAxis(node),
+          ),
+        )
+        .filter(Boolean)
+        .join("\n");
+
+  // Fill overlays are part of the node's own paint stack, so they go first --
+  // beneath every real child, above the background stack.
+  const innerHtml = [fills.overlayHtml, childrenHtml]
     .filter(Boolean)
     .join("\n");
 
-  return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">\n${childrenHtml}\n</div>`;
+  return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">\n${innerHtml}\n</div>`;
 }
 
 /**

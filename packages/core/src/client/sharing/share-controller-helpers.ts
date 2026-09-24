@@ -18,6 +18,7 @@ export type ShareQueryKey = readonly [
 export interface ShareOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
@@ -54,6 +55,7 @@ export function createShareQueryKey(params: ShareQueryParams): ShareQueryKey {
 export function useShareQuery<TResponse>(
   resourceType: string,
   resourceId: string,
+  enabled = true,
 ): {
   params: ShareQueryParams;
   queryKey: ShareQueryKey;
@@ -66,7 +68,9 @@ export function useShareQuery<TResponse>(
     [resourceId, resourceType],
   );
   const queryKey = useMemo(() => createShareQueryKey(params), [params]);
-  const query = useActionQuery<TResponse>("list-resource-shares", params);
+  const query = useActionQuery<TResponse>("list-resource-shares", params, {
+    enabled,
+  });
   return { params, queryKey, query, queryClient };
 }
 
@@ -265,6 +269,7 @@ export function normalizeOrgMembers(value: unknown): ShareOrgMember[] {
       const value = member as {
         email?: unknown;
         name?: unknown;
+        image?: unknown;
         role?: unknown;
         joinedAt?: unknown;
         joined_at?: unknown;
@@ -273,6 +278,7 @@ export function normalizeOrgMembers(value: unknown): ShareOrgMember[] {
       return {
         email: value.email,
         name: typeof value.name === "string" ? value.name : null,
+        image: typeof value.image === "string" ? value.image : null,
         role: typeof value.role === "string" ? value.role : null,
         joinedAt:
           typeof value.joinedAt === "number"

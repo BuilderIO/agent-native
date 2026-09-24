@@ -61,7 +61,7 @@ Given an editor chooses fork instead of live inclusion, when the source later ch
 
 ## Current evidence
 
-Existing Page references and ordinary embedded Database surfaces are useful substrate. The repository does not yet prove stable editable Block transclusion, explicit mode selection, access intersection, or complete history behavior; this remains `approved_shape`.
+Existing Page references and ordinary embedded Collection surfaces are useful substrate. The repository does not yet prove stable editable Block transclusion, explicit mode selection, access intersection, or complete history behavior; this remains `approved_shape`.
 
 ## Proof plan
 

@@ -68,7 +68,13 @@ describe("Builder CMS write client", () => {
         authorization: "Bearer example-private-key",
         "content-type": "application/json",
       });
-      expect(JSON.parse(String(init?.body))).toEqual({
+      expect(
+        JSON.parse(
+          typeof init?.body === "string"
+            ? init.body
+            : (JSON.stringify(init?.body) ?? ""),
+        ),
+      ).toEqual({
         data: { title: "New title" },
       });
       return new Response(JSON.stringify({ id: "entry-1" }), {
@@ -108,7 +114,13 @@ describe("Builder CMS write client", () => {
       expect(init?.headers).toMatchObject({
         authorization: "Bearer example-cms-private-key",
       });
-      expect(JSON.parse(String(init?.body))).toEqual({
+      expect(
+        JSON.parse(
+          typeof init?.body === "string"
+            ? init.body
+            : (JSON.stringify(init?.body) ?? ""),
+        ),
+      ).toEqual({
         name: "Created title",
         data: { title: "Created title" },
         published: "draft",

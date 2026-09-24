@@ -12,6 +12,12 @@ title, stable description, markdown content, optional parent (for nesting), and
 a position for ordering. The description explains why the page exists and what
 belongs there; it is not a changing synopsis of the current body.
 
+When operating Content through a connected MCP server, call these actions
+yourself; route work through `ask_app` only when delegating to Content's own
+agent is the explicit point of the request. Reaching tools you can call
+directly through `ask_app` adds a second interpretation of the request and
+hides real errors.
+
 ## Scripts
 
 Always use the dedicated scripts for document operations. Never use raw `db-exec` SQL.
@@ -57,7 +63,26 @@ pnpm action create-document --title "Meeting Notes" --content "# Meeting Notes\n
 pnpm action create-document --title "Sub Page" --parentId parent123
 pnpm action create-document --title "My Page" --icon "📝"
 pnpm action create-document --title "Research" --description "Evidence and source notes that support the current project"
+pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
+
+When a user asks for a Page in an interactive Content conversation, creation is
+not a complete handoff. After `create-document` succeeds, call `navigate` with
+the returned document `id`, then call `view-screen` and compare its document ID
+with the create result. Navigation is asynchronous: if `view-screen` still
+reports the previous Page, repeat `navigate` and `view-screen` up to two more
+times. Say the Page is open only after the IDs match. If they never match, say
+the Page was created but navigation could not be verified, and provide the
+stable Page link from the create result. Do not navigate for background, batch,
+or API creation unless the caller explicitly asked to open the result.
+
+When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
+(or a `spaceId` from `list-content-spaces`). A named workspace that does not
+resolve is an error, never a silent fall back. With no `parentId`, `spaceId`,
+or `spaceName` the page is created in the caller's Personal workspace, so read
+the returned `spaceId` before telling the user where the page landed. The
+Workspaces catalog is not a create target: its rows only list workspaces, and
+`add-database-item` against it is rejected.
 
 ### edit-document
 
@@ -74,9 +99,16 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
 ```
 
+External MCP, WebMCP, tool, and A2A callers first read the document, then pass
+its `baseRevision` and one stable `idempotencyKey`. When the returned body is
+literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
+Initialization rejects whitespace-only and all other nonempty bodies, preserves
+the Markdown bytes exactly, and safely replays an identical retry.
+
 ### update-document
 
-Update an existing document. Use for **full rewrites or new content**, not for small changes (use `edit-document` instead).
+Update an existing document's metadata or browser-owned content. External
+callers use the revisioned `edit-document` protocol for every body change.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
@@ -85,10 +117,42 @@ pnpm action update-document --id abc123 --title "New Title" --content "New conte
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
+### Suggested edits
+
+When the user asks to **suggest**, **propose**, or **leave changes for review**,
+do not call `edit-document` or `update-document`. Read the current Page with
+`get-document`, then call `suggest-document-edit` with the Page's `id`, its
+`baseRevision`, a fresh `idempotencyKey`, and the exact `find` text plus the
+`replace` Markdown (omit `replace` to propose deleting the text). `find` must
+match the page's current text exactly once. Content builds the tracked change
+and anchor server-side; the page stays unchanged until a reviewer accepts.
+
+Use `suggest-document-edit` for every suggested body edit. The generic
+`create-resource-suggestion` action remains for advanced proposals that build
+typed Page-body operations by hand: `resourceType: "document"`, adapter kind
+`content.document-markdown`, the Page's `revision` (or exact `updatedAt`) as
+`baseRevision`, a fresh `idempotencyKey`, and one operation carrying the
+complete current and proposed Markdown in `before.markdown` and
+`after.markdown`, the changed segment in `changedText`, and an `anchor` object.
+
+Use `list-resource-suggestions` to inspect pending and historical proposals.
+Only accept or reject when the user has asked for that decision and the caller
+has editor authority; call `decide-resource-suggestion` with a fresh
+idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
+result means canonical Content was not overwritten. Suggested edits are
+unavailable for local-file, source-owned, externally linked, collection-item, or
+trashed Pages in this release.
+
+```bash
+pnpm action suggest-document-edit --id abc123 \
+  --baseRevision 'body:0:sha256:…' --idempotencyKey '<uuid>' \
+  --find 'Exact current sentence.' --replace 'Proposed replacement sentence.'
+```
+
 ### delete-document
 
 Move a document and all its children to Trash. IDs, bodies, hierarchy, and
-database membership remain intact so the subtree can be restored.
+collection membership remain intact so the subtree can be restored.
 
 ```bash
 pnpm action delete-document --id abc123
@@ -98,8 +162,13 @@ Restore the root subtree, or permanently delete it only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123
-pnpm action permanently-delete-document --id abc123
+pnpm action plan-content-trash-purge --mode selection --documentIds '["abc123"]'
+pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>' --scopeToken '<opaque plan token>'
 ```
+
+Permanent deletion requires the exact `planId` and `scopeToken` returned by
+`plan-content-trash-purge`. Inspect the plan's affected and blocked items before
+executing it; if Trash changes after review, create and inspect a new plan.
 
 ## Comments
 
@@ -169,10 +238,10 @@ can't convey:
 - `document_versions`, `document_comments`, and `document_sync_links` all
   carry `owner_email` so a workspace can upgrade from local mode to a real
   account without losing history, comments, or Notion links.
-- A database is a normal document (`content_databases` +
+- A collection is a normal document (`content_databases` +
   `document_property_definitions`) whose rows are also documents, linked
   through `content_database_items`. Row pages are omitted from the ordinary
-  sidebar tree — they're reached through the database view.
+  sidebar tree — they're reached through the collection view.
 
 Documents are **private by default**; use `share-resource` /
 `set-resource-visibility` (`resourceType document`) to change access.
@@ -213,10 +282,15 @@ Documents form a tree via `parent_id`:
 - Deleting a parent recursively deletes all children
 - Position determines ordering within the same parent
 
+To reorganize the tree, move each subtree with `move-document` using ids from
+a prior action result. When the plan calls for a target page that does not
+exist yet — a new section, a grouping page — create it first with
+`create-document` and use the returned id as `parentId`.
+
 Descriptions are owned; context is inherited. `get-document` and `view-screen`
 return the focused page's own description plus a computed root-to-parent
 `contextPath`. Use that path to understand where the page lives, but never copy
-ancestor descriptions into the child. Database, property, and option
+ancestor descriptions into the child. Collection, property, and option
 descriptions narrow the guidance further when working with structured values.
 
 ## Screen Context And IDs
@@ -230,10 +304,16 @@ after `create-document` or `navigate`).
 IDs for edits always come from `<current-screen>` or a prior action result —
 never guessed.
 
+When a move or edit target does not exist yet, create it first and use the
+returned id. A rejection saying `not found` means the id is absent: create the
+missing page or list documents to find the right id. Never retry the same id
+or invent a similar-looking one — fabricated ids cannot resolve, and repeated
+failures stop the run.
+
 | User request              | What to do                                                                        |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
 | "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
 
@@ -241,7 +321,7 @@ never guessed.
 
 | User says                    | What to do                                                                          |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
@@ -260,9 +340,9 @@ Always run `refresh-list` after any create, update, or delete operation.
   discoverability, the read-only public chat). Read it before touching
   descriptions, external ingest, or a document's visibility.
 - **`references/databases.md`** — full behavioral reference for Content
-  databases: property types, Blocks fields, and every view type (table,
+  collections: property types, Blocks fields, and every view type (table,
   list, gallery, board, calendar, timeline, form). Read it before building or
-  modifying database views, properties, or forms.
+  modifying collection views, properties, or forms.
 
 Also read on demand, outside this skill:
 

@@ -1,47 +1,42 @@
-import { IconArrowLeft, IconMicrophone2 } from "@tabler/icons-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./AlertDialog";
 
 export function MicOffConfirmation({
   onBack,
-  onUnmute,
   onContinue,
 }: {
   onBack: () => void;
-  onUnmute: () => void;
   onContinue: () => void;
 }) {
   return (
-    <section className="mic-off-confirmation" aria-labelledby="mic-off-title">
-      <header className="mic-off-confirmation-header">
-        <button
-          type="button"
-          className="mic-off-confirmation-back"
-          onClick={onBack}
-        >
-          <IconArrowLeft size={18} aria-hidden="true" />
-          Back
-        </button>
-      </header>
-
-      <div className="mic-off-confirmation-body">
-        <div className="mic-off-confirmation-visual" aria-hidden="true">
-          <IconMicrophone2 size={42} strokeWidth={1.7} />
-          <span className="mic-off-confirmation-slash" />
-        </div>
-        <h2 id="mic-off-title">Your mic is muted</h2>
-        <p>
-          To have sound in your video, you&apos;ll need to unmute your
-          microphone.
-        </p>
-      </div>
-
-      <footer className="mic-off-confirmation-actions">
-        <button type="button" className="secondary" onClick={onUnmute}>
-          Unmute
-        </button>
-        <button type="button" className="primary" onClick={onContinue}>
-          Continue
-        </button>
-      </footer>
-    </section>
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onBack();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Microphone is off</AlertDialogTitle>
+          <AlertDialogDescription>
+            This recording won&apos;t include your voice.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onBack}>Go back</AlertDialogCancel>
+          <AlertDialogAction onClick={onContinue}>
+            Record anyway
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

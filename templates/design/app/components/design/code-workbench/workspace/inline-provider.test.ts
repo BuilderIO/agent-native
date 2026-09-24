@@ -195,6 +195,24 @@ describe("createInlineProvider", () => {
     });
   });
 
+  it("routes inline deletion through the shared editor boundary when provided", async () => {
+    const onDeleteFile = vi.fn().mockResolvedValue(undefined);
+    mockCallAction.mockResolvedValueOnce({
+      files: [{ path: "index.html", fileId: "file_1" }],
+    });
+    const provider = createInlineProvider({
+      designId: "design_1",
+      canEdit: true,
+      onDeleteFile,
+    });
+
+    await provider.listFiles();
+    await provider.deleteFile?.("index.html");
+
+    expect(onDeleteFile).toHaveBeenCalledWith("file_1");
+    expect(mockCallAction).toHaveBeenCalledTimes(1);
+  });
+
   it("sets write/create/rename/delete capabilities from canEdit", () => {
     const editable = createInlineProvider({ designId: "d1", canEdit: true });
     expect(editable.capabilities).toEqual({

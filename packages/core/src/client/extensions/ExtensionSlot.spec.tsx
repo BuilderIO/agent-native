@@ -122,4 +122,60 @@ describe("ExtensionSlot", () => {
       expect(onReady).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("does not report ready before the deferred install query settles", async () => {
+    vi.useFakeTimers();
+    try {
+      // Route the deferral onto faked timers so the paint window only passes
+      // when the test advances it.
+      vi.stubGlobal("requestAnimationFrame", undefined);
+      vi.stubGlobal("requestIdleCallback", undefined);
+      let resolveFetch: ((value: Response) => void) | undefined;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const onReady = vi.fn();
+
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ExtensionSlot id="test.sidebar.bottom" onReady={onReady} />
+          </QueryClientProvider>,
+        );
+      });
+
+      // Deferral window passes and the query starts, but the fetch has not
+      // settled: zero known installs must not read as "ready".
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onReady).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveFetch?.(
+          Response.json([
+            {
+              installId: "install-1",
+              extensionId: "extension-1",
+              name: "Status",
+              description: "Status widget",
+              icon: null,
+              updatedAt: "2026-07-11T00:00:00.000Z",
+              position: 0,
+              config: null,
+            },
+          ]),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(onReady).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

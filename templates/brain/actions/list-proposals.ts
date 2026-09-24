@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -6,6 +6,25 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { parseJson, serializeProposal } from "../server/lib/brain.js";
+
+/**
+ * A bare category label does not tell a reviewer how close the call was, so
+ * annotate it with the classifier's probability when one was recorded.
+ */
+function describeSensitivityCategories(
+  categories: string[],
+  decisionScoresJson: string | null,
+) {
+  const scores = decisionScoresJson
+    ? parseJson<Record<string, number>>(decisionScoresJson, {})
+    : {};
+  return categories.map((category) => {
+    const score = scores[category];
+    return typeof score === "number"
+      ? `${category} ${Math.round(score * 100)}%`
+      : category;
+  });
+}
 
 export default defineAction({
   description: "List Brain knowledge proposals requiring review.",
@@ -43,6 +62,7 @@ export default defineAction({
           sourceName: schema.brainSources.title,
           disposition: schema.brainSensitivityEvents.disposition,
           categoriesJson: schema.brainSensitivityEvents.categoriesJson,
+          decisionScoresJson: schema.brainSensitivityEvents.decisionScoresJson,
           confidenceBand: schema.brainSensitivityEvents.confidenceBand,
           expiresAt: schema.brainSensitivityEvents.expiresAt,
           createdAt: schema.brainSensitivityEvents.createdAt,
@@ -68,7 +88,10 @@ export default defineAction({
         sourceName: row.sourceName,
         reason: [
           row.confidenceBand,
-          ...parseJson<string[]>(row.categoriesJson, []),
+          ...describeSensitivityCategories(
+            parseJson<string[]>(row.categoriesJson, []),
+            row.decisionScoresJson,
+          ),
           row.expiresAt ? `expires ${row.expiresAt}` : "metadata-only",
         ].join(" · "),
         status: "quarantine" as const,

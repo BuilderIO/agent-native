@@ -107,7 +107,7 @@ track(
 
 `source`에는 액션의 `ctx`를 그대로 전달하거나, `ctx`가 없는 호출자를 위해 `{ userId, anonymousId, sessionId }` 메타 객체를 전달합니다.
 
-브라우저 세션은 호출자가 직접 넘길 필요가 없습니다. 앰비언트 요청 컨텍스트(`RequestContext.browserSessionId`로, 액션 클라이언트·챗·브라우저 `track()`이 모두 보내는 `X-Agent-Native-Session-Id` 헤더에서 설정됩니다)에서 가져오므로, UI가 이벤트를 일으켰든 에이전트가 일으켰든 같은 방문으로 상관됩니다. 각 제공자는 이를 자체 세션 필드에 매핑합니다. PostHog는 `$session_id`로 매핑해 이벤트를 세션 리플레이와 연결하고, Mixpanel과 Amplitude는 `session_id` 속성으로, 웹훅과 Agent Native Analytics는 최상위 `sessionId`로 받습니다. 브라우저가 없는 호출자(cron, CLI, MCP, A2A)에서는 값이 없으며, 메타 객체의 `sessionId`가 이를 덮어씁니다.
+브라우저 세션은 호출자가 직접 넘길 필요가 없습니다. 앰비언트 요청 컨텍스트(`RequestContext.browserSessionId`로, 액션 클라이언트·챗·브라우저 `track()`이 모두 보내는 `X-Agent-Native-Session-Id` 헤더에서 설정됩니다)에서 가져오므로, UI가 이벤트를 일으켰든 에이전트가 일으켰든 같은 방문으로 상관됩니다. 각 제공자는 이를 자체 세션 필드에 매핑합니다. PostHog는 `$session_id`로 매핑해 이벤트를 세션 리플레이와 연결하고, Mixpanel과 Amplitude는 `session_id` 속성으로, 웹훅과 Agent-Native Analytics는 최상위 `sessionId`로 받습니다. 브라우저가 없는 호출자(cron, CLI, MCP, A2A)에서는 값이 없으며, 메타 객체의 `sessionId`가 이를 덮어씁니다.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **Fire-and-forget.** UI를 차단하지 않으며 네트워크 오류를 발생시키지 않으며 삼키지 않습니다.
 - **인증됨, 자사 전용.** 경로에는 세션과 동일 출처/CSRF 마커(도우미가 자동으로 설정)가 필요하므로 개방형 분석 릴레이로 사용할 수 없습니다. `name`는 200자로 제한되고 `properties`는 ~16KB로 제한됩니다. 크기가 너무 크거나 형식이 잘못된 페이로드는 거부됩니다.
 
-이는 Agent Native의 자체 제품 분석을 지원하는 프레임워크의 내부 브라우저 원격 측정(`trackEvent()` / 자동 페이지뷰 - 아래 [Browser defaults](#browser-defaults) 참조)과 다릅니다. 구성된 제공업체에 도달해야 하는 앱 자체 분석 이벤트에 `track()`를 사용하세요.
+이는 Agent-Native의 자체 제품 분석을 지원하는 프레임워크의 내부 브라우저 원격 측정(`trackEvent()` / 자동 페이지뷰 - 아래 [Browser defaults](#browser-defaults) 참조)과 다릅니다. 구성된 제공업체에 도달해야 하는 앱 자체 분석 이벤트에 `track()`를 사용하세요.
 
 ## 세션 리플레이 {#session-replay}
 
-Agent Native 앱은 두 번째 분석 SDK를 추가하지 않고도 퍼스트파티 브라우저 세션 리플레이를 사용하도록 설정할 수 있습니다. 브라우저 루트에서 `configureTracking()`을 한 번 호출하고 Analytics 공개 키와 수집기 엔드포인트를 전달하세요.
+Agent-Native 앱은 두 번째 분석 SDK를 추가하지 않고도 퍼스트파티 브라우저 세션 리플레이를 사용하도록 설정할 수 있습니다. 브라우저 루트에서 `configureTracking()`을 한 번 호출하고 Analytics 공개 키와 수집기 엔드포인트를 전달하세요.
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 `sessionReplay.enabled`가 참 값이면 클라이언트는 시작 후 `@rrweb/record`를 동적으로 가져와 리플레이 청크를 리플레이 엔드포인트로 전송합니다. `endpoint`가 `/api/analytics/track` 또는 `/track`로 끝나면 리플레이 엔드포인트는 `/api/analytics/replay`로 자동 유도됩니다. 리플레이 수집기가 다른 곳에 있다면 `sessionReplay.endpoint`로 명시적으로 재정의하세요.
 
-Agent Native 템플릿 루트는 이미 `configureTracking()`을 호출합니다. 호스팅된 템플릿 배포는 Vite/Netlify 환경 변수로 리플레이를 켤 수 있으며, 라이브러리 소비자는 위의 명시적인 `configureTracking({ key, endpoint, sessionReplay })` 형태를 사용하는 것이 좋습니다.
+Agent-Native 템플릿 루트는 이미 `configureTracking()`을 호출합니다. 호스팅된 템플릿 배포는 Vite/Netlify 환경 변수로 리플레이를 켤 수 있으며, 라이브러리 소비자는 위의 명시적인 `configureTracking({ key, endpoint, sessionReplay })` 형태를 사용하는 것이 좋습니다.
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-브라우저 도우미는 또한 현재 Agent Native 인증 세션에 대해 최선을 다하는 논블로킹 읽기를 수행합니다. 리플레이는 기본적으로 로그인한 사용자에게만 적용됩니다. `sessionReplay`가 활성화되어 있어도 세션이 사용자 이메일 주소로 확인되지 않으면 녹화가 시작되지 않습니다. 로그인한 사용자의 리플레이에는 이메일 기반 `userId`/`userEmail`과 `orgId`가 포함됩니다.
+브라우저 도우미는 또한 현재 Agent-Native 인증 세션에 대해 최선을 다하는 논블로킹 읽기를 수행합니다. 리플레이는 기본적으로 로그인한 사용자에게만 적용됩니다. `sessionReplay`가 활성화되어 있어도 세션이 사용자 이메일 주소로 확인되지 않으면 녹화가 시작되지 않습니다. 로그인한 사용자의 리플레이에는 이메일 기반 `userId`/`userEmail`과 `orgId`가 포함됩니다.
 
 의도적으로 익명 리플레이를 배포하려는 경우에만 `sessionReplay.requireSignedInUser: false` 또는 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`를 설정하세요. 인증 게이팅을 비활성화하면 익명 녹화는 익명 방문자, 세션, 앱/템플릿, 호스트명, 경로별로 계속 쿼리할 수 있습니다.
 

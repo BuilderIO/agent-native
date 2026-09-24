@@ -7,6 +7,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { isValidAddressList } from "../lib/email-address-validation.js";
 import {
   scheduleEmailSend,
   scheduleSnooze,
@@ -168,9 +169,23 @@ export const scheduleEmail = defineEventHandler(async (event: H3Event) => {
     runAt?: number;
   };
 
-  if (!body.to || body.subject === undefined || body.body === undefined) {
+  if (
+    typeof body.to !== "string" ||
+    !body.to.trim() ||
+    body.subject === undefined ||
+    body.body === undefined
+  ) {
     setResponseStatus(event, 400);
     return { error: "Missing required fields: to, subject, body" };
+  }
+
+  if (
+    !isValidAddressList(body.to) ||
+    !isValidAddressList(body.cc) ||
+    !isValidAddressList(body.bcc)
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
   }
 
   if (!body.runAt || !Number.isFinite(body.runAt) || body.runAt <= Date.now()) {

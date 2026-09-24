@@ -20,7 +20,7 @@ describe("design navigation state", () => {
     const path = editorPathFromCommand(command);
 
     expect(path).toBe(
-      "/design/design_123?view=single&mode=interact&screen=empty-state.html&zoom=100",
+      "/design/design_123?editorView=single&mode=interact&screen=empty-state.html&zoom=100",
     );
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
@@ -42,7 +42,7 @@ describe("design navigation state", () => {
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?view=overview&tool=pen");
+    expect(path).toBe("/design/design_123?editorView=overview&tool=pen");
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
       editorView: "overview",
@@ -63,7 +63,7 @@ describe("design navigation state", () => {
     const path = editorPathFromCommand(command);
 
     expect(path).toBe(
-      "/design/design_123?view=overview&screen=screen-abc&selection=node-def",
+      "/design/design_123?editorView=overview&screen=screen-abc&selection=node-def",
     );
     expect(editorCommandFromNavigate(command, path!)).toMatchObject({
       designId: "design_123",
@@ -132,7 +132,7 @@ describe("design navigation state", () => {
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?view=overview");
+    expect(path).toBe("/design/design_123?editorView=overview");
     expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
       tool: expect.anything(),
     });

@@ -1,7 +1,10 @@
 import { removeBreakpointMediaDeclaration } from "@shared/breakpoint-media";
 import {
+  applyOrdinaryVisualStyleBatch,
   applyVisualEdit,
   type ApplyVisualEditResult,
+  type CodeLayerSource,
+  type VisualStyleBatchResult,
 } from "@shared/code-layer";
 import {
   duplicateStatePreviewRules,
@@ -20,6 +23,7 @@ import {
   normalizeDesignSourceType,
   type DesignSourceType,
 } from "@shared/source-mode";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 
 import type { ElementInfo } from "@/components/design/types";
 
@@ -32,8 +36,50 @@ import {
 } from "./react-semantic-handoff";
 import { camelStyleProperty } from "./style-utils";
 
+export interface RuntimeStructureNodeSignature {
+  tag: string;
+  text: string;
+  classes: string[];
+  component?: string;
+}
+
+export function normalizeRuntimeStructureClasses(
+  values: readonly string[],
+): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ).sort();
+}
+
+export function normalizeRuntimeStructureText(
+  value: string | null | undefined,
+): string {
+  // The code-layer projection collapses text before it reaches this matcher;
+  // keep this cap below that projection's 157-character snippet ceiling.
+  return value?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
+}
+
+export function runtimeStructureNodeSignature(args: {
+  info?: Pick<
+    ElementInfo,
+    "tagName" | "textContent" | "classes" | "componentName"
+  > | null;
+  sourceAnchor?: ReactSourceAnchor;
+}): RuntimeStructureNodeSignature | undefined {
+  if (!args.info?.tagName) return undefined;
+  const component =
+    args.sourceAnchor?.component?.trim() || args.info.componentName?.trim();
+  return {
+    tag: args.info.tagName.trim().toLowerCase(),
+    text: normalizeRuntimeStructureText(args.info.textContent),
+    classes: normalizeRuntimeStructureClasses(args.info.classes),
+    ...(component ? { component } : {}),
+  };
+}
+
 export interface PendingVisualStyleEdit {
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -88,8 +134,19 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
-  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
+  return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
 
 export function mergePendingLiveNonStyleEdits(
@@ -115,6 +172,24 @@ export function mergePendingLiveNonStyleEdits(
       if (supersededInsertIndex !== -1) {
         merged.splice(supersededInsertIndex, 1);
         continue;
+      }
+      if (edit.transactionId) {
+        const transactionIndex = merged.findIndex(
+          (candidate) =>
+            candidate.kind === "structure" &&
+            candidate.transactionId === edit.transactionId,
+        );
+        if (transactionIndex !== -1) {
+          const previous = merged[transactionIndex] as PendingLiveStructureEdit;
+          merged[transactionIndex] = {
+            ...edit,
+            groupedEdits: [
+              ...(previous.groupedEdits ?? [previous]),
+              ...(edit.groupedEdits ?? [edit]),
+            ],
+          };
+          continue;
+        }
       }
       merged.push(edit);
       continue;
@@ -143,6 +218,29 @@ export function mergePendingLiveNonStyleEdits(
       };
       continue;
     }
+    if (edit.kind === "layer-name") {
+      const index = merged.findIndex(
+        (candidate) =>
+          candidate.kind === "layer-name" &&
+          pendingLiveEditSubjectKey(candidate) ===
+            pendingLiveEditSubjectKey(edit),
+      );
+      if (index === -1) {
+        merged.push(edit);
+        continue;
+      }
+      const previous = merged[index] as PendingLiveLayerNameEdit;
+      if (previous.originalName === edit.name) {
+        merged.splice(index, 1);
+        continue;
+      }
+      merged[index] = {
+        ...previous,
+        ...edit,
+        originalName: previous.originalName,
+      };
+      continue;
+    }
     const nextKey = pendingLiveEditSubjectKey(edit);
     const index = merged.findIndex(
       (candidate) =>
@@ -164,6 +262,13 @@ export function mergePendingLiveNonStyleEdits(
   return merged;
 }
 
+export function mergePendingLiveNonStyleEdit(
+  edits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveNonStyleEdit,
+): PendingLiveNonStyleEdit[] {
+  return mergePendingLiveNonStyleEdits([...edits, nextEdit]);
+}
+
 export function pendingLiveTextUndoRevertValue(
   currentEdits: readonly PendingLiveNonStyleEdit[],
   nextEdit: PendingLiveTextEdit,
@@ -181,6 +286,7 @@ export function pendingLiveTextUndoRevertValue(
 export interface PendingLiveTextEdit {
   kind: "text";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -198,6 +304,7 @@ export interface PendingLiveTextEdit {
 export interface PendingLiveLayerStateEdit {
   kind: "layer-state";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   layerId: string;
@@ -209,6 +316,23 @@ export interface PendingLiveLayerStateEdit {
   state: "hidden" | "locked";
   enabled: boolean;
   originalEnabled: boolean;
+  updatedAt: number;
+}
+
+export interface PendingLiveLayerNameEdit {
+  kind: "layer-name";
+  screenId: string;
+  routePath?: string;
+  filename: string;
+  screenName: string;
+  layerId: string;
+  selector: string;
+  sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
+  tagName?: string | null;
+  classes: string[];
+  name: string;
+  originalName: string;
   updatedAt: number;
 }
 
@@ -225,6 +349,18 @@ export function pendingLiveLayerStateUndoRevertValue(
   return currentForTarget?.enabled ?? nextEdit.originalEnabled;
 }
 
+export function pendingLiveLayerNameUndoRevertValue(
+  currentEdits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveLayerNameEdit,
+): string {
+  const currentForTarget = currentEdits.find(
+    (edit): edit is PendingLiveLayerNameEdit =>
+      edit.kind === "layer-name" &&
+      pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
+  );
+  return currentForTarget?.name ?? nextEdit.originalName;
+}
+
 export function shouldRedoPendingLiveNonStyleBeforeStyle(
   styleEntry: { edit: { updatedAt: number } } | undefined,
   nonStyleEntry: { edit: { updatedAt: number } } | undefined,
@@ -238,14 +374,17 @@ export function shouldRedoPendingLiveNonStyleBeforeStyle(
 export interface PendingLiveStructureEdit {
   kind: "structure";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
   sourceId?: string | null;
   sourceAnchor?: ReactSourceAnchor;
+  subjectSignature?: RuntimeStructureNodeSignature;
   anchorSelector: string;
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
+  anchorSignature?: RuntimeStructureNodeSignature;
   /**
    * Project-relative route module reported by the localhost manifest. A
    * top-level canvas insert targets the live document body, which intentionally
@@ -261,17 +400,39 @@ export interface PendingLiveStructureEdit {
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
   /**
    * Markup this edit ADDED to the running app. Present only for a drop whose
    * subject had no counterpart in the screen's source, so the coding agent
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  remintCollidingNodeIds?: boolean;
   /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
   /** Runtime identity of the optimistic replacement used for verification. */
   replacementSelector?: string;
   replacementSourceId?: string | null;
+  replacementSignature?: RuntimeStructureNodeSignature;
+  /** Expected visual tree captured by the bridge while it still owns the
+   * original DOM element. Runtime ids and computed styles are excluded.
+   * Missing evidence or later context changes cannot prove replacement. */
+  replacementSnapshotSignature?: string;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
@@ -281,6 +442,8 @@ export interface PendingLiveStructureEdit {
    */
   removed?: true;
   requestId?: string;
+  transactionId?: string;
+  groupedEdits?: PendingLiveStructureEdit[];
   updatedAt: number;
 }
 
@@ -427,9 +590,8 @@ export function reactSourceAnchorForPendingEdit(args: {
       args.info?.sourceId?.trim() ||
       args.info?.selector?.trim() ||
       undefined,
-    // Keep the raw Fiber value only in local state. Prompt serialization goes
-    // through redactReactSourceAnchor, which omits absolute paths until the
-    // connection root has resolved them to a safe project-relative relPath.
+    // Keep the raw Fiber value here so prompt serialization can retain an
+    // absolute path when the connection root cannot resolve a relPath.
     sourceFile,
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
@@ -481,11 +643,51 @@ export function reactSourceAnchorUnavailableReason(
 export type PendingLiveNonStyleEdit =
   | PendingLiveTextEdit
   | PendingLiveLayerStateEdit
+  | PendingLiveLayerNameEdit
   | PendingLiveStructureEdit;
-export type PendingVisualStyleUndoEntry = {
+export type PendingVisualStyleUndoTarget = {
   edit: PendingVisualStyleEdit;
   revertStyles: Record<string, string>;
 };
+export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
+  /** All targets changed by one inspector gesture share one undo entry. */
+  gestureId?: string;
+  groupedTargets?: PendingVisualStyleUndoTarget[];
+};
+export interface PendingVisualStyleGestureState {
+  sequence: number;
+  activeId: string | null;
+}
+
+export function pendingVisualStyleGestureIdForPhase(
+  state: PendingVisualStyleGestureState,
+  phase: "preview" | "commit" | "cancel" | undefined,
+  enabled: boolean,
+): string | undefined {
+  if (phase === "cancel") {
+    state.activeId = null;
+    return undefined;
+  }
+  if (phase === "commit" && !enabled) {
+    state.activeId = null;
+    return undefined;
+  }
+  if (!enabled) return undefined;
+  const nextId = () => {
+    state.sequence += 1;
+    return `pending-live-style-${state.sequence}`;
+  };
+  if (phase === "preview") {
+    state.activeId ??= nextId();
+    return state.activeId;
+  }
+  if (phase === "commit") {
+    const gestureId = state.activeId ?? nextId();
+    state.activeId = null;
+    return gestureId;
+  }
+  return nextId();
+}
 export type PendingLiveTextUndoEntry = {
   kind: "text";
   edit: PendingLiveTextEdit;
@@ -495,16 +697,172 @@ export type PendingLiveTextUndoEntry = {
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
+  groupedEdits?: PendingLiveStructureEdit[];
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
 };
+export type PendingLiveLayerNameUndoEntry = {
+  kind: "layer-name";
+  edit: PendingLiveLayerNameEdit;
+  revertName: string;
+};
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveLayerStateUndoEntry
+  | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
+
+/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
+ * one committed change, so it must stay an independent undo step. */
+export function appendPendingVisualStyleUndoEntry(
+  stack: PendingVisualStyleUndoEntry[],
+  entry: PendingVisualStyleUndoEntry,
+): void {
+  const last = stack[stack.length - 1];
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
+    const targets = pendingVisualStyleUndoTargets(last);
+    const index = targets.findIndex(
+      (target) =>
+        pendingVisualStyleEditKey(target.edit) ===
+        pendingVisualStyleEditKey(entry.edit),
+    );
+    if (index === -1) {
+      last.groupedTargets = [
+        ...(last.groupedTargets ?? []),
+        { edit: entry.edit, revertStyles: entry.revertStyles },
+      ];
+    } else {
+      const previous = targets[index]!;
+      const nextTarget = {
+        edit: {
+          ...entry.edit,
+          styles: { ...previous.edit.styles, ...entry.edit.styles },
+          originalStyles: {
+            ...entry.edit.originalStyles,
+            ...previous.edit.originalStyles,
+          },
+        },
+        revertStyles: { ...entry.revertStyles, ...previous.revertStyles },
+      };
+      if (index === 0) {
+        last.edit = nextTarget.edit;
+        last.revertStyles = nextTarget.revertStyles;
+      } else {
+        last.groupedTargets![index - 1] = nextTarget;
+      }
+    }
+    // Undo ordering compares the primary edit's timestamp with other pending
+    // edit kinds, so keep it at the time of the latest tick in this gesture.
+    last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
+    return;
+  }
+  stack.push(entry);
+}
+
+export function pendingVisualStyleUndoTargets(
+  entry: PendingVisualStyleUndoEntry,
+): PendingVisualStyleUndoTarget[] {
+  return [
+    { edit: entry.edit, revertStyles: entry.revertStyles },
+    ...(entry.groupedTargets ?? []),
+  ];
+}
+
+export function pendingVisualStyleEditsFromUndoStack(
+  stack: readonly PendingVisualStyleUndoEntry[],
+): PendingVisualStyleEdit[] {
+  return stack.flatMap((entry) =>
+    pendingVisualStyleUndoTargets(entry).map((target) => target.edit),
+  );
+}
+
+export function appendPendingLiveNonStyleUndoEntry(
+  stack: PendingLiveNonStyleUndoEntry[],
+  entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
+): void {
+  const last = stack[stack.length - 1];
+  if (
+    coalesceAdjacent &&
+    last?.kind === "text" &&
+    entry.kind === "text" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    last?.kind === "structure" &&
+    entry.kind === "structure" &&
+    entry.edit.transactionId &&
+    last.edit.transactionId === entry.edit.transactionId
+  ) {
+    last.groupedEdits = [
+      ...(last.groupedEdits ?? [last.edit]),
+      ...pendingLiveStructureEditsFromUndoEntry(entry),
+    ];
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    coalesceAdjacent &&
+    last?.kind === "layer-name" &&
+    entry.kind === "layer-name" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
+    last.edit = entry.edit;
+    return;
+  }
+  stack.push(entry);
+}
+
+export function pendingLiveStructureEditsFromUndoEntry(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit[] {
+  return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
+}
+
+/**
+ * Redo receives the final member as `entry.edit`, while a coalesced live move
+ * keeps the full transaction on the undo entry. Reattach those members before
+ * choosing the replay command so cross-screen insert/delete pairs stay atomic.
+ */
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
+}
+
+export function pendingLiveStructureEditsFromEdit(
+  edit: PendingLiveStructureEdit,
+): PendingLiveStructureEdit[] {
+  return edit.groupedEdits ?? [edit];
+}
+
+export function pendingLiveNonStyleEditsFromUndoStack(
+  stack: readonly PendingLiveNonStyleUndoEntry[],
+): PendingLiveNonStyleEdit[] {
+  const edits: PendingLiveNonStyleEdit[] = [];
+  for (const entry of stack) {
+    if (entry.kind === "structure") {
+      edits.push(...pendingLiveStructureEditsFromUndoEntry(entry));
+    } else {
+      edits.push(entry.edit);
+    }
+  }
+  return edits;
+}
 
 /**
  * Project-relative source files that must be read before this edit can be
@@ -516,24 +874,30 @@ export type PendingLiveNonStyleUndoEntry =
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
-  const required = [
-    ...(edit.insertedHtml && !edit.replaced
+  const required = pendingLiveStructureEditsFromEdit(edit).flatMap((member) => [
+    ...(member.insertedHtml && !member.replaced
       ? []
-      : [edit.sourceAnchor?.relPath]),
-    ...(edit.removed || edit.replaced
+      : [member.sourceAnchor?.relPath ?? member.sourceAnchor?.ownerRelPath]),
+    ...(member.removed || member.replaced
       ? []
       : [
-          edit.anchorSourceAnchor?.relPath ??
-            (edit.insertedHtml ? edit.routeSourceFile : undefined),
+          member.anchorSourceAnchor?.relPath ??
+            member.anchorSourceAnchor?.ownerRelPath ??
+            (member.insertedHtml ? member.routeSourceFile : undefined),
         ]),
-  ];
+  ]);
   if (required.some((path) => !path)) return null;
   return required as string[];
 }
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
 /**
@@ -545,12 +909,18 @@ export type PendingStructureRedoCommand =
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }
@@ -577,9 +947,14 @@ export function pendingLiveStructureEditsMatch(
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
     edit.screenId,
+    edit.routePath ?? "",
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(
@@ -674,6 +1049,7 @@ export function buildPendingVisualStyleRevertPatches(
   return edits
     .map((edit) => ({
       screenId: edit.screenId,
+      routePath: edit.routePath,
       selector: edit.selector,
       sourceId: edit.sourceId,
       // Carried, not resolved: consumers replay into the live frame (prefer the
@@ -695,11 +1071,13 @@ export function buildPendingVisualStyleRevertPatches(
 
 export type PendingVisualStyleRuntimePatch = {
   screenId: string;
+  routePath?: string;
   selector: string;
   sourceId?: string | null;
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 };
 
 function nodeIdSelector(nodeId: string): string {
@@ -748,8 +1126,17 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
+    interactionState?: InteractionState;
   },
 ) => boolean;
+
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
 
 /**
  * Forward, undo, and redo all use this exact per-property runtime channel.
@@ -773,6 +1160,10 @@ export function replayPendingVisualStyleRuntimePatch(
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
+      ...(patch.interactionState
+        ? { interactionState: patch.interactionState }
+        : {}),
     }),
   );
 }
@@ -834,20 +1225,28 @@ export function formatPendingVisualStylePrompt(args: {
   /** Screen id → the route it renders, for naming screens the way the app does. */
   screenRoutes?: Readonly<Record<string, string>>;
 }): string {
+  if (args.edits.length === 0 && (args.liveEdits?.length ?? 0) === 0) {
+    return "";
+  }
   const codingAgent = args.audience === "coding-agent";
   const nameScreen = (screenId: string, filename: string) =>
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
+    operation: "update-style" as const,
     screenId: edit.screenId,
+    ...(edit.routePath ? { routePath: edit.routePath } : {}),
     screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
     sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+    provenance: redactReactSourceAnchor(edit.sourceAnchor),
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    before: edit.originalStyles,
+    after: edit.styles,
     ...(edit.interactionState
       ? { interactionState: edit.interactionState }
       : {}),
@@ -871,20 +1270,32 @@ export function formatPendingVisualStylePrompt(args: {
       anchor.scope === "repeated-render" ||
       anchor.scope === "shared-component-definition",
   );
+  const hasOutsideConnectedRootPaths = reactSourceAnchors.some((anchor) => {
+    const redacted = redactReactSourceAnchor(anchor);
+    return (
+      redacted?.sourcePathStatus === "outside-connected-root" ||
+      redacted?.ownerSourcePathStatus === "outside-connected-root"
+    );
+  });
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
+        operation: "update-text" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
+        before: edit.originalValue,
+        after: edit.value,
       };
     }
     if (edit.kind === "layer-state") {
@@ -897,21 +1308,46 @@ export function formatPendingVisualStylePrompt(args: {
           })
         : null;
       return {
+        operation: "update-layer-state" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         state: edit.state,
         enabled: edit.enabled,
+        before: edit.originalEnabled,
+        after: edit.enabled,
         attributeName: `data-agent-native-${edit.state}`,
         ...(semanticHandoff?.ok
           ? { semanticHandoff: semanticHandoff.handoff }
           : {}),
+      };
+    }
+    if (edit.kind === "layer-name") {
+      return {
+        operation: "metadata" as const,
+        kind: edit.kind,
+        screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
+        screen: nameScreen(edit.screenId, edit.filename),
+        screenName: edit.screenName,
+        selector: edit.selector,
+        sourceId: edit.sourceId ?? null,
+        sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
+        tagName: edit.tagName ?? null,
+        classes: edit.classes,
+        metadata: "data-agent-native-layer-name",
+        before: edit.originalName,
+        after: edit.name,
+        desiredChange: `Set the source layer metadata name to ${JSON.stringify(edit.name)} for the anchored element. Preserve the existing component structure and use the project's idiomatic naming convention.`,
       };
     }
     const subjectAnchor = edit.sourceAnchor
@@ -1019,6 +1455,12 @@ export function formatPendingVisualStylePrompt(args: {
                       : edit.dropMode === "absolute-container"
                         ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
                         : "Preserve the runtime layout behavior observed in the preview.",
+                    edit.gridPlacement
+                      ? `The target is grid cell column ${edit.gridPlacement.column} / ${edit.gridPlacement.columnEnd}, row ${edit.gridPlacement.row} / ${edit.gridPlacement.rowEnd}; preserve this explicit placement in source.`
+                      : "",
+                    edit.gridDisplacements?.length
+                      ? `The target cell was occupied; move ${edit.gridDisplacements.length} displaced element(s) into the recorded free grid cells.`
+                      : "",
                   ].join(" "),
                   sourceAnchors: [subjectAnchor, targetAnchor],
                   runtimeRelationship: {
@@ -1041,13 +1483,54 @@ export function formatPendingVisualStylePrompt(args: {
                   },
                 };
     return {
+      operation: edit.removed
+        ? "remove"
+        : edit.replaced
+          ? "replace"
+          : edit.insertedHtml
+            ? "insert"
+            : edit.placement === "inside"
+              ? "reparent"
+              : "move",
       kind: edit.kind,
       screenId: edit.screenId,
+      ...(edit.routePath ? { routePath: edit.routePath } : {}),
       screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
+      ...(edit.transactionId ? { transactionId: edit.transactionId } : {}),
+      ...(edit.groupedEdits
+        ? {
+            groupedEdits: edit.groupedEdits.map((member) => ({
+              selector: member.selector,
+              ...(member.routePath ? { routePath: member.routePath } : {}),
+              sourceId: member.sourceId ?? null,
+              sourceAnchor: redactReactSourceAnchor(member.sourceAnchor),
+              anchorSelector: member.anchorSelector,
+              anchorSourceId: member.anchorSourceId ?? null,
+              anchorSourceAnchor: redactReactSourceAnchor(
+                member.anchorSourceAnchor,
+              ),
+              placement: member.placement,
+              ...(member.dropMode ? { dropMode: member.dropMode } : {}),
+              ...(member.gridPlacement
+                ? { gridPlacement: member.gridPlacement }
+                : {}),
+              ...(member.gridDisplacements
+                ? { gridDisplacements: member.gridDisplacements }
+                : {}),
+            })),
+          }
+        : {}),
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      provenance: {
+        subject: redactReactSourceAnchor(edit.sourceAnchor),
+        target: redactReactSourceAnchor(edit.anchorSourceAnchor),
+      },
+      ...(edit.subjectSignature
+        ? { subjectSignature: edit.subjectSignature }
+        : {}),
       // A removal has no anchor; emitting empty anchor fields alongside a
       // meaningless placement reads as a half-captured move.
       ...(edit.removed || edit.replaced
@@ -1057,6 +1540,9 @@ export function formatPendingVisualStylePrompt(args: {
               replaced: true as const,
               replacementSelector: edit.replacementSelector,
               replacementSourceId: edit.replacementSourceId ?? null,
+              ...(edit.replacementSignature
+                ? { replacementSignature: edit.replacementSignature }
+                : {}),
             }
         : {
             anchorSelector: edit.anchorSelector,
@@ -1064,6 +1550,9 @@ export function formatPendingVisualStylePrompt(args: {
             anchorSourceAnchor: redactReactSourceAnchor(
               edit.anchorSourceAnchor,
             ),
+            ...(edit.anchorSignature
+              ? { anchorSignature: edit.anchorSignature }
+              : {}),
             placement: edit.placement,
           }),
       ...(edit.dropMode ? { dropMode: edit.dropMode } : {}),
@@ -1075,6 +1564,10 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(edit.gridPlacement ? { gridPlacement: edit.gridPlacement } : {}),
+      ...(edit.gridDisplacements
+        ? { gridDisplacements: edit.gridDisplacements }
+        : {}),
       ...(insertedHtml
         ? {
             insertedHtml: insertedHtml.value,
@@ -1105,10 +1598,17 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     "",
     codingAgent
-      ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
+      ? "These were made against the running app in a visual canvas. Treat each item as a source operation: use provenance/sourceAnchor to locate the owning source, compare before with the live after, and make the smallest idiomatic source edit. Runtime selectors and node ids are correlation hints only; never hand off inline-style mutations as the final implementation. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasOutsideConnectedRootPaths
+      ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."
+      : "",
     hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
+      : "",
+    codingAgent &&
+    (args.liveEdits ?? []).some((edit) => edit.kind === "structure")
+      ? "Design verifies each structure edit via HMR as you write; write file-by-file rather than one final batch write."
       : "",
     hasRepeatedOrSharedReactScope
       ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."
@@ -1143,6 +1643,15 @@ export function formatPendingVisualStylePrompt(args: {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+export function formatVisualEditClipboardPrompt(
+  prompt: string,
+  host: "chatgpt" | "claude" | "webmcp" | null | undefined,
+): string {
+  return host === "chatgpt" || host === "claude" || host === "webmcp"
+    ? "Call the get-visual-edit-prompt WebMCP tool and apply the returned instructions."
+    : prompt;
 }
 
 export function resolveOverviewScreenSourceType(
@@ -1240,12 +1749,39 @@ export function applyScopedVisualStyleEdit(args: {
   property: string;
   value: string;
   upperBoundPx: number | null;
+  source?: CodeLayerSource;
   /** Inclusive lower bound for an exact-range edit. Omit for the normal
    * desktop-down “this breakpoint and smaller” cascade. */
   lowerBoundPx?: number | null;
 }): ApplyVisualEditResult {
-  const { content, target, property, value, upperBoundPx, lowerBoundPx } = args;
+  const {
+    content,
+    target,
+    property,
+    value,
+    upperBoundPx,
+    lowerBoundPx,
+    source,
+  } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
+  if (upperBoundPx != null && isVectorEndpointProperty(normalizedProperty)) {
+    // Endpoint values require marker definitions and shape attributes, which
+    // cannot be represented by a media-scoped custom property. Let the shared
+    // breakpoint editor return its unsupported result before any existing
+    // scoped declaration is cleaned up.
+    return applyVisualEdit(
+      content,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property: normalizedProperty,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
+  }
   if (
     lowerBoundPx != null &&
     upperBoundPx != null &&
@@ -1254,14 +1790,18 @@ export function applyScopedVisualStyleEdit(args: {
     lowerBoundPx > 0 &&
     upperBoundPx >= lowerBoundPx
   ) {
-    const maxPatch = applyVisualEdit(content, {
-      kind: "breakpoint-style",
-      target,
-      maxWidthPx: upperBoundPx,
-      property: normalizedProperty,
-      value,
-      operation: "set",
-    });
+    const maxPatch = applyVisualEdit(
+      content,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property: normalizedProperty,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
     if (maxPatch.result.status !== "applied") return maxPatch;
     const withoutCascade = removeBreakpointMediaDeclaration(maxPatch.content, {
       nodeId: target.nodeId,
@@ -1288,16 +1828,20 @@ export function applyScopedVisualStyleEdit(args: {
       : content;
   const plan = planBreakpointStyleWrite({ property, value, upperBoundPx });
   if (plan.mode === "class") {
-    const rcPatch = applyVisualEdit(cleanedContent, {
-      kind: "responsive-class",
-      target,
-      // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
-      prefix: "base",
-      maxWidthPx: plan.boundPx,
-      operation: "replace",
-      utility: plan.utility,
-      stem: utilityStem(plan.utility),
-    });
+    const rcPatch = applyVisualEdit(
+      cleanedContent,
+      {
+        kind: "responsive-class",
+        target,
+        // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
+        prefix: "base",
+        maxWidthPx: plan.boundPx,
+        operation: "replace",
+        utility: plan.utility,
+        stem: utilityStem(plan.utility),
+      },
+      { source },
+    );
     if (rcPatch.result.status === "applied") return rcPatch;
     // Fall through to the media path so the edit still lands scoped.
   }
@@ -1306,21 +1850,29 @@ export function applyScopedVisualStyleEdit(args: {
     upperBoundPx !== null &&
     upperBoundPx !== undefined
   ) {
-    return applyVisualEdit(cleanedContent, {
-      kind: "breakpoint-style",
+    return applyVisualEdit(
+      cleanedContent,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
+  }
+  return applyVisualEdit(
+    cleanedContent,
+    {
+      kind: "style",
       target,
-      maxWidthPx: upperBoundPx,
       property,
       value,
-      operation: "set",
-    });
-  }
-  return applyVisualEdit(cleanedContent, {
-    kind: "style",
-    target,
-    property,
-    value,
-  });
+    },
+    { source },
+  );
 }
 
 const EXACT_BREAKPOINT_ATTR = "data-agent-native-breakpoint-range";
@@ -1361,12 +1913,58 @@ function removeExactBreakpointDeclarations(
   const markerPattern =
     args.minWidthPx != null && args.maxWidthPx != null
       ? escapeRegExp(marker)
-      : `${escapeRegExp(marker)}::[^\"]+`;
+      : `${escapeRegExp(marker)}::[^"]+`;
   const styleRe = new RegExp(
     `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="${markerPattern}"[^>]*>.*?<\\/style>\\n?`,
     "gis",
   );
   return content.replace(styleRe, "");
+}
+
+function removeExactBreakpointDeclarationsBatch(
+  content: string,
+  edits: readonly {
+    target: { nodeId: string };
+    property: string;
+  }[],
+): string {
+  const markerBases = new Set(
+    edits.map(({ target, property }) =>
+      exactBreakpointMarker(target.nodeId, normalizeCssPropertyName(property)),
+    ),
+  );
+  if (markerBases.size === 0) return content;
+
+  const styleRe = new RegExp(
+    `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="([^"]+)"[^>]*>.*?<\\/style>\\n?`,
+    "gis",
+  );
+  return content.replace(styleRe, (styleBlock, marker: string) => {
+    const separator = marker.lastIndexOf("::");
+    return separator > 0 && markerBases.has(marker.slice(0, separator))
+      ? ""
+      : styleBlock;
+  });
+}
+
+/** Base-scope K scaling writes all ordinary properties as one atomic patch. */
+export function applyScopedVisualStyleBatch(args: {
+  content: string;
+  source?: CodeLayerSource;
+  edits: readonly {
+    target: { nodeId: string };
+    property: string;
+    value: string;
+  }[];
+}): VisualStyleBatchResult {
+  const result = applyOrdinaryVisualStyleBatch(args.content, args.edits, {
+    source: args.source,
+  });
+  if (result.status !== "applied") return result;
+  return {
+    ...result,
+    content: removeExactBreakpointDeclarationsBatch(result.content, args.edits),
+  };
 }
 
 function setExactBreakpointDeclaration(

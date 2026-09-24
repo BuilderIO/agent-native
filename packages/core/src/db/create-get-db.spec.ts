@@ -313,6 +313,45 @@ describe("buildResilientNeonPool", () => {
     );
     expect(client.query).toHaveBeenNthCalledWith(2, "SELECT 1");
   });
+
+  it("bounds Drizzle transaction acquires and releases late clients", async () => {
+    const { buildResilientNeonPool } = await import("./create-get-db.js");
+
+    let resolveLateAcquire!: (client: any) => void;
+    const lateClient = {
+      query: vi.fn(),
+      release: vi.fn(),
+    };
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveLateAcquire = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(client),
+      query: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+
+    const resilient = buildResilientNeonPool(pool as any);
+    const transactionClient = await resilient.connect();
+
+    expect(pool.connect).toHaveBeenCalledTimes(2);
+    await transactionClient.query("SELECT 1");
+    transactionClient.release();
+
+    resolveLateAcquire(lateClient);
+    await Promise.resolve();
+    expect(lateClient.release).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("isSqlRead", () => {
@@ -328,5 +367,132 @@ describe("isSqlRead", () => {
     expect(isSqlRead("INSERT INTO users (name) VALUES ($1)")).toBe(false);
     expect(isSqlRead("UPDATE users SET name=$1 WHERE id=$2")).toBe(false);
     expect(isSqlRead("DELETE FROM sessions WHERE id=$1")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createGetDb — lazy proxy returned before `_dbReady` resolves
+//
+// drizzle-orm duck-types "is this an SQL entity" via
+// `typeof value.getSQL === "function"` (isSQLWrapper, sql/sql.js), reading
+// the property synchronously — it never awaits first. If a caller embeds an
+// un-awaited chain from the lazy proxy as a raw value (e.g. a subquery
+// passed straight into `notInArray(col, subqueryChain)` instead of awaiting
+// it), the proxy must not answer that probe with something that looks like
+// a resolved SQL entity: doing so lets drizzle call `.getSQL()` on it, which
+// again duck-types as a wrapper, forever — the exact `RangeError: Maximum
+// call stack size exceeded` seen in production.
+// ---------------------------------------------------------------------------
+describe("createGetDb — lazy proxy before init resolves", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  // Returns the `getDb` factory (never the proxy it produces): the proxy's
+  // `then` trap forwards to `_dbReady`, so returning or awaiting the proxy
+  // itself here — rather than calling it synchronously in the test body —
+  // would make the test await the same promise this suite deliberately
+  // leaves pending, and hang.
+  async function getLazyDbFactory(): Promise<() => any> {
+    vi.doMock("./client.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./client.js")>();
+      return {
+        ...actual,
+        // Route init through the pglite branch and never resolve it, so
+        // `getDb()` is guaranteed to return the lazy proxy, not the real db.
+        isPgliteUrl: vi.fn(() => true),
+        loadPgliteDrizzle: vi.fn(() => new Promise(() => {})),
+      };
+    });
+    const { createGetDb } = await import("./create-get-db.js");
+    return createGetDb({});
+  }
+
+  it("fails loudly instead of masquerading as a resolved SQL entity when probed via getSQL/shouldOmitSQLParens", async () => {
+    const getDb = await getLazyDbFactory();
+    const db = getDb();
+
+    // Mirrors templates/clips/actions/list-recordings.ts embedding an
+    // un-awaited subquery chain as a raw value.
+    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
+
+    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
+      expect(() => subqueryChain[prop]).toThrow(/unresolved|await/i);
+    }
+  });
+
+  it("does not recurse forever when duck-typed the way SQL.buildQueryFromSourceParams does", async () => {
+    const getDb = await getLazyDbFactory();
+    const db = getDb();
+    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
+
+    // Same shape as drizzle-orm's isSQLWrapper() + SQL.buildQueryFromSourceParams:
+    // while the value duck-types as an SQL wrapper, keep unwrapping it via getSQL().
+    function isSQLWrapper(value: any): boolean {
+      return (
+        value !== null &&
+        value !== undefined &&
+        typeof value.getSQL === "function"
+      );
+    }
+    function drainAsSql(value: any): any {
+      if (isSQLWrapper(value)) return drainAsSql(value.getSQL());
+      return value;
+    }
+
+    expect(() => drainAsSql(subqueryChain)).toThrow(/unresolved|await/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createGetDb — hosted-runtime local database guard
+//
+// `getDbExec()` (client.ts's initClient) already refused to fall back to
+// PGlite on a hosted function invocation. This opener resolved the same
+// runtime URL but skipped the refusal entirely, so a request that reached
+// Drizzle first silently opened the ephemeral per-instance PGlite file
+// instead of failing loudly. Both now share `assertHostedRuntimeDatabase()`.
+// ---------------------------------------------------------------------------
+describe("createGetDb hosted-runtime local database guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+  });
+
+  it("rejects instead of opening PGlite on a hosted function invocation with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("./client.js");
+    const getDb = createGetDb({});
+
+    await expect(getDb().select()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("rejects on a Cloudflare Worker/Pages invocation with no database URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("./client.js");
+    const getDb = createGetDb({});
+
+    await expect(getDb().select()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
   });
 });

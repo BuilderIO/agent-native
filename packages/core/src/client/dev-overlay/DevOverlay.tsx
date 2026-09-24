@@ -267,7 +267,7 @@ function DevBooleanRow({
         onChange={(e) => {
           const next = e.target.checked;
           setValue(next);
-          option.onChange?.(next);
+          void option.onChange?.(next);
         }}
         style={styles.checkbox}
       />
@@ -300,7 +300,7 @@ function DevSelectRow({
         onChange={(e) => {
           const next = e.target.value;
           setValue(next);
-          option.onChange?.(next);
+          void option.onChange?.(next);
         }}
         style={styles.select}
       >
@@ -343,7 +343,7 @@ function DevStringRow({
         onChange={(e) => {
           const next = e.target.value;
           setValue(next);
-          option.onChange?.(next);
+          void option.onChange?.(next);
         }}
         style={styles.input}
       />

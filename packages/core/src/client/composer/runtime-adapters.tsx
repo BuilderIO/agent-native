@@ -1,15 +1,16 @@
+import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
+
+// Toolkit names framework routes by their internal path; the host swaps in
+// the public prefix before the base path is applied.
+function publicFrameworkPathInBrowser(path: string): string {
+  return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
+}
 import {
   ComposerRuntimeAdaptersProvider,
   type ComposerRuntimeAdapters,
-} from "@agent-native/toolkit/composer";
+} from "@agent-native/toolkit/composer/runtime-adapters";
 import { useMemo, type ReactNode } from "react";
 
-import {
-  DEFAULT_REASONING_EFFORT,
-  getReasoningEffortOptionsForModel,
-  reasoningEffortLabel,
-  resolveReasoningEffortSelection,
-} from "../../shared/reasoning-effort.js";
 import { applyVoiceContextReplacements } from "../../voice/index.js";
 import {
   formatAgentChatContextItemsForPrompt,
@@ -19,7 +20,7 @@ import {
   setAgentChatContextItem,
 } from "../agent-chat.js";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "../agent-sidebar-state.js";
-import { agentNativePath } from "../api-path.js";
+import { appPath, frameworkRoutePrefix } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
@@ -32,15 +33,12 @@ import { isTrustedFrameMessage } from "../frame.js";
 import { useFormatters, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationDialogDeferred } from "../resources/McpIntegrationDialogDeferred.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import {
-  fetchAgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "../use-agent-engine-configured.js";
-import { useChatModels } from "../use-chat-models.js";
 import { useVoiceProviderStatus } from "../voice-provider-status.js";
+import { coreComposerModelAdapters } from "./model-runtime-adapters.js";
 
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 
@@ -56,20 +54,14 @@ function subscribeSidebarState(
     window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
 }
 
-const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
-  resolvePath: agentNativePath,
+type CoreComposerRuntimeAdapters = Omit<ComposerRuntimeAdapters, "translate">;
+
+export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
+  resolvePath: (path) => appPath(publicFrameworkPathInBrowser(path)),
   models: {
-    useChatModels,
-    useAgentEngineConfigured,
-    fetchAgentEngineConfiguredState,
+    ...coreComposerModelAdapters,
     BuilderSetupCard,
     BuilderSetupContent,
-    reasoning: {
-      defaultEffort: DEFAULT_REASONING_EFFORT,
-      getOptionsForModel: getReasoningEffortOptionsForModel,
-      label: reasoningEffortLabel,
-      resolve: resolveReasoningEffortSelection,
-    },
   },
   agentChat: {
     sendToAgentChat,
@@ -82,6 +74,7 @@ const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
   },
   builder: {
     useConnectFlow: useBuilderConnectFlow,
+    BuilderConnectPopover: DeferredBuilderConnectPopover,
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,
@@ -90,7 +83,7 @@ const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
     useOrg,
     isMcpIntegrationAvailable: isMcpIntegrationCatalogAvailable,
     useCreateMcpServer,
-    McpIntegrationDialog,
+    McpIntegrationDialog: McpIntegrationDialogDeferred,
   },
   voice: {
     useProviderStatus: useVoiceProviderStatus,
@@ -111,7 +104,15 @@ export function CoreComposerRuntimeProvider({
   children: ReactNode;
 }) {
   const translate = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  // Bind once per formatters instance (memoized per locale). A bind on every
+  // render minted a new function, which rebuilt `adapters` and re-ran every
+  // consumer effect keyed on it (VoiceButton re-read `voice-input-preference`
+  // on each render).
+  const formatNumber = useMemo(
+    () => formatters.formatNumber.bind(formatters),
+    [formatters],
+  );
   const adapters = useMemo(
     () => ({ ...coreComposerAdapters, formatNumber, translate }),
     [formatNumber, translate],

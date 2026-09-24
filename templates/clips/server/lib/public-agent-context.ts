@@ -1,3 +1,7 @@
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -11,6 +15,8 @@ import { getRequestURL, setResponseHeader, type H3Event } from "h3";
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
+  buildAgentHttpToolManifest,
+  CLIPS_WEBMCP_DISCOVERY,
   getAgentClipReadiness,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -19,7 +25,9 @@ import {
 } from "../../shared/agent-context.js";
 import {
   parseBrowserDiagnosticsRow,
+  sanitizeBrowserDiagnosticNavigationUrl,
   type BrowserDiagnosticsData,
+  type BrowserDiagnosticTimelineEvent,
 } from "../../shared/browser-diagnostics.js";
 import {
   isLoomEmbedBackedRecording,
@@ -77,6 +85,7 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
@@ -125,6 +134,14 @@ function maxAgentFrameMediaBytes(): number {
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES;
 }
 
+function maxAgentFrameMediaFileBytes(): number {
+  const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1, Math.floor(configured));
+  }
+  return DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES;
+}
+
 function frameMediaTooLargeMessage(size: number, maxBytes: number) {
   return `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`;
 }
@@ -132,6 +149,14 @@ function frameMediaTooLargeMessage(size: number, maxBytes: number) {
 function assertFrameMediaSize(size: number | null | undefined) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
   const maxBytes = maxAgentFrameMediaBytes();
+  if ((size ?? 0) > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
+  }
+}
+
+function assertFrameMediaFileSize(size: number | null | undefined) {
+  if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
+  const maxBytes = maxAgentFrameMediaFileBytes();
   if ((size ?? 0) > maxBytes) {
     throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
   }
@@ -194,6 +219,49 @@ async function readResponseBytesWithLimit(
 
   const buffer = Buffer.concat(chunks, totalBytes);
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+async function writeResponseBodyToFileWithLimit(
+  response: Response,
+  path: string,
+): Promise<void> {
+  const maxBytes = maxAgentFrameMediaFileBytes();
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(contentLength, maxBytes));
+  }
+
+  const file = await open(path, "wx");
+  let totalBytes = 0;
+  try {
+    if (!response.body) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > maxBytes) {
+        throw new Error(frameMediaTooLargeMessage(bytes.byteLength, maxBytes));
+      }
+      await file.write(bytes);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
+        }
+        await file.write(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } finally {
+    await file.close();
+  }
 }
 
 export async function loadPublicAgentAccess(
@@ -412,6 +480,7 @@ export async function loadAgentBugReport(
 // the true total counts.
 const MAX_PUBLIC_AGENT_CONSOLE_LOGS = 100;
 const MAX_PUBLIC_AGENT_NETWORK_REQUESTS = 100;
+const MAX_PUBLIC_AGENT_TIMELINE_EVENTS = 100;
 // Curated warn/error highlights and failed-request highlights.
 const MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES = 20;
 
@@ -438,6 +507,37 @@ function toPublicNetworkEntry(
     status: entry.status ?? null,
     error: entry.error ?? null,
     durationMs: entry.durationMs,
+  };
+}
+
+function toPublicTimelineEntry(entry: BrowserDiagnosticTimelineEvent) {
+  const base = {
+    timestampMs: entry.elapsedMs,
+    kind: entry.kind,
+  };
+  if (entry.kind === "console") {
+    return {
+      ...base,
+      level: entry.level,
+      message: entry.message,
+    };
+  }
+  if (entry.kind === "network") {
+    return {
+      ...base,
+      phase: entry.phase,
+      type: entry.type,
+      method: entry.method,
+      url: entry.url,
+      status: entry.status ?? null,
+      error: entry.error ?? null,
+      durationMs: entry.durationMs ?? null,
+    };
+  }
+  return {
+    ...base,
+    target: entry.target ?? null,
+    url: entry.url ? sanitizeBrowserDiagnosticNavigationUrl(entry.url) : null,
   };
 }
 
@@ -472,13 +572,17 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
     .filter(isFailedNetworkRequest)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicNetworkEntry);
+  const timeline = (diagnostics.timeline ?? [])
+    .slice(-MAX_PUBLIC_AGENT_TIMELINE_EVENTS)
+    .map(toPublicTimelineEntry);
   return {
     summary: diagnostics.summary,
+    timeline,
     consoleLogs,
     consoleIssues,
     networkRequests,
     failedNetworkRequests,
-    note: "Console logs include all levels (debug/log/info/warn/error). Network requests include method, sanitized URL (path kept, query values redacted), status, and duration. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
+    note: "Timeline entries are relative to recording start and include redacted navigation, click/input targets, console events, and request/response markers. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
   };
 }
 
@@ -598,6 +702,11 @@ export function buildPublicAgentContext({
     ...(clipIsReady
       ? ["Use transcript.segments for timestamped spoken context."]
       : []),
+    ...(clipIsReady
+      ? [
+          "Use the HTTP URLs in apis for browser-independent access. For complete transcript text, use apis.transcript. If this clip page is already open in a WebMCP-capable browser, list its read-only page tools for bounded access; WebMCP transcript results may omit fullText or be truncated, so follow sourceUrl for the complete transcript.",
+        ]
+      : []),
     ...transcriptStatusInstructions(transcript),
     ...(bugReport
       ? [
@@ -606,7 +715,7 @@ export function buildPublicAgentContext({
       : []),
     ...(browserDiagnostics
       ? [
-          "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
+          "Use browserDiagnostics.timeline for the bounded, relative event sequence: navigation, click/input targets, console events, and request/response markers. Use browserDiagnostics.consoleLogs and browserDiagnostics.networkRequests for the full redacted streams; consoleIssues and failedNetworkRequests are curated failure highlights.",
         ]
       : []),
     ...(!clipIsReady
@@ -625,6 +734,15 @@ export function buildPublicAgentContext({
   return {
     type: "agent-native.clip.context",
     version: CLIP_AGENT_CONTEXT_VERSION,
+    webmcp: {
+      ...CLIPS_WEBMCP_DISCOVERY,
+      http: buildAgentHttpToolManifest({
+        contextUrl: api.contextUrl,
+        transcriptUrl: api.transcriptUrl,
+        frameUrlTemplate: api.frameUrlTemplate,
+        frameAvailable: clipIsReady && !isLoomEmbedBacked,
+      }),
+    },
     instructions,
     clip: {
       id: recording.id,
@@ -737,41 +855,16 @@ function messageForMediaFetchError(err: unknown): string {
   return "Recording media could not be fetched.";
 }
 
-export async function loadRecordingMediaBytes(
-  recording: PublicAgentRecording,
-): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const videoUrl = recording.videoUrl ?? "";
-  if (!videoUrl) throw new Error("Recording has no videoUrl");
-  if (isLoomEmbedBackedRecording(recording)) {
-    throw new Error(
-      "Frame extraction is not available for legacy Loom embed imports.",
-    );
-  }
-  assertFrameMediaSize(recording.videoSizeBytes);
-
-  const fallbackMimeType = recordingFallbackMimeType(recording);
-  const isLocalBlob =
+function isLocalRecordingBlob(videoUrl: string): boolean {
+  return (
     videoUrl.startsWith("/api/video/") ||
-    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
+    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"))
+  );
+}
 
-  if (isLocalBlob) {
-    const stash = await appStateGet(
-      recording.ownerEmail,
-      `recording-blob-${recording.id}`,
-    );
-    const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
-    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
-    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
-    assertFrameMediaSize(bytes.byteLength);
-    const mimeType =
-      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
-    return {
-      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
-    };
-  }
-
+async function fetchRecordingMediaResponse(
+  videoUrl: string,
+): Promise<Response> {
   let resolvedVideoUrl = videoUrl;
   const isAppRelativeUrl =
     resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
@@ -806,6 +899,43 @@ export async function loadRecordingMediaBytes(
       response.status,
     );
   }
+  return response;
+}
+
+export async function loadRecordingMediaBytes(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const isLocalBlob = isLocalRecordingBlob(videoUrl);
+
+  if (isLocalBlob) {
+    const stash = await appStateGet(
+      recording.ownerEmail,
+      `recording-blob-${recording.id}`,
+    );
+    const b64 = typeof stash?.data === "string" ? stash.data : null;
+    if (!b64) throw new Error("recording-blob app-state missing");
+    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
+    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
+    assertFrameMediaSize(bytes.byteLength);
+    const mimeType =
+      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
+    return {
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
+    };
+  }
+
+  const response = await fetchRecordingMediaResponse(videoUrl);
 
   const bytes = await readResponseBytesWithLimit(response);
   return {
@@ -815,4 +945,47 @@ export async function loadRecordingMediaBytes(
       fallbackMimeType,
     ),
   };
+}
+
+export async function loadRecordingMediaFile(
+  recording: PublicAgentRecording,
+): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) throw new Error("Recording has no videoUrl");
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaFileSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  const path = join(
+    dir,
+    recording.videoFormat === "mp4" ? "input.mp4" : "input.webm",
+  );
+  const cleanup = () => rm(dir, { recursive: true, force: true });
+
+  try {
+    if (isLocalRecordingBlob(videoUrl)) {
+      const media = await loadRecordingMediaBytes(recording);
+      await writeFile(path, media.bytes);
+      return { path, mimeType: media.mimeType, cleanup };
+    }
+
+    const response = await fetchRecordingMediaResponse(videoUrl);
+    await writeResponseBodyToFileWithLimit(response, path);
+    return {
+      path,
+      mimeType: pickSourceMimeType(
+        response.headers.get("content-type"),
+        fallbackMimeType,
+      ),
+      cleanup,
+    };
+  } catch (error) {
+    await cleanup().catch(() => {});
+    throw error;
+  }
 }

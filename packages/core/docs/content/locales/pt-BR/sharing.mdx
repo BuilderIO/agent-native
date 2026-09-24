@@ -86,6 +86,10 @@ Ao compartilhar com um usuário ou organização específica, você escolhe uma 
 
 `admin` NOT muda de propriedade — ainda há exatamente um proprietário por recurso, diferente das concessões de compartilhamento.
 
+### Compartilhamento com grupos {#group-grants}
+
+Alguns recursos aceitam compartilhamento com grupos. O grupo precisa pertencer à organização do recurso, e cada membro atual recebe a função escolhida para esse recurso. Consulte [Organizações, equipes e permissões → Grupos de usuários](/docs/organizations-teams-permissions#user-groups) para ver o que os grupos abrangem e o que não abrangem.
+
 ## O que está coberto {#covered}
 
 Todo modelo que armazena trabalhos de autoria do usuário usa esse modelo. Concretamente:
@@ -106,7 +110,7 @@ Cada um deles usa o mesmo auxiliar de esquema `ownableColumns()`, a mesma ação
 
 Algumas áreas estão intencionalmente fora do sistema de compartilhamento:
 
-- **Aplicativos de dados pessoais** (Mail, Macros) — com escopo definido pelo usuário por design. Não existe o conceito de "compartilhar minha caixa de entrada".
+- **Aplicativos de dados pessoais** como o Mail — com escopo definido pelo usuário por design. Não existe o conceito de "compartilhar minha caixa de entrada".
 - **Aplicativos externos de fonte de verdade** — o controle de acesso reside no sistema upstream, não no aplicativo nativo do agente.
 - **URLs públicos anônimos** — slugs de publicação de formulário e slugs de link de reserva que expõem um URL a usuários desconectados são um eixo separado. Eles vivem ao lado do sistema de compartilhamento, e não em cima dele.
 

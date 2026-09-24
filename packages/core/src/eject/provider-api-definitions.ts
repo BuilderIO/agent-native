@@ -80,7 +80,7 @@ export function mergeProviderApiConfigs(
 }
 
 export function getProviderApiConfig(
-  providerId: ProviderApiId | string,
+  providerId: string,
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig {
   return getRuntimeProviderApiConfig(providerId, withLocalOverrides(overrides));
@@ -99,7 +99,7 @@ export function listProviderApiIdsForTemplateUse(
 }
 
 export function listProviderApiCatalog(
-  providerId?: ProviderApiId | string,
+  providerId?: string,
   options: Parameters<typeof listRuntimeProviderApiCatalog>[1] = {},
 ) {
   return listRuntimeProviderApiCatalog(providerId, {

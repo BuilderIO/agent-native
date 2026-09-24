@@ -153,14 +153,23 @@ function loadSnapMath(): {
 }
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
+const mergeFlipIntoTransform = loadPureBridgeFn<
+  (transform: string, flipX: boolean, flipY: boolean) => string
+>("mergeFlipIntoTransform");
+const mergeRelativeScale = loadPureBridgeFn<
+  (scale: string, flipX: boolean, flipY: boolean) => string
+>("mergeRelativeScale", ["readScalePair"]);
 
-// Both functions read only their arguments, so a single brace-extracted
-// declaration evaluates in isolation.
-function loadPureBridgeFn<T>(name: string): T {
+// These functions read only their arguments (plus, for dragTargetForPointerDown,
+// the containerScopeAncestor helper it calls), so brace-extracted declarations
+// evaluate in isolation without the bridge's DOM-wiring body.
+function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
-  const src = extractFunction(editorChromeBridgeScript, name);
+  const sources = [...dependencies, name].map((fnName) =>
+    extractFunction(editorChromeBridgeScript, fnName),
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const factory = new Function(`${src}\nreturn ${name};`);
+  const factory = new Function(`${sources.join("\n")}\nreturn ${name};`);
   return factory() as T;
 }
 
@@ -182,11 +191,89 @@ interface DragTargetArgs {
 }
 const dragTargetForPointerDown = loadPureBridgeFn<
   (args: DragTargetArgs) => unknown
->("dragTargetForPointerDown");
+>("dragTargetForPointerDown", ["containerScopeAncestor"]);
 const nextStackCandidate =
   loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
     "nextStackCandidate",
   );
+const resolveCornerRadiusXY = loadPureBridgeFn<
+  (value: string, width: number, height: number) => { x: number; y: number }
+>("resolveCornerRadiusXY", ["readPx", "resolveCornerRadiusComponent"]);
+const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
+  "isDirectCornerRadiusValue",
+);
+const composeRadiusLinearTransform = loadPureBridgeFn<
+  (
+    transform: { a: number; b: number; c: number; d: number },
+    scaleX: number,
+    scaleY: number,
+    radians: number,
+  ) => { a: number; b: number; c: number; d: number }
+>("composeRadiusLinearTransform");
+const radiusDragMaximums =
+  loadPureBridgeFn<
+    (
+      corner: string,
+      radii: Record<string, { x: number; y: number }>,
+      width: number,
+      height: number,
+    ) => { x: number; y: number }
+  >("radiusDragMaximums");
+
+describe("editor-chrome bridge — resize transform preservation", () => {
+  it("preserves authored transforms until a relative mirror is required", () => {
+    const authored = "translate(15px, 20px) scale(-2, 3)";
+    expect(mergeFlipIntoTransform(authored, false, false)).toBe(authored);
+    expect(mergeFlipIntoTransform(authored, true, false)).toBe(
+      `${authored} matrix(-1, 0, 0, 1, 0, 0)`,
+    );
+    expect(
+      mergeFlipIntoTransform("matrix(2, 0, 0, 3, 15, 20)", false, true),
+    ).toBe("matrix(2, 0, 0, 3, 15, 20) matrix(1, 0, 0, -1, 0, 0)");
+  });
+
+  it("mirrors independent scale without double-applying authored values", () => {
+    expect(mergeRelativeScale("2 3", true, false)).toBe("-2 3");
+    expect(mergeRelativeScale("-2 3", true, false)).toBe("2 3");
+    expect(mergeRelativeScale("none", false, true)).toBe("1 -1");
+  });
+});
+
+describe("editor-chrome bridge — corner radius math", () => {
+  it("resolves percentage radii against the border box axes", () => {
+    expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
+  });
+
+  it("uses computed geometry when the authored radius is tokenized", () => {
+    const authored = "var(--radius)";
+    const computed = "24px";
+    const value = isDirectCornerRadiusValue(authored) ? authored : computed;
+    expect(isDirectCornerRadiusValue(authored)).toBe(false);
+    expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
+  });
+
+  it("composes independent scale after a transformed element", () => {
+    expect(
+      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
+    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
+  });
+
+  it("leaves room for the adjacent corners before clamping a drag", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 10, y: 10 },
+          ne: { x: 140, y: 20 },
+          se: { x: 10, y: 10 },
+          sw: { x: 20, y: 70 },
+        },
+        200,
+        100,
+      ),
+    ).toEqual({ x: 60, y: 30 });
+  });
+});
 
 describe("editor-chrome bridge — dragTargetForPointerDown", () => {
   const selRect = {
@@ -208,6 +295,22 @@ describe("editor-chrome bridge — dragTargetForPointerDown", () => {
         selectedAlive: true,
         selectedRect: null,
         hitEl,
+        hitRaw,
+        point: { x: 0, y: 0 },
+        preferSelected: false,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("keeps the container when the hit is its own background", () => {
+    const hitRaw = { tag: "bg" };
+    const selectedEl = { tag: "sel", contains: (x: unknown) => x === hitRaw };
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: null,
+        hitEl: selectedEl,
         hitRaw,
         point: { x: 0, y: 0 },
         preferSelected: false,
@@ -355,7 +458,7 @@ describe("editor-chrome bridge — nextStackCandidate", () => {
 function loadSelectionTargetForHit(documentRoot: {
   body: Element;
   documentElement: Element;
-}): (hit: Element | null) => Element | null {
+}): (hit: Element | null, descendIntoGroup?: boolean) => Element | null {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const rootCheck = extractFunction(
     editorChromeBridgeScript,
@@ -365,10 +468,30 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "selectionTargetForHit",
   );
+  const svgAncestor = extractFunction(
+    editorChromeBridgeScript,
+    "outermostSvgAncestor",
+  );
+  const pastedSvgShape = extractFunction(
+    editorChromeBridgeScript,
+    "pastedSvgShapeForHit",
+  );
+  const textOverlay = extractFunction(
+    editorChromeBridgeScript,
+    "unwrapTextOverlay",
+  );
+  const nativeTextPrimitive = extractFunction(
+    editorChromeBridgeScript,
+    "nativeTextPrimitiveForHit",
+  );
+  const layerName = extractFunction(
+    editorChromeBridgeScript,
+    "layerNameForElement",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }
@@ -422,6 +545,190 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     } as unknown as Element;
 
     expect(selectionTargetForHit(child)).toBe(child);
+  });
+
+  it("selects an explicit group on first click and descends on double-click", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+    expect(selectionTargetForHit(child, true)).toBe(child);
+  });
+
+  it("selects a renamed generated group by its marker", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const group = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Illustrations"
+          : name === "data-agent-native-group-wrapper"
+            ? "true"
+            : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: group,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(group);
+  });
+
+  it("recognizes a legacy generated group without promoting authored clones", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const legacyGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group 2"
+          : name === "data-agent-native-node-id"
+            ? "an-legacygroup"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const child = {
+      parentElement: legacyGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const copiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-authored-group"
+            : name === "data-agent-native-preserve-styles" ||
+                name === "data-agent-native-clone-root"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const copiedChild = {
+      parentElement: copiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const oldCopiedGroup = {
+      parentElement: null,
+      getAttribute: (name: string) =>
+        name === "data-agent-native-layer-name"
+          ? "Group"
+          : name === "data-agent-native-node-id"
+            ? "copy-old-authored-group"
+            : name === "data-agent-native-preserve-styles"
+              ? "true"
+              : null,
+    } as unknown as Element;
+    const oldCopiedChild = {
+      parentElement: oldCopiedGroup,
+      getAttribute: () => null,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(legacyGroup);
+    expect(selectionTargetForHit(copiedChild)).toBe(copiedChild);
+    expect(selectionTargetForHit(oldCopiedChild)).toBe(oldCopiedChild);
+  });
+
+  it("promotes a hit on svg geometry to the outermost svg, whose box is not 0-height", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const svg = { ownerSVGElement: null } as unknown as Element;
+    const path = { ownerSVGElement: svg } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(svg);
+  });
+
+  it("selects the exact drawable in a marked pasted SVG, but keeps authored SVGs atomic", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const root = {
+      ownerSVGElement: null,
+      getAttribute: (name: string) =>
+        name === "data-an-primitive" ? "pasted-svg" : null,
+    } as unknown as Element;
+    const path = {
+      tagName: "path",
+      ownerSVGElement: root,
+      parentElement: root,
+    } as unknown as Element;
+    const authoredRoot = {
+      ownerSVGElement: null,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const authoredPath = {
+      tagName: "path",
+      ownerSVGElement: authoredRoot,
+      parentElement: authoredRoot,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(path);
+    expect(selectionTargetForHit(authoredPath)).toBe(authoredRoot);
+  });
+
+  it("selects the button, not the editor's own text wrapper inside it", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const button = {
+      getAttribute: () => "e2e-component-button",
+    } as unknown as Element;
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: button,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(button);
+  });
+
+  it("keeps a wrapper whose parent is the document root selectable", () => {
+    const body = {} as Element;
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body,
+      documentElement: {} as Element,
+    });
+    const wrapper = {
+      hasAttribute: (name: string) => name === "data-an-text",
+      parentElement: body,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(wrapper)).toBe(wrapper);
+  });
+
+  it("promotes through a nested svg to the outermost one", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const outer = { ownerSVGElement: null } as unknown as Element;
+    const inner = { ownerSVGElement: outer } as unknown as Element;
+    const path = { ownerSVGElement: inner } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(outer);
   });
 });
 

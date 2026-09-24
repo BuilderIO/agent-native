@@ -7,6 +7,10 @@ description: "Hébergez de nombreuses applications natives d'agent dans un seul 
 
 > **Quel document sur l'espace de travail ?** Cette page couvre la **forme de déploiement** : un monorepo, de nombreuses applications, une authentification partagée et un déploiement unifié. Pour la couche de personnalisation de l'agent (Ressources de l'agent : `AGENTS.md`, mémoire, skills, agents personnalisés), voir [Ressources de l'agent](/docs/agent-resources) ; pour la gouvernance (qui examine, approuve et possède quoi), voir [Workspace Governance](/docs/workspace-management).
 
+## Application autonome ou espace de travail ? {#standalone-or-workspace}
+
+Choisissez un espace de travail lorsqu’une entreprise exploite plusieurs applications internes qui doivent partager la configuration de déploiement et le contexte de l’organisation. Une application autonome convient à un outil indépendant ou à un prototype. Cette forme de déploiement est prise en charge, mais elle n’inclut pas les packages partagés ni la configuration racine de l’espace de travail. Consultez [Déploiements administrés](/docs/administered-deployments).
+
 Lorsque le vibe-coding d'un outil interne prend un après-midi, vous ne vous arrêtez pas à un seul. Une équipe se retrouve avec un CRM, une boîte de réception d'assistance, un tableau de bord, une console d'opérations – dix petites applications, chacune échafaudée indépendamment. C'est génial jusqu'à ce que vous deviez changer quelque chose dans chacun d'eux.
 
 À ce stade, chaque application possède son propre `AGENTS.md`, son propre plugin d'authentification, son propre composant de mise en page copié-collé, son propre jeton Slack codé en dur, sa propre idée de ce qu'est une « organisation ». Un changement de règle de conformité signifie dix PR. La rotation d’une clé API signifie dix redéploiements. Une actualisation de la marque signifie que dix en-têtes différents ne sont pas synchronisés. Ce qui a facilité leur construction rend désormais leur gestion difficile.
@@ -38,7 +42,7 @@ Cette même limite s'applique lorsque votre application souhaite utiliser une au
 L'espace de travail est la forme par défaut d'un projet natif d'agent. Échafaudez-en un avec :
 
 ```bash
-npx @agent-native/core@latest create my-company-platform
+npx --yes @agent-native/core@latest create my-company-platform
 ```
 
 Le CLI affiche un sélecteur à sélection multiple de chaque modèle propriétaire. Choisissez-en autant que vous le souhaitez (Mail + Calendrier + Formulaires, par exemple) et ils seront tous intégrés dans le même espace de travail partageant les paramètres d'authentification et de base de données par défaut.
@@ -397,11 +401,13 @@ Ces paramètres affectent uniquement la navigation dans les pages en lecture seu
 
 ### Déploiement indépendant par application
 
-Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && npx @agent-native/core@latest build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
+Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && pnpm build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
 
 ### Base de données partagée, identifiants partagés
 
 Quel que soit votre choix, pointez chaque application vers le même `DATABASE_URL` pour obtenir un état inter-applications prêt à l'emploi : un ensemble de comptes utilisateur, un ensemble d'organisations, un ensemble de paramètres partagés. Si chaque application possède sa propre base de données, le modèle d'espace de travail fonctionne toujours : vous perdez simplement cette histoire à état partagé.
+
+La demande de connexions s'additionne entre les processus qui partagent une base de données. Si cinq processus d'applications Node.js de longue durée utilisent chacun un pool partagé pour le même `DATABASE_URL`, ils peuvent utiliser jusqu'à 100 connexions avec la limite par défaut de 20 par pool (`5 × 1 pool × 20`). Pour les espaces de travail sans serveur, estimez le nombre d'instances de fonctions actives par application à partir des limites par défaut propres à l'environnement. Consultez [Base de données du serveur](/docs/server-database) pour `AGENT_NATIVE_DB_POOL_MAX` et les conseils complets de dimensionnement.
 
 Le package partagé lui-même n’est jamais déployé de manière autonome. Il s'agit d'un dépôt `workspace:*` que pnpm relie symboliquement au `node_modules/` de chaque application, de sorte que chaque application regroupe de manière transparente tout ce dont elle a besoin au moment de la construction.
 

@@ -20,8 +20,11 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  isRecoveredFactoryJob,
   jobBelongsToApp,
   parseJobResource,
+  patchJobFrontmatterFields,
+  recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
@@ -176,6 +179,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
 
   let primaryFailed = false;
+  let shouldThrowReleaseError = false;
+  let releaseErrorToThrow: unknown;
   try {
     await processRecurringJobsWithLease(deps);
   } catch (error) {
@@ -193,15 +198,31 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         "[recurring-jobs] Scheduler lease release failed:",
         releaseError instanceof Error ? releaseError.message : releaseError,
       );
-      if (!primaryFailed) throw releaseError;
+      if (!primaryFailed) {
+        shouldThrowReleaseError = true;
+        releaseErrorToThrow = releaseError;
+      }
     }
   }
+  if (shouldThrowReleaseError) throw releaseErrorToThrow;
 }
 
 async function processRecurringJobsWithLease(
   deps: SchedulerDeps,
 ): Promise<void> {
   subscribeToJobsResourceEvents();
+
+  // Upload receipts are framework-owned temporary state, so the same durable
+  // scheduler sweep that runs on serverless hosts also expires abandoned
+  // provider objects. The cleanup is internally throttled and never blocks
+  // recurring jobs when a provider or database is unavailable.
+  try {
+    const { runUploadReceiptCleanupOnce } =
+      await import("../file-upload/actions/upload-image.js");
+    await runUploadReceiptCleanupOnce();
+  } catch (error) {
+    console.error("[recurring-jobs] Upload receipt cleanup failed:", error);
+  }
 
   // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
@@ -256,8 +277,17 @@ async function processRecurringJobsWithLease(
       // the shared scheduler. Once a job declares an owner, only that app may
       // evaluate or execute it. Without this boundary every app's scheduled
       // worker can claim the same organization resource.
-      if (!jobBelongsToApp(meta, deps.appId)) continue;
-      healthOrgIds.add(meta.orgId ?? null);
+      if (
+        !jobBelongsToApp(meta, deps.appId) &&
+        !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
+      ) {
+        continue;
+      }
+      healthOrgIds.add(
+        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+          meta.orgId ??
+          null,
+      );
 
       // A host-targeted run is reconciled from the durable relay command. It
       // must never fall back to this scheduler after the laptop disconnects.
@@ -266,24 +296,43 @@ async function processRecurringJobsWithLease(
         continue;
       }
 
-      // Skip disabled or missing schedule
-      if (!meta.enabled || !meta.schedule) continue;
-      if (!isValidCron(meta.schedule)) continue;
-
-      // Skip if currently running, unless it has been stuck for more than 10 minutes
-      // (server crash mid-job leaves lastStatus=running forever without this guard)
+      // Every automation shares this running lock — scheduled, event-triggered,
+      // and manual-only alike. Manual and event automations have no
+      // `meta.schedule`, so they used to fall straight through the
+      // schedule-only skip below and never reach a stale-reset: a crashed or
+      // recycled worker left `lastStatus: running` forever, since nothing but
+      // a matching event or a manual retry past the timeout ever looked at
+      // them again. Sweep every resource here, before the schedule gate, so a
+      // stuck run heals on its own within one tick of the timeout regardless
+      // of automation type.
       if (meta.lastStatus === "running") {
         if (isBackgroundAutomationRunActive(meta, now)) continue;
-        // Stuck — reset so the next check can re-run it
+        // Stuck — reset so the automation (and its audit trail) is unblocked.
         meta.lastStatus = "error";
         meta.lastError =
           "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
-        const next = nextOccurrence(meta.schedule, now, meta.timezone);
-        meta.nextRun = next.toISOString();
-        await updateResource(resource, meta, body);
-        await recoverStaleAutomationHistory(resource.owner, resource.path);
+        if (meta.schedule && isValidCron(meta.schedule)) {
+          meta.nextRun = nextOccurrence(
+            meta.schedule,
+            now,
+            meta.timezone,
+          ).toISOString();
+        }
+        // A manual or event runner can claim this same stale snapshot first
+        // (its own conditional write moves the resource to a fresh
+        // `lastStatus: running`). Only touch the history row when THIS
+        // write actually won the CAS — otherwise `recoverStaleAutomationHistory`
+        // would look up the automation's latest run and mark the run that
+        // just started as errored instead of the one that was actually stuck.
+        if (await updateResource(resource, meta, body)) {
+          await recoverStaleAutomationHistory(resource.owner, resource.path);
+        }
         continue;
       }
+
+      // Skip disabled or missing schedule
+      if (!meta.enabled || !meta.schedule) continue;
+      if (!isValidCron(meta.schedule)) continue;
 
       // Check if due
       if (meta.nextRun) {
@@ -782,9 +831,9 @@ export async function runJobNow(
   owner: string,
   name: string,
   deps: SchedulerDeps,
-  options: { historyId?: string } = {},
+  options: { historyId?: string; path?: string } = {},
 ): Promise<JobExecutionResult> {
-  const path = `jobs/${name}.md`;
+  const path = options.path ?? `jobs/${name}.md`;
   const resource = await resourceGetByPath(owner, path);
   if (!resource) throw new Error(`Automation "${name}" not found.`);
   const { meta, body } = parseJobFrontmatter(resource.content);
@@ -814,6 +863,7 @@ export async function runQueuedAutomation(
   }
   const result = await runJobNow(queued.owner, queued.automation, deps, {
     historyId,
+    path: queued.path,
   });
   return {
     skipped: false,
@@ -825,9 +875,20 @@ export async function runQueuedAutomation(
 async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
-  body: string,
+  _body: string,
 ): Promise<boolean> {
-  const content = buildJobContent(meta, body);
+  const content = patchJobFrontmatterFields(resource.content, {
+    lastRun: meta.lastRun,
+    lastCheck: meta.lastCheck,
+    lastStatus: meta.lastStatus,
+    lastError: meta.lastError,
+    nextRun: meta.nextRun,
+    remoteRequestId: meta.remoteRequestId,
+    remoteCommandId: meta.remoteCommandId,
+    remoteRunId: meta.remoteRunId,
+    remoteAutomationRunId: meta.remoteAutomationRunId,
+    remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
+  });
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
     path: resource.path,

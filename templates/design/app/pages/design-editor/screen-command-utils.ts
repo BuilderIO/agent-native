@@ -1,4 +1,5 @@
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
+import { designEditorViewFromSearchParams } from "@/lib/design-editor-route";
 
 import { queryUniqueSelector } from "./dom-utils";
 import {
@@ -35,7 +36,7 @@ export function designEditorCommandFromSearchParams(
   designId: string,
   searchParams: URLSearchParams,
 ): DesignEditorCommand | null {
-  const editorView = searchParams.get("view");
+  const editorView = designEditorViewFromSearchParams(searchParams);
   const inspector = searchParams.get("inspector");
   const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
@@ -111,6 +112,12 @@ export function applyInlineStylesToHtml(
     const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
+      // Custom properties are only reachable through setProperty.
+      if (property.startsWith("--")) {
+        if (value) element.style.setProperty(property, value);
+        else element.style.removeProperty(property);
+        return;
+      }
       (element.style as any)[property] = value;
     });
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;

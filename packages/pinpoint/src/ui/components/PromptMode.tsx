@@ -32,7 +32,9 @@ export const PromptMode: Component<PromptModeProps> = (props) => {
   return (
     <div class="pp-prompt" style={{ left: `${x}px`, top: `${y}px` }}>
       <input
-        ref={inputRef}
+        ref={(element) => {
+          inputRef = element;
+        }}
         class="pp-prompt__input"
         type="text"
         placeholder="Tell the agent what to do..."

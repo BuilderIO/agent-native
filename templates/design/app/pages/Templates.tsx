@@ -18,11 +18,14 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import PromptPopover from "@/components/editor/PromptDialog";
+import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
@@ -47,6 +50,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -105,10 +109,14 @@ export default function Templates() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+  const designSystemOptions = useMemo(
+    () => designSystemPickerOptions(designSystems),
+    [designSystems],
+  );
 
-  const templates = data?.templates ?? [];
+  const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
-  const filtered = useMemo(() => {
+  const filtered = (() => {
     const query = search.trim().toLowerCase();
     return query
       ? templates.filter(
@@ -118,9 +126,23 @@ export default function Templates() {
             template.category.includes(query),
         )
       : templates;
-  }, [search, templates]);
+  })();
   const builtIns = filtered.filter((template) => template.isBuiltIn);
   const userTemplates = filtered.filter((template) => !template.isBuiltIn);
+
+  const resolveDefaultDesignSystemId = (): string | null => {
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  };
 
   const resolveTemplateDesignSystemId = (
     template: DesignTemplateSummary,
@@ -131,7 +153,7 @@ export default function Templates() {
     ) {
       return template.designSystemId;
     }
-    return defaultSystem?.id ?? designSystems[0]?.id ?? null;
+    return resolveDefaultDesignSystemId();
   };
 
   const setSelectedTemplateParam = (templateId: string | null) => {
@@ -161,16 +183,29 @@ export default function Templates() {
     handledTemplateIdRef.current = linkedTemplateId;
     setSearch("");
     setSelected(template);
-    setSelectedDesignSystemId(resolveTemplateDesignSystemId(template));
+    setSelectedDesignSystemId(
+      template.designSystemId &&
+        designSystems.some((system) => system.id === template.designSystemId)
+        ? template.designSystemId
+        : resolveDefaultDesignSystemId(),
+    );
+    preloadPromptComposer();
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
-  }, [designSystemsLoading, linkedTemplateId, templates]);
+  }, [
+    defaultSystem,
+    designSystems,
+    designSystemsLoading,
+    linkedTemplateId,
+    templates,
+  ]);
 
   const openTemplatePrompt = (
     template: DesignTemplateSummary,
     element: HTMLElement,
   ) => {
+    preloadPromptComposer();
     anchorElRef.current = element;
     handledTemplateIdRef.current = template.id;
     setSelectedTemplateParam(template.id);
@@ -234,7 +269,7 @@ export default function Templates() {
           queryKey: ["action", "list-designs"],
         })
         .catch(() => {});
-      navigate(`/design/${result.id}`);
+      void navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
       throw error;
@@ -293,25 +328,6 @@ export default function Templates() {
         </div>
       ) : null}
       <main className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-10">
-        <div className="mb-8 max-w-2xl">
-          <h1 className="text-lg font-semibold text-foreground">
-            {t("templatesPage.title")}
-          </h1>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            {t("templatesPage.description")}
-          </p>
-        </div>
-
-        <div className="relative mb-6 md:hidden">
-          <IconSearch className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t("templatesPage.searchPlaceholder")}
-            className="h-9 w-full bg-accent/50 ps-8 text-sm"
-          />
-        </div>
-
         {isLoading ? (
           <TemplateGridSkeleton />
         ) : isError ? (
@@ -323,10 +339,20 @@ export default function Templates() {
           <div className="flex flex-col gap-10">
             <TemplateSection
               title={t("templatesPage.yourTemplates")}
-              description={t("templatesPage.yourTemplatesDescription")}
               templates={userTemplates}
               linkedTemplateId={linkedTemplateId}
-              empty={t("templatesPage.yourTemplatesEmpty")}
+              empty={
+                <div className="flex flex-col items-center gap-3">
+                  <span>{t("templatesPage.yourTemplatesEmpty")}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void navigate("/home")}
+                  >
+                    {t("visualEdit.openDesign")}
+                  </Button>
+                </div>
+              }
               onUse={openTemplatePrompt}
               onDelete={setDeleteTemplate}
             />
@@ -370,13 +396,13 @@ export default function Templates() {
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
         loading={creating}
-        designSystems={designSystems}
+        designSystems={designSystemOptions}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedDesignSystemId ?? null}
         onDesignSystemChange={setSelectedDesignSystemId}
         onCreateDesignSystem={() => {
           setPromptOpen(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
       />
 
@@ -412,7 +438,6 @@ export default function Templates() {
 
 function TemplateSection({
   title,
-  description,
   templates,
   linkedTemplateId,
   empty,
@@ -420,22 +445,16 @@ function TemplateSection({
   onDelete,
 }: {
   title: string;
-  description?: string;
   templates: DesignTemplateSummary[];
   linkedTemplateId?: string | null;
-  empty?: string;
+  empty?: ReactNode;
   onUse: (template: DesignTemplateSummary, element: HTMLElement) => void;
   onDelete?: (template: DesignTemplateSummary) => void;
 }) {
   if (templates.length === 0 && !empty) return null;
   return (
     <section>
-      <div className="mb-3">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        {description ? (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
+      <h2 className="mb-3 text-sm font-semibold text-foreground">{title}</h2>
       {templates.length === 0 ? (
         <div className="flex min-h-32 items-center justify-center rounded-xl border border-dashed bg-muted/20 px-6 text-center text-sm text-muted-foreground">
           {empty}
@@ -561,16 +580,20 @@ function TemplateCard({
             </span>
           ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={(event) => onUse(template, event.currentTarget)}
-          data-template-use-button
-          className="mt-auto w-full"
-        >
-          <IconTemplate className="size-4" />
-          {t("templatesPage.useTemplate")}
-        </Button>
+        {/* The wrapper owns the gap: `mt-auto` on the button itself keeps the
+            row bottom-aligned but collapses against the meta chips. */}
+        <div className="mt-auto pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(event) => onUse(template, event.currentTarget)}
+            data-template-use-button
+            className="w-full"
+          >
+            <IconTemplate className="size-4" />
+            {t("templatesPage.useTemplate")}
+          </Button>
+        </div>
       </div>
     </article>
   );

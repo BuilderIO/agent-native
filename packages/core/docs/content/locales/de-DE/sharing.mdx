@@ -86,6 +86,10 @@ Wenn Sie etwas mit einem bestimmten Benutzer oder einer bestimmten Organisation 
 
 `admin` ändert NOT den Besitzer – es gibt immer noch genau einen Besitzer pro Ressource, anders als bei den Anteilsgewährungen.
 
+### Gruppenfreigaben {#group-grants}
+
+Einige Ressourcen unterstützen Gruppenfreigaben. Eine Gruppe muss zur Organisation der Ressource gehören. Jedes aktuelle Gruppenmitglied erhält die ausgewählte Freigaberolle für diese Ressource. Unter [Organisationen, Teams und Berechtigungen → Benutzergruppen](/docs/organizations-teams-permissions#user-groups) steht, wofür Gruppen gelten und wofür nicht.
+
 ## Was abgedeckt ist {#covered}
 
 Jede Vorlage, die vom Benutzer erstellte Arbeiten speichert, verwendet dieses Modell. Konkret:
@@ -106,7 +110,7 @@ Alle davon verwenden denselben `ownableColumns()`-Schema-Helfer, dieselbe `share
 
 Einige Bereiche liegen absichtlich außerhalb des Freigabesystems:
 
-- **Apps für persönliche Daten** (Mail, Makros) – vom Design her benutzerbezogen. Es gibt kein Konzept zum Teilen meines Posteingangs.
+- **Apps für persönliche Daten** (Mail) – vom Design her benutzerbezogen. Es gibt kein Konzept zum Teilen meines Posteingangs.
 - **Externe Source-of-Truth-Apps** – die Zugriffskontrolle erfolgt im Upstream-System, nicht in der agentennativen App.
 - **Anonyme öffentliche URLs** – bilden Veröffentlichungs-Slugs und Buchungs-Link-Slugs, die einen URL abgemeldeten Benutzern zugänglich machen, sind eine separate Achse. Sie leben neben dem Sharing-System, nicht darüber.
 

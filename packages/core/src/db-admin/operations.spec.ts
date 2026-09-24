@@ -1,19 +1,27 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * These tests exercise the real operations against a real local SQLite file via
- * the framework's `getDbExec()` client. `getDbExec()` caches a process-wide
- * singleton, so each test resets modules and points DATABASE_URL at a fresh
- * temp file before re-importing operations + the db client together.
- */
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 type Ops = typeof import("./operations.js");
 
-let tmpDir: string;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+const sharedClient = {
+  async execute(arg: string | { sql: string; args?: unknown[] }) {
+    const sql = typeof arg === "string" ? arg : arg.sql;
+    const args = typeof arg === "string" ? [] : (arg.args ?? []);
+    const statement = pglite.prepare(sql);
+    if (/^\s*(select|with)\b/i.test(sql)) {
+      return { rows: await statement.all(...args), rowsAffected: 0 };
+    }
+    const result = await statement.run(...args);
+    return { rows: [], rowsAffected: Number(result.changes ?? 0) };
+  },
+};
+
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => sharedClient,
+}));
 
 async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
   // notifyActionChange writes to the settings/application_state tables which
@@ -23,91 +31,67 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
     notifyActionChange: vi.fn(async () => {}),
   }));
 
-  const dbFile = path.join(
-    tmpDir,
-    `db-${Math.random().toString(36).slice(2)}.db`,
-  );
-  const dbUrl = `file:${dbFile}`;
-  vi.stubEnv("DATABASE_URL", dbUrl);
-
   const ops = (await import("./operations.js")) as Ops;
-  const { getDbExec } = await import("../db/client.js");
-
-  // Seed schema + rows.
-  const db = getDbExec();
-  await db.execute(
+  await pglite.exec(
     `CREATE TABLE authors (
-       id INTEGER PRIMARY KEY,
+       id SERIAL PRIMARY KEY,
        name TEXT NOT NULL,
        email TEXT
      )`,
   );
-  await db.execute(
+  await pglite.exec(
     `CREATE TABLE books (
-       id INTEGER PRIMARY KEY,
+       id SERIAL PRIMARY KEY,
        title TEXT NOT NULL,
        author_id INTEGER,
        pages INTEGER,
        FOREIGN KEY (author_id) REFERENCES authors(id)
      )`,
   );
-  await db.execute(
+  await pglite.exec(
     `CREATE TABLE logs (
-       id INTEGER PRIMARY KEY,
+       id SERIAL PRIMARY KEY,
        payload TEXT NOT NULL
      )`,
   );
-  await db.execute(`CREATE UNIQUE INDEX idx_authors_email ON authors(email)`);
-  await db.execute(`CREATE VIEW author_book_counts AS
+  await pglite.exec(`CREATE UNIQUE INDEX idx_authors_email ON authors(email)`);
+  await pglite.exec(`CREATE VIEW author_book_counts AS
        SELECT a.id AS author_id, COUNT(b.id) AS books
        FROM authors a LEFT JOIN books b ON b.author_id = a.id
        GROUP BY a.id`);
 
-  await db.execute({
-    sql: `INSERT INTO authors (id, name, email) VALUES (?, ?, ?)`,
-    args: [1, "Ada", "ada@example.com"],
-  });
-  await db.execute({
-    sql: `INSERT INTO authors (id, name, email) VALUES (?, ?, ?)`,
-    args: [2, "Bob", "bob@example.com"],
-  });
+  await pglite.exec(
+    `INSERT INTO authors (id, name, email) VALUES (1, 'Ada', 'ada@example.com'), (2, 'Bob', 'bob@example.com')`,
+  );
   for (let i = 1; i <= 5; i++) {
-    await db.execute({
-      sql: `INSERT INTO books (id, title, author_id, pages) VALUES (?, ?, ?, ?)`,
-      args: [i, `Book ${i}`, (i % 2) + 1, i * 10],
-    });
+    await pglite
+      .prepare(
+        `INSERT INTO books (id, title, author_id, pages) VALUES (?, ?, ?, ?)`,
+      )
+      .run(i, `Book ${i}`, (i % 2) + 1, i * 10);
   }
-  await db.execute({
-    sql: `INSERT INTO logs (id, payload) VALUES (?, ?)`,
-    args: [1, "x".repeat(20_000)],
-  });
+  await pglite
+    .prepare(`INSERT INTO logs (id, payload) VALUES (?, ?)`)
+    .run(1, "x".repeat(20_000));
 
-  return { ops, dbUrl };
+  return { ops };
 }
 
 beforeEach(async () => {
-  tmpDir = await mkdtemp(path.join(os.tmpdir(), "db-admin-spec-"));
+  pglite = await createTestPglite();
 });
 
 afterEach(async () => {
-  try {
-    const { closeDbExec } = await import("../db/client.js");
-    await closeDbExec();
-  } catch {
-    // ignore
-  }
-  vi.unstubAllEnvs();
+  await pglite.close();
   vi.resetModules();
   vi.restoreAllMocks();
   vi.doUnmock("../server/action-change.js");
-  await rm(tmpDir, { recursive: true, force: true });
 });
 
 describe("listTables", () => {
   it("lists tables and views with row counts (null for views)", async () => {
     const { ops } = await loadOps();
-    const { dialect, tables } = await ops.listTables();
-    expect(dialect).toBe("sqlite");
+    const { tables } = await ops.listTables();
 
     const byName = new Map(tables.map((t) => [t.name, t]));
     expect(byName.get("authors")).toMatchObject({
@@ -118,6 +102,17 @@ describe("listTables", () => {
     const view = byName.get("author_book_counts");
     expect(view?.type).toBe("view");
     expect(view?.rowCount).toBeNull();
+  });
+
+  it("can cap table row-count queries while retaining table metadata", async () => {
+    const { ops } = await loadOps();
+    const { tables } = await ops.listTables(undefined, { maxRowCounts: 1 });
+
+    expect(tables.find((table) => table.name === "authors")?.rowCount).toBe(2);
+    expect(tables.find((table) => table.name === "books")?.rowCount).toBeNull();
+    expect(
+      tables.find((table) => table.name === "author_book_counts")?.rowCount,
+    ).toBeNull();
   });
 });
 
@@ -234,7 +229,6 @@ describe("getRows", () => {
   it("marks jsonb columns as large-value previewable", async () => {
     const { ops } = await loadOps();
     const runtime = {
-      dialect: "postgres" as const,
       db: {
         execute: vi.fn(async (query: any) => {
           const sql = typeof query === "string" ? query : query.sql;
@@ -368,13 +362,6 @@ describe("runSql", () => {
     const result = await ops.runSql("SELECT * FROM books", undefined, {});
     expect(result.columns).toContain("title");
     expect(result.rows.length).toBe(5);
-    // Verify the guardrail is applied — a 200-row table would still cap at 100.
-    const probe = await ops.runSql(
-      "SELECT name FROM sqlite_master WHERE 1=1",
-      undefined,
-      {},
-    );
-    expect(Array.isArray(probe.rows)).toBe(true);
   });
 
   it("respects an explicit LIMIT and bind params", async () => {

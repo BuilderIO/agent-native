@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { collectBuilderDesignSystemGitHubFiles } from "@agent-native/core/server";
 import {
   parseTailwindConfig,

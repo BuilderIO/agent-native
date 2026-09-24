@@ -1,10 +1,12 @@
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 import {
+  isCreativeContextLabAvailable,
   registerNativeResourceCaptureAdapter,
   setupCreativeContext,
 } from "@agent-native/creative-context/server";
 import { listContextSources } from "@agent-native/creative-context/store";
 
+import { CONTENT_CREATIVE_CONTEXT } from "../../shared/labs.js";
 import { nativeDocumentCreativeContextAdapter } from "../lib/native-creative-context.js";
 
 registerOnboardingStep({
@@ -14,6 +16,11 @@ registerOnboardingStep({
   title: "Connect your creative library",
   description:
     "Connect prior work and reference sources so agents can reuse approved creative context.",
+  isAvailable: (context) =>
+    isCreativeContextLabAvailable(
+      context?.userEmail,
+      CONTENT_CREATIVE_CONTEXT.key,
+    ),
   methods: [
     {
       id: "library",
@@ -35,4 +42,7 @@ registerOnboardingStep({
 
 registerNativeResourceCaptureAdapter(nativeDocumentCreativeContextAdapter);
 
-export default setupCreativeContext({ appId: "content" });
+export default setupCreativeContext({
+  appId: "content",
+  labKey: CONTENT_CREATIVE_CONTEXT.key,
+});

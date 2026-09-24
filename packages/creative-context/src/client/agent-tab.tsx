@@ -6,16 +6,14 @@ import type { ReactNode } from "react";
 import { CreativeContextPanel } from "./CreativeContextPanel.js";
 import { creativeContextMessagesByLocale } from "./messages.js";
 
-function libraryLabel() {
-  if (typeof document === "undefined") {
-    return creativeContextMessagesByLocale["en-US"].title;
-  }
-  const locale = document.documentElement.lang;
+function creativeContextMessages() {
+  const locale =
+    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
   return (
     creativeContextMessagesByLocale[
       locale as keyof typeof creativeContextMessagesByLocale
     ] ?? creativeContextMessagesByLocale["en-US"]
-  ).title;
+  );
 }
 
 export type CreativeContextAgentTabFactory = (context: {
@@ -30,9 +28,10 @@ export const createCreativeContextAgentTab: CreativeContextAgentTabFactory = ({
   scopeControl,
 }) => ({
   id: "library",
-  label: libraryLabel(),
+  label: creativeContextMessages().title,
   icon: IconLibrary,
   group: "creative-context",
+  groupLabel: creativeContextMessages().share.title,
   keywords: "creative context library sources packs brand DNA reuse",
   searchEntries: [
     {

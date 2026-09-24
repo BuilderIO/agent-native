@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.object.reference"
 name: "References"
-user_promise: "A compact reference points to a stable Page, Database, or Block without pretending to be computation."
+user_promise: "A compact reference points to a stable Page, Collection, or Block without pretending to be computation."
 primary_user_job: "Mention and reuse a known object so people can navigate, render, and index the same identity everywhere."
 kind: "primitive"
 state: "approved_shape"
@@ -15,7 +15,7 @@ roadmap_boundary: "feature"
 acceptance_summary: "References store stable target identity plus presentation configuration, resolve under access control, remain portable, and stay distinct from expressions and semantic Relationships."
 proof_requirements:
   [
-    "ID-based Page, Database, and Block resolution",
+    "ID-based Page, Collection, and Block resolution",
     "Access-safe rendering, search, and backlinks",
     "Portable encoding and explicit broken/deleted target states",
     "Renderer inheritance and UI/Action parity",
@@ -33,11 +33,11 @@ People need an effortless `@`-style mention that is indexable and portable. Turn
 
 ## Example workflow
 
-An author mentions a project Page in a brief and chooses a compact pill presentation. The target is later renamed and appears in another Database; the mention still resolves the stable Page and Connections can find it.
+An author mentions a project Page in a brief and chooses a compact pill presentation. The target is later renamed and appears in another Collection; the mention still resolves the stable Page and Connections can find it.
 
 ## Product contract
 
-- A Reference stores the stable ID of a Page, Database, or Block with presentation configuration.
+- A Reference stores the stable ID of a Page, Collection, or Block with presentation configuration.
 - `@Page` is a Reference; accessing a Property, comparing, or traversing it is expression work.
 - Renderers may change presentation without changing target identity.
 - Resolution, backlinks, search, export, and agents apply target access before showing data.
@@ -45,7 +45,7 @@ An author mentions a project Page in a brief and chooses a compact pill presenta
 
 ## Boundaries and non-goals
 
-- A Reference does not add Database membership, grant access, or create a semantic Relationship.
+- A Reference does not add Collection membership, grant access, or create a semantic Relationship.
 - It is not a live embed or synced editable content; transclusion owns that behavior.
 - Expressions can consume references but do not replace the simple stored primitive.
 
@@ -61,7 +61,7 @@ Given a reference to a Page a reader cannot access, when the reader opens, searc
 
 ## Current evidence
 
-Current Content can link Pages and has reference-like editor substrate. It does not yet prove a generic stable Reference value across Page, Database, and Block targets, portable degradation, or universal access-safe indexing; this remains `approved_shape`.
+Current Content can link Pages and has reference-like editor substrate. It does not yet prove a generic stable Reference value across Page, Collection, and Block targets, portable degradation, or universal access-safe indexing; this remains `approved_shape`.
 
 ## Proof plan
 

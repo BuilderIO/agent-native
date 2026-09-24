@@ -47,6 +47,8 @@ const SKIP_DIRS = new Set([
 // access is mediated through a scoped parent, custom action, public token, or
 // cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
+  "content:content_database_setup_receipts":
+    "actor-scoped retry receipts; access is rechecked through database setup actions",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",
@@ -97,6 +99,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_viewers": "viewer link rows scoped through recordings",
   "clips:space_members": "membership join rows scoped through spaces",
   "clips:spaces": "workspace child rows scoped through workspaces",
+  "clips:clips_transactional_email_configs":
+    "internal transactional-email worker configuration and cursors",
+  "clips:clips_transactional_email_jobs":
+    "internal transactional-email queue and delivery history",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
   "plan:plan_assets": "child rows scoped through plans",
@@ -105,9 +111,13 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_access_requests":
+    "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
   "forms:responses": "public submissions scoped through forms",
+  "forms:response_deliveries":
+    "internal delivery ledger scoped through form responses",
   "assets:asset_folders": "child rows scoped through libraries",
   "assets:image_assets": "child rows scoped through libraries/collections",
   "assets:image_collections": "child rows scoped through libraries",

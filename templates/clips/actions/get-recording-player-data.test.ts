@@ -20,6 +20,22 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
+// The player payload's tag read is a *projected* select, so it needs its own
+// builder: the share builder below resolves through `limit`, not `orderBy`.
+const mockTagRows = vi.hoisted(() =>
+  vi.fn(async () => [] as { tag: string }[]),
+);
+const mockTagsQuery = vi.hoisted(() => {
+  const query = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+  };
+  query.from.mockReturnValue(query);
+  query.where.mockReturnValue(query);
+  query.orderBy.mockImplementation(() => mockTagRows());
+  return query;
+});
 // Unselected `db.select()` means the run reached the player payload queries.
 // It throws unless a test opts in by installing a builder, which keeps the
 // access-gate tests honest about never getting that far.
@@ -34,8 +50,18 @@ const mockDb = vi.hoisted(() => ({
       }
       return mockPlayerQuery.build();
     }
+    if (
+      typeof selection === "object" &&
+      selection !== null &&
+      "tag" in selection
+    ) {
+      return mockTagsQuery;
+    }
     return mockShareQuery;
   }),
+  // The player's tag read is DISTINCT — `recording_tags` carries no unique
+  // (recording_id, tag) constraint, so duplicate rows are possible.
+  selectDistinct: vi.fn(() => mockTagsQuery),
 }));
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
@@ -45,13 +71,20 @@ const mockResolvePlayerVideoUrl = vi.hoisted(() =>
 );
 const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
   vi.fn(
-    (recording: {
-      thumbnailUrl?: string | null;
-      animatedThumbnailUrl?: string | null;
-    }) =>
-      recording.thumbnailUrl || recording.animatedThumbnailUrl
-        ? "/api/thumbnail/rec-1"
-        : null,
+    (
+      recording: {
+        thumbnailUrl?: string | null;
+        animatedThumbnailUrl?: string | null;
+      },
+      options?: { animated?: boolean },
+    ) => {
+      if (!recording.thumbnailUrl && !recording.animatedThumbnailUrl) {
+        return null;
+      }
+      return options?.animated
+        ? "/api/thumbnail/rec-1?animated=1"
+        : "/api/thumbnail/rec-1";
+    },
   ),
 );
 const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
@@ -114,6 +147,10 @@ vi.mock("../server/db/index.js", () => ({
     recordingCtas: {
       recordingId: "recordingCtas.recordingId",
       createdAt: "recordingCtas.createdAt",
+    },
+    recordingTags: {
+      recordingId: "recordingTags.recordingId",
+      tag: "recordingTags.tag",
     },
     recordingBrowserDiagnostics: {
       recordingId: "recordingBrowserDiagnostics.recordingId",
@@ -263,6 +300,7 @@ describe("get-recording-player-data view count", () => {
         expiresAt: null,
         status: "ready",
         chaptersJson: "[]",
+        folderId: "folder-1",
         videoUrl: "https://cdn.example.com/rec-1.webm",
         videoSizeBytes: 1234,
       },
@@ -284,11 +322,77 @@ describe("get-recording-player-data view count", () => {
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
   });
 
+  it("holds the filmstrip back while redactions are pending", async () => {
+    // The sprite is a grid of frames cut from the stored file, so it shows the
+    // very thing a pending box is covering — and it is fetched from storage
+    // directly, not through a route that can refuse.
+    // A viewer needs an explicit share to open a recording directly.
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/video.mp4",
+        filmstripUrl: "https://cdn.example.com/strip.jpg",
+        editsJson: JSON.stringify({
+          trims: [],
+          overlays: [
+            {
+              kind: "redact",
+              id: "r1",
+              startMs: 0,
+              endMs: 5_000,
+              keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+            },
+          ],
+        }),
+      },
+    });
+    mockPlayerQuery.build = () => {
+      const query: Record<string, unknown> = {};
+      query.from = () => query;
+      query.where = () => query;
+      query.orderBy = async () => [];
+      query.limit = async () => [];
+      query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+      return query;
+    };
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.filmstripUrl).toBeNull();
+  });
+
   it("reports zero views without failing the player payload", async () => {
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
+    expect(result.recording.folderId).toBe("folder-1");
+  });
+
+  it("includes a trashed recording's timestamp in the player payload", async () => {
+    const trashedAt = "2026-09-22T12:00:00.000Z";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        trashedAt,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.trashedAt).toBe(trashedAt);
   });
 
   it("exposes pending seekable repair state to the player", async () => {
@@ -305,6 +409,27 @@ describe("get-recording-player-data view count", () => {
     });
   });
 
+  it("keeps an owner's expired recording available", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.id).toBe("rec-1");
+  });
+
   it("keeps owner media behind the same-origin video proxy", async () => {
     mockResolveAccess.mockResolvedValueOnce({
       role: "owner",
@@ -319,6 +444,7 @@ describe("get-recording-player-data view count", () => {
         videoUrl: "https://cdn.example.com/rec-1.webm",
         videoSizeBytes: 1234,
         thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
       },
     });
 
@@ -341,7 +467,17 @@ describe("get-recording-player-data view count", () => {
         thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
       }),
     );
+    expect(mockResolvePlayerThumbnailUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+      { animated: true },
+    );
     expect(result.recording.thumbnailUrl).toBe("/api/thumbnail/rec-1");
+    expect(result.recording.animatedThumbnailUrl).toBe(
+      "/api/thumbnail/rec-1?animated=1",
+    );
     expect(result.recording.videoSizeBytes).toBe(1234);
   });
 });

@@ -194,7 +194,7 @@ function useRunsTrayState({
         );
         if (!res.ok) throw new Error(`Dismiss failed (${res.status})`);
       } catch {
-        refresh();
+        void refresh();
       }
     },
     [refresh, runs],
@@ -221,7 +221,7 @@ function useRunsTrayState({
         if (!res.ok) throw new Error(`Stop failed (${res.status})`);
       } catch {
         // Reconcile from server on failure
-        refresh();
+        void refresh();
       }
     },
     [refresh],
@@ -703,7 +703,8 @@ function RunRow({
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
 }) {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));

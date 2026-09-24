@@ -8,7 +8,7 @@ import {
 import { useLocation } from "react-router";
 
 const pageTitleKeys: Record<string, string> = {
-  "/": "navigation.create",
+  "/home": "navigation.create",
   "/library": "navigation.library",
   "/brand-kits": "navigation.brandKits",
   "/agent": "settings.agentTitle",
@@ -49,7 +49,7 @@ export function Header() {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
-  const showAgentToggle = location.pathname !== "/";
+  const showAgentToggle = location.pathname !== "/home";
 
   return (
     <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">

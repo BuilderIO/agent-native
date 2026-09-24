@@ -5,14 +5,17 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  GoogleProductLogo,
   IntegrationConnectionChoice,
   IntegrationGrid,
+  startWorkspaceProviderOAuth as startManagedWorkspaceProviderOAuth,
 } from "@agent-native/core/client/integrations";
 import { useAppRoles, useOrgRole } from "@agent-native/core/client/org";
 import {
   McpIntegrationDialog,
   McpIntegrationLogo,
   getDefaultMcpIntegrations,
+  isCustomMcpIntegrationEnabled,
   useCreateMcpServer,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources";
@@ -219,6 +222,12 @@ interface WorkspaceConnectionGrantSummary {
 }
 
 interface WorkspaceConnectionsResponse {
+  availability?: {
+    googleOAuth: {
+      status: "configured" | "unconfigured" | "unavailable";
+      retryable: boolean;
+    };
+  };
   providers: WorkspaceConnectionProvider[];
   connections: WorkspaceConnection[];
   grants: WorkspaceConnectionGrant[];
@@ -361,7 +370,8 @@ interface SetupWizardFormState {
 
 interface ProviderChoice {
   provider: WorkspaceConnectionProvider;
-  personalIntegration: DefaultMcpIntegration;
+  personalIntegration?: DefaultMcpIntegration;
+  personalOAuth?: boolean;
 }
 
 const EMPTY_RESPONSE: WorkspaceConnectionsResponse = {
@@ -433,9 +443,18 @@ const MCP_INTEGRATIONS_BY_ID = new Map(
   ]),
 );
 
-const PROVIDER_LOGO_IDS: Record<string, string> = {
-  google_drive: "google-workspace",
-};
+const GOOGLE_PRODUCT_BY_PROVIDER = {
+  gmail: "gmail",
+  google_calendar: "calendar",
+  google_docs: "docs",
+  google_drive: "drive",
+  google_sheets: "sheets",
+  google_slides: "slides",
+} as const;
+
+function isGoogleWorkspaceProvider(providerId: string): boolean {
+  return providerId in GOOGLE_PRODUCT_BY_PROVIDER;
+}
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -446,9 +465,14 @@ function iconForProvider(providerId: string): IconComponent {
 }
 
 function logoForProvider(providerId: string, providerName: string): ReactNode {
-  const integration = MCP_INTEGRATIONS_BY_ID.get(
-    PROVIDER_LOGO_IDS[providerId] ?? providerId,
-  );
+  const googleProduct =
+    GOOGLE_PRODUCT_BY_PROVIDER[
+      providerId as keyof typeof GOOGLE_PRODUCT_BY_PROVIDER
+    ];
+  if (googleProduct) {
+    return <GoogleProductLogo product={googleProduct} className="size-7" />;
+  }
+  const integration = MCP_INTEGRATIONS_BY_ID.get(providerId);
   if (!integration?.logoUrl) {
     const Icon = iconForProvider(providerId);
     return <Icon size={18} />;
@@ -766,7 +790,10 @@ function summarizeUserAccess(
   return `${labels.join(", ")}${suffix}`;
 }
 
-function startWorkspaceProviderOAuth(provider: WorkspaceConnectionProvider) {
+function startWorkspaceProviderOAuth(
+  provider: WorkspaceConnectionProvider,
+  scope: "user" | "organization" = "organization",
+) {
   const returnPath = `${window.location.pathname}${window.location.search}`;
   if (provider.id === "slack") {
     const params = new URLSearchParams({ return: returnPath });
@@ -777,15 +804,11 @@ function startWorkspaceProviderOAuth(provider: WorkspaceConnectionProvider) {
     );
     return;
   }
-  const params = new URLSearchParams({
+  startManagedWorkspaceProviderOAuth(provider.id, {
     appId: "dispatch",
-    return: returnPath,
+    returnPath,
+    scope,
   });
-  window.location.assign(
-    agentNativePath(
-      `/_agent-native/connections/oauth/${provider.id}/start?${params.toString()}`,
-    ),
-  );
 }
 
 function providerHasOAuth(provider: WorkspaceConnectionProvider): boolean {
@@ -820,7 +843,10 @@ function ConnectionRow({
   canManageGrant: (appId: string) => boolean;
 }) {
   const t = useT();
-  const Icon = iconForProvider(connection.provider);
+  const providerLogo = logoForProvider(
+    connection.provider,
+    provider?.label ?? connection.provider,
+  );
   const missingKeys = missingRequiredCredentialKeys(
     provider,
     connection.credentialRefs,
@@ -837,7 +863,7 @@ function ConnectionRow({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-background/80">
-                <Icon size={18} className="text-muted-foreground" />
+                {providerLogo}
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2653,7 +2679,8 @@ export default function WorkspaceIntegrationsRoute() {
   const queryClient = useQueryClient();
   const { canManageOrg } = useOrgRole();
   const { data: dispatchAppRole } = useAppRoles("dispatch");
-  const isDispatchAppAdmin = dispatchAppRole?.myRole === "admin";
+  const isDispatchAppAdmin =
+    dispatchAppRole?.myRoles?.includes("admin") ?? false;
   const canManageConnections = canManageOrg || isDispatchAppAdmin;
   const [form, setForm] = useState<ConnectionFormState | null>(null);
   const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);
@@ -2667,6 +2694,7 @@ export default function WorkspaceIntegrationsRoute() {
   const [personalIntegrationId, setPersonalIntegrationId] = useState<
     string | null
   >(null);
+  const [customMcpOpen, setCustomMcpOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceConnection | null>(
     null,
   );
@@ -2700,6 +2728,9 @@ export default function WorkspaceIntegrationsRoute() {
     EMPTY_RESPONSE) as WorkspaceConnectionsResponse;
   const providers = data.providers;
   const connections = data.connections;
+  const googleOAuthUnavailable =
+    data.availability?.googleOAuth.status === "unavailable" &&
+    data.availability.googleOAuth.retryable;
   const apps = (appsQuery.data ?? []) as WorkspaceAppSummary[];
   const groups = (groupsQuery.data ?? []) as WorkspaceUserGroup[];
   const providersById = useMemo(
@@ -2787,6 +2818,10 @@ export default function WorkspaceIntegrationsRoute() {
   }
 
   function openProviderConnection(provider: WorkspaceConnectionProvider) {
+    if (isGoogleWorkspaceProvider(provider.id)) {
+      setProviderChoice({ provider, personalOAuth: true });
+      return;
+    }
     const personalIntegration = personalIntegrations.get(provider.id);
     if (personalIntegration) {
       setProviderChoice({ provider, personalIntegration });
@@ -2864,7 +2899,7 @@ export default function WorkspaceIntegrationsRoute() {
         ),
       );
       setGroupEditor(null);
-      queryClient.invalidateQueries({ queryKey: GROUP_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: GROUP_QUERY_KEY });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -2963,7 +2998,7 @@ export default function WorkspaceIntegrationsRoute() {
       setSetupWizard(null);
       setSetupForm(null);
       setSetupFormKey("");
-      queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -3039,7 +3074,7 @@ export default function WorkspaceIntegrationsRoute() {
         granted,
         knownAppIds,
       });
-      queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: CONNECTION_QUERY_KEY });
       toast.success(
         granted ? t("integrations.grantAdded") : t("integrations.grantRevoked"),
       );
@@ -3129,6 +3164,9 @@ export default function WorkspaceIntegrationsRoute() {
             }}
           />
         ) : null}
+        {googleOAuthUnavailable ? (
+          <ActionQueryError onRetry={() => void connectionsQuery.refetch()} />
+        ) : null}
         {!connectionsQuery.isError && !appsQuery.isError ? (
           <>
             {connectionsQuery.isLoading ? (
@@ -3158,23 +3196,40 @@ export default function WorkspaceIntegrationsRoute() {
                     )}
                   </p>
                 </div>
-                <div className="relative w-full sm:max-w-xs">
-                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={providerQuery}
-                    onChange={(event) => setProviderQuery(event.target.value)}
-                    placeholder={t(
-                      /* i18n-key-ignore */
-                      "integrations.searchWorkspacePlaceholder",
-                      { defaultValue: "Search integrations" },
-                    )}
-                    aria-label={t(
-                      /* i18n-key-ignore */
-                      "integrations.searchWorkspaceLabel",
-                      { defaultValue: "Search workspace integrations" },
-                    )}
-                    className="h-9 ps-9"
-                  />
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <div className="relative w-full sm:w-64">
+                    <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={providerQuery}
+                      onChange={(event) => setProviderQuery(event.target.value)}
+                      placeholder={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspacePlaceholder",
+                        { defaultValue: "Search integrations" },
+                      )}
+                      aria-label={t(
+                        /* i18n-key-ignore */
+                        "integrations.searchWorkspaceLabel",
+                        { defaultValue: "Search workspace integrations" },
+                      )}
+                      className="h-9"
+                    />
+                  </div>
+                  {isCustomMcpIntegrationEnabled() ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setCustomMcpOpen(true)}
+                    >
+                      <IconPlus size={14} />
+                      {t(
+                        /* i18n-key-ignore: shared core localization key */
+                        "mcpIntegrations.addYourOwn",
+                      )}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
               <IntegrationGrid
@@ -3195,14 +3250,16 @@ export default function WorkspaceIntegrationsRoute() {
                     actionLabel: connected
                       ? canManageConnection(active[0])
                         ? "Manage"
-                        : personalIntegrations.has(provider.id)
+                        : personalIntegrations.has(provider.id) ||
+                            isGoogleWorkspaceProvider(provider.id)
                           ? "Connect for me"
                           : "Admin only"
                       : "Connect",
                     disabled:
                       !connected &&
                       !canManageConnections &&
-                      !personalIntegrations.has(provider.id),
+                      !personalIntegrations.has(provider.id) &&
+                      !isGoogleWorkspaceProvider(provider.id),
                     onAction: () =>
                       connected
                         ? canManageConnection(active[0])
@@ -3416,14 +3473,23 @@ export default function WorkspaceIntegrationsRoute() {
               )}
               showWorkspaceOption={canManageConnections}
               onPersonal={() => {
-                setPersonalIntegrationId(providerChoice.personalIntegration.id);
+                const provider = providerChoice.provider;
                 setProviderChoice(null);
+                if (providerChoice.personalOAuth) {
+                  startWorkspaceProviderOAuth(provider, "user");
+                  return;
+                }
+                if (providerChoice.personalIntegration) {
+                  setPersonalIntegrationId(
+                    providerChoice.personalIntegration.id,
+                  );
+                }
               }}
               onWorkspace={() => {
                 const provider = providerChoice.provider;
                 setProviderChoice(null);
                 if (providerHasOAuth(provider)) {
-                  startWorkspaceProviderOAuth(provider);
+                  startWorkspaceProviderOAuth(provider, "organization");
                 } else {
                   openSetup(provider);
                 }
@@ -3447,6 +3513,17 @@ export default function WorkspaceIntegrationsRoute() {
           onOpenChange={(open) => {
             if (!open) setPersonalIntegrationId(null);
           }}
+          onCreateMcpServer={createPersonalMcpServer.mutateAsync}
+        />
+      ) : null}
+      {customMcpOpen ? (
+        <McpIntegrationDialog
+          open
+          integrations={[]}
+          defaultScope="user"
+          canCreateOrgMcp={canManageOrg}
+          hasOrg={canManageOrg}
+          onOpenChange={setCustomMcpOpen}
           onCreateMcpServer={createPersonalMcpServer.mutateAsync}
         />
       ) : null}

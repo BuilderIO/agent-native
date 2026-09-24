@@ -1,11 +1,20 @@
 import {
   generateTabId,
-  sendToAgentChat,
   sendToAgentChatAndConfirm,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import {
+  bumpChangeVersion,
+  callAction,
+  getChangeVersion,
+  useChangeVersions,
+} from "@agent-native/core/client/hooks";
+import {
+  aiRequestTabId,
+  parseAiRequestTabId,
+  type ClipsAiRequestKind,
+} from "@shared/ai-request-status";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
@@ -15,6 +24,19 @@ const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
 export const WORKFLOW_ACTION_MAX_ATTEMPTS = 5;
 const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
+const AI_REQUEST_SOURCE_PREFIX = "app-state:clips-ai-request-";
+const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Wake the bridge after a client-side action queues AI work. Advance the exact
+ * source the bridge observes so the request is dispatched without waiting for
+ * the next database poll.
+ */
+export function notifyAiRequestQueued(recordingId: string): void {
+  if (!recordingId) return;
+  const source = `${AI_REQUEST_SOURCE_PREFIX}${recordingId}`;
+  bumpChangeVersion(source, Math.max(Date.now(), getChangeVersion(source) + 1));
+}
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -92,8 +114,8 @@ async function clearRequest(recordingId: string): Promise<void> {
 
 /**
  * Mount this once in the app shell. It watches the exact application-state
- * keys used for queued Clips AI work and fires `sendToAgentChat` for every
- * pending request queued by a clips action.
+ * keys used for queued Clips AI work and delivers every pending request to the
+ * agent chat queued by a Clips action.
  * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
  * once per tab session.
  */
@@ -108,12 +130,25 @@ export function useAutoTitleBridge(): void {
   useEffect(() => {
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (
-        detail?.isRunning !== false ||
-        (detail.reason !== "stopped" && detail.reason !== "failed") ||
-        typeof detail.tabId !== "string"
-      )
+      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
         return;
+
+      if (detail.reason !== "stopped" && detail.reason !== "failed") return;
+
+      const aiRequest = parseAiRequestTabId(detail.tabId);
+      if (aiRequest) {
+        const status = detail.reason === "stopped" ? "cancelled" : "failed";
+        void callAction(
+          "update-ai-request-status" as any,
+          { ...aiRequest, status } as any,
+        ).catch((error) => {
+          console.error(
+            `[clips] failed to persist ${detail.reason} AI request status`,
+            { ...aiRequest, error },
+          );
+        });
+        return;
+      }
 
       const recordingId = recordingIdFromTab(detail.tabId);
       const requestedAt = requestedAtFromTab(detail.tabId);
@@ -249,7 +284,33 @@ export function useAutoTitleBridge(): void {
               });
               continue;
             }
-            dispatchAiRequest(rec, request);
+            if (
+              typeof request.requestedAt !== "string" ||
+              !request.requestedAt.trim()
+            ) {
+              console.warn("[clips] queued AI request is missing requestedAt", {
+                recordingId: rec.id,
+                kind: request.kind,
+              });
+              fallbackTimer = setTimeout(() => void tick(), 1000);
+              continue;
+            }
+            const delivery = await dispatchAiRequest(
+              rec,
+              request,
+              aiRequestTabId(
+                rec.id,
+                request.kind as ClipsAiRequestKind,
+                request.requestedAt,
+              ),
+            );
+            if (!delivery.delivered) {
+              // Keep the request durable when the chat bridge is unavailable;
+              // the next retry can deliver it after the panel mounts.
+              dispatched.current.delete(dispatchKey);
+              fallbackTimer = setTimeout(() => void tick(), 1000);
+              continue;
+            }
             dispatched.current.add(dispatchKey);
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -452,12 +513,16 @@ function requestedAtFromTab(tabId: string) {
 function dispatchAiRequest(
   rec: RecordingSummary,
   request: AiRequest,
-  tabId?: string,
+  tabId: string,
 ) {
-  return sendToAgentChat({
-    ...buildAiRequestChatOptions(rec, request),
-    ...(tabId ? { tabId } : {}),
-  });
+  return sendToAgentChatAndConfirm(
+    {
+      ...buildAiRequestChatOptions(rec, request),
+      chatTarget: "local",
+      tabId,
+    },
+    { timeoutMs: AI_REQUEST_DELIVERY_TIMEOUT_MS },
+  );
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

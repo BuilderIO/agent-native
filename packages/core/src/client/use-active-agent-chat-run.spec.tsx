@@ -4,7 +4,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearActiveRun, setActiveRun } from "./active-run-state.js";
+import {
+  clearActiveRun,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "./active-run-state.js";
 import { useActiveAgentChatRunId } from "./use-active-agent-chat-run.js";
 
 describe("useActiveAgentChatRunId", () => {
@@ -55,5 +59,23 @@ describe("useActiveAgentChatRunId", () => {
 
     await act(async () => clearActiveRun());
     expect(container.textContent).toBe("none");
+  });
+
+  it("does not rerender when only the active run cursor changes", async () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 0 });
+    let renders = 0;
+
+    function Probe() {
+      renders += 1;
+      return <output>{useActiveAgentChatRunId("thread-1") ?? "none"}</output>;
+    }
+
+    await act(async () => root.render(<Probe />));
+    const initialRenders = renders;
+
+    await act(async () => updateActiveRunSeq("thread-1", "run-1", 1));
+
+    expect(container.textContent).toBe("run-1");
+    expect(renders).toBe(initialRenders);
   });
 });

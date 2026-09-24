@@ -14,8 +14,8 @@ test.describe("Tasks navigation", () => {
     await gotoTasksPage(page);
   });
 
-  test("redirects / to the task list", async ({ page }) => {
-    await page.goto("/");
+  test("opens the private home route at the task list", async ({ page }) => {
+    await page.goto("/home");
     await expect(page).toHaveURL(/\/tasks\/?$/);
     await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
   });

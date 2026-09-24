@@ -14,7 +14,7 @@ export interface CrmRecordSummary {
 }
 
 export interface CrmRecordDetail extends CrmRecordSummary {
-  provider?: "hubspot" | "salesforce" | string;
+  provider?: "hubspot" | "salesforce" | (string & {});
   description?: string;
   remoteRevision?: string;
   activity?: Array<{
@@ -45,7 +45,7 @@ export interface CrmRecordDetail extends CrmRecordSummary {
 export interface CrmTask {
   id: string;
   title: string;
-  status: "open" | "done" | "blocked" | string;
+  status: "open" | "done" | "blocked" | (string & {});
   dueAt?: string;
   recordId?: string;
 }

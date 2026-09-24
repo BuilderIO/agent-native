@@ -88,6 +88,62 @@ describe("formatMcpConnectError", () => {
     );
   });
 
+  it("preserves typed HTTP status when formatting HTML responses", () => {
+    const error = Object.assign(
+      new Error("Error POSTing to endpoint: <!doctype html><html>502</html>"),
+      { data: { status: 502, statusText: "Bad Gateway" } },
+    );
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
+  it("preserves HTTP status from MCP SDK error codes", () => {
+    const error = Object.assign(
+      new Error(
+        "Streamable HTTP error: Error POSTing to endpoint: <!doctype html><html>502</html>",
+      ),
+      { code: 502 },
+    );
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
+  it("keeps a useful fallback for typed errors without a message", () => {
+    const error = Object.assign(new Error(), { code: 502 });
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: Could not connect to that MCP server.",
+    );
+  });
+
+  it.each(["error", "[object ErrorEvent]"])(
+    "preserves typed status for legacy event errors (%s)",
+    (message) => {
+      const error = Object.assign(new Error(message), { code: 502 });
+
+      expect(formatMcpConnectError(error)).toBe(
+        "HTTP 502: The MCP server connection failed while opening its event stream. Check the URL and any required authorization headers.",
+      );
+    },
+  );
+
+  it("retains typed status when an HTML body contains the same status", () => {
+    const error = Object.assign(
+      new Error(
+        "Error POSTing to endpoint: HTTP 502 Bad Gateway <!doctype html><html></html>",
+      ),
+      { code: 502 },
+    );
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
   it("explains Streamable HTTP handshake failures", () => {
     expect(
       formatMcpConnectError("Streamable HTTP error: non-200 status code"),

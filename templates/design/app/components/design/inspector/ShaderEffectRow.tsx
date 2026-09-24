@@ -64,7 +64,7 @@ export function ShaderEffectRow({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex-1 truncate text-left text-xs text-foreground hover:text-foreground/80 focus:outline-none"
+                className="design-sidebar-control-text flex-1 truncate text-left text-foreground hover:text-foreground/80 focus:outline-none"
               >
                 {label}
               </button>

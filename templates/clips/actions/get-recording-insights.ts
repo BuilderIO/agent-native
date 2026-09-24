@@ -8,11 +8,14 @@
  * uniqueViewers (distinct people behind those views), completionRate,
  * dropOff (100 buckets), ctaConversionRate.
  *
+ * completionRate and ctaConversionRate are null — never 0 — when no human
+ * viewer has been counted yet, so an agent-only clip does not read as 0%.
+ *
  * Usage:
  *   pnpm action get-recording-insights --recordingId=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { count, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -22,15 +25,15 @@ import {
   countRecordingAgentViews,
   listRecordingAgentViewers,
 } from "../server/lib/agent-views.js";
+import { hydrateViewerNames } from "../server/lib/user-identities.js";
 import {
   clampCompletionPct,
-  displayViewerName,
   isCountedViewerRow,
 } from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
-    "Aggregate analytics for a recording — views, unique viewers, completion rate, drop-off curve, CTA conversion.",
+    "Aggregate analytics for a recording — views, unique viewers, reactions, completion rate, drop-off curve, CTA conversion.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -49,14 +52,19 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    const [[viewLogRow], agentViews, agentViewers] = await Promise.all([
-      db
-        .select({ value: count() })
-        .from(schema.recordingViews)
-        .where(eq(schema.recordingViews.recordingId, args.recordingId)),
-      countRecordingAgentViews(args.recordingId),
-      listRecordingAgentViewers(args.recordingId),
-    ]);
+    const [[viewLogRow], agentViews, agentViewers, [reactionCountRow]] =
+      await Promise.all([
+        db
+          .select({ value: count() })
+          .from(schema.recordingViews)
+          .where(eq(schema.recordingViews.recordingId, args.recordingId)),
+        countRecordingAgentViews(args.recordingId),
+        listRecordingAgentViewers(args.recordingId),
+        db
+          .select({ value: count() })
+          .from(schema.recordingReactions)
+          .where(eq(schema.recordingReactions.recordingId, args.recordingId)),
+      ]);
 
     // Same definition as `countedViewCondition`, applied to rows already in
     // memory so this action keeps its single viewer-row read. One row per
@@ -75,13 +83,18 @@ export default defineAction({
     // number instead of 0, and so total can never read below uniqueViewers.
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
+    // Completion is a human-playback average. Agents read a clip through the
+    // agent APIs and never report progress, so a clip whose only audience is
+    // agents has no completion sample — null, not 0. "Nobody has watched it"
+    // and "everyone bounced at the first frame" are different facts, and only
+    // the second one is 0%.
     const completionRate =
-      countedViewerRows.length === 0
-        ? 0
+      countedViewers === 0
+        ? null
         : countedViewerRows.reduce(
             (acc, v) => acc + clampCompletionPct(v.completedPct),
             0,
-          ) / countedViewerRows.length;
+          ) / countedViewers;
 
     // Drop-off: 100 buckets across the video's duration.
     // Use the recording's duration as the denominator.
@@ -110,26 +123,31 @@ export default defineAction({
     // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
       countedViewers === 0
-        ? 0
+        ? null
         : Math.min(100, (ctaClicks / countedViewers) * 100);
+    const reactions = Number(reactionCountRow?.value ?? 0);
 
     // Top viewers by total watch ms
-    const topViewers = viewerRows
-      .slice()
-      .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
-      .slice(0, 20)
-      .map((v) => ({
-        viewerEmail: v.viewerEmail,
-        viewerName: displayViewerName(v.viewerName),
-        totalWatchMs: v.totalWatchMs ?? 0,
-        completedPct: clampCompletionPct(v.completedPct),
-      }));
+    const topViewers = (
+      await hydrateViewerNames(
+        viewerRows
+          .slice()
+          .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
+          .slice(0, 20),
+      )
+    ).map((v) => ({
+      viewerEmail: v.viewerEmail,
+      viewerName: v.viewerName,
+      totalWatchMs: v.totalWatchMs ?? 0,
+      completedPct: clampCompletionPct(v.completedPct),
+    }));
 
     return {
       views,
       agentViews,
       agentViewers,
       uniqueViewers,
+      reactions,
       completionRate,
       ctaConversionRate,
       dropOff: buckets,

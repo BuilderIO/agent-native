@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const packageRoot = path.resolve(import.meta.dirname, "../../..");
+const workspaceRoot = path.resolve(packageRoot, "../..");
 
 describe("assistant-ui imports", () => {
   it("uses the React package's store context instead of a separately bundled store", () => {
@@ -17,13 +18,16 @@ describe("assistant-ui imports", () => {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
+    const workspace = fs.readFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      "utf8",
+    );
 
     expect(messageComponents).not.toContain('from "@assistant-ui/store"');
-    expect(packageJson.dependencies?.["@assistant-ui/store"]).toBe(
-      ">=0.2.9 <0.2.14",
-    );
+    expect(packageJson.dependencies?.["@assistant-ui/store"]).toBe("catalog:");
     expect(packageJson.devDependencies?.["@assistant-ui/store"]).toBe(
-      ">=0.2.9 <0.2.14",
+      "catalog:",
     );
+    expect(workspace).toContain('"@assistant-ui/store": 0.2.13');
   });
 });

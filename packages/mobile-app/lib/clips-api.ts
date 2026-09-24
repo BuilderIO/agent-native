@@ -351,7 +351,9 @@ export async function callClipsAction<T>(
       }
       url.searchParams.set(
         key,
-        typeof value === "object" ? JSON.stringify(value) : String(value),
+        typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value as string | number | boolean | bigint),
       );
     }
   }
@@ -424,7 +426,7 @@ export async function createClipsCapture(
         id: recordingId,
         title: job.title,
         titleSource: "upload",
-        sourceAppName: "Agent Native Mobile",
+        sourceAppName: "Agent-Native Mobile",
         hasCamera: job.kind === "video",
         hasAudio: true,
         mimeType,

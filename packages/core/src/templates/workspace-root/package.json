@@ -25,7 +25,7 @@
     "tsx": "catalog:",
     "typescript-7": "catalog:"
   },
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@10.29.1",
   "agent-native": {
     "workspaceCore": "@{{APP_NAME}}/shared"
   }

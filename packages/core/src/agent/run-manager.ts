@@ -25,6 +25,7 @@ import {
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
+  getCurrentTurnRunEventsForThread,
   getRunById,
   getRunByThread,
   getRunTurnRef,
@@ -46,6 +47,10 @@ import {
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   terminalEventForAbortReason,
+  RUN_RECORD_MISSING_ERROR_EVENT,
+  RUN_RECORD_MISSING_GRACE_MS,
+  RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
+  UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
 import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -53,6 +58,8 @@ import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 export interface ActiveRun {
   runId: string;
   threadId: string;
+  /** Parent message for the assistant-ui branch this run is answering. */
+  parentId?: string | null;
   /** Logical-turn identity (see StartRunOptions.turnId). Defaults to runId. */
   turnId: string;
   events: RunEvent[];
@@ -240,10 +247,11 @@ export function resolveRunNoProgressTimeoutMs(params: {
  * Every pair listed here suspends the no-progress backstop for as long as it is
  * open, so each one MUST be bounded by a watchdog of its own — tool calls by
  * the per-tool timeout, cross-app calls by the A2A poll timeout, the model
- * stream by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`, which the agent loop races
- * against every wait for the next engine frame. A pair added here without such
- * a bound turns the backstop off for the rest of the run, which is strictly
- * worse than the stall it was meant to catch.
+ * stream by the engine's own first-event abort plus the chunk budget (the 90s
+ * in-loop watchdog that used to sit here is gone — see
+ * run-lifecycle-invariants.ts). A pair added here without SOME bound turns the
+ * backstop off for the rest of the run, which is strictly worse than the stall
+ * it was meant to catch.
  *
  * Note what that leaves: the model-stream bound covers waiting for the engine,
  * not a hang while the loop processes a frame it already has. Nothing here
@@ -346,6 +354,14 @@ export const SQL_SUBSCRIPTION_REAP_POLL_MS = 5_000;
 
 /** Initial retry delay after a transient cross-isolate SQL polling failure. */
 export const SQL_SUBSCRIPTION_RETRY_BASE_MS = 250;
+
+/**
+ * How long an in-memory reconnect waits for a non-running run to emit the
+ * terminal event its completion callback is still assembling, before failing
+ * loud. Generous relative to that callback (thread_data persistence plus a
+ * possible continuation dispatch) and far inside the client's idle timeout.
+ */
+export const IN_MEMORY_TERMINAL_SETTLE_MS = 5_000;
 
 /** Bound consecutive SQL polling failures so a dead subscription fails loud. */
 export const SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES = 4;
@@ -503,6 +519,8 @@ export interface StartRunOptions {
    * share one `turnId` so the durable assistant message can be folded across
    * them instead of dropped per-run. Defaults to the runId (turn == run). */
   turnId?: string;
+  /** Parent message for the assistant-ui branch this run is answering. */
+  parentId?: string | null;
   /**
    * Opt into the durable-background-function soft-timeout regime for THIS run
    * only. When true, `resolveRunSoftTimeoutMs` lifts the hosted ceiling from
@@ -543,6 +561,8 @@ export interface StartRunOptions {
    * would have looked.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  /** The caller atomically inserted this run while claiming the thread slot. */
+  runRowAlreadyInserted?: boolean;
   /**
    * Optional context forwarded onto the terminal-outcome analytics event
    * (see `emitRunTerminalTrackingEvent`) so run cutoffs can be broken down
@@ -754,23 +774,36 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
 }
 
 /**
- * A completed tool with no later assistant text is an unfinished turn, not a
+ * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
  * terminal synthesis so the run-manager and production continuation paths use
  * the same boundary evidence.
+ *
+ * A FAILED tool result counts too. Skipping it made the verdict depend on
+ * whether some earlier call in the same turn happened to succeed: a turn ending
+ * on `resources` ok then `web_request` failed continued, while the same turn
+ * with both failing terminated as a plain `done`. The client can only render
+ * "stopped after these actions ... without sending a final message" for that,
+ * so the tool's real error — an expired handoff URL, a missing credential —
+ * never reached the user, and typing "continue" by hand was the only way to see
+ * it. The model has not read the error yet at this point, which makes a failed
+ * tail strictly more unfinished than a successful one.
  */
-export function endsAfterCompletedToolWithoutAssistantFinal(
+export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
 ): boolean {
-  let completedToolAfterLastAssistantText = false;
+  let toolResultAfterLastAssistantText = false;
   for (const { event } of run.events) {
     if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText =
-        event.chatUI === undefined && event.mcpApp === undefined;
+    if (event.type === "tool_done") {
+      // Custom UI is the one tool result that is a legitimate final answer on
+      // its own, and only when it succeeded.
+      toolResultAfterLastAssistantText =
+        event.isError === true ||
+        (event.chatUI === undefined && event.mcpApp === undefined);
       continue;
     }
     if (
@@ -780,10 +813,42 @@ export function endsAfterCompletedToolWithoutAssistantFinal(
       event.type === "auto_continue" ||
       event.type === "loop_limit"
     ) {
-      completedToolAfterLastAssistantText = false;
+      toolResultAfterLastAssistantText = false;
     }
   }
-  return completedToolAfterLastAssistantText;
+  return toolResultAfterLastAssistantText;
+}
+
+/**
+ * A model can emit a lead-in before it starts assembling an action input. If
+ * the run ends in that preparation phase, `done` is not a successful turn.
+ */
+export function endsDuringActionPreparation(run: ActiveRun): boolean {
+  let preparingAction = false;
+  for (const { event } of run.events) {
+    if (
+      isPreparingActionActivityEvent(event) ||
+      event.type === "tool_input_start" ||
+      event.type === "tool_input_delta"
+    ) {
+      preparingAction = true;
+      continue;
+    }
+    if (
+      (event.type === "text" && event.text.trim().length > 0) ||
+      event.type === "tool_start" ||
+      event.type === "tool_done" ||
+      event.type === "approval_required" ||
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      preparingAction = false;
+    }
+  }
+  return preparingAction;
 }
 
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
@@ -1013,6 +1078,9 @@ export function startRun(
     ? new AbortController()
     : null;
   let chunkBoundaryReason: string | null = null;
+  let chunkSoftTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let armChunkSoftTimeout: () => void = () => {};
+  let recoverableRunDeadlineAt: number | null = null;
   let recoveredChunkBoundaries = 0;
   /** A boundary that has been reached but not yet proven recovered. */
   let pendingBoundary: {
@@ -1062,7 +1130,9 @@ export function startRun(
       if (abort.signal.aborted || !chunkAbort) return abort.signal;
       settleBoundary(true);
       chunkBoundaryReason = null;
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       chunkAbort = new AbortController();
+      armChunkSoftTimeout();
       // The boundary is behind us; the silence clock restarts with the chunk,
       // or the backstop fires again on the elapsed time of the chunk it just
       // ended and every recovery round dies instantly.
@@ -1084,6 +1154,7 @@ export function startRun(
   const run: StartedRun = {
     runId,
     threadId,
+    ...(options?.parentId !== undefined ? { parentId: options.parentId } : {}),
     turnId: options?.turnId ?? runId,
     events: [],
     status: "running",
@@ -1136,9 +1207,11 @@ export function startRun(
     ? { dispatchMode: options.dispatchMode }
     : undefined;
   const insertRunPromise = (
-    insertOptions
-      ? insertRun(runId, threadId, options?.turnId, insertOptions)
-      : insertRun(runId, threadId, options?.turnId)
+    options?.runRowAlreadyInserted
+      ? Promise.resolve()
+      : insertOptions
+        ? insertRun(runId, threadId, options?.turnId, insertOptions)
+        : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
   });
@@ -1504,8 +1577,13 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string } = {},
   ) => {
     if (run.status !== "running" || abort.signal.aborted) return;
-    if (chunkAbort) {
-      if (chunkAbort.signal.aborted) return;
+    const activeChunkAbort = chunkAbort;
+    const canRecoverChunk =
+      activeChunkAbort !== null &&
+      (recoverableRunDeadlineAt === null ||
+        Date.now() < recoverableRunDeadlineAt);
+    if (canRecoverChunk) {
+      if (activeChunkAbort.signal.aborted) return;
       recoveredChunkBoundaries += 1;
       console.warn(
         `[run-manager] chunk boundary (${reason}) — recovering in-invocation`,
@@ -1520,9 +1598,10 @@ export function startRun(
       // direction that hides the failure.
       pendingBoundary = { reason, diagnostic, index: recoveredChunkBoundaries };
       chunkBoundaryReason = reason;
-      chunkAbort.abort(reason);
+      activeChunkAbort.abort(reason);
       return;
     }
+    if (chunkAbort) chunkBoundaryReason = reason;
     // Mirror the soft-timeout semantics exactly: the chunk completes (not
     // aborts) at an auto_continue boundary, so the continuation machinery —
     // server-chained for background workers, client-driven for foreground —
@@ -1713,12 +1792,10 @@ export function startRun(
     overrideMs: options?.noProgressTimeoutMs,
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
-  // Not armed for a runFn that recovers boundaries in this invocation. That
-  // runFn already races the SAME wall with its own per-round timer, budgeted
-  // against cumulative elapsed time — so this timer fires at the moment the
-  // wrapper has nothing left to continue with, producing a boundary that is
-  // recoverable in name only and burning the tail of the budget on nothing.
-  // One wall, one clock; the caller's hard abort still backstops it.
+  // A recoverable run uses the cumulative timer below instead of this one-shot
+  // timer. Each successor chunk gets only the remaining invocation budget, so
+  // recovery cannot extend the hosted wall. The caller's hard abort still
+  // backstops both timer paths.
   const softTimeoutTimer =
     softTimeoutMs > 0 && !recoverChunkBoundaries
       ? setTimeout(() => {
@@ -1727,6 +1804,26 @@ export function startRun(
           });
         }, softTimeoutMs)
       : null;
+  if (recoverChunkBoundaries && softTimeoutMs > 0) {
+    const runDeadlineAt = Date.now() + softTimeoutMs;
+    recoverableRunDeadlineAt = runDeadlineAt;
+    armChunkSoftTimeout = () => {
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
+      if (abort.signal.aborted || run.status !== "running") return;
+      chunkSoftTimeoutTimer = setTimeout(
+        () => {
+          chunkSoftTimeoutTimer = null;
+          reachRunBoundary("run_timeout", {
+            lastEventType: run.events.at(-1)?.event.type,
+          });
+        },
+        Math.max(0, runDeadlineAt - Date.now()),
+      );
+    };
+    // Boundary recovery disables the ordinary one-shot timer, so arm the
+    // cumulative invocation deadline on the initial chunk and each successor.
+    armChunkSoftTimeout();
+  }
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
@@ -1811,18 +1908,35 @@ export function startRun(
     // SQL poller's cursor past the slow row, permanently dropping it for
     // reconnecting clients. Terminal events surface persistence errors so the
     // caller can decide how to handle a failed final write.
-    const thisInsert = persistenceChain.then(() =>
-      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
-    );
-    persistenceChain = thisInsert.catch((error) => {
-      if (!eventPersistenceErrorCaptured) {
-        eventPersistenceErrorCaptured = true;
-        captureRunPersistenceError(error, "insert-event", {
-          seq: runEvent.seq,
-          eventType: runEvent.event.type,
-        });
+    const thisInsert = persistenceChain.then(async () => {
+      try {
+        await insertRunEvent(
+          runId,
+          runEvent.seq,
+          JSON.stringify(runEvent.event),
+        );
+      } catch (error) {
+        if (!eventPersistenceErrorCaptured) {
+          eventPersistenceErrorCaptured = true;
+          captureRunPersistenceError(error, "insert-event", {
+            seq: runEvent.seq,
+            eventType: runEvent.event.type,
+          });
+        }
+        // insertRunEvent is idempotent on (run_id, seq), so retrying the same
+        // write is safe after an uncertain acknowledgement. Keep a second
+        // failure rejected on persistenceChain so later seq values cannot
+        // commit past an event the durable stream never confirmed.
+        await insertRunEvent(
+          runId,
+          runEvent.seq,
+          JSON.stringify(runEvent.event),
+        );
       }
     });
+    // Preserve rejection on the chain. Turning this into a resolved promise
+    // lets the next event insert despite the missing sequence row.
+    persistenceChain = thisInsert;
     const persistence = thisInsert;
     if (!options?.surfacePersistenceError) {
       persistence.catch(() => {});
@@ -1841,7 +1955,7 @@ export function startRun(
       return;
     }
 
-    emitRunEvent(runEvent);
+    void emitRunEvent(runEvent);
   };
 
   // Run in background — intentionally detached from any HTTP connection
@@ -1917,17 +2031,37 @@ export function startRun(
       // fetch thread_data" without polling/retrying for a race window
       // where onComplete was still pending.
 
-      // 1. Await the completion callback (thread_data save). Heartbeat is
-      //    still ticking so the run doesn't look stale to any concurrent
-      //    /runs/active check while we wait for SQL writes to land.
+      // 1. Flush ordered event writes before the completion callback
+      //    (thread_data save). Heartbeat is still ticking so the run doesn't
+      //    look stale to any concurrent /runs/active check while we wait for
+      //    SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
+      let eventPersistenceError: unknown = null;
       // Populated in step 5b for errored runs; read by the terminal tracking
       // emission below so it doesn't have to re-walk diagnosticEvents.
       let runTerminalErrorCode: string | undefined;
       let runTerminalErrorDetail: string | undefined;
       let terminalPersistenceEstablished = false;
+      try {
+        await persistenceChain;
+      } catch (error) {
+        // A failed event write poisons the ordered stream. Surface the run as
+        // errored before completion work can make it look successfully done;
+        // later terminal writes must not bypass the missing sequence.
+        eventPersistenceError = error;
+        run.status = "errored";
+        pendingTerminalEvent = {
+          seq: run.events.length,
+          event: {
+            type: "error",
+            error: "Agent run ended unexpectedly",
+            errorCode: "run_event_persistence_failed",
+          },
+        };
+      }
       const resolveTerminalEventForCompletion = () => {
+        if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
               seq: run.events.length,
@@ -1996,28 +2130,36 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
-      const shouldAutoContinueAfterCompletedTool =
+      // Keep the live run object aligned with the status derived from its
+      // terminal event. A runFn may return normally after stashing a typed
+      // error, so the earlier `.then()` status of "completed" is otherwise
+      // visible through StartedRun/getRun during the cleanup window.
+      run.status = finalStatus;
+      const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        endsAfterCompletedToolWithoutAssistantFinal(run) &&
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
+          endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));
-      const completedToolContinuationEvent =
-        shouldAutoContinueAfterCompletedTool
+      const unfinishedTurnContinuationEvent =
+        shouldAutoContinueAfterUnfinishedTurn
           ? ({
               type: "auto_continue" as const,
               reason: "stream_ended" as const,
             } satisfies Extract<AgentChatEvent, { type: "auto_continue" }>)
           : null;
-      if (completedToolContinuationEvent) {
-        terminalEvent = completedToolContinuationEvent;
+      if (unfinishedTurnContinuationEvent) {
+        terminalEvent = unfinishedTurnContinuationEvent;
       }
-      const terminalReason = terminalReasonForRun(
-        finalStatus,
-        terminalEvent,
-        run.abortReason,
-        completionError,
-      );
+      const terminalReason = eventPersistenceError
+        ? "error:run_event_persistence_failed"
+        : terminalReasonForRun(
+            finalStatus,
+            terminalEvent,
+            run.abortReason,
+            completionError,
+          );
       // A run that stopped at a continuation boundary did not finish, so it is
       // not `completed`. Persisted directly here rather than left for
       // `setRunTerminalReason` to correct, so the row is never briefly readable
@@ -2046,9 +2188,14 @@ export function startRun(
         // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
         // client would never see the terminal/continuation signal. We always
         // re-stamp the seq at emit time (max-seq+1) just below.
-        const terminalEventToEmit: AgentChatEvent =
-          finalStatus === "completed"
-            ? (completedToolContinuationEvent ??
+        const terminalEventToEmit: AgentChatEvent = eventPersistenceError
+          ? {
+              type: "error",
+              error: "Agent run ended unexpectedly",
+              errorCode: "run_event_persistence_failed",
+            }
+          : finalStatus === "completed"
+            ? (unfinishedTurnContinuationEvent ??
               terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
@@ -2091,20 +2238,22 @@ export function startRun(
               "[run-manager] terminal event persistence error:",
               err instanceof Error ? err.message : err,
             );
-            try {
-              await insertRunEvent(
-                runId,
-                terminal.seq,
-                JSON.stringify(terminal.event),
-              );
-              terminalPersistenceError = null;
-            } catch (retryError) {
-              terminalPersistenceError = retryError;
-              captureRunError(retryError, "completion");
-              console.error(
-                "[run-manager] terminal event retry persistence error:",
-                retryError instanceof Error ? retryError.message : retryError,
-              );
+            if (!eventPersistenceError) {
+              try {
+                await insertRunEvent(
+                  runId,
+                  terminal.seq,
+                  JSON.stringify(terminal.event),
+                );
+                terminalPersistenceError = null;
+              } catch (retryError) {
+                terminalPersistenceError = retryError;
+                captureRunError(retryError, "completion");
+                console.error(
+                  "[run-manager] terminal event retry persistence error:",
+                  retryError instanceof Error ? retryError.message : retryError,
+                );
+              }
             }
           }
         }
@@ -2113,13 +2262,7 @@ export function startRun(
         run.subscribers.delete(subscriber);
       }
 
-      // 4. Stop the heartbeat — all liveness writes are done.
-      clearInterval(heartbeatTimer);
-      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
-      if (progressWriteTimer) clearTimeout(progressWriteTimer);
-      progressWriteTimer = null;
-      progressWritePending = false;
-      // A tool can throw before its matching event is emitted, or the process
+      // 4. A tool can throw before its matching event is emitted, or the process
       // can reach terminal cleanup with an in-flight call still open. Do not
       // leave the SQL grace marker attached to a terminal run.
       if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
@@ -2132,7 +2275,7 @@ export function startRun(
       //    status written by the reaper or a replacement run.
       try {
         await insertRunPromise;
-        if (!terminalPersistenceError) {
+        if (!terminalPersistenceError || eventPersistenceError) {
           let statusUpdated = false;
           try {
             statusUpdated = await updateRunStatusIfRunning(
@@ -2143,7 +2286,7 @@ export function startRun(
             statusUpdated = false;
           }
           if (statusUpdated) {
-            terminalPersistenceEstablished = true;
+            terminalPersistenceEstablished = !terminalPersistenceError;
             await setRunTerminalReason(runId, terminalReason);
           } else {
             terminalPersistenceEstablished =
@@ -2202,9 +2345,9 @@ export function startRun(
       }
 
       if (terminalPersistenceError) {
-        const reconciled = await reconcileTerminalRunFromEvents(runId).catch(
-          () => false,
-        );
+        const reconciled = eventPersistenceError
+          ? false
+          : await reconcileTerminalRunFromEvents(runId);
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
@@ -2235,8 +2378,15 @@ export function startRun(
           attemptCount: options?.attemptCount,
         });
       }
-
-      // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
+    })
+    .finally(() => {
+      // Persistence failure must still release timers and the in-memory run.
+      clearInterval(heartbeatTimer);
+      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
+      if (progressWriteTimer) clearTimeout(progressWriteTimer);
+      progressWriteTimer = null;
+      progressWritePending = false;
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {
@@ -2278,6 +2428,71 @@ export function subscribeToRun(
   return subscribeFromSQL(runId, fromSeq);
 }
 
+/** Replay every persisted chunk of one completed logical turn as one SSE stream. */
+export async function replayCompletedTurn(
+  threadId: string,
+  turnId: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+  const persisted = await getCurrentTurnRunEventsForThread(threadId, turnId);
+  if (persisted.length === 0) return null;
+  const events = persisted.filter(
+    ({ event }) => event.type !== "auto_continue",
+  );
+  const hasTerminalEvent = events.some(({ event }) =>
+    isTerminalRunEvent(event),
+  );
+  if (!hasTerminalEvent) {
+    const last = events.at(-1);
+    events.push({
+      runId: last?.runId ?? `turn-replay-${turnId}`,
+      seq: (last?.seq ?? -1) + 1,
+      event: { type: "done" },
+    });
+  }
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      events.forEach(({ event, runId, seq }, replaySeq) => {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              ...event,
+              seq: replaySeq,
+              eventId: runEventIdentity(runId, seq),
+            })}\n\n`,
+          ),
+        );
+      });
+      controller.close();
+    },
+  });
+}
+
+function runEventIdentity(runId: string, seq: number): string {
+  return `${runId}:${seq}`;
+}
+
+function streamRunEvent(
+  runId: string,
+  runEvent: RunEvent,
+): Record<string, unknown> {
+  return {
+    ...runEvent.event,
+    seq: runEvent.seq,
+    eventId: runEventIdentity(runId, runEvent.seq),
+  };
+}
+
+function streamEventWithIdentity(
+  runId: string,
+  event: AgentChatEvent | Record<string, unknown>,
+  seq?: number,
+): Record<string, unknown> {
+  return seq === undefined
+    ? { ...event }
+    : { ...event, seq, eventId: runEventIdentity(runId, seq) };
+}
+
 /** In-memory subscription (same isolate, fast path) */
 function subscribeInMemory(
   run: ActiveRun,
@@ -2286,6 +2501,7 @@ function subscribeInMemory(
   const encoder = new TextEncoder();
   let subscriberRef: ((event: RunEvent) => void) | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let terminalSettleTimer: ReturnType<typeof setTimeout> | null = null;
 
   return new ReadableStream({
     start(controller) {
@@ -2295,6 +2511,7 @@ function subscribeInMemory(
         } catch {
           if (subscriberRef) run.subscribers.delete(subscriberRef);
           if (pingTimer) clearInterval(pingTimer);
+          if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
         }
       };
       ping();
@@ -2305,7 +2522,7 @@ function subscribeInMemory(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...run.events[i].event, seq: run.events[i].seq })}\n\n`,
+              `data: ${JSON.stringify(streamRunEvent(run.runId, run.events[i]!))}\n\n`,
             ),
           );
         } catch {
@@ -2313,11 +2530,79 @@ function subscribeInMemory(
         }
       }
 
-      // If run is already done, close immediately
+      // If run is already done, close immediately — but only once a terminal
+      // event actually exists to close on. `run.status` flips to "completed"
+      // when runFn resolves, while the terminal event is emitted later by the
+      // completion callback (it may still become auto_continue or error). A
+      // reconnect landing in that window used to get a clean close with no
+      // terminal frame, which the client cannot tell from an abandoned turn.
       if (run.status !== "running") {
-        if (pingTimer) clearInterval(pingTimer);
-        controller.close();
-        return;
+        const bufferedTerminalIndex = run.events.findLastIndex((buffered) =>
+          isTerminalRunEvent(buffered.event),
+        );
+        if (bufferedTerminalIndex >= 0) {
+          // The replay loop above only delivered events at or after `fromSeq`.
+          // A cursor already past the terminal event would otherwise close with
+          // no terminal frame — the same ambiguous close this change exists to
+          // remove. Re-emit it, matching the SQL path's past-cursor handling.
+          if (bufferedTerminalIndex < fromSeq) {
+            const buffered = run.events[bufferedTerminalIndex]!;
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify(streamRunEvent(run.runId, buffered))}\n\n`,
+                ),
+              );
+            } catch {
+              if (pingTimer) clearInterval(pingTimer);
+              return;
+            }
+          }
+          if (pingTimer) clearInterval(pingTimer);
+          controller.close();
+          return;
+        }
+        // The producer is in this isolate and is about to emit its real
+        // terminal event, so wait for it rather than inventing one. Bounded so
+        // a producer that died between the status flip and the emit still
+        // fails loudly instead of hanging the stream open.
+        terminalSettleTimer = setTimeout(() => {
+          captureError(
+            new Error(
+              `Agent run ${run.runId} reached status ${run.status} without emitting a terminal event`,
+            ),
+            {
+              route: "/_agent-native/agent-chat/runs/:id/events",
+              aiTraceId: run.runId,
+              tags: {
+                source: "agent-run-manager",
+                phase: "memory-subscription-terminal",
+                runStatus: run.status,
+              },
+              extra: { runId: run.runId, fromSeq },
+            },
+          );
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify(
+                  streamEventWithIdentity(
+                    run.runId,
+                    UNKNOWN_RUN_STATUS_ERROR_EVENT,
+                    run.events.length,
+                  ),
+                )}\n\n`,
+              ),
+            );
+            // coercion-ok: enqueue throws only once the reader is gone; the lost terminal event is already reported by captureError above.
+          } catch {}
+          if (subscriberRef) run.subscribers.delete(subscriberRef);
+          if (pingTimer) clearInterval(pingTimer);
+          try {
+            controller.close();
+            // coercion-ok: closing an already-closed controller is this cleanup's success case, not a failure to report.
+          } catch {}
+        }, IN_MEMORY_TERMINAL_SETTLE_MS);
       }
 
       // Subscribe to live events
@@ -2325,13 +2610,14 @@ function subscribeInMemory(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...event.event, seq: event.seq })}\n\n`,
+              `data: ${JSON.stringify(streamRunEvent(run.runId, event))}\n\n`,
             ),
           );
           // Close stream after terminal events
           if (isTerminalRunEvent(event.event)) {
             run.subscribers.delete(subscriberRef!);
             if (pingTimer) clearInterval(pingTimer);
+            if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
             controller.close();
           }
         } catch {
@@ -2345,6 +2631,7 @@ function subscribeInMemory(
       // Only unsubscribe — do NOT abort the agent run
       if (subscriberRef) run.subscribers.delete(subscriberRef);
       if (pingTimer) clearInterval(pingTimer);
+      if (terminalSettleTimer) clearTimeout(terminalSettleTimer);
     },
   });
 }
@@ -2362,6 +2649,7 @@ function subscribeFromSQL(
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      const subscriptionStartedAt = Date.now();
       let activePollUntil = 0;
       let lastStatusCheckAt = 0;
       let lastReapCheckAt = 0;
@@ -2415,7 +2703,7 @@ function subscribeFromSQL(
         try {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ ...event, seq: lastSeq })}\n\n`,
+              `data: ${JSON.stringify(streamEventWithIdentity(runId, event))}\n\n`,
             ),
           );
         } catch {}
@@ -2451,7 +2739,7 @@ function subscribeFromSQL(
             try {
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                  `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
                 ),
               );
             } catch {
@@ -2494,6 +2782,26 @@ function subscribeFromSQL(
               await reapIfStale(runId).catch(() => {});
             }
             const run = await getRunById(runId);
+            if (
+              !run &&
+              now - subscriptionStartedAt < RUN_RECORD_MISSING_GRACE_MS
+            ) {
+              // The producer's INSERT may simply not be visible to this
+              // isolate/replica yet. Keep polling rather than reporting an
+              // absent row as a finished turn.
+              if (!cancelled) {
+                consecutivePollFailures = 0;
+                pollTimer = setTimeout(
+                  poll,
+                  resolveSqlSubscriptionPollMs(
+                    now,
+                    activePollUntil,
+                    consecutiveEmptyPolls,
+                  ),
+                );
+              }
+              return;
+            }
             if (!run || run.status !== "running") {
               // Run ended — do one final event read, then close
               const finalEvents = await getRunEventsSince(runId, lastSeq);
@@ -2509,7 +2817,7 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({ ...parsed, seq })}\n\n`,
+                      `data: ${JSON.stringify(streamEventWithIdentity(runId, parsed, seq))}\n\n`,
                     ),
                   );
                 } catch {
@@ -2540,10 +2848,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...terminalEvent,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -2574,10 +2885,13 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...terminalEvent,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -2605,10 +2919,78 @@ function subscribeFromSQL(
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({
-                        ...resolved.event,
-                        seq: existing?.seq ?? lastSeq,
-                      })}\n\n`,
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          resolved.event,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
+                    ),
+                  );
+                } catch {
+                  cancelled = true;
+                  return;
+                }
+              } else {
+                // Every remaining way out of 'running' — no row at all, or a
+                // status this branch list does not know — used to close the
+                // stream with zero terminal frames. The client cannot tell that
+                // apart from a turn still in flight, so it settles open tool
+                // calls to outcome "unknown" and renders "stopped without
+                // sending a final message". Prefer the run's REAL terminal
+                // event, then fail loudly with an attributable code.
+                //
+                // The branches above may discard a rejection here, because an
+                // unread terminal event degrades to an event synthesized from
+                // the row's own known status. In THIS branch the absence is
+                // itself the diagnosis, so collapsing a read failure into a
+                // null result would report "no terminal event exists" when we
+                // only failed to look. Keep unreadable and absent apart.
+                const lookup = await getLastTerminalRunEvent(runId).then(
+                  (event) => ({ read: true as const, event }),
+                  () => ({ read: false as const, event: null }),
+                );
+                const existing = lookup.event;
+                const terminalEvent = existing
+                  ? existing.event
+                  : !lookup.read
+                    ? { ...RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT }
+                    : run
+                      ? { ...UNKNOWN_RUN_STATUS_ERROR_EVENT }
+                      : { ...RUN_RECORD_MISSING_ERROR_EVENT };
+                if (!existing) {
+                  captureError(
+                    new Error(
+                      !lookup.read
+                        ? `Agent run ${runId} terminal-event lookup failed; outcome unknown`
+                        : run
+                          ? `Agent run ${runId} left 'running' with unrecognized status ${run.status}`
+                          : `Agent run ${runId} has no agent_runs row and no terminal event`,
+                    ),
+                    {
+                      route: "/_agent-native/agent-chat/runs/:id/events",
+                      aiTraceId: runId,
+                      tags: {
+                        source: "agent-run-manager",
+                        phase: "sql-subscription-terminal",
+                        runStatus: run?.status ?? "missing",
+                        terminalLookup: lookup.read ? "read" : "failed",
+                      },
+                      extra: { runId, fromSeq, lastSeq },
+                    },
+                  );
+                }
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify(
+                        streamEventWithIdentity(
+                          runId,
+                          terminalEvent,
+                          existing?.seq ?? lastSeq,
+                        ),
+                      )}\n\n`,
                     ),
                   );
                 } catch {
@@ -3056,6 +3438,20 @@ export async function abortRunDurably(
   return abortedInMemory;
 }
 
+/** Stop every in-process and durable chunk belonging to one logical turn. */
+export async function abortTurnByRefDurably(
+  threadId: string,
+  turnId: string,
+  reason: string = "user",
+): Promise<"aborted" | "already_terminal"> {
+  for (const run of activeRuns.values()) {
+    if (run.threadId === threadId && run.turnId === turnId) {
+      abortInMemoryRun(run, reason);
+    }
+  }
+  return markTurnAborted(threadId, turnId, reason);
+}
+
 /**
  * Stop the whole turn `runId` belongs to, not just that run.
  *
@@ -3078,7 +3474,7 @@ export async function abortTurnDurably(
     : await getRunTurnRef(runId).catch(() => null);
   if (!ref) return;
   try {
-    await markTurnAborted(ref.threadId, ref.turnId, reason);
+    await abortTurnByRefDurably(ref.threadId, ref.turnId, reason);
   } catch (error) {
     // The current run is already stopped; a failed marker write must not turn
     // Stop into a 500. Successors will keep running — capture it so that is

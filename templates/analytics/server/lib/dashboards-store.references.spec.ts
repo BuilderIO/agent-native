@@ -11,7 +11,6 @@ const state = vi.hoisted(() => ({
   limit: null as number | null,
 }));
 
-vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: () => undefined }));
 vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: vi.fn(async (prefix: string) =>
@@ -205,6 +204,35 @@ describe("searchDashboardReferences", () => {
     ]);
     expect(result.map((row) => row.kind)).toEqual(["explorer", "sql"]);
     expect(result[0]?.matchedFields).toContain("name");
+  });
+
+  it("keeps malformed configs from aborting reference search", async () => {
+    state.rows = [
+      {
+        id: "revenue-dashboard",
+        kind: "sql",
+        name: "Revenue",
+        config: "{not-json",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T01:00:00.000Z",
+      },
+    ];
+
+    const result = await searchDashboardReferences(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      8,
+    );
+
+    expect(result).toMatchObject([
+      {
+        id: "revenue-dashboard",
+        name: "Revenue",
+        description: null,
+      },
+    ]);
   });
 
   it("searches scoped legacy dashboard settings without returning duplicates", async () => {

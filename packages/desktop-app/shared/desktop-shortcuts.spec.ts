@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDesktopShortcutAccelerator,
   isDesktopChatToggleShortcut,
+  isDesktopSettingsShortcut,
   normalizeDesktopShortcutAccelerator,
 } from "./desktop-shortcuts";
 
@@ -38,6 +39,18 @@ describe("normalizeDesktopShortcutAccelerator", () => {
     expect(normalizeDesktopShortcutAccelerator("Command+H")).toEqual({
       error: expect.stringContaining("does not override"),
     });
+  });
+});
+
+describe("isDesktopSettingsShortcut", () => {
+  it("recognizes Cmd+, from either keyboard representation", () => {
+    expect(isDesktopSettingsShortcut({ key: "," })).toBe(true);
+    expect(isDesktopSettingsShortcut({ code: "Comma" })).toBe(true);
+  });
+
+  it("does not treat modified comma keys as the settings shortcut", () => {
+    expect(isDesktopSettingsShortcut({ key: ",", shift: true })).toBe(false);
+    expect(isDesktopSettingsShortcut({ key: ",", alt: true })).toBe(false);
   });
 });
 

@@ -6,10 +6,12 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import { frameworkRoutePrefix } from "./api-path.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -330,8 +332,10 @@ function isOpaqueOriginFrame(win: Window): boolean {
 function stripTokenFromUrl(win: Window): void {
   // Keep the token in the URL for opaque-origin frames — see
   // isOpaqueOriginFrame. Stripping it there breaks re-auth on any document
-  // reload. Referrer-Policy is set to no-referrer on embed responses, so the
-  // retained token does not leak via the Referer header.
+  // reload. Embed responses now use Referrer-Policy: same-origin, but that
+  // never leaks the retained token here: an opaque origin never equals any
+  // other origin (including its own), so "same-origin" requests from this
+  // document never qualify and no Referer is sent at all.
   if (isOpaqueOriginFrame(win)) return;
   try {
     const url = currentUrl(win);
@@ -380,10 +384,11 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
 }
 
 function isAgentNativeRuntimePath(pathname: string): boolean {
-  return (
-    pathname === "/_agent-native" ||
-    pathname.endsWith("/_agent-native") ||
-    pathname.includes("/_agent-native/")
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
+    (prefix) =>
+      pathname === prefix ||
+      pathname.endsWith(prefix) ||
+      pathname.includes(`${prefix}/`),
   );
 }
 
@@ -568,10 +573,11 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;
-  installed = true;
-
   const originalFetch = win.fetch.bind(win);
-  win.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const patchedFetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
     const request = requestUrlAndKey(input, init, win);
     const embedMode = isEmbedAuthActive();
     if (request?.shouldGuard) {
@@ -594,4 +600,18 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
     return response;
   }) as typeof fetch;
+  try {
+    win.fetch = patchedFetch;
+  } catch {
+    try {
+      Object.defineProperty(win, "fetch", {
+        configurable: true,
+        value: patchedFetch,
+        writable: true,
+      });
+    } catch {
+      return;
+    }
+  }
+  installed = true;
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { verifyScopedAgentAccessToken } from "@agent-native/core/server";
 import { invalidateCollabAccessCache } from "@agent-native/core/server/poll";
 import {

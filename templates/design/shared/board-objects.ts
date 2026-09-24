@@ -11,6 +11,8 @@
  * can be reused for the visual output in BoardObjectLayer.
  */
 
+import type { VectorEndpointStyle } from "./vector-endpoints.js";
+
 export type CanvasPrimitiveKindLike =
   | "frame"
   | "rectangle"
@@ -44,6 +46,10 @@ export interface BoardObjectEntry {
   stroke?: string;
   /** Stroke width in pixels. */
   strokeWidth?: number;
+  /** Figma-style endpoint marker at the vector's first point. */
+  startPoint?: VectorEndpointStyle;
+  /** Figma-style endpoint marker at the vector's last point. */
+  endPoint?: VectorEndpointStyle;
   /** Text content — only meaningful when kind === "text". */
   text?: string;
   /**
@@ -150,6 +156,8 @@ export interface DraftPrimitiveLike {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  startPoint?: VectorEndpointStyle;
+  endPoint?: VectorEndpointStyle;
   autoSize?: boolean;
 }
 
@@ -172,6 +180,8 @@ export function draftToBoardObjectEntry(
   if (draft.fill !== undefined) entry.fill = draft.fill;
   if (draft.stroke !== undefined) entry.stroke = draft.stroke;
   if (draft.strokeWidth !== undefined) entry.strokeWidth = draft.strokeWidth;
+  if (draft.startPoint !== undefined) entry.startPoint = draft.startPoint;
+  if (draft.endPoint !== undefined) entry.endPoint = draft.endPoint;
   if (draft.text !== undefined) entry.text = draft.text;
   if (draft.pathData !== undefined) entry.pathData = draft.pathData;
   if (draft.points !== undefined) entry.points = draft.points;

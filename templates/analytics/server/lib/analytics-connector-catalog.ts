@@ -3,8 +3,9 @@
  *
  * Keep this list read-only and bounded. It includes optional semantic read
  * contracts for callers that already know the exact operation and complete
- * input. Natural-language ask_app/A2A remains the default. Do not add raw SQL,
- * replay blobs, or dashboard/data mutation actions here.
+ * input. Prefer these direct actions for exact bounded reads; use
+ * ask_app/A2A when interpretation or unavailable capabilities require it. Do
+ * not add raw SQL, replay blobs, or dashboard/data mutation actions here.
  */
 export const ANALYTICS_CONNECTOR_CATALOG = [
   "account-deep-dive",

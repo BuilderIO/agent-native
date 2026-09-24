@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "../lib/agent-pack.js";
 import { validateImportedAgentTools } from "../lib/simple-agent-profile.js";
 import { applyAgentPackCreate } from "../server/lib/agent-pack-store.js";
+import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import {
   createApprovalRequest,
   getApprovalPolicy,
@@ -60,9 +61,19 @@ function availableToolNames(dispatchToolNames: string[]): Set<string> {
 export default defineAction({
   description:
     "Import a folder-backed agent pack from Claude, Cowork, or another agent tool. The pack can include a Markdown/JSON profile, context, references, and skills. Credentials, hooks, shell commands, and local environment settings are never imported.",
+  authorize: authorizeDispatchAdmin,
   schema,
   run: async ({ files, scope }) => {
-    const normalized = normalizeAgentPack(files as AgentPackFileInput[]);
+    let normalized: ReturnType<typeof normalizeAgentPack>;
+    try {
+      normalized = normalizeAgentPack(files as AgentPackFileInput[]);
+    } catch (err) {
+      fail(
+        err instanceof Error
+          ? err.message
+          : "That agent pack could not be parsed.",
+      );
+    }
     const { dispatchActions } = await import("./index.js");
     const toolValidation = validateImportedAgentTools(
       normalized.profile.tools,
@@ -113,8 +124,9 @@ export default defineAction({
       };
     }
     if (existingProfile) {
-      throw new Error(
+      fail(
         `An agent already exists at ${root}. Rename the source before importing it.`,
+        { statusCode: 409 },
       );
     }
 

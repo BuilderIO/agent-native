@@ -158,9 +158,9 @@ export async function claimForHeadlessRunner(row: QueueRow, payload: object) {
   ).toISOString();
   const result = await getDbExec().execute({
     sql: `UPDATE brain_ingest_queue
-      SET status = ?, attempts = ?, payload_json = ?, error = NULL,
-          run_after = NULL, lease_token = ?, lease_expires_at = ?, updated_at = ?
-      WHERE id = ? AND status = ? AND updated_at = ?`,
+      SET status = $1, attempts = $2, payload_json = $3, error = NULL,
+          run_after = NULL, lease_token = $4, lease_expires_at = $5, updated_at = $6
+      WHERE id = $7 AND status = $8 AND updated_at = $9`,
     args: [
       "processing",
       row.attempts + 1,
@@ -179,10 +179,32 @@ export async function claimForHeadlessRunner(row: QueueRow, payload: object) {
 async function runDeterministicOperation(
   row: QueueRow,
   context: NonNullable<Awaited<ReturnType<typeof loadCaptureAndSource>>>,
+  payload: Record<string, unknown>,
 ) {
   if (row.operation === "search-index") {
-    const { indexBrainCapture } = await import("../server/lib/search-index.js");
-    await indexBrainCapture(context.capture.id);
+    const { indexBrainCapture, readCaptureEmbeddingCoverage } =
+      await import("../server/lib/search-index.js");
+    const result = await indexBrainCapture(context.capture.id);
+    const requiredEmbeddingSetId =
+      typeof payload.requiredEmbeddingSetId === "string"
+        ? payload.requiredEmbeddingSetId
+        : null;
+    if (requiredEmbeddingSetId) {
+      if (!result.indexed) {
+        throw new Error(
+          `Embedding backfill indexing failed: ${result.reason ?? "unknown"}.`,
+        );
+      }
+      const coverage = await readCaptureEmbeddingCoverage(
+        context.capture.id,
+        requiredEmbeddingSetId,
+      );
+      if (!coverage.complete) {
+        throw new Error(
+          `Embedding backfill incomplete: artifact=${coverage.artifactEmbedded}, bursts=${coverage.embeddedBursts}/${coverage.expectedBursts}.`,
+        );
+      }
+    }
     return;
   }
   if (row.operation === "search-unindex") {
@@ -579,7 +601,7 @@ export async function processBrainIngestQueueOnce(
             userEmail: contextRows.source.ownerEmail,
             orgId: contextRows.source.orgId ?? undefined,
           },
-          () => runDeterministicOperation(row, contextRows),
+          () => runDeterministicOperation(row, contextRows, payload),
         );
         await markOperationDone(row, claimToken);
         processed.push(row.id);

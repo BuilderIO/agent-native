@@ -19,8 +19,59 @@ import {
   type SlackMessage,
 } from "../lib/slack";
 
-function parseWorkspace(raw?: string): Workspace {
-  return raw === "secondary" ? "secondary" : "primary";
+export function parseWorkspace(raw?: unknown): Workspace | null {
+  if (raw === undefined || raw === null || raw === "" || raw === "primary") {
+    return "primary";
+  }
+  if (raw === "secondary") return "secondary";
+  return null;
+}
+
+function invalidWorkspace(event: H3Event) {
+  setResponseStatus(event, 400);
+  return { error: "workspace must be primary or secondary" };
+}
+
+export function parseCursorMap(
+  raw?: unknown,
+): { ok: true; value: Record<string, string> } | { ok: false } {
+  if (raw === undefined || raw === null || raw === "") {
+    return { ok: true, value: {} };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(
+      typeof raw === "string" ? raw : JSON.stringify(raw),
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false };
+    }
+    const entries = Object.entries(parsed);
+    if (
+      entries.some(
+        ([, value]) =>
+          typeof value !== "string" ||
+          !/^\d+(?:\.\d{1,6})?$/.test(value.trim()),
+      )
+    ) {
+      return { ok: false };
+    }
+    return {
+      ok: true,
+      value: Object.fromEntries(
+        entries.map(([channelId, value]) => [channelId, value.trim()]),
+      ),
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function invalidCursors(event: H3Event) {
+  setResponseStatus(event, 400);
+  return {
+    error: "cursors must be a JSON object of channel IDs to timestamps",
+  };
 }
 
 async function requireSlackCredential(event: H3Event, workspace: Workspace) {
@@ -34,6 +85,7 @@ export const handleSlackTeam = defineEventHandler((event) =>
     try {
       const { workspace: workspaceParam } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
+      if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
       const team = await getTeamInfo(workspace);
@@ -51,6 +103,7 @@ export const handleSlackChannels = defineEventHandler((event) =>
     try {
       const { workspace: workspaceParam, cursor } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
+      if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
       const result = await listChannelsWithCoverage(
@@ -102,6 +155,7 @@ export const handleSlackHistory = defineEventHandler((event) =>
         cursor,
       } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
+      if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
       const limit = parseInt((limitParam as string) || "50", 10);
@@ -174,6 +228,7 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
         cursors: cursorsParam,
       } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
+      if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
       // cursors is a JSON-encoded object: { channelId: timestamp }
@@ -188,9 +243,9 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       const channelNamesList = namesParam
         ? (namesParam as string).split(",")
         : channelIds;
-      const cursors: Record<string, string> = cursorsParam
-        ? JSON.parse(cursorsParam as string)
-        : {};
+      const parsedCursors = parseCursorMap(cursorsParam);
+      if (!parsedCursors.ok) return invalidCursors(event);
+      const cursors = parsedCursors.value;
 
       // Fetch pageSize messages from each channel in parallel while preserving
       // partial results when the bot is not invited to one of the channels.
@@ -358,6 +413,7 @@ export const handleSlackSearch = defineEventHandler((event) =>
     try {
       const { workspace: workspaceParam, query } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
+      if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
 

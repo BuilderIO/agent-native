@@ -16,6 +16,7 @@ export {
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";
+export { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
 export {
   preUploadImageAttachments,
   preUploadAttachments,

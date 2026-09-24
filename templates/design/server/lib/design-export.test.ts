@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ensureGroupRuntime } from "../../shared/group-runtime";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
@@ -51,6 +52,34 @@ describe("design export helpers", () => {
     );
     expect(html).toContain("<h1>One</h1>");
     expect(html).toContain("<p>Two</p>");
+  });
+
+  it("deduplicates the measured Group runtime across exported screens", () => {
+    const group =
+      '<div data-agent-native-measured-flow-group style="width:44px;height:20px"></div>';
+    const html = buildStandaloneHtml({
+      title: "Export",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: ensureGroupRuntime(
+            `<!doctype html><html><body>${group}</body></html>`,
+          ),
+        },
+        {
+          filename: "screen-2.html",
+          fileType: "html",
+          content: ensureGroupRuntime(
+            `<!doctype html><html><body>${group}</body></html>`,
+          ),
+        },
+      ],
+    });
+
+    expect(
+      html.match(/<script data-agent-native-group-runtime\b/g),
+    ).toHaveLength(1);
   });
 
   it("keeps complex styles in CDATA while removing executable scripts", () => {
@@ -183,5 +212,98 @@ describe("design export helpers", () => {
       html.indexOf(HIDDEN_LAYER_EXPORT_CSS),
     );
     expect(html.startsWith("<style")).toBe(true);
+  });
+});
+
+/**
+ * The action-side exporter tokenizes stored HTML text while the editor-side
+ * exporter walks the live DOM. They ship the same file format, so a directive
+ * one of them rejects must be rejected by the other too — they now share
+ * shared/xml-export-attributes.ts, and this pins that agreement.
+ */
+describe("buildSvgForeignObject XML validity", () => {
+  it("drops directives inside <template> markup", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body><nav x-data="{ open: false }">
+        <template x-for="link in links" :key="link.id">
+          <a :class="{ 'text-white': link.active }" x-text="link.label" href="#">Link</a>
+        </template>
+      </nav></body></html>`,
+      width: 800,
+      height: 600,
+    });
+    expect(svg).not.toContain(":class");
+    expect(svg).not.toContain(":key");
+    expect(svg).not.toContain("x-for");
+    expect(svg).not.toContain("x-text");
+    expect(svg).toContain('href="#"');
+  });
+
+  it("drops Alpine directives whose names are otherwise valid QNames", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body><div x-modelable="count" x-collapse.duration.500ms="1" data-keep="yes">z</div></body></html>`,
+      width: 100,
+      height: 100,
+    });
+    expect(svg).not.toContain("x-modelable");
+    expect(svg).not.toContain("x-collapse");
+    expect(svg).toContain('data-keep="yes"');
+  });
+});
+
+/**
+ * The tokenizer reads raw source text while the client sanitizer reads decoded
+ * DOM values, so the two only agree if the tokenizer decodes before deciding.
+ * The XML consumer resolves `&#58;` back to `:`, which turned an inert-looking
+ * token into an active `javascript:` URL in the exported file.
+ */
+describe("buildSvgForeignObject active-content decoding", () => {
+  it("drops entity-encoded javascript schemes", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body>
+        <a href="javascript&#58;alert(1)">numeric</a>
+        <a href="javascript&colon;alert(2)">named</a>
+        <a href="javascript&#x3a;alert(3)">hex</a>
+        <a href="javascript:alert(4)">plain</a>
+      </body></html>`,
+      width: 10,
+      height: 10,
+    });
+    expect(svg.match(/href="[^"]*"/g)).toBeNull();
+  });
+
+  it("keeps ordinary links and text that merely mention a scheme", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><body><a href="https://example.com/a?x=1&amp;y=2">ok</a><p>Type javascript&#58; to run it</p></body></html>`,
+      width: 10,
+      height: 10,
+    });
+    expect(svg).toContain('href="https://example.com/a?x=1&amp;y=2"');
+    expect(svg).toContain("to run it");
+  });
+});
+
+describe("buildSvgForeignObject element parity with the client sanitizer", () => {
+  it("removes http-equiv meta without swallowing the rest of the document", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><head><meta http-equiv="refresh" content="0;url=https://example.com/next"></head><body><p>after</p></body></html>`,
+      width: 10,
+      height: 10,
+    });
+    expect(svg).not.toContain("http-equiv");
+    expect(svg).not.toContain("example.com/next");
+    // `<meta>` has no end tag: a tokenizer hunting for `</meta>` would drop
+    // everything that follows it.
+    expect(svg).toContain("<p>after</p>");
+  });
+
+  it("keeps inert meta tags", () => {
+    const svg = buildSvgForeignObject({
+      html: `<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width"></head><body><p>x</p></body></html>`,
+      width: 10,
+      height: 10,
+    });
+    expect(svg).toContain('charset="UTF-8"');
+    expect(svg).toContain('name="viewport"');
   });
 });

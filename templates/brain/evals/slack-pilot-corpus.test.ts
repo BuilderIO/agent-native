@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+
 import {
   SLACK_PILOT_SOURCE,
   runSlackPilotCorpusEval,
@@ -122,7 +129,7 @@ const mocks = vi.hoisted(() => {
   };
 
   function likeNeedle(value: unknown) {
-    return String(value ?? "")
+    return testString(value ?? "")
       .replace(/^%|%$/g, "")
       .replace(/\\([\\%_])/g, "$1")
       .toLowerCase();
@@ -145,7 +152,7 @@ const mocks = vi.hoisted(() => {
       return condition.vals.includes(row[condition.col.name]);
     }
     if (condition.op === "like") {
-      const value = String(row[condition.col.name] ?? "").toLowerCase();
+      const value = testString(row[condition.col.name] ?? "").toLowerCase();
       return value.includes(likeNeedle(condition.val));
     }
     return false;
@@ -154,8 +161,8 @@ const mocks = vi.hoisted(() => {
   const applyOrder = (items: Row[], order?: { column?: Column }) => {
     if (!order?.column) return items;
     return [...items].sort((a, b) =>
-      String(b[order.column!.name] ?? "").localeCompare(
-        String(a[order.column!.name] ?? ""),
+      testString(b[order.column!.name] ?? "").localeCompare(
+        testString(a[order.column!.name] ?? ""),
       ),
     );
   };
@@ -425,14 +432,14 @@ describe("Brain Slack pilot eval corpus", () => {
 
   it("ranks the #dev-fusion TanStack compromise knowledge above broad Fusion chatter", async () => {
     const results = await searchEverythingRows({
-      query: "Was Agent Native affected by the TanStack compromise?",
+      query: "Was Agent-Native affected by the TanStack compromise?",
       limit: 8,
     });
     const titles = results.map((result) => result.title);
 
     expect(
       titles.indexOf(
-        "Agent Native TanStack compromise review found no affected packages",
+        "Agent-Native TanStack compromise review found no affected packages",
       ),
     ).toBeGreaterThanOrEqual(0);
     expect(
@@ -440,14 +447,14 @@ describe("Brain Slack pilot eval corpus", () => {
     ).toBeGreaterThanOrEqual(0);
     expect(
       titles.indexOf(
-        "Agent Native TanStack compromise review found no affected packages",
+        "Agent-Native TanStack compromise review found no affected packages",
       ),
     ).toBeLessThan(
       titles.indexOf("Broad Fusion pilot status stayed informational"),
     );
 
     const answer = await askBrainAction.run({
-      question: "Was Agent Native affected by the TanStack compromise?",
+      question: "Was Agent-Native affected by the TanStack compromise?",
       mode: "cited",
     });
     const haystack = [

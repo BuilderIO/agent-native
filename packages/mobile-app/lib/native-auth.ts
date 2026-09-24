@@ -123,6 +123,66 @@ export async function inspectNativeSession(
   };
 }
 
+/**
+ * Every mounted workspace WebView re-validates the same parent token on every
+ * focus and every app foreground, so one tab switch used to fan out into one
+ * network round trip per open tab. Share a short-lived positive result — and
+ * always share the in-flight request — so that becomes one call at most.
+ *
+ * Only a `valid` answer is cached. An `invalid` or `unavailable` result must
+ * be re-asked immediately, or a fresh sign-in would keep reading as signed
+ * out for the length of the window.
+ */
+const SESSION_CHECK_CACHE_MS = 60_000;
+let sessionCheckCache: {
+  baseUrl: string;
+  checkedAt: number;
+  result: NativeSessionCheck;
+  token: string;
+} | null = null;
+const sessionCheckInFlight = new Map<string, Promise<NativeSessionCheck>>();
+
+export function clearNativeSessionCheckCache(): void {
+  sessionCheckCache = null;
+  sessionCheckInFlight.clear();
+}
+
+export function inspectNativeSessionShared(
+  token: string,
+  baseUrl: string,
+  now = Date.now(),
+): Promise<NativeSessionCheck> {
+  const key = `${baseUrl}\u0000${token}`;
+  if (
+    sessionCheckCache &&
+    sessionCheckCache.token === token &&
+    sessionCheckCache.baseUrl === baseUrl &&
+    now - sessionCheckCache.checkedAt < SESSION_CHECK_CACHE_MS
+  ) {
+    return Promise.resolve(sessionCheckCache.result);
+  }
+  const pending = sessionCheckInFlight.get(key);
+  if (pending) return pending;
+
+  const request = inspectNativeSession(token, baseUrl)
+    .then((result) => {
+      if (result.status === "valid") {
+        sessionCheckCache = { baseUrl, checkedAt: now, result, token };
+      } else if (
+        sessionCheckCache?.token === token &&
+        sessionCheckCache.baseUrl === baseUrl
+      ) {
+        sessionCheckCache = null;
+      }
+      return result;
+    })
+    .finally(() => {
+      sessionCheckInFlight.delete(key);
+    });
+  sessionCheckInFlight.set(key, request);
+  return request;
+}
+
 async function readSessionIdentity(
   token: string,
   baseUrl: string,

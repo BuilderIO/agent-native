@@ -13,6 +13,7 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   DndContext,
@@ -118,8 +119,8 @@ const TAB_ID = generateTabId();
 
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
-  ownerEmail: string | null;
   createdAt: string | null;
+  createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
   archivedAt: string | null;
@@ -152,8 +153,8 @@ async function fetchDashboard(
       name: raw.name ?? "Untitled Dashboard",
       charts: raw.charts ?? [],
     },
-    ownerEmail: typeof raw.ownerEmail === "string" ? raw.ownerEmail : null,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : null,
+    createdBy: typeof raw.createdBy === "string" ? raw.createdBy : null,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
     updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
     archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
@@ -189,7 +190,22 @@ export default function ExplorerDashboardPage() {
   const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
     null,
   );
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard?.name,
+      "Dashboard",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.name]);
+
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
@@ -220,6 +236,7 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -248,7 +265,7 @@ export default function ExplorerDashboardPage() {
   const { session } = useSession();
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
       }
@@ -272,7 +289,7 @@ export default function ExplorerDashboardPage() {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as ExplorerDashboardData;
@@ -345,7 +362,7 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     setLoaded(false);
     setDashboard(null);
-    setDashboardOwner(null);
+    setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
@@ -360,7 +377,7 @@ export default function ExplorerDashboardPage() {
     const d = dashboardQuery.data;
     if (d) {
       setDashboard(d.data);
-      setDashboardOwner(d.ownerEmail);
+      setDashboardCreatedBy(d.createdBy);
       setDashboardCreatedAt(d.createdAt);
       setDashboardUpdatedAt(d.updatedAt);
       setDashboardUpdatedBy(d.updatedBy);
@@ -377,7 +394,7 @@ export default function ExplorerDashboardPage() {
         name: t("explorerDashboard.untitledDashboard"),
         charts: [],
       });
-      setDashboardOwner(null);
+      setDashboardCreatedBy(null);
       setDashboardCreatedAt(null);
       setDashboardUpdatedAt(null);
       setDashboardUpdatedBy(null);
@@ -390,17 +407,17 @@ export default function ExplorerDashboardPage() {
   }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   const handleArchive = useCallback(async () => {
-    if (!dashboardId || !canEdit) return;
+    if (!dashboardId || !canArchive) return;
     if (archivedAt) return;
     try {
       await callAction("archive-dashboard", {
         id: dashboardId,
         archived: true,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(
@@ -408,7 +425,7 @@ export default function ExplorerDashboardPage() {
           name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
         }),
       );
-      navigate("/dashboards/explorer");
+      void navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -418,11 +435,12 @@ export default function ExplorerDashboardPage() {
     }
   }, [
     dashboardId,
-    canEdit,
+    canArchive,
     archivedAt,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
@@ -431,13 +449,13 @@ export default function ExplorerDashboardPage() {
       await hideDashboardAction({ id: dashboardId, hidden: false });
       setHiddenAt(null);
       setHiddenBy(null);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "explorer-dashboard", dashboardId],
       });
       toast.success(
@@ -470,11 +488,11 @@ export default function ExplorerDashboardPage() {
         { queryKey: ["data", "explorer-dashboard", dashboardId] },
         (prev) => (prev ? { ...prev, data: updated } : prev),
       );
-      saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({
+      void saveDashboard(dashboardId, updated).then(() => {
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-sidebar"],
         });
       });
@@ -701,7 +719,7 @@ export default function ExplorerDashboardPage() {
                     <DropdownMenuLabel className="font-normal">
                       <DashboardMetadata
                         createdAt={dashboardCreatedAt}
-                        createdBy={dashboardOwner}
+                        createdBy={dashboardCreatedBy}
                         updatedAt={dashboardUpdatedAt}
                         updatedBy={dashboardUpdatedBy}
                       />
@@ -719,10 +737,10 @@ export default function ExplorerDashboardPage() {
                     </DropdownMenuItem>
                   </>
                 ) : null}
-                {dashboardId && canEdit && !archivedAt ? (
+                {dashboardId && canArchive && !archivedAt ? (
                   <DropdownMenuSeparator />
                 ) : null}
-                {canEdit && !archivedAt ? (
+                {canArchive && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -731,10 +749,10 @@ export default function ExplorerDashboardPage() {
                     }}
                   >
                     <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
+                    {t("sidebar.archive")}
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit && !archivedAt && canManage ? (
+                {canArchive && !archivedAt && canManage ? (
                   <DropdownMenuSeparator />
                 ) : null}
                 {canManage ? (
@@ -785,14 +803,14 @@ export default function ExplorerDashboardPage() {
                         await callAction("delete-explorer-dashboard", {
                           id: dashboardId,
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-sidebar"],
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/dashboards/explorer");
+                        void navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error

@@ -3,7 +3,15 @@ import {
   type McpIntegrationsConfigInput,
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
+import {
+  hostMatches,
+  MCP_LINK_HOSTS,
+  normalizeMcpUrl,
+} from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { agentNativePath } from "../api-path.js";
+import { openOAuthPopup } from "../oauth-popup.js";
+import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -52,6 +60,12 @@ export interface DefaultMcpIntegration {
    * semantics are verified.
    */
   supportsOrganizationScope?: boolean;
+  /**
+   * The server refuses personal connections, so the workspace connection is the
+   * only one that can succeed. Builder Publish is org-only because its OAuth
+   * grant is shared with Content database sources rather than held by one user.
+   */
+  organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -175,6 +189,42 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
       "dashboards",
       "cohorts",
       "experiments",
+    ],
+  },
+  {
+    id: "sigma",
+    name: "Sigma",
+    provider: "sigma",
+    description: "Search, explore, and analyze Sigma workbooks and dashboards.",
+    descriptionKey: "mcpIntegrations.catalog.sigma.description",
+    useCase:
+      "analytics, dashboards, workbooks, data exploration, business intelligence",
+    useCaseKey: "mcpIntegrations.catalog.sigma.useCase",
+    url: "",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("sigma"),
+    docsUrl: "https://help.sigmacomputing.com/docs/use-sigma-mcp-server",
+    setupNoteKey: "mcpIntegrations.catalog.sigma.setupNote",
+    keywords: [
+      "analytics",
+      "business intelligence",
+      "dashboards",
+      "data",
+      "exploration",
+      "workbooks",
+    ],
+    // "Sigma" is also a math term, so only suggest the connection for a
+    // qualified provider or dashboard/workbook request.
+    promptAliases: [
+      "Connect Sigma",
+      "Sigma Computing",
+      "Sigma dashboard",
+      "Sigma dashboards",
+      "Sigma workbook",
+      "Sigma workbooks",
     ],
   },
   {
@@ -361,7 +411,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "atlassian",
-    name: "Atlassian",
+    name: "Jira",
     provider: "atlassian",
     description: "Read and write Jira issues and Confluence content.",
     descriptionKey: "mcpIntegrations.catalog.atlassian.description",
@@ -479,36 +529,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     ],
   },
   {
-    id: "google-workspace",
-    name: "Google Workspace",
-    provider: "google-workspace",
-    description: "Search Google Workspace data through its remote MCP server.",
-    descriptionKey: "mcpIntegrations.catalog.googleWorkspace.description",
-    useCase:
-      "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
-    useCaseKey: "mcpIntegrations.catalog.googleWorkspace.useCase",
-    url: "https://workspacemcp.googleapis.com/mcp/v1",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "beta",
-    verification: "restricted",
-    logoUrl: mcpIntegrationLogo("google-workspace"),
-    docsUrl:
-      "https://developers.google.com/workspace/guides/configure-mcp-servers",
-    setupNoteKey: "mcpIntegrations.catalog.googleWorkspace.setupNote",
-    brandAliases: ["Google", "Gmail", "Google Drive", "Google Calendar"],
-    keywords: [
-      "email",
-      "gmail",
-      "drive",
-      "calendar",
-      "chat",
-      "docs",
-      "sheets",
-      "slides",
-    ],
-  },
-  {
     id: "gitlab",
     name: "GitLab",
     provider: "gitlab",
@@ -596,13 +616,19 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "provider-setup",
-    verification: "restricted",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
+    // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
+    authMode: "headers",
+    connectionMode: "headers",
+    availability: "ready",
+    verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("github"),
-    docsUrl: "https://github.com/github/github-mcp-server",
+    docsUrl:
+      "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     setupNoteKey: "mcpIntegrations.catalog.github.setupNote",
+    headerPlaceholder: "Authorization: Bearer <github-token>",
     keywords: ["git", "repositories", "issues", "pull requests", "code"],
   },
   {
@@ -791,7 +817,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    name: "Builder.io",
+    // Not plain "Builder.io": onboarding connects a Builder.io *account* for
+    // model credits one screen earlier, and a row labelled "Builder.io —
+    // Connect" right after reads as that account failing to connect. This is
+    // the separate Publish content grant.
+    name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
     descriptionKey: "mcpIntegrations.catalog.builder.description",
@@ -802,9 +832,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     connectionMode: "oauth",
     availability: "ready",
     verification: "preflight-only",
+    supportsOrganizationScope: true,
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    organizationScopeOnly: true,
     keywords: [
       "Builder",
       "content",
@@ -954,6 +986,22 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
+/**
+ * Mirrors `resolveMcpOAuthScope` on the server, which keys its org-only rule on
+ * the server URL rather than on a catalog entry. Matching by URL also covers
+ * custom servers pasted by hand, which have no catalog entry to carry a flag.
+ */
+export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
+  if (!URL.canParse(rawUrl)) return false;
+  const url = new URL(rawUrl);
+  return (
+    url.origin === "https://mcp.builder.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export function buildMcpOAuthStartUrl({
   name,
   url,
@@ -965,22 +1013,30 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    scope,
+    // Every client OAuth start is built here, so this is the one place that can
+    // keep a personal scope off a server that only accepts a workspace one.
+    scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
-  return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
+  return `${agentNativePath("/_agent-native/mcp/servers/oauth/start")}?${params.toString()}`;
 }
 
-export function navigateToMcpOAuthStart(url: string): void {
-  if (typeof window === "undefined") return;
-
-  const navigate = () => {
-    window.setTimeout(() => window.location.assign(url), 0);
-  };
-  if (typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(navigate);
-  } else {
-    navigate();
+export function navigateToMcpOAuthStart(url: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const popup = openOAuthPopup({
+      initialUrl: url,
+      features: "width=640,height=760",
+    });
+    if (!popup) return false;
+    popup.opener = null;
+    // The callback redirects the popup, not this window, so this marker is the
+    // only thing that tells the opener its cached server list is now suspect.
+    markMcpConnectionPending();
+    return true;
+  } catch (error) {
+    console.error("Failed to open MCP OAuth popup.", error);
+    return false;
   }
 }
 
@@ -1012,6 +1068,26 @@ export function supportsMcpIntegrationOrganizationScope(
     integration.supportsOrganizationScope === true &&
     integration.managedOAuth !== true
   );
+}
+
+/**
+ * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
+ * personal connection the server will reject is what produced the misleading
+ * scope error users hit on Builder.io.
+ */
+export function requiresMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.organizationScopeOnly === true ||
+    mcpUrlRequiresOrganizationScope(integration.url)
+  );
+}
+
+export function allowsMcpIntegrationPersonalScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return !requiresMcpIntegrationOrganizationScope(integration);
 }
 
 export function shouldOfferMcpIntegrationOrganizationScope(
@@ -1048,53 +1124,30 @@ export function filterMcpIntegrations(
   });
 }
 
-const MCP_LINK_HOSTS: Record<string, string[]> = {
-  amplitude: ["amplitude.com"],
-  apollo: ["apollo.io"],
-  "common-room": ["commonroom.io"],
-  context7: ["context7.com"],
-  exa: ["exa.ai"],
-  sentry: ["sentry.io", "sentry.dev"],
-  gong: ["gong.io"],
-  grafana: ["grafana.com", "grafana.net"],
-  "google-workspace": ["google.com", "googleapis.com"],
-  "builder-cms": ["builder.io"],
-  notion: ["notion.so", "notion.site"],
-  granola: ["granola.ai"],
-  semgrep: ["semgrep.dev", "semgrep.com"],
-  canva: ["canva.com", "canva.ai"],
-  figma: ["figma.com"],
-  linear: ["linear.app"],
-  atlassian: ["atlassian.com", "atlassian.net", "jira.com", "confluence.com"],
-  supabase: ["supabase.com"],
-  neon: ["neon.tech"],
-  stripe: ["stripe.com"],
-  cloudflare: ["cloudflare.com"],
-  github: ["github.com", "github.dev"],
-  gitlab: ["gitlab.com"],
-  slack: ["slack.com"],
-  asana: ["asana.com"],
-  hubspot: ["hubspot.com"],
-  intercom: ["intercom.com"],
-  pylon: ["usepylon.com", "pylon.com"],
-  monday: ["monday.com"],
-  webflow: ["webflow.com"],
-  paypal: ["paypal.com"],
-  box: ["box.com"],
-  netlify: ["netlify.com"],
-  vercel: ["vercel.com"],
-  zapier: ["zapier.com"],
-};
+export function isMcpIntegrationUrl(
+  integration: DefaultMcpIntegration,
+  serverUrl: string,
+): boolean {
+  if (integration.url.trim()) {
+    return normalizeMcpUrl(integration.url) === normalizeMcpUrl(serverUrl);
+  }
 
-function hostMatches(hostname: string, domain: string): boolean {
-  return hostname === domain || hostname.endsWith(`.${domain}`);
+  try {
+    const hostname = new URL(serverUrl.trim()).hostname.toLowerCase();
+    return (MCP_LINK_HOSTS[integration.id] ?? []).some((domain) =>
+      hostMatches(hostname, domain),
+    );
+    // coercion-ok: a malformed saved server URL cannot match a provider host.
+  } catch {
+    return false;
+  }
 }
 
 function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
     try {
-      return new URL(candidate.replace(/[.,!?;:'\"]+$/, ""));
+      return new URL(candidate.replace(/[.,!?;:'"]+$/, ""));
     } catch {
       // Ignore prose that only looks like a URL.
     }
@@ -1103,7 +1156,7 @@ function findUrlForText(text: string): URL | null {
 }
 
 const MCP_RESOURCE_INTENT_PATTERN =
-  /\b(?:action|add|access|board|check|connect|connected|connection|create|decision|design|document|doc|do|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workspace)\b/i;
+  /\b(?:action|add|access|analyze|analysis|board|check|connect|connected|connection|create|dashboard|dashboards|decision|design|document|doc|do|explore|exploration|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workbook|workbooks|workspace)\b/i;
 
 function textContainsTerm(text: string, term: string): boolean {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1202,7 +1255,7 @@ export function isMcpConnectionSuggestionText(text: string): boolean {
       normalized,
     );
   const hasRequiredConnection =
-    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|requires?|needed|missing|unavailable)\b/i.test(
       normalized,
     );
   const hasRequiredAccess =

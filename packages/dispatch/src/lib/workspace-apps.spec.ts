@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,10 +13,25 @@ import {
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
 
 describe("workspace app routes", () => {
+  it("targets the registered authenticated home path", () => {
+    expect(
+      workspaceAppHref({ id: "mail", path: "/mail", homePath: "/inbox" }),
+    ).toBe("/mail/inbox");
+    expect(workspaceAppHref({ id: "mail", path: "/mail" })).toBe("/mail/home");
+    expect(
+      workspaceAppHref({
+        id: "feedback-leaderboard",
+        path: "/feedback-leaderboard",
+        url: "https://workspace.example.test/feedback-leaderboard/leaderboard",
+      }),
+    ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
+  });
+
   it("round-trips encoded app ids", () => {
     const route = workspaceAppRoute("sales ops");
     expect(route).toBe("/apps/sales%20ops");
@@ -74,7 +91,7 @@ describe("workspace app routes", () => {
     expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
   });
 
-  it("requires canonical metadata before enabling workspace SSO", () => {
+  it("requires canonical metadata and the active environment for workspace SSO", () => {
     expect(
       isWorkspaceSsoApp({
         id: " Mail ",
@@ -82,6 +99,13 @@ describe("workspace app routes", () => {
         url: "https://mail.agent-native.com",
       }),
     ).toBe(true);
+    expect(
+      isWorkspaceSsoApp({
+        id: "mail",
+        path: "/",
+        url: "https://beta.mail.agent-native.com",
+      }),
+    ).toBe(false);
     expect(
       isWorkspaceSsoApp({
         id: "mail",
@@ -194,6 +218,26 @@ describe("workspace app routes", () => {
         }),
       ]),
     );
+  });
+
+  it("maps default first-party apps to beta origins in beta Dispatch", () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname: "beta.dispatch.agent-native.com" },
+    });
+
+    try {
+      const apps = mergeChatFirstWorkspaceApps(undefined);
+      expect(apps.find((app) => app.id === "mail")?.url).toBe(
+        "https://beta.mail.agent-native.com/",
+      );
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("lets a mounted workspace app override a default row", () => {

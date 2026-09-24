@@ -3,6 +3,7 @@ import { callAction } from "../use-action.js";
 export interface EditorImageUploadResult {
   src: string;
   alt?: string;
+  provider?: string;
 }
 
 export type EditorImageUploadFn = (
@@ -37,6 +38,7 @@ interface UploadImageActionResult {
   url?: string;
   error?: string;
   configured?: boolean;
+  provider?: string;
 }
 
 /**
@@ -75,5 +77,5 @@ export const uploadEditorImage: EditorImageUploadFn = async (file: File) => {
 
   // Use the filename (sans extension) as a reasonable default alt text.
   const alt = file.name ? file.name.replace(/\.[^./\\]+$/, "") : "";
-  return { src: result.url, alt };
+  return { src: result.url, alt, provider: result.provider };
 };

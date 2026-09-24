@@ -30,7 +30,7 @@ const schema = z.discriminatedUnion("operation", [
 ]);
 export default defineAction({
   description:
-    "Persist one feature-flag change on a trusted organization app. The app target is resolved only through the organization directory.",
+    "Persist one feature-flag change on Analytics or a trusted organization app. Analytics uses its local flag action; peer targets are resolved through the organization directory.",
   schema,
   agentInputSchema: z.object({
     appId: z.string(),
@@ -40,6 +40,6 @@ export default defineAction({
   }),
   run: async (args, ctx) => {
     const admin = await requireAnalyticsAdminContext(ctx);
-    return setWorkspaceFeatureFlag(admin, args);
+    return setWorkspaceFeatureFlag(admin, args, ctx);
   },
 });

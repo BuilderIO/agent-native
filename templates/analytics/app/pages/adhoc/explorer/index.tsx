@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
@@ -72,7 +73,7 @@ export default function ExplorerPage() {
       configParam !== loadedParam &&
       configParam !== currentId
     ) {
-      loadConfig(configParam);
+      void loadConfig(configParam);
       setLoadedParam(configParam);
     }
   }, [configParam, loadedParam, currentId, loadConfig]);
@@ -94,9 +95,20 @@ export default function ExplorerPage() {
     { enabled: hasValidEvents && sql.length > 0 },
   );
 
+  useEffect(() => {
+    if (!result || result.error || !hasValidEvents) return;
+    trackEvent("sql_run", {
+      app_name: "analytics",
+      template_name: "analytics",
+      surface: "explorer",
+      row_count: result.rows.length,
+      column_count: result.schema?.length ?? 0,
+    });
+  }, [hasValidEvents, result]);
+
   const handleSave = () => {
     if (currentId) {
-      saveConfig();
+      void saveConfig();
     } else {
       setSaveName(config.name || "");
       setSaveDialogOpen(true);
@@ -111,7 +123,7 @@ export default function ExplorerPage() {
   const handleSaveConfirm = () => {
     const name = saveName.trim() || t("explorer.untitled");
     setConfig({ ...config, name });
-    saveConfig(name);
+    void saveConfig(name);
     setSaveDialogOpen(false);
   };
 
@@ -277,7 +289,7 @@ export default function ExplorerPage() {
             <AlertDialogAction
               onClick={() => {
                 if (deleteConfirm) {
-                  deleteConfig(deleteConfirm.id);
+                  void deleteConfig(deleteConfirm.id);
                   setDeleteConfirm(null);
                 }
               }}

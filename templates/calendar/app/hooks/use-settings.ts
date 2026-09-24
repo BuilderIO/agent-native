@@ -13,7 +13,9 @@ export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useActionMutation<Settings, Partial<Settings>>("update-settings", {
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "get-settings"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-settings"],
+      });
     },
   });
 }

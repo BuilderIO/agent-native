@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   useActionMutation,
   useActionQuery,
@@ -227,6 +228,13 @@ export function StatusPageEditor({
     if (!publicUrl) return;
     try {
       await navigator.clipboard.writeText(publicUrl);
+      if (pageId) {
+        trackEvent("share_link_copied", {
+          resource_type: "status_page",
+          resource_id: pageId,
+          link_type: "share",
+        });
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {

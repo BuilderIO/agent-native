@@ -20,7 +20,9 @@ agent-native upgrade
 agent-native template sync
 ```
 
-`sync`는 설치된 `@agent-native/core`와 일치하는 템플릿 버전을 기본값으로 사용하므로, `upgrade` 다음에 실행하면 코드와 패키지를 동일한 버전으로 유지할 수 있습니다.
+`sync`는 설치된 `@agent-native/core`와 일치하는 템플릿 버전을 기본값으로 사용하므로, `upgrade` 다음에 실행하면 코드와 패키지를 동일한 버전으로 유지할 수 있습니다. 단순히 `agent-native upgrade`만 실행하면 `@agent-native/*` 종속성을 `latest`로 올리고, 설치하고, scaffold skill을 새로 고치며(`skills update scaffold --project`), 가능한 경우 typecheck를 실행합니다. 프레임워크 오버라이드/패치와 대기 중인 업그레이드에 대한 진단 전용 보고서가 먼저 필요하다면 `agent-native upgrade check`를 사용하세요.
+
+손상된 업그레이드를 `pnpm.overrides`, `patchedDependencies`, 또는 `node_modules/@agent-native/*`(특히 core/dispatch) 아래의 수정으로 고치려 하지 **마세요**. 이는 실제 비호환성을 해결하는 대신 가려버릴 뿐입니다. upgrade나 typecheck가 실패하면 앱 수준 코드를 수정하거나 문의한 다음, upgrade를 다시 실행하세요.
 
 병합하기 전에 확인하세요:
 

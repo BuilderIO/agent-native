@@ -7,6 +7,9 @@ export {
   type CollabUser,
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
+  type CollabInitializationErrorCategory,
+  type CollabInitializationState,
+  type CollaborativeDocSyncResult,
 } from "../../collab/client.js";
 export { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 export {

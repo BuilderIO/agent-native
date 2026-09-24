@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-files-${process.pid}-${Date.now()}.sqlite`,
+  `content-files-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
@@ -28,7 +28,7 @@ let getContentDatabasePersonalViewAction: typeof import("./get-content-database-
 let getDocumentAction: typeof import("./get-document.js").default;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -46,22 +46,29 @@ beforeAll(async () => {
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
+  // memoized run here keeps this file's unseeded-Files fixtures deterministic.
+  const { scheduleStartupMaintenance } =
+    await import("../server/lib/startup-maintenance.js");
+  await scheduleStartupMaintenance();
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
   )`);
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [ORG_ID, "Files Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["files-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
   });
   await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -70,8 +77,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function createLegacyDocument(args: {
@@ -1088,15 +1094,15 @@ describe("Content Files membership reconciliation", () => {
   it("lets an ordinary member backfill legacy organization pages without changing their content or ownership", async () => {
     const viewerOrgId = "files-viewer-org";
     await getDbExec().execute({
-      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [viewerOrgId, "Viewer Org", OWNER, Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-owner", viewerOrgId, OWNER, "owner", Date.now()],
     });
     await getDbExec().execute({
-      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
       args: ["viewer-org-viewer", viewerOrgId, VIEWER, "member", Date.now()],
     });
     await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1605,5 +1611,88 @@ describe("Content Files membership reconciliation", () => {
         "CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique ON content_database_items (database_id, document_id)",
       );
     }
+  });
+});
+
+describe("sidebar Duplicate", () => {
+  it("keeps the copy beside its original and in its own space's Files", async () => {
+    const createDocument = (await import("./create-document.js")).default;
+    const updateDocument = (await import("./update-document.js")).default;
+    const duplicate = (await import("./duplicate-database-item.js")).default;
+    const spaceId = personalContentSpaceId(OWNER);
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+
+    const parent = await asOwner(() =>
+      createDocument.run({ title: "Duplicate parent", spaceId } as any),
+    );
+    const child = await asOwner(() =>
+      createDocument.run({
+        title: "Nested original",
+        spaceId,
+        parentId: parent.id,
+      } as any),
+    );
+    // Pinning adds a second (Favorites) membership; duplicating by Page id
+    // must still use the Page's Files membership.
+    await asOwner(() =>
+      updateDocument.run({ id: child.id, isFavorite: true } as any),
+    );
+
+    await asOwner(() => duplicate.run({ documentId: child.id }));
+    await asOwner(() => duplicate.run({ documentId: parent.id }));
+
+    const copies = await getDb()
+      .select({
+        id: schema.documents.id,
+        title: schema.documents.title,
+        parentId: schema.documents.parentId,
+        spaceId: schema.documents.spaceId,
+      })
+      .from(schema.documents)
+      .where(
+        inArray(schema.documents.title, [
+          "Copy of Nested original",
+          "Copy of Duplicate parent",
+        ]),
+      );
+    const nestedCopy = copies.find(
+      (copy: { title: string }) => copy.title === "Copy of Nested original",
+    );
+    const rootCopy = copies.find(
+      (copy: { title: string }) => copy.title === "Copy of Duplicate parent",
+    );
+    expect(nestedCopy).toMatchObject({ parentId: parent.id, spaceId });
+    expect(rootCopy).toMatchObject({ parentId: null, spaceId });
+
+    const [space] = await getDb()
+      .select({ filesDatabaseId: schema.contentSpaces.filesDatabaseId })
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, spaceId));
+    const memberships = await getDb()
+      .select({
+        documentId: schema.contentDatabaseItems.documentId,
+        databaseId: schema.contentDatabaseItems.databaseId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(
+        inArray(schema.contentDatabaseItems.documentId, [
+          nestedCopy!.id,
+          rootCopy!.id,
+        ]),
+      );
+    expect(
+      memberships.every(
+        (membership: { databaseId: string }) =>
+          membership.databaseId === space.filesDatabaseId,
+      ),
+    ).toBe(true);
+    expect(
+      new Set(
+        memberships.map(
+          (membership: { documentId: string }) => membership.documentId,
+        ),
+      ),
+    ).toEqual(new Set([nestedCopy!.id, rootCopy!.id]));
   });
 });

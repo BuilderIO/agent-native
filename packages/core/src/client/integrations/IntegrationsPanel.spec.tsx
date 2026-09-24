@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mcpMocks = vi.hoisted(() => ({
+  isMcpServersPending: vi.fn(() => false),
   useCreateMcpServer: vi.fn(),
   useDeleteMcpServer: vi.fn(),
   useMcpServers: vi.fn(),
@@ -22,7 +23,33 @@ vi.mock("../resources/McpIntegrationDialog.js", () => ({
 }));
 
 vi.mock("../resources/mcp-integration-catalog.js", () => ({
-  getDefaultMcpIntegrations: () => [],
+  isMcpIntegrationCatalogAvailable: () => false,
+  getDefaultMcpIntegrations: () => [
+    {
+      id: "context7",
+      name: "Context7",
+      provider: "context7",
+      description: "Fetch current library docs in agent chats.",
+      useCase: "documentation",
+      url: "https://mcp.context7.com/mcp",
+      authMode: "none",
+      connectionMode: "direct",
+      availability: "ready",
+      logoUrl: "",
+    },
+    {
+      id: "builder-cms",
+      name: "Builder.io",
+      provider: "builder",
+      description: "Search Builder Publish and Hybrid Space content.",
+      useCase: "content models",
+      url: "https://mcp.builder.io/mcp/publish",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      logoUrl: "",
+    },
+  ],
 }));
 
 vi.mock("../resources/use-mcp-servers.js", () => mcpMocks);
@@ -37,6 +64,11 @@ vi.mock("../i18n.js", () => ({
       "mcpIntegrations.reconnect": "Reconnect",
       "mcpIntegrations.reconnecting": "Reconnecting…",
       "mcpIntegrations.reconnectFailed": "Reconnect failed: {{error}}",
+      "mcpIntegrations.connect": "Connect",
+      "mcpIntegrations.searchPlaceholder": "Search integrations",
+      "integrations.manage": "Manage",
+      "integrations.connectedSection": "Connected",
+      "integrations.availableSection": "Available integrations",
     };
     return (messages[key] ?? key).replace(
       /\{\{(\w+)\}\}/g,
@@ -56,6 +88,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.history.replaceState({}, "", "/settings/integrations");
 
     mcpMocks.useMcpServers.mockReturnValue({
       data: {
@@ -104,6 +137,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("shows the connection cause and reconnects the saved server", async () => {
@@ -127,5 +161,171 @@ describe("IntegrationsPanel MCP connection errors", () => {
       id: "fullstory-1",
       scope: "org",
     });
+  });
+
+  it("renders the catalog while saved connections are still loading", async () => {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isLoading: true,
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    expect(container.textContent).toContain("Available integrations");
+    expect(container.textContent).toContain("Context7");
+    // The featured Builder.io row is expected; the builder-cms catalog entry
+    // stays filtered out of the merged list (its description never renders).
+    expect(container.textContent).not.toContain(
+      "Search Builder Publish and Hybrid Space content.",
+    );
+    expect(container.querySelector("#browser")).not.toBeNull();
+    expect(container.textContent).not.toContain("settings.mcpClientSetup");
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("prefills the search from the q URL parameter", async () => {
+    window.history.replaceState({}, "", "/settings/integrations?q=Notion");
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    expect(search?.value).toBe("Notion");
+    // The mock catalog has no Notion entry, so the filter empties the list.
+    expect(container.textContent).not.toContain("Context7");
+  });
+
+  it("keeps connected integrations searchable", async () => {
+    integrationMocks.useIntegrationStatus.mockReturnValue({
+      statuses: [
+        {
+          platform: "slack",
+          label: "Slack",
+          enabled: true,
+          configured: true,
+        },
+      ],
+      loading: false,
+      refetch: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Slack");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector(
+        'button[aria-label="Manage Slack (agent in channels)"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("warns Slack webhook users to disable Socket Mode", async () => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const connectSlack = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect Slack (agent in channels)"]',
+    );
+    await act(async () => connectSlack?.click());
+
+    expect(container.textContent).toContain("Turn off Socket Mode");
+  });
+
+  it.each([
+    ["Claude Cowork", "codex"],
+    ["Claude Code", "claude-code"],
+    ["Anthropic", "claude"],
+    ["OpenAI", "chatgpt"],
+    ["Codex", "codex"],
+    ["OpenAI Codex", "codex"],
+    ["Cursor", "cursor"],
+    ["xAI", "grok"],
+  ])("routes %s searches to the shared MCP guide", async (query, guide) => {
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    expect(search).not.toBeNull();
+    await act(async () => {
+      if (!search) return;
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, query);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("settings.mcpClientSetup");
+    expect(container.textContent).not.toContain(
+      "Let Claude Code call this agent via A2A",
+    );
+    expect(container.textContent).not.toContain(
+      `No agent integrations match “${query.toLowerCase()}”`,
+    );
+
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
+    );
+    expect(connect).toBeTruthy();
+    await act(async () => connect?.click());
+    expect(window.location.pathname).toBe("/settings/mcp");
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      guide,
+    );
+  });
+
+  it("keeps the MCP guide route inside the mounted app", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    window.history.replaceState({}, "", "/content/settings/integrations");
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search integrations"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(search, "Cursor");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const connect = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Connect settings.mcpClientSetup"]',
+    );
+    await act(async () => connect?.click());
+
+    expect(window.location.pathname).toBe("/content/settings/mcp");
+    expect(new URLSearchParams(window.location.search).get("guide")).toBe(
+      "cursor",
+    );
   });
 });

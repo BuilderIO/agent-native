@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { getZoomToCursorScrollDelta } from "./design-canvas/coordinate-transforms";
-import { getSnapshotRetryDelayMs } from "./design-canvas/external-preview";
+import {
+  getSnapshotRetryDelayMs,
+  isPreviewTokenStaleStatus,
+} from "./design-canvas/external-preview";
 
 describe("getZoomToCursorScrollDelta", () => {
   it("returns zero delta when zoom does not change (ratio === 1)", () => {
@@ -75,5 +78,13 @@ describe("getSnapshotRetryDelayMs", () => {
   it("treats negative or non-finite attempt numbers as attempt 0", () => {
     expect(getSnapshotRetryDelayMs(-5)).toBe(1500);
     expect(getSnapshotRetryDelayMs(Number.NaN)).toBe(1500);
+  });
+});
+
+describe("isPreviewTokenStaleStatus", () => {
+  it("only treats unauthorized bridge responses as permanent token failures", () => {
+    expect(isPreviewTokenStaleStatus(401)).toBe(true);
+    expect(isPreviewTokenStaleStatus(403)).toBe(false);
+    expect(isPreviewTokenStaleStatus(500)).toBe(false);
   });
 });

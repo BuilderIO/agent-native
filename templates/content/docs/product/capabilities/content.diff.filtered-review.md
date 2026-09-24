@@ -50,7 +50,7 @@ An editor filters an agent proposal to changes in one section, selects the visib
 ## Boundaries and non-goals
 
 - This does not decide the typed rendering of a single change or generate proposals.
-- It is not a generic Database bulk-edit engine, though both need exact selection semantics.
+- It is not a generic Collection bulk-edit engine, though both need exact selection semantics.
 - Agents may narrow scope only when faithful to the request and must report skipped work.
 
 ## Acceptance stories

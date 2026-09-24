@@ -13,7 +13,7 @@ describe("cache invalidators", () => {
     const invalidateQueries = vi.fn();
     const qc = { invalidateQueries } as unknown as QueryClient;
 
-    invalidateInboxItems(qc);
+    void invalidateInboxItems(qc);
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: LIST_INBOX_ITEMS_QUERY_KEY,
@@ -24,7 +24,7 @@ describe("cache invalidators", () => {
     const invalidateQueries = vi.fn();
     const qc = { invalidateQueries } as unknown as QueryClient;
 
-    invalidateTasks(qc);
+    void invalidateTasks(qc);
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: LIST_TASKS_QUERY_KEY,

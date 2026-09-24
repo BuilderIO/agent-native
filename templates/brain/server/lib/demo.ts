@@ -6,6 +6,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
   createSource,
+  getAccessibleCapture,
   nowIso,
   parseJson,
   sanitizeEvidenceCitationUrls,
@@ -17,9 +18,11 @@ import {
   type WriteKnowledgeInput,
 } from "./brain.js";
 import {
+  citationEvidenceMatchesCapture,
   redactSensitiveText,
   redactSensitiveValue,
   searchEverythingRows,
+  sourceUrlFromMetadata,
 } from "./search.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
@@ -207,7 +210,7 @@ const demoCaptures: DemoCaptureSpec[] = [
       sourceUrl: "https://clips.example.com/share/retrieval-architecture-demo",
     },
     content: [
-      "Speaker 1: Architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      "Speaker 1: Architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
       "Speaker 2: Raw capture fallback only runs when source policy allows.",
       "Speaker 3: Citations come from evidence quotes and metadata source URLs; V1 does not require a vector database.",
     ].join("\n"),
@@ -370,7 +373,7 @@ const retrievalEvalCaptures: DemoCaptureSpec[] = [
     },
     content: [
       "Slack #dev-fusion at 2026-05-08T19:05:00.000Z",
-      "Lee: Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+      "Lee: Engineering architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
       "Nora: Raw capture fallback only runs when source policy allows, and citations come from evidence quotes plus metadata source URLs.",
       "Lee: V1 has no vector database requirement.",
     ].join("\n"),
@@ -533,11 +536,11 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     kind: "answer",
     label: "Engineering architecture and how-it-works knowledge is retrievable",
     question:
-      "What does the #dev-fusion Brain retrieval architecture say about portable SQL and raw capture fallback?",
+      "What does the #dev-fusion Brain retrieval architecture say about Postgres SQL and raw capture fallback?",
     expectedTitle:
       "Brain retrieval uses SQL knowledge first with raw capture fallback",
     requiredTerms: [
-      "portable SQL",
+      "Postgres SQL",
       "brain_knowledge",
       "raw capture fallback",
       "source policy",
@@ -895,9 +898,9 @@ export async function seedBrainDemoData(
   const retrievalArchitecture = await upsertDemoKnowledge({
     title: "Brain retrieval uses SQL knowledge first with raw capture fallback",
     kind: "how-it-works",
-    body: "Brain retrieval starts with portable SQL over brain_knowledge, then uses raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs, and V1 does not require a vector database.",
+    body: "Brain retrieval starts with Postgres SQL over brain_knowledge, then uses raw capture fallback only when source policy allows. Citations come from evidence quotes and metadata source URLs, and V1 does not require a vector database.",
     summary:
-      "Brain retrieval uses portable SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
+      "Brain retrieval uses Postgres SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
     topic: "Brain architecture",
     tags: ["architecture", "retrieval", "sql"],
     entities: [
@@ -907,7 +910,7 @@ export async function seedBrainDemoData(
     evidence: [
       evidence(
         captureByKey.get("retrieval-architecture")!,
-        "Architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+        "Architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
       ),
       evidence(
         captureByKey.get("retrieval-architecture")!,
@@ -1105,9 +1108,9 @@ export async function seedBrainRetrievalEvalData(
   const retrievalArchitecture = await upsertDemoKnowledge({
     title: "Brain retrieval uses SQL knowledge first with raw capture fallback",
     kind: "how-it-works",
-    body: "Brain retrieval starts with portable SQL over brain_knowledge, then raw capture fallback only runs when source policy allows. Citations come from evidence quotes plus metadata source URLs. V1 has no vector database requirement.",
+    body: "Brain retrieval starts with Postgres SQL over brain_knowledge, then raw capture fallback only runs when source policy allows. Citations come from evidence quotes plus metadata source URLs. V1 has no vector database requirement.",
     summary:
-      "Brain retrieval uses portable SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
+      "Brain retrieval uses Postgres SQL over brain_knowledge first, raw capture fallback follows source policy, citations use source URLs, and V1 has no vector database requirement.",
     topic: "Brain architecture",
     tags: ["architecture", "retrieval", "sql", "retrieval-eval"],
     entities: [
@@ -1117,7 +1120,7 @@ export async function seedBrainRetrievalEvalData(
     evidence: [
       evidence(
         captureByKey.get("retrieval-architecture")!,
-        "Engineering architecture: Brain retrieval starts with portable SQL over brain_knowledge.",
+        "Engineering architecture: Brain retrieval starts with Postgres SQL over brain_knowledge.",
       ),
       evidence(
         captureByKey.get("retrieval-architecture")!,
@@ -1283,15 +1286,31 @@ function searchResultCitationUrl(
   return result.citation?.sourceUrl ?? result.sourceUrl ?? null;
 }
 
-function hasExpectedCitation(
+async function hasExpectedCitation(
   result: Awaited<ReturnType<typeof searchEverythingRows>>[number],
   evalCase: RetrievalEvalCase,
 ) {
   if (!evalCase.requireCitation) return true;
   const url = searchResultCitationUrl(result);
   if (!url?.startsWith("https://")) return false;
-  if (!evalCase.requireSlackProvider) return true;
-  return (result.provider ?? result.source?.provider) === "slack";
+  const captureId = result.citation?.captureId;
+  if (!captureId) return false;
+  const access = await getAccessibleCapture(captureId);
+  if (!access) return false;
+  if (
+    evalCase.requireSlackProvider &&
+    ((result.provider ?? result.source?.provider) !== "slack" ||
+      access.source.provider !== "slack")
+  ) {
+    return false;
+  }
+  const canonicalUrl = sourceUrlFromMetadata(
+    parseJson<Record<string, unknown>>(access.capture.metadataJson, {}),
+  );
+  return Boolean(
+    canonicalUrl === url &&
+    citationEvidenceMatchesCapture(result.citation, access.capture.content),
+  );
 }
 
 function findRetrievalEvalMatch(
@@ -1324,7 +1343,9 @@ async function evaluateRetrievalEvalCases() {
       limit: 8,
     });
     const match = findRetrievalEvalMatch(results, evalCase);
-    const citationOk = match ? hasExpectedCitation(match, evalCase) : false;
+    const citationOk = match
+      ? await hasExpectedCitation(match, evalCase)
+      : false;
 
     if (evalCase.kind === "answer") {
       answerCaseCount += 1;
@@ -1562,7 +1583,7 @@ export async function runBrainDemoEval(
 
   const architectureSearch = await searchEverythingRows({
     query:
-      "Brain retrieval architecture portable SQL brain_knowledge raw capture fallback",
+      "Brain retrieval architecture Postgres SQL brain_knowledge raw capture fallback",
     limit: 5,
   });
   const topArchitectureSearch = architectureSearch[0] ?? null;
@@ -1576,7 +1597,7 @@ export async function runBrainDemoEval(
     topArchitectureSearch?.type === "knowledge" &&
       topArchitectureSearch.title ===
         "Brain retrieval uses SQL knowledge first with raw capture fallback" &&
-      includesTerm(architectureSearchText, "portable SQL") &&
+      includesTerm(architectureSearchText, "Postgres SQL") &&
       includesTerm(architectureSearchText, "brain_knowledge") &&
       includesTerm(architectureSearchText, "no vector database requirement"),
     topArchitectureSearch

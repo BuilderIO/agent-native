@@ -9,7 +9,7 @@ description: "アクションを呼び出し、その結果を表示するReact�
 
 ## ルートを作成する {#add-a-page}
 
-開発サーバーは起動時にルートファイルを読み込みます。`app/routes/text-analyses.tsx`を作成し、すでに`pnpm dev`が実行中ならファイルを作成した後に再起動します。`http://localhost:8080/text-analyses`で利用できるようになります。
+開発サーバーは起動時にルートファイルを読み込みます。`app/routes/text-analyses.tsx`を作成し、すでに`pnpm dev`が実行中ならファイルを作成した後に再起動します。`pnpm dev`が表示するローカルURLの末尾に`/text-analyses`を追加して開いてください。8080が使用中の場合はポートが変わることがあります。
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -54,7 +54,7 @@ export default function TextAnalysesRoute() {
 
 `useActionQuery`はエージェントが使用するものと同じ読み取り専用アクションを呼び出します。このページにカスタムAPIルート、別のデータレイヤー、SQLはまだ必要ありません。
 
-`http://localhost:8080/text-analyses`を開くか、エージェントに次のように依頼します。
+表示されたローカルURLの末尾に`/text-analyses`を追加して開くか、エージェントに次のように依頼します。
 
 > Navigate to `/text-analyses`.
 

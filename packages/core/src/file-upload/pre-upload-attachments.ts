@@ -3,6 +3,11 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import {
+  classifyInlineAttachment,
+  describeInlineBlockReason,
+  type InlineAttachmentBlockReason,
+} from "./inline-attachment-limits.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
 
 export interface PreUploadedImageAttachment {
@@ -44,6 +49,10 @@ export interface PreUploadAttachmentsResult {
   providerMissing: boolean;
   /** True if at least one configured provider failed while uploading. */
   uploadFailed: boolean;
+  /** Names of attachments with no durable URL whose bytes the model can still
+   *  read inline this turn. Storage is a persistence gap for these, not a
+   *  readability gap, and they must not be reported to the user as unreadable. */
+  readableWithoutStorage: string[];
   /** The first provider error, bounded for safe inclusion in the chat hint. */
   uploadError?: string;
   /** A pre-formatted block to inject into the user message text so the agent
@@ -145,6 +154,80 @@ async function parseSpreadsheetAttachment(
   }
 }
 
+interface StorageGapEntry {
+  label: string;
+  reason: InlineAttachmentBlockReason;
+}
+
+function quoteNames(names: string[]): string {
+  return names.map((name) => `"${name}"`).join(", ");
+}
+
+/**
+ * Model-visible account of what storage did and did not do to the attachments.
+ *
+ * The contract this enforces: a missing storage provider is reported as a
+ * missing durable URL, never as a missing or oversized attachment, and never
+ * as the cure for one. Attached images are vision input and reach the model
+ * whether or not storage exists, so the storage card must not be the answer to
+ * "read this photo" — nor to "this photo is too big to read", where connecting
+ * storage buys a reference URL and no readability at all.
+ */
+function buildStorageStatusLines(args: {
+  providerMissing: boolean;
+  uploadFailed: boolean;
+  uploadError: string | undefined;
+  readableWithoutStorage: string[];
+  unreadableWithoutStorage: StorageGapEntry[];
+}): string[] {
+  const { readableWithoutStorage, unreadableWithoutStorage } = args;
+  const isError = unreadableWithoutStorage.length > 0 || args.uploadFailed;
+  const tag = isError
+    ? "chat-file-attachment-upload-error"
+    : "chat-attachment-storage-note";
+
+  const body: string[] = [];
+
+  if (readableWithoutStorage.length > 0) {
+    body.push(
+      `These attachments have no durable storage URL: ${quoteNames(readableWithoutStorage)}.`,
+      "Their contents are included in this message and you can read them right now — attachments travel to you as inline content, and images are sent as vision input, neither of which requires file storage. Do not tell the user an attachment is unreadable, missing, or too large, and do not ask for a smaller version.",
+      "Storage is only needed to keep a reusable URL across later turns or to embed the file in a document, slide, or outbound message. Call `connect-file-storage` only when the user's request actually needs a durable URL.",
+    );
+  }
+
+  if (unreadableWithoutStorage.length > 0) {
+    const detailed = unreadableWithoutStorage
+      .map(
+        (entry) =>
+          `"${entry.label}" (${describeInlineBlockReason(entry.reason)})`,
+      )
+      .join(", ");
+    body.push(
+      `You could not read the contents of these attachments this turn: ${detailed}.`,
+      "Give the user that specific reason. Do not invent a size limit, and do not describe a storage-configuration problem as a size problem or the reverse.",
+      "Connecting file storage would give these a durable reference URL; it would NOT make their contents readable. Never tell the user that connecting storage will let you read them. Offer `connect-file-storage` only if the user wants a stored copy or a link to share.",
+    );
+  }
+
+  if (args.providerMissing && body.length === 0) {
+    body.push(
+      "The user attached one or more images or files, but durable object storage is not configured for this app.",
+    );
+  }
+
+  if (args.uploadFailed) {
+    body.push(
+      `A configured object-storage provider failed to upload an attachment${args.uploadError ? `: ${escapeXmlAttr(args.uploadError)}` : "."}`,
+      "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+    );
+  }
+
+  body.push("Do not persist the base64 contents in SQL.");
+
+  return [`<${tag}>`, ...body, `</${tag}>`];
+}
+
 /**
  * Returns true when a file-upload provider is currently configured.
  * Used to decide whether an attachment can be uploaded before the agent turn.
@@ -196,6 +279,8 @@ export async function preUploadAttachments(opts: {
   let providerMissing = false;
   let uploadFailed = false;
   let uploadError: string | undefined;
+  const readableWithoutStorage: string[] = [];
+  const unreadableWithoutStorage: StorageGapEntry[] = [];
 
   if (list.length === 0) {
     return {
@@ -204,9 +289,24 @@ export async function preUploadAttachments(opts: {
       uploadedFiles,
       providerMissing: false,
       uploadFailed: false,
+      readableWithoutStorage: [],
       injectedText: null,
     };
   }
+
+  // An attachment with no durable URL is not automatically an attachment the
+  // model cannot read. Keeping those two facts apart is the whole point: when
+  // they were merged, a readable photo was reported to the user as an
+  // unreadable oversized file that needed storage connected.
+  const recordStorageGap = (att: AgentChatAttachment) => {
+    const label = att.name || att.type || "attachment";
+    const reason = classifyInlineAttachment(att);
+    if (reason === null) {
+      readableWithoutStorage.push(label);
+    } else {
+      unreadableWithoutStorage.push({ label, reason });
+    }
+  };
 
   for (const att of list) {
     const isImage = att.type === "image";
@@ -290,6 +390,7 @@ export async function preUploadAttachments(opts: {
       if (!result) {
         providerMissing = true;
         att.storageRequired = true;
+        recordStorageGap(att);
         continue;
       }
       att.url = result.url;
@@ -325,6 +426,7 @@ export async function preUploadAttachments(opts: {
       att.storageRequired = true;
       att.storageUploadFailed = true;
       uploadFailed = true;
+      recordStorageGap(att);
       uploadError ??= (err instanceof Error ? err.message : String(err)).slice(
         0,
         500,
@@ -372,41 +474,26 @@ export async function preUploadAttachments(opts: {
       "</chat-attachments>",
     ];
     if (providerMissing || uploadFailed) {
-      const failureLines = [
-        providerMissing
-          ? "One or more attachments could not be stored because no durable object-storage provider is configured."
-          : null,
-        uploadFailed
-          ? `A configured object-storage provider failed to upload an attachment${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`
-          : null,
-      ].filter((line): line is string => Boolean(line));
       linesWithMetadata.push(
-        "<chat-file-attachment-upload-error>",
-        ...failureLines,
-        ...(providerMissing
-          ? [
-              "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references.",
-            ]
-          : [
-              "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
-            ]),
-        "</chat-file-attachment-upload-error>",
+        ...buildStorageStatusLines({
+          providerMissing,
+          uploadFailed,
+          uploadError,
+          readableWithoutStorage,
+          unreadableWithoutStorage,
+        }),
       );
     }
     injectedBlocks.push(linesWithMetadata.join("\n"));
   } else if (providerMissing || uploadFailed) {
     injectedBlocks.push(
-      [
-        "<chat-file-attachment-upload-error>",
-        providerMissing
-          ? "The user attached one or more images or files, but durable object storage is not configured for this app."
-          : `The user attached one or more images or files, but the configured storage provider failed to upload them${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`,
-        providerMissing
-          ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
-          : "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
-        "Do not persist the base64 contents in SQL. Until storage succeeds, use the attachment only for this turn.",
-        "</chat-file-attachment-upload-error>",
-      ].join("\n"),
+      buildStorageStatusLines({
+        providerMissing,
+        uploadFailed,
+        uploadError,
+        readableWithoutStorage,
+        unreadableWithoutStorage,
+      }).join("\n"),
     );
   }
 
@@ -419,6 +506,7 @@ export async function preUploadAttachments(opts: {
     uploadedFiles,
     providerMissing,
     uploadFailed,
+    readableWithoutStorage,
     ...(uploadError ? { uploadError } : {}),
     injectedText,
   };

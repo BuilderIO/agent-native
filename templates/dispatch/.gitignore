@@ -1,12 +1,10 @@
 build
 .output/
 
-.generated/
+# PGlite database files and dev process lock
+data/pglite/
+data/*.lock
 
-# Stray SQLite files at the template root (real DB lives under data/)
-/app.db
-/app.db-shm
-/app.db-wal
-/local.db
+.generated/
 
 .vercel/

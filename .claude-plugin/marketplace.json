@@ -4,6 +4,21 @@
   "owner": { "name": "Agent-Native" },
   "plugins": [
     {
+      "name": "agent-native",
+      "displayName": "Agent-Native",
+      "description": "Open and operate granted Agent-Native apps through Dispatch MCP, with inline app surfaces and current browser screen state.",
+      "source": "./.agents/plugins/agent-native",
+      "autoUpdate": true,
+      "homepage": "https://dispatch.agent-native.com",
+      "keywords": [
+        "agent-native",
+        "agent-native",
+        "mcp",
+        "skills",
+        "app-backed-skill"
+      ]
+    },
+    {
       "name": "agent-native-visual-plans",
       "displayName": "Agent-Native Plan",
       "description": "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",

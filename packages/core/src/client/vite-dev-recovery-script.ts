@@ -122,6 +122,27 @@ export function getViteDevRecoveryScript(): string {
 
   function looksLikeViteFailureMessage(message) {
     if (!message) return false;
+    var optimizerUrl = message.indexOf("/node_modules/.vite/deps/") !== -1
+        || message.indexOf("/@id/") !== -1
+        || message.indexOf("/@fs/") !== -1;
+    return message.indexOf("Outdated Optimize Dep") !== -1
+        || message.indexOf("Optimize Deps Processing Error") !== -1
+        || ((message.indexOf("Failed to fetch dynamically imported module") !== -1
+          || message.indexOf("error loading dynamically imported module") !== -1
+          || message.indexOf("Importing a module script failed") !== -1)
+          && optimizerUrl)
+        || (message.indexOf("504") !== -1 && (
+          message.indexOf(".vite/deps") !== -1 ||
+          message.indexOf("/node_modules/.vite/deps/") !== -1
+        ));
+  }
+
+  // Vite's preload event is already scoped to a failed module preload, so it
+  // carries stronger evidence than a generic rejection. Route modules do not
+  // live under the optimizer URL prefix, but they still need Vite's bounded
+  // recovery before React Router logs and natively reloads the document.
+  function looksLikeVitePreloadFailureMessage(message) {
+    if (!message) return false;
     return message.indexOf("Failed to fetch dynamically imported module") !== -1
         || message.indexOf("error loading dynamically imported module") !== -1
         || message.indexOf("Importing a module script failed") !== -1
@@ -175,7 +196,11 @@ export function getViteDevRecoveryScript(): string {
   window.addEventListener("vite:preloadError", function(e) {
     var payload = e && e.payload;
     var msg = String((payload && (payload.message || payload)) || "");
-    if (!msg || looksLikeViteFailureMessage(msg)) {
+    // A preload event without a concrete error is not enough evidence to
+    // reload the document. Vite can emit an empty payload while a route
+    // preload is being cancelled; treating that cancellation as an optimizer
+    // failure strands the app on its SSR loading fallback.
+    if (looksLikeVitePreloadFailureMessage(msg)) {
       if (e.preventDefault) e.preventDefault();
       scheduleReload("preload error");
     }

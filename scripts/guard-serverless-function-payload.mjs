@@ -64,10 +64,10 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-serverless-function-payload\b/;
  * and each already pruned to linux-x64/arm64 or gated on the consuming app.
  */
 const ALLOWED_COPY_CALLS = new Set([
-  "copyInstalledLibsqlNativePackages",
   "copyInstalledResvgPackages",
   "copyInstalledFfmpegStaticPackage",
   "copyInstalledBrowserRuntimePackages",
+  "copyInstalledExternalSsrPackages",
 ]);
 
 /** The browser runtime, ~78MB, gated on findServerlessBrowserRuntimeConsumer. */
@@ -79,6 +79,8 @@ const ALLOWED_BROWSER_PACKAGES = new Set([
 const GATED_COPY_CALL = "copyInstalledBrowserRuntimePackages";
 const REQUIRED_GATE = "findServerlessBrowserRuntimeConsumer";
 const BROWSER_PACKAGE_LIST = "SERVERLESS_BROWSER_RUNTIME_PACKAGES";
+const EXTERNAL_SSR_COPY_CALL = "copyInstalledExternalSsrPackages";
+const REQUIRED_EXTERNAL_SSR_GATE = "hasExternalSsrRuntimeReference";
 
 const absoluteBuildFile = path.join(REPO_ROOT, BUILD_FILE);
 let lines;
@@ -157,6 +159,35 @@ if (callsGatedHelper) {
     violations.push({
       line: bodyStart + 1,
       what: `${GATED_COPY_CALL} no longer consults ${REQUIRED_GATE}, so every app ships the browser again`,
+    });
+  }
+}
+
+const callsExternalSsrHelper = lines.some((line) =>
+  new RegExp(`(?<!function\\s)\\b${EXTERNAL_SSR_COPY_CALL}\\s*\\(`).test(line),
+);
+if (callsExternalSsrHelper) {
+  const bodyStart = lines.findIndex((line) =>
+    new RegExp(`function\\s+${EXTERNAL_SSR_COPY_CALL}\\s*\\(`).test(line),
+  );
+  const bodyEnd =
+    bodyStart === -1
+      ? -1
+      : lines.findIndex((line, index) => index > bodyStart && /^\}/.test(line));
+  const body =
+    bodyStart === -1 || bodyEnd === -1
+      ? null
+      : lines.slice(bodyStart, bodyEnd).join("\n");
+
+  if (body === null) {
+    violations.push({
+      line: bodyStart === -1 ? 1 : bodyStart + 1,
+      what: `${EXTERNAL_SSR_COPY_CALL} is called but its emitted-bundle gate could not be verified`,
+    });
+  } else if (!body.includes(REQUIRED_EXTERNAL_SSR_GATE)) {
+    violations.push({
+      line: bodyStart + 1,
+      what: `${EXTERNAL_SSR_COPY_CALL} no longer checks for an emitted external SSR reference`,
     });
   }
 }

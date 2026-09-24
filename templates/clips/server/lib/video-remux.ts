@@ -17,7 +17,7 @@
  * regress relative to uploading the raw recording.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -93,9 +93,13 @@ export function timelineNormalizationFfmpegArgs(
   ];
 }
 
-function ffmpegCommand(): string {
+export function resolveFfmpegCommand(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   return resolveFfmpegStaticPath() ?? "ffmpeg";
+}
+
+function ffmpegCommand(): string {
+  return resolveFfmpegCommand();
 }
 
 function resolveFfmpegStaticPath(): string | null {
@@ -114,7 +118,12 @@ function resolveFfmpegStaticPath(): string | null {
 
 /** Whether a server-side ffmpeg binary is resolvable. */
 export function isFfmpegAvailable(): boolean {
-  return Boolean(process.env.FFMPEG_PATH) || resolveFfmpegStaticPath() !== null;
+  return (
+    spawnSync(resolveFfmpegCommand(), ["-version"], {
+      stdio: "ignore",
+      timeout: 2_000,
+    }).status === 0
+  );
 }
 
 function startsWithMagic(bytes: Uint8Array, magic: number[]): boolean {
@@ -140,6 +149,84 @@ export async function runFfmpeg(
       reject(new Error(`ffmpeg ${label} timed out\n${stderr}`));
     }, timeoutMs);
 
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+    });
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(new Error(`${err.message}\n${stderr}`));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`ffmpeg exited with code ${code}\n${stderr}`));
+    });
+  });
+}
+
+/**
+ * Run ffmpeg and report how far through it is.
+ *
+ * ffmpeg will describe its own progress on a pipe if asked (`-progress`), in
+ * `key=value` lines, of which `out_time_us` is the one worth reading: how much
+ * of the output has been written. Against a known duration that is a
+ * percentage — and a re-encode of a long clip is several minutes of a person
+ * wondering whether anything is happening.
+ *
+ * The fraction is monotonic and capped just below 1: the last frames, the
+ * container being finalised and the upload all happen after ffmpeg stops
+ * counting, and a bar that sits at 100% for thirty seconds is worse than one
+ * that sits at 99%.
+ */
+export async function runFfmpegWithProgress(
+  args: string[],
+  options: {
+    timeoutMs?: number;
+    label?: string;
+    totalMs: number;
+    onProgress: (fraction: number) => void;
+  },
+): Promise<void> {
+  const { timeoutMs = REMUX_TIMEOUT_MS, label = "remux", totalMs } = options;
+  const withProgress = [
+    args[0],
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    ...args.slice(1),
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(ffmpegCommand(), withProgress, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    let stdout = "";
+    let highest = 0;
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`ffmpeg ${label} timed out\n${stderr}`));
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      const lines = stdout.split("\n");
+      stdout = lines.pop() ?? "";
+      for (const line of lines) {
+        const match = /^out_time_us=(\d+)/.exec(line.trim());
+        if (!match || !(totalMs > 0)) continue;
+        const fraction = Number(match[1]) / 1000 / totalMs;
+        if (!Number.isFinite(fraction)) continue;
+        const next = Math.min(0.99, Math.max(highest, fraction));
+        if (next > highest) {
+          highest = next;
+          options.onProgress(next);
+        }
+      }
+    });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
     });
@@ -246,6 +333,107 @@ export async function probeHasAudioStream(
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * Read a file's duration in milliseconds, best-effort. `null` means "could not
+ * tell", never "zero" — callers use this to check that a re-encode did not
+ * silently truncate, and an unreadable probe must not be mistaken for a
+ * truncated file.
+ */
+export interface ProbedMediaInfo {
+  /** Real duration of the file, not what the client reported at finalize. */
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+/**
+ * Read a file's header with ffmpeg and return what it actually says.
+ *
+ * Both values are worth having from the file rather than the row: `durationMs`
+ * is client-reported at finalize and is unreliable for MediaRecorder webm, and
+ * `recordings.width` defaults to 0. Anything that sizes an overlay or clips a
+ * time range off those columns can be wrong in a way that silently leaves
+ * pixels on show.
+ */
+export async function probeMediaInfo(
+  mediaBytes: Uint8Array,
+  extension: "webm" | "mp4",
+): Promise<ProbedMediaInfo> {
+  const none: ProbedMediaInfo = { durationMs: null, width: null, height: null };
+  if (mediaBytes.byteLength === 0) return none;
+  if (!isFfmpegAvailable()) return none;
+
+  const dir = await mkdtemp(join(tmpdir(), "clips-media-probe-"));
+  const inputPath = join(dir, `input.${extension}`);
+
+  try {
+    await writeFile(inputPath, mediaBytes);
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        ffmpegCommand(),
+        ["-hide_banner", "-nostdin", "-i", inputPath],
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
+      let buf = "";
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error("ffmpeg media probe timed out"));
+      }, PROBE_TIMEOUT_MS);
+      child.stderr?.on("data", (chunk: Buffer) => {
+        // The header, like the audio probe: `Duration:` and the stream table
+        // are printed when the container opens, before anything else.
+        if (buf.length < STDERR_LIMIT) buf += chunk.toString("utf8");
+      });
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+      // Listing the input with no output is an error exit by design.
+      child.on("close", () => {
+        clearTimeout(timeout);
+        resolve(buf);
+      });
+    });
+
+    const durationMatch = /Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)/i.exec(
+      stderr,
+    );
+    const durationMs = durationMatch
+      ? Math.round(
+          (Number(durationMatch[1]) * 3600 +
+            Number(durationMatch[2]) * 60 +
+            Number(durationMatch[3])) *
+            1000,
+        )
+      : null;
+
+    // e.g. `Stream #0:0(eng): Video: vp9 ..., yuv420p, 1920x1080, ...`
+    const sizeMatch = /Video:[^\n]*?,\s*(\d{2,5})x(\d{2,5})/i.exec(stderr);
+    const width = sizeMatch ? Number(sizeMatch[1]) : null;
+    const height = sizeMatch ? Number(sizeMatch[2]) : null;
+
+    return {
+      durationMs,
+      width: width && width > 0 ? width : null,
+      height: height && height > 0 ? height : null,
+    };
+  } catch (err) {
+    console.warn("[video-remux] media probe failed, skipping check", {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return none;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function probeDurationMs(
+  mediaBytes: Uint8Array,
+  extension: "webm" | "mp4",
+): Promise<number | null> {
+  return (await probeMediaInfo(mediaBytes, extension)).durationMs;
 }
 
 /**

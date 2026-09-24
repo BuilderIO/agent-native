@@ -10,6 +10,10 @@ import {
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { toggleThemeMock } = vi.hoisted(() => ({
+  toggleThemeMock: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
 }));
@@ -30,6 +34,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
         "search.noResults": `No results found for "${values?.query ?? ""}"`,
         "search.placeholder": "Search documentation...",
         "search.retry": "Try again",
+        "search.toggleChatSidebar": "Toggle chat sidebar",
         "theme.dark": "dark",
         "theme.light": "light",
         "theme.toggle": "Toggle theme",
@@ -44,7 +49,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
 }));
 
 vi.mock("./ThemeToggle", () => ({
-  useDocsTheme: () => ({ theme: "light", toggleTheme: vi.fn() }),
+  useDocsTheme: () => ({ theme: "light", toggleTheme: toggleThemeMock }),
 }));
 
 vi.mock("./docs-content", () => ({
@@ -103,5 +108,46 @@ describe("SearchModal", () => {
       expect(buildSearchIndexAsyncMock).toHaveBeenCalledTimes(2);
     });
     expect((await screen.findAllByText("Actions")).length).toBeGreaterThan(0);
+  });
+
+  it("places theme and chat sidebar actions below the empty state", async () => {
+    buildSearchIndexAsyncMock.mockResolvedValue([]);
+    const toggleSidebar = vi.fn();
+    window.addEventListener("agent-panel:toggle", toggleSidebar);
+
+    try {
+      render(
+        <MemoryRouter>
+          <SearchModal open onClose={vi.fn()} />
+        </MemoryRouter>,
+      );
+
+      const emptyState = screen.getByText(
+        "Type to search across all documentation",
+      );
+      const themeAction = screen.getByRole("button", {
+        name: "Toggle theme",
+      });
+      const sidebarAction = screen.getByRole("button", {
+        name: "Toggle chat sidebar",
+      });
+
+      expect(
+        emptyState.compareDocumentPosition(themeAction) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        themeAction.compareDocumentPosition(sidebarAction) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      fireEvent.click(themeAction);
+      fireEvent.click(sidebarAction);
+
+      expect(toggleThemeMock).toHaveBeenCalledTimes(1);
+      expect(toggleSidebar).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("agent-panel:toggle", toggleSidebar);
+    }
   });
 });

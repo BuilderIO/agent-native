@@ -1,4 +1,8 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  focusAgentChat,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
@@ -38,9 +42,19 @@ export function isAgentSidebarVisible() {
 
 function useAgentSidebarVisible() {
   const [visible, setVisible] = useState(false);
+  const sidebarStateRef = useRef<boolean | null>(null);
 
   useEffect(() => {
-    const update = () => setVisible(isAgentSidebarVisible());
+    const update = () => {
+      setVisible(sidebarStateRef.current ?? isAgentSidebarVisible());
+    };
+    const handleStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (typeof detail?.open !== "boolean") return;
+      sidebarStateRef.current = detail.open;
+      setVisible(detail.open);
+    };
     update();
 
     // The panel is a portal and is normally a direct child of body. Discover
@@ -78,6 +92,7 @@ function useAgentSidebarVisible() {
     discovery.observe(document.body, { childList: true });
     updateAndObserve();
     window.addEventListener("resize", update);
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
     window.addEventListener("agent-panel:open", update);
     window.addEventListener("agent-panel:toggle", update);
     window.addEventListener("agent-panel:set-mode", update);
@@ -87,6 +102,7 @@ function useAgentSidebarVisible() {
       panelObserver?.disconnect();
       parentObserver?.disconnect();
       window.removeEventListener("resize", update);
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
       window.removeEventListener("agent-panel:open", update);
       window.removeEventListener("agent-panel:toggle", update);
       window.removeEventListener("agent-panel:set-mode", update);
@@ -99,33 +115,52 @@ function useAgentSidebarVisible() {
 export function AgentWorkIndicator() {
   const t = useT();
   const [running, setRunning] = useState(false);
-  const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runningSourcesRef = useRef(new Set<string>());
+  const stopDebounceRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
   const sidebarVisible = useAgentSidebarVisible();
 
   useEffect(() => {
-    const clearStopDebounce = () => {
-      if (stopDebounceRef.current !== null) {
-        clearTimeout(stopDebounceRef.current);
-        stopDebounceRef.current = null;
+    const legacySource = "__legacy__";
+    const clearStopDebounce = (source: string) => {
+      const timer = stopDebounceRef.current.get(source);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        stopDebounceRef.current.delete(source);
       }
     };
+    const syncRunning = () => setRunning(runningSourcesRef.current.size > 0);
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (typeof detail?.isRunning === "boolean") {
-        clearStopDebounce();
+        const source =
+          typeof detail.tabId === "string" && detail.tabId.trim()
+            ? detail.tabId
+            : legacySource;
+        clearStopDebounce(source);
         if (detail.isRunning) {
-          setRunning(true);
+          runningSourcesRef.current.add(source);
+          syncRunning();
+        } else if (detail.reason === "stopped") {
+          runningSourcesRef.current.delete(source);
+          syncRunning();
         } else {
-          stopDebounceRef.current = setTimeout(() => {
-            stopDebounceRef.current = null;
-            setRunning(false);
+          const timer = setTimeout(() => {
+            stopDebounceRef.current.delete(source);
+            runningSourcesRef.current.delete(source);
+            syncRunning();
           }, CHAT_STOP_DEBOUNCE_MS);
+          stopDebounceRef.current.set(source, timer);
         }
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);
     return () => {
-      clearStopDebounce();
+      for (const timer of stopDebounceRef.current.values()) {
+        clearTimeout(timer);
+      }
+      stopDebounceRef.current.clear();
       window.removeEventListener("agentNative.chatRunning", handler);
     };
   }, []);

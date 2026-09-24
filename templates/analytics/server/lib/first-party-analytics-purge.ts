@@ -1,5 +1,7 @@
 import { getDbExec } from "@agent-native/core/db";
 
+import { FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX } from "./first-party-analytics-delivery.js";
+
 export interface FirstPartyAnalyticsPurgeScope {
   userEmail: string;
   orgId: string;
@@ -26,19 +28,51 @@ type CountTimeColumn = "received_at" | "event_date";
 const PURGE_BATCH_SIZE = 10_000;
 const PURGE_BATCH_TIMEOUT_MS = 60_000;
 const PURGE_COUNT_TIMEOUT_MS = 60_000;
+const DELIVERY_QUEUE_TABLE = "analytics_bigquery_delivery_queue";
+
+function pendingDeliveryFilter(enabled: boolean): string {
+  const queueFilter = enabled
+    ? ` AND NOT EXISTS (
+    SELECT 1
+    FROM ${DELIVERY_QUEUE_TABLE} AS delivery_queue
+    WHERE delivery_queue.event_id = analytics_events.id
+      AND delivery_queue.delivered_at IS NULL
+  )`
+    : "";
+  return `${queueFilter} AND NOT EXISTS (
+    SELECT 1
+    FROM settings AS fallback_marker
+    WHERE fallback_marker.key = '${FIRST_PARTY_ANALYTICS_DELIVERY_FALLBACK_PREFIX}' || analytics_events.id
+  )`;
+}
+
+async function deliveryQueueTableExists(): Promise<boolean> {
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT to_regclass($1) AS table_name",
+    args: [DELIVERY_QUEUE_TABLE],
+    timeoutMs: PURGE_COUNT_TIMEOUT_MS,
+    maxAttempts: 1,
+  });
+  const value = (rows[0] as { table_name?: unknown } | undefined)?.table_name;
+  if (value === null) return false;
+  if (typeof value === "string" && value) return true;
+  throw new Error("Postgres table existence check returned an invalid value");
+}
 
 function purgeWhereSql(
   table: CountTable,
   scope: FirstPartyAnalyticsPurgeScope,
   includeLegacyOwnerRows: boolean,
   window: FirstPartyAnalyticsPurgeWindow,
+  protectPendingDelivery: boolean,
 ): { sql: string; args: unknown[]; timeColumn: CountTimeColumn } {
   const scopeSql = includeLegacyOwnerRows
-    ? "(org_id = ? OR (org_id IS NULL AND owner_email = ?))"
-    : "org_id = ?";
+    ? "(org_id = $1 OR (org_id IS NULL AND owner_email = $2))"
+    : "org_id = $1";
   const args: unknown[] = includeLegacyOwnerRows
     ? [scope.orgId, scope.userEmail]
     : [scope.orgId];
+  const timeParameter = args.length + 1;
   const timeColumn =
     table === "analytics_events" ? "received_at" : "event_date";
   args.push(
@@ -48,10 +82,11 @@ function purgeWhereSql(
   );
   const eventFilter =
     table === "analytics_events"
-      ? " AND event_name IS DISTINCT FROM 'http.response'"
+      ? " AND event_name IS DISTINCT FROM 'http.response'" +
+        pendingDeliveryFilter(protectPendingDelivery)
       : "";
   return {
-    sql: `${scopeSql}${eventFilter} AND ${timeColumn} >= ?`,
+    sql: `${scopeSql}${eventFilter} AND ${timeColumn} >= $${timeParameter}`,
     args,
     timeColumn,
   };
@@ -63,16 +98,19 @@ async function countScopedRows(
   scope: FirstPartyAnalyticsPurgeScope,
   includeLegacyOwnerRows: boolean,
   window: FirstPartyAnalyticsPurgeWindow,
+  protectPendingDelivery: boolean,
 ): Promise<number> {
   const scopeSql = includeLegacyOwnerRows
-    ? "(org_id = ? OR (org_id IS NULL AND owner_email = ?))"
-    : "org_id = ?";
+    ? "(org_id = $1 OR (org_id IS NULL AND owner_email = $2))"
+    : "org_id = $1";
   const args: unknown[] = includeLegacyOwnerRows
     ? [scope.orgId, scope.userEmail]
     : [scope.orgId];
+  const timeParameter = args.length + 1;
   const eventFilter =
     table === "analytics_events"
-      ? "\n             AND event_name IS DISTINCT FROM 'http.response'"
+      ? "\n             AND event_name IS DISTINCT FROM 'http.response'" +
+        pendingDeliveryFilter(protectPendingDelivery)
       : "";
   args.push(
     timeColumn === "received_at"
@@ -85,7 +123,7 @@ async function countScopedRows(
            FROM ${table}
            WHERE ${scopeSql}
              ${eventFilter}
-             AND ${timeColumn} >= ?`,
+             AND ${timeColumn} >= $${timeParameter}`,
     args,
     timeoutMs: PURGE_COUNT_TIMEOUT_MS,
     maxAttempts: 1,
@@ -102,7 +140,10 @@ export async function countFirstPartyAnalyticsPostgresRows(
   scope: FirstPartyAnalyticsPurgeScope,
   includeLegacyOwnerRows: boolean,
   window: FirstPartyAnalyticsPurgeWindow,
+  protectPendingDelivery?: boolean,
 ): Promise<FirstPartyAnalyticsPostgresPurgeCounts> {
+  const shouldProtectPendingDelivery =
+    protectPendingDelivery ?? (await deliveryQueueTableExists());
   const [eventRows, dailyRollupRows, userDayRows] = await Promise.all([
     countScopedRows(
       "analytics_events",
@@ -110,6 +151,7 @@ export async function countFirstPartyAnalyticsPostgresRows(
       scope,
       includeLegacyOwnerRows,
       window,
+      shouldProtectPendingDelivery,
     ),
     countScopedRows(
       "analytics_event_daily_rollups",
@@ -117,6 +159,7 @@ export async function countFirstPartyAnalyticsPostgresRows(
       scope,
       includeLegacyOwnerRows,
       window,
+      shouldProtectPendingDelivery,
     ),
     countScopedRows(
       "analytics_user_days",
@@ -124,6 +167,7 @@ export async function countFirstPartyAnalyticsPostgresRows(
       scope,
       includeLegacyOwnerRows,
       window,
+      shouldProtectPendingDelivery,
     ),
   ]);
   return { eventRows, dailyRollupRows, userDayRows };
@@ -134,10 +178,12 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
   includeLegacyOwnerRows: boolean,
   window: FirstPartyAnalyticsPurgeWindow,
 ): Promise<FirstPartyAnalyticsPostgresPurgeCounts> {
+  const protectPendingDelivery = await deliveryQueueTableExists();
   const counts = await countFirstPartyAnalyticsPostgresRows(
     scope,
     includeLegacyOwnerRows,
     window,
+    protectPendingDelivery,
   );
 
   for (const table of [
@@ -149,7 +195,13 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
       sql: whereSql,
       args,
       timeColumn,
-    } = purgeWhereSql(table, scope, includeLegacyOwnerRows, window);
+    } = purgeWhereSql(
+      table,
+      scope,
+      includeLegacyOwnerRows,
+      window,
+      protectPendingDelivery,
+    );
     while (true) {
       const result = await getDbExec().execute({
         sql: `WITH candidates AS (
@@ -157,7 +209,7 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
           FROM ${table}
           WHERE ${whereSql}
           ORDER BY ${timeColumn}, id
-          LIMIT ?
+          LIMIT $${args.length + 1}
         )
         DELETE FROM ${table}
         WHERE id IN (SELECT id FROM candidates)`,

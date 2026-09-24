@@ -1,23 +1,44 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
+  IconFolderPlus,
+  IconLink,
+  IconUpload,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router";
+import {
+  type DragEvent,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
-import { ImportMenu } from "@/components/import-menu";
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
+import {
   useFolders,
+  useOrganizations,
   useRecordings,
   useRecordingsCount,
   useTrashRecording,
@@ -27,12 +48,23 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
+import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
+import { resolveVideoMimeType } from "@/lib/video-metadata";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
+import { DroppedUploadCard } from "./dropped-upload-card";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
-import { PageHeader } from "./page-header";
+import { FolderCard } from "./folder-card";
+import { buildLibraryActionHrefs } from "./library-action-hrefs";
+import {
+  PageBreadcrumb,
+  PageHeader,
+  type PageBreadcrumbItem,
+} from "./page-header";
 import { RecordingCard } from "./recording-card";
 import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -44,6 +76,7 @@ interface LibraryGridProps {
   /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
+  breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;
   onClearTag?: () => void;
   extraActions?: React.ReactNode;
@@ -61,52 +94,6 @@ function Skeleton() {
   );
 }
 
-function NewRecordingTile({
-  spaceId,
-  folderId,
-}: {
-  spaceId?: string | null;
-  folderId?: string | null;
-}) {
-  const t = useT();
-  const recordHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    const qs = params.toString();
-    return qs ? `/record?${qs}` : "/record";
-  }, [spaceId, folderId]);
-  const uploadHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    params.set("autoUpload", "1");
-    return `/record?${params.toString()}`;
-  }, [spaceId, folderId]);
-  const importHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceId) params.set("spaceId", spaceId);
-    if (folderId) params.set("folderId", folderId);
-    const qs = params.toString();
-    return qs ? `/import?${qs}` : "/import";
-  }, [spaceId, folderId]);
-
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
-      <Button className="w-full max-w-[180px]" size="sm" asChild>
-        <NavLink to={recordHref}>{t("navigation.newRecording")}</NavLink>
-      </Button>
-      <ImportMenu
-        uploadHref={uploadHref}
-        importLoomHref={importHref}
-        size="sm"
-        variant="ghost"
-        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-      />
-    </div>
-  );
-}
-
 const PAGE_SIZE = 100;
 
 interface FolderTargetRow {
@@ -118,6 +105,58 @@ interface FolderTargetRow {
 type CreateFolderTarget =
   | { kind: "single"; recording: RecordingSummary }
   | { kind: "bulk"; recordingIds: string[] };
+
+function LibraryCanvasContextMenu({
+  enabled,
+  onCreateFolder,
+  uploadHref,
+  importLoomHref,
+  children,
+}: {
+  enabled: boolean;
+  onCreateFolder: () => void;
+  uploadHref: string;
+  importLoomHref: string;
+  children: ReactElement;
+}) {
+  const t = useT();
+  const { input, openUploadPicker } = useUploadVideoPicker();
+
+  if (!enabled) return children;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          onSelect={() => {
+            setTimeout(onCreateFolder, 0);
+          }}
+        >
+          <IconFolderPlus className="me-2 size-4" />
+          {t("navigation.newFolder")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            openUploadPicker(uploadHref);
+          }}
+        >
+          <IconUpload />
+          {t("preRecord.uploadVideo")}
+        </ContextMenuItem>
+        <ContextMenuItem asChild>
+          <Link to={importLoomHref}>
+            <IconLink />
+            {t("preRecord.importLoom")}
+          </Link>
+        </ContextMenuItem>
+      </ContextMenuContent>
+      {input}
+    </ContextMenu>
+  );
+}
 
 function buildMoveTargets(
   folders: FolderTargetRow[],
@@ -153,6 +192,7 @@ export function LibraryGrid({
   spaceId = null,
   emptyKind,
   title,
+  breadcrumbItems,
   tagFilter,
   onClearTag,
   extraActions,
@@ -163,17 +203,56 @@ export function LibraryGrid({
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createFolderTarget, setCreateFolderTarget] =
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const [page, setPage] = useState(1);
+  const handleSortChange = useCallback(
+    (nextSort: SortKey) => {
+      setSort(nextSort);
+      trackEvent("recording_sort_changed", {
+        app_name: "clips",
+        template_name: "clips",
+        surface: view,
+        sort: nextSort,
+      });
+    },
+    [view],
+  );
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+  const pageBreadcrumbItems =
+    breadcrumbItems ?? (title ? [{ label: title }] : []);
+  const { uploadHref, importLoomHref } = buildLibraryActionHrefs({
+    folderId,
+    spaceId,
+  });
+
+  useEffect(() => {
+    if (!title) return;
+    const nextTitle = `${normalizeDocumentTitle(title, "Clips")} — Clips`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [title]);
 
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
   }, [view, folderId, spaceId, tagFilter, sort]);
+
+  useEffect(() => {
+    const handleOpenCreateFolder = () => setCreateFolderOpen(true);
+    window.addEventListener(OPEN_CREATE_FOLDER_EVENT, handleOpenCreateFolder);
+    return () =>
+      window.removeEventListener(
+        OPEN_CREATE_FOLDER_EVENT,
+        handleOpenCreateFolder,
+      );
+  }, []);
 
   const countArgs = useMemo(
     () => ({
@@ -207,7 +286,6 @@ export function LibraryGrid({
 
   const { data, isLoading, isError, refetch, isRefetching } =
     useRecordings(args);
-  const recordings = data?.recordings ?? [];
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -215,14 +293,59 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
-  const { data: scopedFolders } = useFolders(
+  const canUploadByDrop = canMoveSelection;
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragDepthRef = useRef(0);
+  const { uploads, uploadFiles } = useDropVideoUpload({ spaceId, folderId });
+  const activeUploadIds = useMemo(
+    () =>
+      new Set(
+        uploads
+          .map((upload) => upload.recordingId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    [uploads],
+  );
+  const recordings = useMemo(
+    () =>
+      (data?.recordings ?? []).filter(
+        (recording) => !activeUploadIds.has(recording.id),
+      ),
+    [activeUploadIds, data?.recordings],
+  );
+  const { data: organizations } = useOrganizations({
+    enabled: canMoveSelection,
+  });
+  const currentOrganizationId =
+    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+  const { data: scopedFolders, isLoading: isFoldersLoading } = useFolders(
     {
+      organizationId: currentOrganizationId,
       spaceId: view === "space" ? (spaceId ?? null) : null,
     },
     {
-      enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
+      enabled:
+        canMoveSelection &&
+        Boolean(currentOrganizationId) &&
+        (view !== "space" || Boolean(spaceId)),
     },
   );
+  const visibleFolders = useMemo(
+    () =>
+      view === "library" || view === "space"
+        ? ((scopedFolders?.folders ?? []) as FolderTargetRow[]).filter(
+            (folder) => (folder.parentId ?? null) === (folderId ?? null),
+          )
+        : [],
+    [folderId, scopedFolders, view],
+  );
+  const isEmptyState =
+    !isLoading &&
+    !(view !== "shared" && isFoldersLoading) &&
+    !isError &&
+    recordings.length === 0 &&
+    visibleFolders.length === 0 &&
+    uploads.length === 0;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
   const moveTargets = useMemo(
     () =>
@@ -358,13 +481,67 @@ export function LibraryGrid({
     }
   };
 
+  const handleRetry = async (rec: RecordingSummary) => {
+    try {
+      await retryRecordingUploadFromBackup(rec.id);
+    } catch (err: any) {
+      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+    } finally {
+      void refetch();
+    }
+  };
+
+  const hasFilesDrag = (event: DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+  const handleDragEnter = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleDragOver = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+  };
+  const handleDragLeave = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleDrop = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFile(false);
+    const files = Array.from(event.dataTransfer.files).filter(
+      (file) => resolveVideoMimeType(file) !== null,
+    );
+    if (files.length === 0) {
+      toast.error(t("recordRoute.uploadFailed"));
+      return;
+    }
+    uploadFiles(files);
+  };
+
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
       key: `tag:${tagFilter}`,
       label: `#${tagFilter}`,
       active: true,
-      onRemove: onClearTag,
+      onRemove: onClearTag
+        ? () => {
+            trackEvent("recording_filter_changed", {
+              app_name: "clips",
+              template_name: "clips",
+              surface: view,
+              filter_type: "tag",
+              action: "removed",
+            });
+            onClearTag();
+          }
+        : undefined,
     });
   }
 
@@ -388,8 +565,11 @@ export function LibraryGrid({
       {sharingRec && (
         <ShareRecordingDialog
           recordingId={sharingRec.id}
+          pendingRedactions={sharingRec.pendingRedactions ?? 0}
           recordingTitle={sharingRec.title}
           initialVisibility={sharingRec.visibility}
+          hasPassword={sharingRec.hasPassword}
+          expiresAt={sharingRec.expiresAt}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);
@@ -397,9 +577,12 @@ export function LibraryGrid({
         />
       )}
       <CreateFolderDialog
-        open={Boolean(createFolderTarget)}
+        open={Boolean(createFolderTarget) || createFolderOpen}
         onOpenChange={(open) => {
-          if (!open) setCreateFolderTarget(null);
+          if (!open) {
+            setCreateFolderOpen(false);
+            setCreateFolderTarget(null);
+          }
         }}
         spaceId={view === "space" ? spaceId : null}
         parentId={folderId}
@@ -415,20 +598,24 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0 shrink-0">
-          {title && (
-            <h1 className="text-base font-semibold text-foreground truncate">
-              {title}
-            </h1>
+        <div className="flex min-w-0 flex-1 items-center gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem_auto]">
+          <div className="min-w-0 flex-1 lg:flex-none">
+            {pageBreadcrumbItems.length > 0 ? (
+              <PageBreadcrumb items={pageBreadcrumbItems} />
+            ) : null}
+          </div>
+          {!isEmptyState && (
+            <SearchBar
+              side="bottom"
+              className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
+            />
           )}
-        </div>
-        <SearchBar
-          side="bottom"
-          className="hidden min-w-52 max-w-xl flex-1 md:block"
-        />
-        <div className="ms-auto flex shrink-0 items-center gap-2">
-          {extraActions}
-          <SortMenu value={sort} onChange={setSort} />
+          <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
+            {!isEmptyState && extraActions}
+            {!isEmptyState && (
+              <SortMenu value={sort} onChange={handleSortChange} />
+            )}
+          </div>
         </div>
       </PageHeader>
 
@@ -439,112 +626,203 @@ export function LibraryGrid({
       )}
 
       {/* Grid body */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {canUploadByDrop && isDraggingFile && (
+          <div className="pointer-events-none absolute inset-2 z-20 rounded-lg border-2 border-dashed border-primary bg-primary/5" />
+        )}
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto",
             selected.size > 0 && "pb-20",
           )}
+          aria-busy={isLoading}
         >
-          <div className="p-5">
-            {isLoading ? (
+          {uploads.length > 0 && (
+            <div className="p-5 pb-0">
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} />
+                {uploads.map((item) => (
+                  <DroppedUploadCard key={item.key} item={item} />
                 ))}
               </div>
-            ) : isError && recordings.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-                <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
-                  <IconAlertTriangle className="h-10 w-10 text-destructive" />
+            </div>
+          )}
+          <LibraryCanvasContextMenu
+            enabled={canMoveSelection}
+            onCreateFolder={() => setCreateFolderOpen(true)}
+            uploadHref={uploadHref}
+            importLoomHref={importLoomHref}
+          >
+            <div className="flex min-h-full flex-col p-5">
+              {isLoading || (view !== "shared" && isFoldersLoading) ? (
+                <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} />
+                  ))}
                 </div>
-                <h2 className="text-base font-semibold text-foreground mb-1">
-                  {t("libraryGrid.loadFailedTitle")}
-                </h2>
-                <p className="text-sm text-muted-foreground max-w-sm mb-5">
-                  {t("libraryGrid.loadFailedBody")}
-                </p>
-                <Button
-                  onClick={() => refetch()}
-                  disabled={isRefetching}
-                  size="sm"
-                >
-                  {t("libraryGrid.retry")}
-                </Button>
-              </div>
-            ) : recordings.length === 0 ? (
-              <EmptyState
-                kind={resolvedEmptyKind}
-                spaceId={spaceId}
-                folderId={folderId}
-              />
-            ) : (
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-                {recordings.map((r: RecordingSummary) => (
-                  <RecordingCard
-                    key={r.id}
-                    recording={r}
-                    selected={
-                      canManageRecordings ? selected.has(r.id) : undefined
-                    }
-                    selectionMode={canManageRecordings && selectionMode}
-                    onToggleSelect={
-                      canManageRecordings ? handleToggleSelect : undefined
-                    }
-                    onShare={(rec) => setSharingRec(rec)}
-                    moveTargets={moveTargets}
-                    onMove={canMoveSelection ? moveSingle : undefined}
-                    isMovePending={moveRecording.isPending}
-                    onCreateFolder={() => {
-                      setCreateFolderTarget({ kind: "single", recording: r });
-                    }}
-                    onTrash={
-                      canManageRecordings
-                        ? (rec) => {
-                            trashRecording.mutate(
-                              { id: rec.id },
-                              {
-                                onSuccess: () =>
-                                  toast.success(t("libraryGrid.movedToTrash")),
-                              },
-                            );
-                          }
-                        : undefined
-                    }
-                    onArchive={
-                      canManageRecordings
-                        ? (rec) => {
-                            if (rec.archivedAt) {
-                              restoreRecording.mutate(
-                                { id: rec.id },
-                                {
-                                  onSuccess: () =>
-                                    toast.success(
-                                      t("libraryGrid.restoredFromArchive"),
-                                    ),
-                                },
-                              );
-                            } else {
-                              archiveRecording.mutate(
-                                { id: rec.id },
-                                {
-                                  onSuccess: () =>
-                                    toast.success(t("libraryGrid.archived")),
-                                },
-                              );
-                            }
-                          }
-                        : undefined
-                    }
-                    readOnly={!canManageRecordings}
-                  />
-                ))}
-                {view === "library" && page === totalPages && (
-                  <NewRecordingTile spaceId={spaceId} folderId={folderId} />
-                )}
-              </div>
-            )}
-          </div>
+              ) : isError && recordings.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+                  <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                    <IconAlertTriangle className="h-10 w-10 text-destructive" />
+                  </div>
+                  <h2 className="text-base font-semibold text-foreground mb-1">
+                    {t("libraryGrid.loadFailedTitle")}
+                  </h2>
+                  <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                    {t("libraryGrid.loadFailedBody")}
+                  </p>
+                  <Button
+                    onClick={() => refetch()}
+                    disabled={isRefetching}
+                    size="sm"
+                  >
+                    {t("libraryGrid.retry")}
+                  </Button>
+                </div>
+              ) : recordings.length === 0 &&
+                visibleFolders.length === 0 &&
+                uploads.length === 0 ? (
+                <EmptyState
+                  kind={resolvedEmptyKind}
+                  spaceId={spaceId}
+                  folderId={folderId}
+                />
+              ) : (
+                <div className="flex flex-col gap-8">
+                  {visibleFolders.length > 0 && (
+                    <section aria-labelledby="library-folders-heading">
+                      <h2
+                        id="library-folders-heading"
+                        className="mb-3 text-sm font-semibold text-foreground"
+                      >
+                        {t("navigation.folders")}
+                      </h2>
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]">
+                        {visibleFolders.map((folder) => (
+                          <div
+                            key={folder.id}
+                            className="min-w-0"
+                            onContextMenu={(event) => event.stopPropagation()}
+                          >
+                            <FolderCard
+                              folder={folder}
+                              href={
+                                view === "space"
+                                  ? `/spaces/${spaceId}/folder/${folder.id}`
+                                  : `/library/folder/${folder.id}`
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {recordings.length > 0 && (
+                    <section aria-label={t("navigation.recordings")}>
+                      {visibleFolders.length > 0 && (
+                        <h2
+                          id="library-recordings-heading"
+                          className="mb-3 text-sm font-semibold text-foreground"
+                        >
+                          {t("navigation.recordings")}
+                        </h2>
+                      )}
+                      <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                        {recordings.map((r: RecordingSummary) => (
+                          <div
+                            key={r.id}
+                            className="min-w-0"
+                            onContextMenu={(event) => event.stopPropagation()}
+                          >
+                            <RecordingCard
+                              recording={r}
+                              selected={
+                                canManageRecordings
+                                  ? selected.has(r.id)
+                                  : undefined
+                              }
+                              selectionMode={
+                                canManageRecordings && selectionMode
+                              }
+                              onToggleSelect={
+                                canManageRecordings
+                                  ? handleToggleSelect
+                                  : undefined
+                              }
+                              onShare={(rec) => setSharingRec(rec)}
+                              moveTargets={moveTargets}
+                              onMove={canMoveSelection ? moveSingle : undefined}
+                              isMovePending={moveRecording.isPending}
+                              onRetry={
+                                canManageRecordings ? handleRetry : undefined
+                              }
+                              onCreateFolder={() => {
+                                setCreateFolderTarget({
+                                  kind: "single",
+                                  recording: r,
+                                });
+                              }}
+                              onTrash={
+                                canManageRecordings
+                                  ? (rec) => {
+                                      trashRecording.mutate(
+                                        { id: rec.id },
+                                        {
+                                          onSuccess: () =>
+                                            toast.success(
+                                              t("libraryGrid.movedToTrash"),
+                                            ),
+                                        },
+                                      );
+                                    }
+                                  : undefined
+                              }
+                              onArchive={
+                                canManageRecordings
+                                  ? (rec) => {
+                                      if (rec.archivedAt) {
+                                        restoreRecording.mutate(
+                                          { id: rec.id },
+                                          {
+                                            onSuccess: () =>
+                                              toast.success(
+                                                t(
+                                                  "libraryGrid.restoredFromArchive",
+                                                ),
+                                              ),
+                                          },
+                                        );
+                                      } else {
+                                        archiveRecording.mutate(
+                                          { id: rec.id },
+                                          {
+                                            onSuccess: () =>
+                                              toast.success(
+                                                t("libraryGrid.archived"),
+                                              ),
+                                          },
+                                        );
+                                      }
+                                    }
+                                  : undefined
+                              }
+                              readOnly={!canManageRecordings}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+          </LibraryCanvasContextMenu>
         </div>
 
         {!isLoading && recordings.length > 0 && totalPages > 1 && (
@@ -593,12 +871,17 @@ export function LibraryGrid({
                 allSelected={allSelected}
                 onSelectAll={toggleSelectAll}
                 moveTargets={moveTargets}
+                archiveAction={view === "archive" ? "unarchive" : "archive"}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
                     const ids = Array.from(selected);
                     const results = await Promise.allSettled(
-                      ids.map((id) => archiveRecording.mutateAsync({ id })),
+                      ids.map((id) =>
+                        view === "archive"
+                          ? restoreRecording.mutateAsync({ id })
+                          : archiveRecording.mutateAsync({ id }),
+                      ),
                     );
                     const succeededIds = ids.filter(
                       (_, i) => results[i].status === "fulfilled",
@@ -606,9 +889,12 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        t("libraryGrid.clipsArchived", {
-                          count: succeededIds.length,
-                        }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestored"
+                            : "libraryGrid.clipsArchived",
+                          { count: succeededIds.length },
+                        ),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -618,7 +904,12 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        t("libraryGrid.clipsArchiveFailed", { count: failed }),
+                        t(
+                          view === "archive"
+                            ? "trashRoute.clipsRestoreFailed"
+                            : "libraryGrid.clipsArchiveFailed",
+                          { count: failed },
+                        ),
                       );
                     }
                   } finally {

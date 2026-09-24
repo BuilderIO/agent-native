@@ -53,7 +53,7 @@ export function ApiKeySettings({
   }, []);
 
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   const handleValueChange = (key: string, value: string) => {

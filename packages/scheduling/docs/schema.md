@@ -1,6 +1,6 @@
 # Schema reference
 
-All tables use dialect-agnostic helpers from `@agent-native/core/db/schema`
+All tables use PostgreSQL helpers from `@agent-native/core/db/schema`
 and compose with `ownableColumns()` + `createSharesTable()` for framework-
 wide sharing.
 

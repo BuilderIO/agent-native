@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppStateGet = vi.hoisted(() => vi.fn());
@@ -62,11 +64,14 @@ import {
   buildPublicAgentContext,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   loadPublicAgentAccess,
+  loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
 } from "./public-agent-context";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
+const originalMaxMediaFileBytes =
+  process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
 
 function makeRecording(overrides: Record<string, unknown> = {}) {
   return {
@@ -173,6 +178,7 @@ describe("loadRecordingMediaBytes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "4";
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "6";
   });
 
   afterEach(() => {
@@ -180,6 +186,12 @@ describe("loadRecordingMediaBytes", () => {
       delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
     } else {
       process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = originalMaxMediaBytes;
+    }
+    if (originalMaxMediaFileBytes === undefined) {
+      delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
+    } else {
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES =
+        originalMaxMediaFileBytes;
     }
   });
 
@@ -226,6 +238,25 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("streams large remote frame media to a temporary file", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamFrom([Buffer.from("12"), Buffer.from("345")]), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const result = await loadRecordingMediaFile(
+      makeRecording({ videoFormat: "mp4" }) as any,
+    );
+    try {
+      expect(await readFile(result.path, "utf8")).toBe("12345");
+      expect(result.mimeType).toBe("video/mp4");
+    } finally {
+      await result.cleanup();
+    }
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
@@ -593,10 +624,48 @@ describe("buildPublicAgentContext", () => {
             durationMs: 40,
           },
         ],
+        timeline: [
+          {
+            timestampMs: 12,
+            elapsedMs: 12,
+            kind: "click",
+            target: "button#submit",
+          },
+          {
+            timestampMs: 140,
+            elapsedMs: 140,
+            kind: "network",
+            phase: "response",
+            type: "fetch",
+            method: "GET",
+            url: "https://api.example.com/fail?token=<redacted>",
+            status: 500,
+            durationMs: 120,
+          },
+        ],
       },
     });
 
     expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
+    expect(context.browserDiagnostics?.timeline).toEqual([
+      {
+        timestampMs: 12,
+        kind: "click",
+        target: "button#submit",
+        url: null,
+      },
+      {
+        timestampMs: 140,
+        kind: "network",
+        phase: "response",
+        type: "fetch",
+        method: "GET",
+        url: "https://api.example.com/fail?token=<redacted>",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+    ]);
     // consoleLogs exposes the full stream (all levels), not just warn/error.
     expect(context.browserDiagnostics?.consoleLogs).toEqual([
       {

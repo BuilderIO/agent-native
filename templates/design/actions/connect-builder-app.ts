@@ -22,7 +22,7 @@
  * and returns only connection-level metadata, not design content.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getBuilderBranchProjectId } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";

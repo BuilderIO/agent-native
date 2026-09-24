@@ -59,7 +59,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     "AgentToolApprovals",
     () =>
       import("../agent/tool-approval-store.js").then((m) =>
-        m.ensureAgentToolApprovalTable(),
+        Promise.all([
+          m.ensureAgentToolApprovalTable(),
+          m.ensureAgentToolApprovalPolicyTable(),
+        ]).then(() => undefined),
       ),
   ],
   [
@@ -81,6 +84,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
   [
     "AutomationRunHistory",
     () => import("../jobs/run-history.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "AutomationWebhookTokens",
+    () => import("../triggers/webhook-store.js").then((m) => m.ensureTable()),
   ],
   [
     "AwaitingInputs",
@@ -296,6 +303,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
   [
     "Review",
     () => import("../review/store.js").then((m) => m.ensureReviewTables()),
+  ],
+  [
+    "ReviewSuggestions",
+    () =>
+      import("../review/suggestions/store.js").then((m) =>
+        m.ensureSuggestionTables(),
+      ),
   ],
   [
     "SandboxExecutions",

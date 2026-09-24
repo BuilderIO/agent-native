@@ -1,4 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   assertWorkspaceUserGroupManager,
   type WorkspaceConnection,
@@ -29,11 +30,16 @@ async function isDispatchAppAdmin(
   if (ctx?.appId !== DISPATCH_APP_ID || !ctx.userEmail || !ctx.orgId) {
     return false;
   }
-  const role = await dispatchAccess.resolve({
-    userEmail: ctx.userEmail,
-    orgId: ctx.orgId,
-  });
-  return role.status === "assigned" && role.role === "admin";
+  try {
+    await dispatchAccess.assertPermission(["administer"], {
+      userEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof ForbiddenError) return false;
+    throw error;
+  }
 }
 
 export async function assertWorkspaceConnectionManager(

@@ -35,7 +35,7 @@ export const RESERVED_WORKSPACE_APP_IDS = new Set([
 ]);
 
 export function isValidWorkspaceAppIdFormat(appId: string): boolean {
-  return /^[a-z][a-z0-9-]*$/.test(appId);
+  return /^[a-z0-9][a-z0-9-]*$/.test(appId);
 }
 
 /** Convert a human-friendly app name into the URL-safe workspace app id form. */

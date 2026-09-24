@@ -21,7 +21,7 @@ export interface VoiceTerm {
 
 export interface VoiceContextPack {
   surface?: string;
-  mode?: VoiceContextMode | string;
+  mode?: string;
   snippets?: VoiceContextSnippet[];
   terms?: VoiceTerm[];
   metadata?: Record<string, string | number | boolean | null | undefined>;

@@ -15,7 +15,6 @@ const APP_IDS = [
   "dispatch",
   "factory",
   "forms",
-  "macros",
   "mail",
   "plan",
   "slides",
@@ -35,12 +34,38 @@ describe("onboarding app profiles", () => {
     expect(
       profile.capabilities.some((capability) => capability.builderIncluded),
     ).toBe(true);
+    const storage = profile.capabilities.find(
+      (capability) =>
+        capability.id === "file-storage" || capability.id === "video-storage",
+    );
+    expect(storage).toMatchObject({
+      builderIncluded: true,
+      suggested: appId !== "clips",
+    });
+    expect(storage?.required).toBe(appId === "clips");
     expect(profile.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "file-storage",
-          builderIncluded: true,
+          id: "llm",
+          required: true,
+        }),
+        expect.objectContaining({
+          id: "voice-input",
+          required: false,
           suggested: true,
+        }),
+        expect.objectContaining({
+          id: "embeddings",
+          required: false,
+          suggested: true,
+        }),
+        expect.objectContaining({
+          id: "system-one",
+          label: "Decision model (Jev)",
+          required: false,
+          suggested: true,
+          builderIncluded: true,
+          keySummary: "Jev decision model key",
         }),
       ]),
     );
@@ -52,12 +77,16 @@ describe("onboarding app profiles", () => {
 
     expect(ids).toEqual([
       "llm",
-      "file-storage",
+      "system-one",
       "video-storage",
+      "voice-input",
+      "embeddings",
       "transcription",
     ]);
-    expect(clips.capabilities[2]?.keySummary).toContain("S3");
-    expect(clips.capabilities[3]?.required).toBe(false);
+    expect(clips.capabilities[2]?.required).toBe(true);
+    expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
+    expect(clips.capabilities[2]?.label).toBe("Object storage");
+    expect(clips.capabilities[4]?.required).toBe(false);
 
     clips.capabilities[0]!.label = "Changed locally";
     expect(getOnboardingAppProfile("clips").capabilities[0]?.label).toBe(
@@ -89,4 +118,41 @@ describe("onboarding app profiles", () => {
       ),
     ).not.toContain("design-system-intelligence");
   });
+
+  it("separates Assets image and video requirements", () => {
+    const assets = getOnboardingAppProfile("assets").capabilities;
+
+    expect(assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "media-generation",
+          required: true,
+        }),
+        expect.objectContaining({
+          id: "video-generation",
+          required: false,
+        }),
+        expect.objectContaining({
+          id: "file-storage",
+          required: false,
+          suggested: true,
+        }),
+      ]),
+    );
+  });
+
+  it.each(["design", "slides"] as const)(
+    "marks image generation as recommended for %s",
+    (appId) => {
+      expect(getOnboardingAppProfile(appId).capabilities).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "image-generation",
+            required: false,
+            suggested: true,
+          }),
+        ]),
+      );
+    },
+  );
 });

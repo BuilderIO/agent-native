@@ -107,7 +107,7 @@ track(
 
 `source` 可以是直接透传的操作 `ctx`，也可以是没有 `ctx` 的调用方使用的 `{ userId, anonymousId, sessionId }` 元数据对象。
 
-浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
+浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent-Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -194,11 +194,11 @@ track("checkout.completed", { total: 49.99, items: 3 });
 - **一劳永逸。**它永远不会阻塞 UI，永远不会抛出并吞掉网络错误。
 - **经过身份验证，仅限第一方。** 该路由需要会话和同源/CSRF 标记（由帮助程序自动设置），因此它不能用作开放分析中继。 `name` 的上限为 200 个字符，`properties` 的上限为 ~16KB；过大或格式错误的有效负载将被拒绝。
 
-这与框架的内部浏览器遥测（`trackEvent()` /自动页面浏览量 - 请参阅下面的 [Browser defaults](#browser-defaults)）不同，后者为 Agent Native 自己的产品分析提供支持。将 `track()` 用于您的应用自己的分析事件，这些事件应到达您配置的提供商。
+这与框架的内部浏览器遥测（`trackEvent()` /自动页面浏览量 - 请参阅下面的 [Browser defaults](#browser-defaults)）不同，后者为 Agent-Native 自己的产品分析提供支持。将 `track()` 用于您的应用自己的分析事件，这些事件应到达您配置的提供商。
 
 ## 会话重放 {#session-replay}
 
-Agent Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
+Agent-Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
 
 ```ts
 import { configureTracking } from "@agent-native/core/client/analytics";
@@ -219,7 +219,7 @@ configureTracking({
 
 当 `sessionReplay.enabled` 为真值时，客户端会在启动后动态导入 `@rrweb/record`，并将重放数据块发送到重放端点。如果 `endpoint` 以 `/api/analytics/track` 或 `/track` 结尾，重放端点会自动推导为 `/api/analytics/replay`。当重放采集器位于其他位置时，可通过 `sessionReplay.endpoint` 显式覆盖。
 
-Agent Native 模板根已经调用了 `configureTracking()`。托管模板部署可以通过 Vite/Netlify 环境变量开启重放，而库使用者则应优先使用上面显式的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
+Agent-Native 模板根已经调用了 `configureTracking()`。托管模板部署可以通过 Vite/Netlify 环境变量开启重放，而库使用者则应优先使用上面显式的 `configureTracking({ key, endpoint, sessionReplay })` 形式：
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
@@ -228,7 +228,7 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
-浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
+浏览器端辅助函数还会尽力地、非阻塞地读取当前 Agent-Native 认证会话。默认情况下，重放仅限已登录用户：启用 `sessionReplay` 后，除非会话解析出用户邮箱地址，否则不会开始录制。已登录用户的重放会包含基于邮箱的 `userId`/`userEmail` 以及 `orgId`。
 
 仅在有意进行匿名重放部署时，才设置 `sessionReplay.requireSignedInUser: false` 或 `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`。禁用认证门控后，匿名录制仍可按匿名访客、会话、应用/模板、主机名和路径进行查询。
 

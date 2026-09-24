@@ -23,7 +23,7 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
@@ -32,8 +32,8 @@ const gatewayBaseUrl = vi.hoisted(() => ({
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
-    resolveBuilderGatewayCredentials(...args),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    resolveBuilderGatewayAuth(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -63,6 +63,8 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_CAPABILITY_HEADER,
+  REALTIME_VOICE_MODEL_HEADER,
+  REALTIME_VOICE_PROTOCOL_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
   REALTIME_VOICE_MAX_SESSION_BYTES,
   REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES,
@@ -245,10 +247,16 @@ async function issueToolCapability(
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue(
-      new Response("v=0\r\ns=capability\r\n", {
-        status: 201,
-        headers: { "content-type": "application/sdp" },
-      }),
+      new Response(
+        JSON.stringify({
+          session: { id: "session-capability" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=capability\r\n" },
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     ),
   );
   const event = sessionEvent(undefined, headers);
@@ -281,11 +289,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderGatewayCredentials.mockResolvedValue({
-    privateKey: null,
-    publicKey: null,
-    userId: null,
-  });
+  resolveBuilderGatewayAuth.mockResolvedValue(null);
   runWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => Promise<unknown>) => callback(),
   );
@@ -362,7 +366,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderGatewayCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayAuth).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -404,9 +408,9 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -451,7 +455,7 @@ describe("realtime voice session route", () => {
       .mockResolvedValue(new Response("v=0\r\ns=builder\r\n", { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -472,9 +476,9 @@ describe("realtime voice session route", () => {
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -492,7 +496,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -503,9 +507,9 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue(
@@ -526,7 +530,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -539,9 +543,9 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "builder-private-example",
-      publicKey: "builder-public-example",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
       userId: null,
     });
     actionsToEngineTools.mockReturnValue([
@@ -569,7 +573,7 @@ describe("realtime voice session route", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const { handlers } = mount();
+    const { handlers } = mount({ model: "gpt-realtime-2.1" });
     await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -630,6 +634,7 @@ describe("realtime voice session route", () => {
       .fn()
       .mockResolvedValue("The current view is the calendar.");
     const { handlers } = mount({
+      model: "gpt-realtime-2.1",
       resolveOrgId: async () => "org-custom",
       getInstructions,
     });
@@ -714,6 +719,84 @@ describe("realtime voice session route", () => {
     expect(realtimeSession.instructions).toContain("finish or correct");
   });
 
+  it("uses GPT-Live by default and delegates app tools to Responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session: { id: "live-session-1" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=live\r\n" },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    const event = sessionEvent();
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=live\r\n");
+
+    expect(event.responseHeaders).toMatchObject({
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "live",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-live-1",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/live/sessions");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer sk-test-example",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      transport: { type: "webrtc", sdp: "v=0\r\ns=agent-native\r\n" },
+      session: {
+        model: "gpt-live-1",
+        audio: { output: { voice: "marin" } },
+        delegation: {
+          type: "responses",
+          responses: {
+            model: "gpt-5.6-luna",
+            tool_choice: "auto",
+            tools: [
+              expect.objectContaining({ type: "function", name: "navigate" }),
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps the legacy transport for SDP-only compatibility callers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=legacy\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+    });
+    await expect(
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(event),
+    ).resolves.toBe("v=0\r\ns=legacy\r\n");
+
+    expect(event.responseHeaders).toMatchObject({
+      [REALTIME_VOICE_PROTOCOL_HEADER]: "realtime",
+      [REALTIME_VOICE_MODEL_HEADER]: "gpt-realtime-2.1",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.openai.com/v1/realtime/calls");
+    const form = init.body as FormData;
+    expect(form.get("sdp")).toBe("v=0\r\ns=agent-native\r\n");
+    expect(JSON.parse(form.get("session") as string)).toMatchObject({
+      type: "realtime",
+      model: "gpt-realtime-2.1",
+    });
+  });
+
   it("never returns the API key on missing/upstream failures", async () => {
     const { handlers } = mount();
     resolveSecret.mockResolvedValueOnce(null);
@@ -780,9 +863,9 @@ describe("realtime voice session route", () => {
   });
 
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -814,17 +897,17 @@ describe("realtime voice session route", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       sdp: "v=0\r\ns=agent-native\r\n",
       session: {
-        type: "realtime",
-        model: "gpt-realtime-2.1",
+        model: "gpt-live-1",
         audio: {
-          input: {
-            transcription: {
-              model: "gpt-4o-mini-transcribe",
-              language: "en",
-            },
+          output: { voice: "marin" },
+        },
+        delegation: {
+          type: "responses",
+          responses: {
+            model: "gpt-5.6-luna",
+            tool_choice: "auto",
           },
         },
-        tool_choice: "auto",
       },
     });
   });
@@ -834,9 +917,9 @@ describe("realtime voice session route", () => {
   // reaches is the gateway's own rejection — which used to arrive verbatim,
   // status code and upstream sentence included.
   it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "btk-site-token",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-public-test",
       userId: null,
     });
     vi.stubGlobal(
@@ -887,9 +970,9 @@ describe("realtime voice session route", () => {
   });
 
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(
@@ -917,9 +1000,9 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderGatewayCredentials.mockResolvedValue({
-      privateKey: "bpk-private-test",
-      publicKey: "space-public-test",
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-private-test",
+      spaceId: "space-public-test",
       userId: "builder-user-test",
     });
     const fetchMock = vi.fn().mockResolvedValue(

@@ -4,13 +4,11 @@
  * another host. Mirrors the `isHost` guard already proven in
  * `cancel-booking.ts` / `reschedule-booking.ts`.
  */
-import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as schema from "../schema/index.js";
@@ -23,18 +21,33 @@ import removeBookingAttendee from "./remove-booking-attendee.js";
 import sendRescheduleLink from "./send-reschedule-link.js";
 
 const HOST_EMAIL = "host@example.com";
+
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string")
+    return getDbExec().execute(postgresSql(statement));
+  return getDbExec().execute({
+    ...statement,
+    sql: postgresSql(statement.sql),
+  });
+}
 const OUTSIDER_EMAIL = "outsider@example.com";
 const BOOKING_UID = "booking-uid-1";
 const ATTENDEE_EMAIL = "attendee@example.com";
 
-let client: Client;
 let dbDir: string;
 let currentUserEmail: string | undefined;
 
 beforeEach(async () => {
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-booking-authz-test-"));
-  client = createClient({ url: `file:${join(dbDir, `${randomUUID()}.db`)}` });
-  await client.execute(`
+  process.env.DATABASE_URL = `pglite:${dbDir}`;
+  await execute(`
     CREATE TABLE bookings (
       id TEXT PRIMARY KEY,
       uid TEXT NOT NULL UNIQUE,
@@ -56,8 +69,8 @@ beforeEach(async () => {
       ical_uid TEXT NOT NULL,
       ical_sequence INTEGER NOT NULL DEFAULT 0,
       recurring_event_id TEXT,
-      paid INTEGER NOT NULL DEFAULT 0,
-      no_show_host INTEGER NOT NULL DEFAULT 0,
+      paid BOOLEAN NOT NULL DEFAULT false,
+      no_show_host BOOLEAN NOT NULL DEFAULT false,
       metadata TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -66,7 +79,7 @@ beforeEach(async () => {
       visibility TEXT NOT NULL DEFAULT 'private'
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE booking_attendees (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
@@ -74,11 +87,11 @@ beforeEach(async () => {
       name TEXT NOT NULL,
       timezone TEXT,
       locale TEXT,
-      no_show INTEGER NOT NULL DEFAULT 0,
+      no_show BOOLEAN NOT NULL DEFAULT false,
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE booking_references (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
@@ -90,7 +103,7 @@ beforeEach(async () => {
       created_at TEXT NOT NULL
     );
   `);
-  await client.execute(`
+  await execute(`
     CREATE TABLE booking_notes (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
@@ -100,7 +113,7 @@ beforeEach(async () => {
     );
   `);
 
-  const db = drizzle(client, { schema });
+  const db = createGetDb(schema)();
   currentUserEmail = HOST_EMAIL;
   setSchedulingContext({
     getDb: () => db,
@@ -109,7 +122,7 @@ beforeEach(async () => {
   });
 
   const now = new Date().toISOString();
-  await client.execute({
+  await execute({
     sql: `INSERT INTO bookings (
       id, uid, event_type_id, host_email, title, start_time, end_time,
       timezone, status, cancel_token, reschedule_token, ical_uid, created_at, updated_at
@@ -131,19 +144,19 @@ beforeEach(async () => {
       now,
     ],
   });
-  await client.execute({
+  await execute({
     sql: `INSERT INTO booking_attendees (id, booking_id, email, name, created_at) VALUES (?, ?, ?, ?, ?)`,
     args: ["attendee-1", "booking-1", ATTENDEE_EMAIL, "Attendee One", now],
   });
 });
 
-afterEach(() => {
-  client.close();
+afterEach(async () => {
+  await closeDbExec();
   rmSync(dbDir, { recursive: true, force: true });
 });
 
 async function bookingStatus(): Promise<string> {
-  const { rows } = await client.execute({
+  const { rows } = await execute({
     sql: "SELECT status FROM bookings WHERE uid = ?",
     args: [BOOKING_UID],
   });
@@ -151,14 +164,14 @@ async function bookingStatus(): Promise<string> {
 }
 
 async function attendeeEmails(): Promise<string[]> {
-  const { rows } = await client.execute({
+  const { rows } = await execute({
     sql: "SELECT email FROM booking_attendees WHERE booking_id = 'booking-1'",
   });
   return rows.map((r: any) => String(r.email)).sort();
 }
 
 async function attendeeNoShow(email: string): Promise<boolean> {
-  const { rows } = await client.execute({
+  const { rows } = await execute({
     sql: "SELECT no_show FROM booking_attendees WHERE booking_id = 'booking-1' AND email = ?",
     args: [email],
   });
@@ -166,7 +179,7 @@ async function attendeeNoShow(email: string): Promise<boolean> {
 }
 
 async function noteCount(): Promise<number> {
-  const { rows } = await client.execute("SELECT * FROM booking_notes");
+  const { rows } = await execute("SELECT * FROM booking_notes");
   return rows.length;
 }
 

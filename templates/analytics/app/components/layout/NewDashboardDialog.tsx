@@ -69,7 +69,7 @@ export function NewDashboardDialog({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+        className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
         side="right"
         align="start"
       >

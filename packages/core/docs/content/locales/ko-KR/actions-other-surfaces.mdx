@@ -121,6 +121,8 @@ export default defineAction({
 높이 클램핑)는 [외부 에이전트](/docs/external-agents#mcp-app-bridge)가
 소유합니다.
 
+템플릿에 주요 리소스에 대한 `view-screen`, `navigate`, 또는 create/read/update/list 세트가 있는지 자동으로 확인하는 장치는 없습니다. 스캐폴드는 `view-screen`과 `navigate`를 기본 제공하며, `pnpm guard:external-result-contract`는 외부에 노출된 action의 `description` 또는 `nextRequiredAction`에 있는 "사용자를 기다리라"는 표현을 실패 처리하고, 외부에 노출된 새 `create-*` action에는 딥 링크를 요구합니다. 존재 여부는 리뷰 항목입니다.
+
 ## 표준 actions {#standard-actions}
 
 [컨텍스트 인식](/docs/context-awareness)을 위해 모든 템플릿은 이 두

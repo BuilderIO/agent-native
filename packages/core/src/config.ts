@@ -3,8 +3,11 @@
  *
  * This module is intentionally free of Node and framework imports so it can be
  * used from a typed `agent-native.config.ts` file and from browser code after Vite
- * serializes the resolved config into the client bundle.
+ * serializes the resolved config into the client bundle. The one shared module
+ * it pulls in is pure for the same reason.
  */
+
+import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
 
@@ -50,6 +53,14 @@ export interface AgentNativeRuntimeConfig {
   auth?: AgentNativeRuntimeAuthConfig;
   database?: AgentNativeRuntimeDatabaseConfig;
   environment?: AgentNativeRuntimeEnvironmentConfig;
+  /**
+   * The public URL namespace this deployment serves framework routes under.
+   * Defaults to `/_agent-native`. One absolute segment of letters, digits,
+   * `_` or `-`; reserved namespaces such as `/api` and `/mcp` are refused.
+   * Route registration stays on the internal name; the value is translated
+   * at the request boundary and applied to every URL the framework builds.
+   */
+  frameworkRoutePrefix?: string;
 }
 
 export type AgentNativeDeploymentEnvironment =
@@ -61,6 +72,22 @@ export type AgentNativeDeploymentEnvironment =
 export interface AgentNativeDeploymentConfig {
   /** The release lane that produced the currently running client bundle. */
   environment?: AgentNativeDeploymentEnvironment;
+  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
+  badgeText?: string;
+  /** Workspace deploy settings for multi-app roots that do not use apps/. */
+  workspace?: AgentNativeWorkspaceDeploymentConfig;
+}
+
+export type AgentNativeWorkspaceAuthMode = "shared" | "isolated";
+export type AgentNativeWorkspaceRootPage = "redirect" | "directory";
+
+export interface AgentNativeWorkspaceDeploymentConfig {
+  /** Relative directory containing the app package directories. Defaults to apps/. */
+  appsDirectory?: string;
+  /** Whether mounted apps share auth or keep per-app sessions. Defaults to shared. */
+  authMode?: AgentNativeWorkspaceAuthMode;
+  /** Whether the workspace root redirects to the first app or renders a directory. Defaults to redirect. */
+  rootPage?: AgentNativeWorkspaceRootPage;
 }
 
 export interface AgentNativeDiagnosticsConfig {
@@ -110,6 +137,8 @@ export interface AgentNativeConfig {
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   deployment?: AgentNativeDeploymentConfig;
+  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
+  badgeText?: string;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
@@ -189,11 +218,16 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     path: ["runtime", "environment", "required"],
     kind: "array",
   },
+  { path: ["runtime", "frameworkRoutePrefix"], kind: "string" },
   { path: ["deployment"], kind: "object" },
   {
     path: ["deployment", "environment"],
     kind: "deployment-environment",
   },
+  { path: ["deployment", "workspace"], kind: "object" },
+  { path: ["deployment", "workspace", "appsDirectory"], kind: "string" },
+  { path: ["deployment", "workspace", "authMode"], kind: "string" },
+  { path: ["deployment", "workspace", "rootPage"], kind: "string" },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
   { path: ["instructions"], kind: "object" },
@@ -479,6 +513,7 @@ export function normalizeAgentNativeConfig(
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
   const deploymentValue = input.deployment;
+  const badgeTextValue = input.badgeText;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
@@ -490,6 +525,13 @@ export function normalizeAgentNativeConfig(
       ? {}
       : { version: AGENT_NATIVE_CONFIG_VERSION }),
   };
+
+  if (badgeTextValue !== undefined) {
+    if (typeof badgeTextValue !== "string") {
+      throw new Error(`${source}.badgeText must be a string`);
+    }
+    normalized.badgeText = badgeTextValue;
+  }
 
   if (onboardingValue !== undefined) {
     if (!isRecord(onboardingValue)) {
@@ -615,8 +657,16 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.deployment,
             ...override.deployment,
+            workspace:
+              base.deployment?.workspace || override.deployment?.workspace
+                ? {
+                    ...base.deployment?.workspace,
+                    ...override.deployment?.workspace,
+                  }
+                : undefined,
           }
         : undefined,
+    badgeText: override.badgeText ?? base.badgeText,
     diagnostics:
       base.diagnostics || override.diagnostics
         ? {
@@ -732,6 +782,12 @@ function normalizeRuntimeConfig(
   }
 
   const result: AgentNativeRuntimeConfig = {};
+  if (value.frameworkRoutePrefix !== undefined) {
+    result.frameworkRoutePrefix = normalizeFrameworkRoutePrefix(
+      value.frameworkRoutePrefix,
+      `${source}.frameworkRoutePrefix`,
+    );
+  }
   for (const section of ["auth", "database", "environment"] as const) {
     const sectionValue = value[section];
     if (sectionValue === undefined) continue;
@@ -766,13 +822,70 @@ function normalizeDeploymentConfig(
     throw new Error(`${source} must be an object`);
   }
   const environment = value.environment;
-  if (environment === undefined) return {};
-  if (!isAgentNativeDeploymentEnvironment(environment)) {
+  const badgeText = value.badgeText;
+  const workspace = value.workspace;
+  if (badgeText !== undefined && typeof badgeText !== "string") {
+    throw new Error(`${source}.badgeText must be a string`);
+  }
+  if (
+    environment !== undefined &&
+    !isAgentNativeDeploymentEnvironment(environment)
+  ) {
     throw new Error(
       `${source}.environment must be "local", "beta", "production", or "preview"`,
     );
   }
-  return { environment };
+
+  let normalizedWorkspace: AgentNativeWorkspaceDeploymentConfig | undefined;
+  if (workspace !== undefined) {
+    if (!isRecord(workspace)) {
+      throw new Error(`${source}.workspace must be an object`);
+    }
+    const appsDirectory = workspace.appsDirectory;
+    const authMode = workspace.authMode;
+    const rootPage = workspace.rootPage;
+    if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
+      throw new Error(`${source}.workspace.appsDirectory must be a string`);
+    }
+    if (
+      authMode !== undefined &&
+      authMode !== "shared" &&
+      authMode !== "isolated"
+    ) {
+      throw new Error(
+        `${source}.workspace.authMode must be "shared" or "isolated"`,
+      );
+    }
+    if (
+      rootPage !== undefined &&
+      rootPage !== "redirect" &&
+      rootPage !== "directory"
+    ) {
+      throw new Error(
+        `${source}.workspace.rootPage must be "redirect" or "directory"`,
+      );
+    }
+    normalizedWorkspace = {
+      ...(appsDirectory === undefined
+        ? {}
+        : {
+            appsDirectory: normalizeRelativeFilePath(
+              appsDirectory,
+              `${source}.workspace.appsDirectory`,
+            ),
+          }),
+      ...(authMode === undefined ? {} : { authMode }),
+      ...(rootPage === undefined ? {} : { rootPage }),
+    };
+  }
+
+  return {
+    ...(environment === undefined ? {} : { environment }),
+    ...(badgeText === undefined ? {} : { badgeText }),
+    ...(normalizedWorkspace === undefined
+      ? {}
+      : { workspace: normalizedWorkspace }),
+  };
 }
 
 function normalizeDiagnosticsConfig(

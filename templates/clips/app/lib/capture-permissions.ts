@@ -55,7 +55,7 @@ export function readCaptureHostEnv(): CaptureHostEnv {
 export function detectCaptureHostApp(env: CaptureHostEnv): CaptureHostApp {
   if (env.isTauri) return { name: "Clips", kind: "desktop" };
   if (/Electron/i.test(env.userAgent)) {
-    return { name: "Agent Native", kind: "desktop" };
+    return { name: "Agent-Native", kind: "desktop" };
   }
   const ua = env.userAgent;
   const name = /Vivaldi/i.test(ua)

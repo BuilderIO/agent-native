@@ -1,7 +1,7 @@
 {
   "type": "broadcast-upload",
   "name": "AgentNativeBroadcast",
-  "displayName": "Agent Native Screen Capture",
+  "displayName": "Agent-Native Screen Capture",
   "bundleIdentifier": ".broadcast",
   "deploymentTarget": "17.0",
   "frameworks": ["AVFoundation", "CoreMedia", "ReplayKit"],

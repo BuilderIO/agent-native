@@ -16,7 +16,7 @@ import {
 } from "./builder-image-urls";
 import {
   DEFAULT_DOCS_LOCALE,
-  localizeDocsHref,
+  localizeSiteHref,
   type DocsLocale,
 } from "./docs-locale";
 import { slugifyHeading } from "./heading-slug";
@@ -315,12 +315,28 @@ marked.use(kbdExtension);
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer(locale: DocsLocale) {
   const renderer = new marked.Renderer();
+  let legacyAnchorOpen = false;
 
   renderer.html = function ({ text }: Tokens.HTML) {
     // Strip HTML comments entirely (used by the docs build for screenshot
     // metadata, e.g. `<!-- screenshot: url=... -->` — should never render).
     // Escape everything else for safety.
     if (/^\s*<!--[\s\S]*?-->\s*$/.test(text)) return "";
+    const legacyAnchor = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)"><\/a>\s*$/,
+    );
+    if (legacyAnchor) return `<span id="${legacyAnchor[1]}"></span>`;
+    const legacyAnchorStart = text.match(
+      /^\s*<a id="([A-Za-z][A-Za-z0-9_-]*)">\s*$/,
+    );
+    if (legacyAnchorStart) {
+      legacyAnchorOpen = true;
+      return `<span id="${legacyAnchorStart[1]}"></span>`;
+    }
+    if (legacyAnchorOpen && /^\s*<\/a>\s*$/.test(text)) {
+      legacyAnchorOpen = false;
+      return "";
+    }
     return escapeHtml(text);
   };
 
@@ -328,7 +344,7 @@ function createRenderer(locale: DocsLocale) {
     const text = this.parser.parseInline(token.tokens);
     if (!isSafeUrl(token.href, "link")) return text;
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    const href = localizeDocsHref(token.href, locale);
+    const href = localizeSiteHref(token.href, locale);
     return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
   };
 
@@ -422,7 +438,14 @@ export function renderMarkdownToHtml(
   }
 
   const renderer = createRenderer(locale);
-  const html = marked(markdown, { renderer, async: false }) as string;
+  // Cloudflare's email obfuscation rewrites any plain-text address it finds
+  // into a `/cdn-cgi/l/email-protection` link that only resolves via its
+  // client-side decode script. Docs content is full of example addresses in
+  // code samples (owner_email, JWT subjects, etc.) that aren't real mailtos,
+  // so wrapping the output opts the whole block out and keeps crawlers that
+  // don't run JS from following a dead link. See Cloudflare's `email_off`
+  // convention.
+  const html = `<!--email_off-->${marked(markdown, { renderer, async: false }) as string}<!--/email_off-->`;
   if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
     const oldest = renderedMarkdownCache.keys().next().value;
     if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
@@ -528,7 +551,7 @@ export default function MarkdownRenderer({
       if (!cancelled) setHighlightedHtml({ sourceHtml: html, html: result });
     }
 
-    highlightCodeBlocks(baseHtml);
+    void highlightCodeBlocks(baseHtml);
     return () => {
       cancelled = true;
     };

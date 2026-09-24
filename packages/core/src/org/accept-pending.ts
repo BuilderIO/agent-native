@@ -1,10 +1,21 @@
 import { getDbExec } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { setActiveOrgId } from "./active-org.js";
+import { applyInvitationAppRoles } from "./app-roles.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
+import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function isMissingInvitationTableError(error: unknown): boolean {
+  const candidate = error as { message?: unknown };
+  return /no such table:\s*["'`]?org_invitations["'`]?|relation\s+["'`]?org_invitations["'`]?\s+does not exist/i.test(
+    String(candidate?.message ?? error),
+  );
+}
 
 export interface AcceptPendingResult {
   accepted: Array<{ invitationId: string; orgId: string }>;
@@ -22,7 +33,7 @@ export interface AcceptPendingResult {
  * rather than seeing a blank-slate app until they navigate to /team.
  *
  * Safe to call when the org tables don't exist (some templates don't use the
- * org module) — it swallows the "no such table" error and returns empty.
+ * org module) — it swallows the missing-relation error and returns empty.
  */
 export async function acceptPendingInvitationsForEmail(
   rawEmail: string,
@@ -34,22 +45,59 @@ export async function acceptPendingInvitationsForEmail(
 
   const db = getDbExec();
 
-  let rows: Array<{ id: string; orgId: string; role: string | null }> = [];
+  let rows: Array<{
+    id: string;
+    orgId: string;
+    role: string | null;
+    invitedBy: string;
+    appRolesJson: string | null;
+    federated: boolean;
+  }> = [];
   try {
     const res = await db.execute({
-      sql: `SELECT id, org_id AS "orgId", role FROM org_invitations
-            WHERE LOWER(email) = ? AND status = 'pending'
-            ORDER BY created_at DESC`,
+      sql: `SELECT i.id, i.org_id AS "orgId", i.role, i.invited_by AS "invitedBy", i.app_roles_json AS "appRolesJson",
+                   o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
+            FROM org_invitations i
+            LEFT JOIN organizations o ON o.id = i.org_id
+            WHERE LOWER(i.email) = ? AND i.status = 'pending'
+            ORDER BY i.created_at DESC`,
       args: [email],
     });
     rows = res.rows.map((r: any) => ({
       id: String(r.id),
       orgId: String(r.orgId ?? r.org_id),
       role: r.role == null ? null : String(r.role),
+      invitedBy: String(r.invitedBy ?? r.invited_by ?? ""),
+      appRolesJson: r.appRolesJson == null ? null : String(r.appRolesJson),
+      federated: Boolean(
+        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
+        String(r.identityId ?? r.identity_id ?? "").trim(),
+      ),
     }));
-  } catch {
-    // Template doesn't use the org module / tables not migrated yet.
-    return { accepted: [], activeOrgId: null };
+  } catch (error) {
+    if (isMissingOrganizationTableError(error)) {
+      const res = await db.execute({
+        sql: `SELECT i.id, i.org_id AS "orgId", i.role, i.invited_by AS "invitedBy", i.app_roles_json AS "appRolesJson"
+              FROM org_invitations i
+              WHERE LOWER(i.email) = ? AND i.status = 'pending'
+              ORDER BY i.created_at DESC`,
+        args: [email],
+      });
+      rows = res.rows.map((r: any) => ({
+        id: String(r.id),
+        orgId: String(r.orgId ?? r.org_id),
+        role: r.role == null ? null : String(r.role),
+        invitedBy: String(r.invitedBy ?? r.invited_by ?? ""),
+        appRolesJson: r.appRolesJson == null ? null : String(r.appRolesJson),
+        federated: false,
+      }));
+    } else if (isMissingInvitationTableError(error)) {
+      // Template doesn't use the org module.
+      return { accepted: [], activeOrgId: null };
+    } else {
+      throw error;
+    }
   }
 
   if (rows.length === 0) {
@@ -58,10 +106,30 @@ export async function acceptPendingInvitationsForEmail(
 
   const accepted: AcceptPendingResult["accepted"] = [];
   for (const inv of rows) {
+    if (inv.federated) {
+      let federationEnabled = false;
+      try {
+        federationEnabled = await evaluateFeatureFlagStrict(
+          CROSS_APP_ORG_FEDERATION_FLAG.key,
+          {
+            userEmail: email,
+            userKey: email,
+            orgId: inv.orgId,
+          },
+        );
+      } catch {
+        // A linked org must not fall back to accepting a local invitation
+        // while rollout state is unreadable.
+        continue;
+      }
+      if (federationEnabled) continue;
+    }
     const existing = await db.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [inv.orgId, email],
     });
+    if ((existing.rows[0] as any)?.federation_removal_pending_at) continue;
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
       // The SELECT above is a cheap pre-check, not a correctness guard —
@@ -77,6 +145,25 @@ export async function acceptPendingInvitationsForEmail(
         args: [nanoid(), inv.orgId, email, role, Date.now()],
       });
       invalidateMemberOrgCaches();
+    }
+    // Keep the invitation pending when a pre-assigned role cannot be applied.
+    // The auth hook logs the retryable failure while membership remains safe
+    // to reuse on the next reconciliation attempt.
+    try {
+      await applyInvitationAppRoles({
+        appRolesJson: inv.appRolesJson,
+        orgId: inv.orgId,
+        email,
+        updatedBy: inv.invitedBy,
+      });
+    } catch (error) {
+      // Keep this invitation pending so a corrected assignment can be retried
+      // without preventing unrelated invitations from being accepted.
+      console.warn(
+        `[org] Could not apply app roles for invitation ${inv.id}; leaving it pending`,
+        error,
+      );
+      continue;
     }
     await db.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,

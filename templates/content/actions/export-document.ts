@@ -1,90 +1,99 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
 import {
-  buildDocumentExport,
-  collectionItemsMarkdown,
-  type CollectionExportItem,
-} from "../shared/document-export.js";
+  renderCollectionCsv,
+  renderCollectionHtml,
+  renderCollectionMarkdownArchive,
+} from "../shared/database-collection-export.js";
+import { buildDocumentExport } from "../shared/document-export.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
-import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { buildCollectionExportProjection } from "./_collection-export.js";
 import { getDatabaseByDocumentId } from "./_database-utils.js";
 import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
 
-const COLLECTION_EXPORT_ACCESS_CONCURRENCY = 8;
+const collectionSchema = z.object({
+  scope: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("all_members") }),
+    z.object({
+      kind: z.literal("current_view"),
+      viewId: z.string().min(1),
+      query: z.object({
+        search: z.string().max(500),
+        filters: z
+          .array(
+            z.object({
+              key: z.string(),
+              label: z.string(),
+              operator: z.enum([
+                "contains",
+                "equals",
+                "does_not_equal",
+                "greater_than",
+                "less_than",
+                "before",
+                "after",
+                "between",
+                "is_checked",
+                "is_unchecked",
+                "is_empty",
+                "is_not_empty",
+              ]),
+              value: z.string(),
+              filterGroupId: z.string().optional(),
+              parentFilterGroupId: z.string().optional(),
+            }),
+          )
+          .max(50),
+        sorts: z
+          .array(
+            z.object({
+              key: z.string(),
+              label: z.string(),
+              direction: z.enum(["asc", "desc"]),
+            }),
+          )
+          .max(20),
+        filterMode: z.enum(["and", "or"]),
+      }),
+    }),
+  ]),
+  propertyIds: z.array(z.string().min(1)).max(200),
+  includePrimaryBody: z.boolean().default(false),
+  blockPropertyIds: z.array(z.string().min(1)).max(200).default([]),
+});
 
-async function databaseExportContent(documentId: string) {
-  const database = await getDatabaseByDocumentId(documentId);
-  if (!database) return null;
+type CollectionExport = z.infer<typeof collectionSchema>;
 
-  const members = await getDb()
-    .select({
-      documentId: schema.contentDatabaseItems.documentId,
-      bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
-    })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
-    .orderBy(
-      asc(schema.contentDatabaseItems.position),
-      asc(schema.contentDatabaseItems.createdAt),
-      asc(schema.contentDatabaseItems.id),
-    );
-  const items: CollectionExportItem[] = [];
-
-  for (
-    let offset = 0;
-    offset < members.length;
-    offset += COLLECTION_EXPORT_ACCESS_CONCURRENCY
-  ) {
-    const batch = members.slice(
-      offset,
-      offset + COLLECTION_EXPORT_ACCESS_CONCURRENCY,
-    );
-    const resolved = await Promise.all(
-      batch.map(async (member) => ({
-        member,
-        access: await resolveContentDocumentAccess(member.documentId),
-      })),
-    );
-
-    for (const { member, access } of resolved) {
-      if (!access || access.resource.trashedAt) continue;
-      if (
-        member.bodyHydrationStatus !== "hydrated" &&
-        member.bodyHydrationStatus !== "unavailable"
-      ) {
-        throw new Error(
-          `Database item "${member.documentId}" is not ready for export`,
-        );
-      }
-
-      items.push({
-        title: access.resource.title,
-        content: access.resource.content,
-      });
-    }
-  }
-
-  return collectionItemsMarkdown(items);
+function exportBaseName(title: string | null | undefined) {
+  return (
+    (title || "untitled")
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "untitled"
+  );
 }
 
 export default defineAction({
   description:
-    "Export a Content document as PDF-ready HTML, Markdown, or standalone HTML. PDF exports are print-ready HTML intended for the browser print dialog.",
+    "Export a Content page or bounded Collection/View collection as CSV, a Markdown package, standalone HTML, or PDF-ready HTML for the browser print dialog.",
   schema: z.object({
     id: z.string().describe("Document ID (required)"),
     format: z
-      .enum(["pdf", "markdown", "html"])
+      .enum(["pdf", "markdown", "html", "csv"])
       .default("pdf")
-      .describe("Export format: pdf, markdown, or html."),
+      .describe("Export format: pdf, markdown, html, or csv."),
+    collection: collectionSchema
+      .optional()
+      .describe(
+        "Collection export scope, selected scalar property IDs, primary body choice, and selected additional Blocks property IDs.",
+      ),
     title: z
       .string()
       .max(500)
@@ -98,11 +107,71 @@ export default defineAction({
   }),
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async ({ id, format, title, content }) => {
+  run: async ({ id, format, title, content, collection }) => {
     const access = await resolveAccess("document", id);
     if (!access) throw new Error(`Document "${id}" not found`);
 
     const doc = access.resource;
+    const database = await getDatabaseByDocumentId(doc.id);
+    const effectiveCollection: CollectionExport | null = collection
+      ? collection
+      : database && format !== "csv"
+        ? {
+            scope: { kind: "all_members" },
+            propertyIds: [],
+            includePrimaryBody: true,
+            blockPropertyIds: [],
+          }
+        : null;
+    if (format === "csv" && !effectiveCollection) {
+      throw new Error("CSV export requires collection options");
+    }
+    if (effectiveCollection) {
+      const projection = await buildCollectionExportProjection(
+        doc.id,
+        effectiveCollection,
+      );
+      const baseName = exportBaseName(doc.title);
+      const deepLink = buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: doc.id },
+      });
+      if (format === "csv") {
+        const content = renderCollectionCsv(projection);
+        return {
+          id: doc.id,
+          title: doc.title || "Untitled",
+          format,
+          filename: `${baseName}.csv`,
+          mimeType: "text/csv;charset=utf-8",
+          content,
+          print: false,
+          deepLink,
+        };
+      }
+      if (format === "markdown") {
+        const archiveFiles = renderCollectionMarkdownArchive(projection);
+        return {
+          id: doc.id,
+          title: doc.title || "Untitled",
+          format,
+          filename: `${baseName}.zip`,
+          mimeType: "application/zip",
+          content: archiveFiles[0]?.content ?? "",
+          archiveFiles,
+          print: false,
+          deepLink,
+        };
+      }
+      return {
+        ...renderCollectionHtml(projection, format),
+        deepLink,
+      };
+    }
+    if (format === "csv") {
+      throw new Error("CSV export requires collection options");
+    }
     const properties = await listPropertiesForAllDocumentDatabases(doc);
     const blocksFields = properties
       .filter((property) => isBlocksPropertyType(property.definition.type))
@@ -137,11 +206,10 @@ export default defineAction({
           identity,
         };
       });
-    const collectionContent = await databaseExportContent(doc.id);
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,
-      content: collectionContent ?? content ?? doc.content,
+      content: content ?? doc.content,
       updatedAt: doc.updatedAt,
       format,
       blocksFields,

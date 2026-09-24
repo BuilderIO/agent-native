@@ -22,6 +22,10 @@ agent-native template sync
 
 يستخدم `sync` افتراضيًا إصدار القالب المطابق لإصدار `@agent-native/core` المثبَّت لديك، لذا فإن تشغيله بعد `upgrade` يُبقي الكود والحزم على الإصدار نفسه.
 
+يؤدي تشغيل `agent-native upgrade` وحده إلى ترقية تبعيات `@agent-native/*` إلى أحدث إصدار (`latest`)، وتثبيتها، وتحديث مهارات السقالة (`skills update scaffold --project`)، وتشغيل typecheck عند توفره. استخدم `agent-native upgrade check` أولًا للحصول على تقرير تشخيصي فقط (doctor-only) حول تجاوزات (overrides) الإطار وترقيعاته (patches) والترقيات المعلَّقة.
+
+**لا** تُصلح ترقية معطوبة باستخدام `pnpm.overrides`، أو `patchedDependencies`، أو تعديلات ضمن `node_modules/@agent-native/*` (خصوصًا core/dispatch)؛ فهذه الحلول تُخفي عدم التوافق الحقيقي بدلًا من حله. إذا فشلت الترقية أو فشل typecheck، أصلح كود التطبيق نفسه أو اسأل، ثم أعد تشغيل الترقية.
+
 ألقِ نظرة قبل أن تدمج:
 
 ```bash

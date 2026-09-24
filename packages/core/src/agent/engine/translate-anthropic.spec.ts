@@ -1,7 +1,14 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { actionsToEngineTools } from "../production-agent.js";
+import {
+  createProviderToolNameMap,
+  PROVIDER_TOOL_NAME_MAX_LENGTH,
+} from "./tool-name.js";
 import {
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
@@ -68,8 +75,71 @@ describe("engineToolsToAnthropic", () => {
     });
     expect(result[0].input_schema).not.toHaveProperty("oneOf");
     expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(result[0].input_schema.required).toEqual(["maybe"]);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("flattens a union action schema instead of dropping its parameters", () => {
+    const branches = [
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("doc"),
+        docId: z.string(),
+      }),
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("app"),
+        appId: z.string(),
+      }),
+    ] as const;
+
+    for (const schema of [
+      z.union(branches),
+      z.discriminatedUnion("kind", branches),
+    ]) {
+      const tools = actionsToEngineTools({
+        probe: defineAction({
+          description: "Open a surface",
+          schema,
+          run: async () => "ok",
+        }),
+      });
+      expect(tools.map((tool) => tool.name)).toEqual(["probe"]);
+      const inputSchema = engineToolsToAnthropic(tools)[0]!
+        .input_schema as Record<string, any>;
+
+      for (const key of ["anyOf", "oneOf", "allOf"]) {
+        expect(inputSchema).not.toHaveProperty(key);
+      }
+      expect(inputSchema.type).toBe("object");
+      expect(Object.keys(inputSchema.properties).sort()).toEqual([
+        "appId",
+        "conversationId",
+        "docId",
+        "kind",
+      ]);
+      expect([...inputSchema.required].sort()).toEqual([
+        "conversationId",
+        "kind",
+      ]);
+      expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
+        /"doc".*"app"/,
+      );
+    }
+  });
+
+  it("passes a plain object schema through unchanged", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+    };
+    const [tool] = engineToolsToAnthropic([
+      { name: "search", description: "Search", inputSchema },
+    ]);
+
+    expect(tool!.input_schema).toBe(inputSchema);
   });
 
   it("narrows db-exec to statements for Anthropic compatibility", () => {
@@ -109,6 +179,30 @@ describe("engineToolsToAnthropic", () => {
     ).toBe(false);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema.properties).toHaveProperty("sql");
+  });
+
+  it("aliases oversized provider names while keeping engine names intact", () => {
+    const longName = `mcp__${"server_".repeat(8)}__get_meetings`;
+    const tools: EngineTool[] = [
+      {
+        name: longName,
+        description: "Get meetings",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    const toolNameMap = createProviderToolNameMap(tools);
+    const providerName = engineToolsToAnthropic(tools, toolNameMap)[0].name;
+
+    expect(providerName).not.toBe(longName);
+    expect(providerName.length).toBeLessThanOrEqual(
+      PROVIDER_TOOL_NAME_MAX_LENGTH,
+    );
+    expect(
+      anthropicContentToEngine(
+        [{ type: "tool_use", id: "tu-1", name: providerName, input: {} }],
+        toolNameMap,
+      ),
+    ).toEqual([{ type: "tool-call", id: "tu-1", name: longName, input: {} }]);
   });
 });
 
@@ -463,14 +557,27 @@ describe("tool-result images", () => {
     expect(tr.is_error).toBe(true);
   });
 
-  it("degrades to string content on the Builder gateway path", () => {
+  it("preserves image content on the Builder gateway path", () => {
     const result = engineMessagesToBuilderGatewayAnthropic(
-      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+      withImages([
+        { url: "https://cdn.example.com/shot.png" },
+        { data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ]),
     );
     const tr = (result[2].content as any[]).find(
       (p: any) => p.type === "tool_result",
     );
-    expect(tr.content).toBe("Captured the dashboard");
+    expect(tr.content).toEqual([
+      { type: "text", text: "Captured the dashboard" },
+      {
+        type: "image",
+        source: { type: "url", url: "https://cdn.example.com/shot.png" },
+      },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: "aGVsbG8=" },
+      },
+    ]);
   });
 
   it("preserves images through the tool-result backfill", () => {

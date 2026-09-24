@@ -26,7 +26,7 @@ them.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-forms --standalone --template forms
+npx --yes @agent-native/core@latest create my-forms --standalone --template forms
 cd my-forms
 pnpm install
 pnpm dev

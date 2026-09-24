@@ -1,9 +1,11 @@
+import { fail } from "@agent-native/core/action";
 import { canManageOrg, orgMembers, type OrgRole } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "./db/index.js";
@@ -160,7 +162,10 @@ export async function resolveDefaultDesignSystemId(
     .from(schema.designSystems)
     .where(
       and(
-        eq(schema.designSystems.ownerEmail, ownerEmail),
+        eq(
+          sql`lower(${schema.designSystems.ownerEmail})`,
+          ownerEmail.trim().toLowerCase(),
+        ),
         eq(schema.designSystems.isDefault, true),
         orgId
           ? eq(schema.designSystems.orgId, orgId)
@@ -170,4 +175,37 @@ export async function resolveDefaultDesignSystemId(
     .limit(1);
   if (personal[0]?.id) return personal[0].id;
   return (await getWorkspaceDefaults()).designSystemId;
+}
+
+/**
+ * Resolves an exact title to an id using the same access filter
+ * list-design-systems uses, so a title matches only what that action would
+ * offer the caller to pick from.
+ */
+export async function resolveDesignSystemIdByTitle(
+  title: string,
+): Promise<string> {
+  const trimmed = title.trim();
+  const rows = await getDb()
+    .select({ id: schema.designSystems.id })
+    .from(schema.designSystems)
+    .where(
+      and(
+        accessFilter(schema.designSystems, schema.designSystemShares),
+        eq(sql`lower(${schema.designSystems.title})`, trimmed.toLowerCase()),
+      ),
+    );
+  if (rows.length === 0) {
+    fail(
+      `No accessible design system titled "${trimmed}". Call list-design-systems and pass an exact title or designSystemId.`,
+      { errorCode: "design_system_not_found", statusCode: 404 },
+    );
+  }
+  if (rows.length > 1) {
+    fail(
+      `Design system title "${trimmed}" is ambiguous (ids: ${rows.map((r) => r.id).join(", ")}). Pass designSystemId.`,
+      { errorCode: "design_system_ambiguous", statusCode: 409 },
+    );
+  }
+  return rows[0].id;
 }

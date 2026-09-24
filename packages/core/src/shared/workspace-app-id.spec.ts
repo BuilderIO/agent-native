@@ -9,6 +9,7 @@ import {
 describe("workspace app id validation", () => {
   it("accepts lowercase workspace app ids", () => {
     expect(isValidWorkspaceAppIdFormat("customer-portal2")).toBe(true);
+    expect(isValidWorkspaceAppIdFormat("3dot0-faq")).toBe(true);
     expect(getWorkspaceAppIdValidationError("customer-portal2")).toBeNull();
   });
 

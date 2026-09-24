@@ -1,9 +1,11 @@
-import { defineAction } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -12,6 +14,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -26,6 +29,41 @@ import {
   normalizedValueJson,
 } from "./_property-utils.js";
 
+async function assertPropertyWritableByRowMutation(
+  db: ReturnType<typeof getDb>,
+  databaseId: string,
+  definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+) {
+  const sourceFields = await db
+    .select({
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
+      ),
+    );
+  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
+  throw new ActionContractError(
+    `Property "${definition.name}" is not writable by database row mutations.`,
+    {
+      errorCode: "PROPERTY_NOT_WRITABLE",
+      details: { propertyId: definition.id, propertyType: definition.type },
+      statusCode: 400,
+    },
+  );
+}
+
 export default defineAction({
   description: "Set a Notion-style property value on a document.",
   publicAgent: {
@@ -35,7 +73,7 @@ export default defineAction({
     isConsequential: true,
     title: "Set Content Document Property",
     description:
-      "Delegate one property update on an existing Content database document.",
+      "Delegate one property update on an existing Content collection document.",
   },
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
@@ -43,7 +81,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID"),
     value: z.unknown().describe("Value for the property type"),
@@ -105,6 +143,10 @@ export default defineAction({
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
         const primaryBlocksFields = await lockPrimaryBlocksFields(
           tx as unknown as ReturnType<typeof getDb>,
           documentId,
@@ -136,6 +178,11 @@ export default defineAction({
             "Property type changed before the operation completed.",
           );
         }
+        await assertPropertyWritableByRowMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+          lockedDefinition,
+        );
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
@@ -151,7 +198,11 @@ export default defineAction({
           previousContent = currentDocument.content;
           await tx
             .update(schema.documents)
-            .set({ content, updatedAt: now })
+            .set({
+              content,
+              bodyRevision: bodyRevisionForContent(content),
+              updatedAt: now,
+            })
             .where(eq(schema.documents.id, documentId));
         } else {
           const [currentField] = await tx
@@ -284,6 +335,11 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
+      await assertPropertyWritableByRowMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+        lockedDefinition,
+      );
       const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
       if (isNaturalKey) {
         let parsed: unknown;
@@ -293,8 +349,9 @@ export default defineAction({
           parsed = null;
         }
         if (typeof parsed !== "string" || !parsed.trim()) {
-          throw new Error(
+          throw new ActionContractError(
             "A database natural key must remain a non-empty string.",
+            { errorCode: "INVALID_NATURAL_KEY", statusCode: 400 },
           );
         }
         const [existingNaturalKeyClaim] = await tx
@@ -314,8 +371,9 @@ export default defineAction({
           existingNaturalKeyClaim &&
           existingNaturalKeyClaim.keyValueJson !== valueJson
         ) {
-          throw new Error(
+          throw new ActionContractError(
             "A claimed database natural key cannot be changed. Create a new row instead.",
+            { errorCode: "NATURAL_KEY_IMMUTABLE", statusCode: 409 },
           );
         }
       }

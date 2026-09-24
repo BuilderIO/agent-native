@@ -31,6 +31,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
   isNull: vi.fn((column: unknown) => ({ column, kind: "isNull" })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({

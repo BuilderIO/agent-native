@@ -32,7 +32,7 @@ export interface SendRuntimeLayerStateSemanticHandoffArgs {
   localhostConnectionRootPathByIdRef: RefObject<Map<string, string>>;
   overviewScreens: OverviewScreen[];
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
-  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel>>;
+  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -102,7 +102,7 @@ export function runSendRuntimeLayerStateSemanticHandoff(
     message: t("designEditor.pendingVisualStyles.agentMessage"),
     context: [
       `Apply this runtime Layers-panel ${state} change to the connected React source.`,
-      `Use the compiler anchor to ${enabled ? `set ${attributeName}=\"true\" on` : `remove ${attributeName} from`} the existing JSX host element. The runtime Layers snapshot recognizes this durable source metadata; do not replace it with CSS, a transient DOM mutation, or a wrapper.`,
+      `Use the compiler anchor to ${enabled ? `set ${attributeName}="true" on` : `remove ${attributeName} from`} the existing JSX host element. The runtime Layers snapshot recognizes this durable source metadata; do not replace it with CSS, a transient DOM mutation, or a wrapper.`,
       "Compiler provenance is for anchoring and validation only, and only as precise as each anchor's positionPrecision says. Never apply a generic AST transform.",
       "Read the affected file first, obtain human write consent, write with that read's expectedVersionHash and requireExpectedVersionHash: true, re-read/re-plan on conflict, and keep the optimistic layer-state preview only until HMR confirms the source metadata.",
       JSON.stringify(handoff.handoff, null, 2),

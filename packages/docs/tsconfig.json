@@ -16,7 +16,7 @@
       "@/*": ["./app/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "@webgpu/types"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

@@ -39,6 +39,7 @@ type EmailPayload = {
   text: string;
   timeoutMs: number;
   attachments?: RenderedReportEmail["attachments"];
+  useDeploymentCredentials?: boolean;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -275,6 +276,7 @@ describe("dashboard report email", () => {
     expect(email.to).toBe("steve@builder.io");
     expect(email.subject).toContain("Growth");
     expect(email.timeoutMs).toBe(EMAIL_TIMEOUT_MS);
+    expect(email.useDeploymentCredentials).toBe(true);
     expect(email.html).toContain("Growth");
     expect(email.attachments?.map((a) => a.contentId)).toEqual([
       "dashboard-report-panel-0-p1",

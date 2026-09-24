@@ -5,12 +5,16 @@ import {
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { track, trackEvent } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { PromptComposer } from "@agent-native/core/client/composer";
-import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import {
+  useActionQuery,
+  useAvatarUrl,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   InlineMarkdown,
@@ -245,6 +249,7 @@ import {
   type PlanAccessStatusResponse,
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
+import { sendToPlanCreationAgentChat } from "@/lib/agent-chat";
 import {
   assessPlanPrompt,
   isProbablyImportedPlan,
@@ -1024,11 +1029,7 @@ function CommentAvatar({
     size === "pin" ? "size-7" : size === "md" ? "size-8" : "size-7";
   return (
     <Avatar
-      className={cn(
-        sizeClass,
-        "border-2 border-background shadow-sm ring-1 ring-border/60",
-        className,
-      )}
+      className={cn(sizeClass, "border border-background shadow-sm", className)}
       title={author.email ? `${author.name} (${author.email})` : author.name}
     >
       {author.avatarUrl && (
@@ -2252,6 +2253,15 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const planQuery = usePlan(localPlanMode ? undefined : selectedId);
   const bundle = localPlanMode ? localPlanData : planQuery.data;
+  useEffect(() => {
+    if (!bundle) return;
+    trackEvent("app.first_action", {
+      action: "plan_viewed",
+      surface: "plan_reader",
+      resource_type: "plan",
+      resource_id: bundle.plan.id,
+    });
+  }, [bundle?.plan.id]);
   const localPlanBundle =
     localPlanMode && bundle && "localOnly" in bundle
       ? (bundle as LocalPlanBundle)
@@ -3065,7 +3075,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     (cta: string) => {
       if (!isLoggedOutPublicPlanView) return;
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: PLAN_SHARE_SURFACE,
           plan_id: selectedId ?? "",
           cta,
@@ -3092,7 +3102,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: PLAN_SHARE_SURFACE,
         plan_id: selectedId ?? "",
         ref: shareAttribution.ref,
@@ -3778,6 +3788,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const runPlanExportAction = (action: () => Promise<void>) => {
+    trackEvent("plan_reader_action_started", {
+      app_name: "plan",
+      template_name: "plan",
+      surface: localPlanMode ? "local_reader" : "reader",
+    });
     preservePlanReaderScroll(() => {
       void action().catch((error) => {
         toast.error(
@@ -3813,6 +3828,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   }, [canCommentPlan]);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
+    trackEvent("plan_review_mode_selected", {
+      app_name: "plan",
+      template_name: "plan",
+      mode,
+    });
     preservePlanReaderScroll(() => {
       if (mode !== "comment") {
         closeInlineComment();
@@ -3863,7 +3883,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const handleNativeReaderScroll = () => {
     documentStateRef.current = readNativeDocumentState();
     setNativeSelectionComment(null);
-    scheduleNativeMarkerUpdate();
+    if (commentMarkersVisible || pendingAnnotation || activeAnnotation) {
+      // Ordinary reading must not invalidate the document tree on every wheel frame.
+      scheduleNativeMarkerUpdate();
+    }
   };
 
   const readNativeSelectionComment =
@@ -5266,6 +5289,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           {canEditPlanContent ? (
                             <DropdownMenuItem
                               onClick={() => {
+                                trackEvent("plan_history_opened", {
+                                  app_name: "plan",
+                                  template_name: "plan",
+                                });
                                 preservePlanReaderScroll(() => {
                                   closeInlineComment();
                                   setHistoryOpen(true);
@@ -7397,11 +7424,11 @@ function PlanSkillDemoVideo({ demo }: { demo: PlanSkillDemo }) {
         />
         <div
           aria-hidden
-          className={`pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
+          className={`skeleton-shimmer pointer-events-none absolute inset-0 bg-muted transition-opacity duration-300 ${
             isLoaded ? "opacity-0" : "opacity-100"
           }`}
         >
-          <div className="flex size-full animate-pulse flex-col justify-between p-4">
+          <div className="flex size-full flex-col justify-between p-4">
             <div className="space-y-2">
               <div className="h-3 w-1/3 rounded-full bg-border" />
               <div className="h-2.5 w-2/3 rounded-full bg-border/80" />
@@ -7448,7 +7475,7 @@ function LoggedOutEmptyPlan() {
   }, []);
 
   return (
-    <div className="flex min-h-full items-center justify-center overflow-auto p-4 sm:p-8">
+    <div className="flex min-h-full -translate-y-[10vh] items-center justify-center overflow-auto p-4 sm:p-8">
       <div className="flex w-full max-w-4xl flex-col items-center gap-3 py-8 text-center">
         <h2 className="text-2xl font-semibold tracking-tight">
           {t("plansPage.loggedOut.title")}
@@ -7504,6 +7531,23 @@ function LoggedOutEmptyPlan() {
 }
 
 type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
+
+function PlanOwnerAvatar({ email }: { email: string }) {
+  const avatarUrl = useAvatarUrl(email);
+  const name = emailToName(email);
+
+  return (
+    <Avatar className="size-5">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+      <AvatarFallback
+        className="text-[9px] font-semibold text-primary-foreground"
+        style={{ backgroundColor: emailToColor(email) }}
+      >
+        {commentAuthorInitials(name)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 function PlansOverview({
   plans,
@@ -7644,7 +7688,14 @@ function PlansOverview({
           <div className="flex flex-wrap items-center gap-3">
             <Tabs
               value={filter}
-              onValueChange={(v) => setFilter(v as OverviewFilter)}
+              onValueChange={(v) => {
+                trackEvent("plan_filter_changed", {
+                  app_name: "plan",
+                  template_name: "plan",
+                  filter: v,
+                });
+                setFilter(v as OverviewFilter);
+              }}
             >
               <TabsList>
                 <TabsTrigger value="all">
@@ -7785,20 +7836,7 @@ function PlansOverview({
                             className="flex min-w-0 items-center gap-1.5"
                             title={plan.ownerEmail}
                           >
-                            <Avatar className="size-5">
-                              <AvatarFallback
-                                className="text-[9px] font-semibold text-white"
-                                style={{
-                                  backgroundColor: emailToColor(
-                                    plan.ownerEmail,
-                                  ),
-                                }}
-                              >
-                                {commentAuthorInitials(
-                                  emailToName(plan.ownerEmail),
-                                )}
-                              </AvatarFallback>
-                            </Avatar>
+                            <PlanOwnerAvatar email={plan.ownerEmail} />
                             <span className="truncate">
                               {emailToName(plan.ownerEmail)}
                             </span>
@@ -8446,7 +8484,7 @@ function CreatePlanDialog({
       toast.message(t("plansPage.create.describeFirst"));
       return;
     }
-    sendToAgentChat({
+    sendToPlanCreationAgentChat({
       type: "content",
       submit: true,
       message: buildCreatePlanAgentMessage({ prompt, source, planKind, t }),

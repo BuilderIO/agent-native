@@ -2,48 +2,83 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   saveOAuthTokens,
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
-  isOAuthConnected,
   getOAuthAccounts,
+  getCredentialContext,
   getRequestOrgId,
   resolveSecret,
   runWithRequestContext,
   resolveGoogleProviderCredentialCandidatesWithReader,
 } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 
 import type {
   CalendarEvent,
+  GoogleCalendarSource,
   GoogleAuthStatus,
   UpdateEventScope,
 } from "../../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  createGoogleCalendarCanonicalKey,
+  createGoogleCalendarSourceKey,
+} from "../../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { isCalendarTimezone } from "../../shared/timezone.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarListCalendars,
   calendarFreeBusy,
+  calendarGetCalendar,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
   calendarUpdateEvent,
+  isGoogleEventAbsentError,
   peopleGetProfile,
 } from "./google-api.js";
+import { getCalendarProviderApiRuntime } from "./provider-api.js";
 import {
   alignSeriesRecurrenceToStart,
   shiftSeriesDateValue,
 } from "./series-recurrence.js";
+
+type ManagedCalendarClient = {
+  email: string;
+  accessToken: string;
+};
+
+async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
+  if (!getCredentialContext()) return null;
+  const connection = await resolveWorkspaceConnectionForApp({
+    appId: "calendar",
+    provider: "google_calendar",
+    requireConnected: true,
+  });
+  if (!connection.available) return null;
+  const credential =
+    await getCalendarProviderApiRuntime().resolveOAuthAccessToken({
+      provider: "google_calendar",
+    });
+  if (!credential.accountId) {
+    throw new Error(
+      "The connected Google Calendar workspace account has no account id.",
+    );
+  }
+  return { email: credential.accountId, accessToken: credential.accessToken };
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/directory.readonly",
-  "https://www.googleapis.com/auth/contacts.readonly",
-  "https://www.googleapis.com/auth/contacts.other.readonly",
 ];
 
 interface GoogleTokens {
@@ -53,6 +88,16 @@ interface GoogleTokens {
   token_type?: string;
   scope?: string;
   photoUrl?: string;
+}
+
+const CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar.";
+
+function hasCalendarScope(tokens: Record<string, unknown>): boolean {
+  const scope = tokens.scope;
+  if (typeof scope !== "string" || !scope.trim()) return true;
+  return scope
+    .split(/[\s,]+/)
+    .some((value) => value.startsWith(CALENDAR_SCOPE_PREFIX));
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -229,6 +274,11 @@ function mapAttendees(event: any): CalendarEvent["attendees"] {
     organizer: attendee.organizer || undefined,
     self: attendee.self || undefined,
     optional: attendee.optional === true ? true : undefined,
+    additionalGuests:
+      typeof attendee.additionalGuests === "number" &&
+      attendee.additionalGuests > 0
+        ? attendee.additionalGuests
+        : undefined,
   }));
 }
 
@@ -479,7 +529,8 @@ export async function getAuthUrl(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
@@ -499,7 +550,8 @@ export async function exchangeCode(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokens = await oauth2.getToken(code);
 
   // Get user email
@@ -514,6 +566,15 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
+  // getGoogleAccountTimezone caches by the app-owner email (the argument to
+  // listOAuthAccountsByOwner), which is `owner` here when connecting a
+  // secondary account on someone else's behalf - not necessarily the
+  // connected account's own email. Invalidate both so a cached "no
+  // timezone" result from before this account existed (or was
+  // disconnected) can't keep suppressing either party's working-hours
+  // filter now that they've just connected.
+  invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 
   return email;
 }
@@ -549,7 +610,7 @@ async function getBetterAuthUserImage(
   if (!email) return undefined;
   try {
     const { rows } = await getDbExec().execute({
-      sql: 'SELECT image FROM "user" WHERE email = ? LIMIT 1',
+      sql: 'SELECT image FROM "user" WHERE email = $1 LIMIT 1',
       args: [email],
     });
     return optionalString(rows[0]?.image);
@@ -562,8 +623,10 @@ export async function getClient(
   email: string | undefined,
 ): Promise<{ accessToken: string } | null> {
   if (!email) return null;
-  const accounts = await listOAuthAccountsByOwner("google", email);
-  if (accounts.length === 0) return null;
+  const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length === 0) return resolveManagedCalendarClient();
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
@@ -576,6 +639,167 @@ export async function getClient(
   return { accessToken };
 }
 
+const accountTimezoneCache = new Map<
+  string,
+  { value: string | null; expiresAt: number }
+>();
+const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
+const ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES = 500;
+
+// Only cache confirmed outcomes (has/doesn't have a resolvable time zone).
+// A thrown error (token refresh, network, provider failure) is never cached
+// — it's indistinguishable from a real "no time zone" answer, and caching it
+// would silently disable a peer's working-hours filter for the TTL even
+// right after they reconnect.
+function cacheAccountTimezone(key: string, value: string | null): void {
+  if (
+    !accountTimezoneCache.has(key) &&
+    accountTimezoneCache.size >= ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = accountTimezoneCache.keys().next().value;
+    if (oldestKey !== undefined) accountTimezoneCache.delete(oldestKey);
+  }
+  accountTimezoneCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Resolve a connected Google account's own reported primary-calendar time
+ * zone. Used as a fallback when a peer has never saved an app-level time
+ * zone — this reads real provider data rather than guessing, so it is safe
+ * to use anywhere a peer's app-level zone would otherwise be treated as
+ * "unknown".
+ *
+ * Looks up the peer's own OAuth account directly rather than through
+ * `getClient` — that helper falls back to the shared workspace connection
+ * when the peer has no personal one, which would misattribute the
+ * workspace account's time zone to this peer. Cached in-process (this is a
+ * stable profile value) since it's reachable from unauthenticated public
+ * booking routes and would otherwise hit Google's API on every request.
+ */
+// Bumped whenever an OAuth connect/disconnect invalidates a key, so an
+// in-flight lookup started before the mutation (reflecting pre-mutation
+// account state) can detect it should not write its result into the cache
+// once it finally resolves.
+const accountTimezoneEpoch = new Map<string, number>();
+
+/** Clears any cached (positive or negative) timezone result for one email. */
+export function invalidateAccountTimezoneCache(email: string): void {
+  const key = email.trim().toLowerCase();
+  accountTimezoneCache.delete(key);
+  accountTimezoneEpoch.set(key, (accountTimezoneEpoch.get(key) ?? 0) + 1);
+}
+
+const accountTimezoneInFlight = new Map<string, Promise<string | null>>();
+
+export async function getGoogleAccountTimezone(
+  email: string | undefined,
+): Promise<string | null> {
+  if (!email) return null;
+  const key = email.trim().toLowerCase();
+  const cached = accountTimezoneCache.get(key);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.value;
+    accountTimezoneCache.delete(key);
+  }
+
+  // Coalesce concurrent misses for the same email (e.g. several visitors
+  // hitting the same public booking link at once) onto a single lookup
+  // instead of each independently refreshing tokens and calling Google.
+  const inFlight = accountTimezoneInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const epoch = accountTimezoneEpoch.get(key) ?? 0;
+  const lookup = resolveGoogleAccountTimezone(key, email, epoch).finally(() => {
+    accountTimezoneInFlight.delete(key);
+  });
+  accountTimezoneInFlight.set(key, lookup);
+  return lookup;
+}
+
+async function resolveGoogleAccountTimezone(
+  key: string,
+  email: string,
+  epoch: number,
+): Promise<string | null> {
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+      (account) => hasCalendarScope(account.tokens),
+    );
+  } catch {
+    // coercion-ok: deliberately not the same as "confirmed no account" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  if (accounts.length === 0) {
+    if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+      cacheAccountTimezone(key, null);
+    }
+    return null;
+  }
+
+  const account =
+    accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
+    accounts[0];
+
+  // Refresh once, up front — retrying this per Calendar-call attempt below
+  // would re-derive a fresh token from the same request each time and
+  // needlessly re-refresh even after a successful refresh, and a refresh
+  // failure here is not the transient-network case the retry below exists
+  // for (getValidAccessToken already distinguishes permanent vs. transient
+  // refresh failures internally).
+  let accessToken: string;
+  try {
+    const tokens = account.tokens as unknown as GoogleTokens;
+    accessToken = await getValidAccessToken(account.accountId, tokens, email);
+  } catch {
+    // coercion-ok: same reasoning as the lookup catch above.
+    return null;
+  }
+
+  let timezone: string | null = null;
+  let resolved = false;
+  // One immediate retry of just the Calendar call: a transient network
+  // blip here would otherwise be indistinguishable from a peer having no
+  // resolvable time zone at all, silently skipping their saved
+  // working-hours filter for this request (not just failing to cache a
+  // negative result, which the catch below already avoids).
+  for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
+    try {
+      const calendar = await calendarGetCalendar(accessToken, "primary");
+      timezone = isCalendarTimezone(calendar?.timeZone)
+        ? calendar.timeZone
+        : null;
+      resolved = true;
+    } catch {
+      // coercion-ok: retried once above; the final failure after both
+      // attempts is handled distinctly (never cached) by the
+      // `if (!resolved)` branch right after this loop.
+    }
+  }
+  if (!resolved) {
+    // coercion-ok: deliberately not the same as "confirmed no timezone" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  // An OAuth connect/disconnect for this email during this lookup means the
+  // account state we just read is already stale - don't let it overwrite
+  // whatever `invalidateAccountTimezoneCache` cleared.
+  if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+    cacheAccountTimezone(key, timezone);
+  }
+  return timezone;
+}
+
 export interface GoogleAccountSelection {
   ownerEmail: string;
   accountEmail: string;
@@ -584,7 +808,9 @@ export interface GoogleAccountSelection {
 export async function getDefaultAccountSelection(
   ownerEmail: string,
 ): Promise<GoogleAccountSelection> {
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasCalendarScope(account.tokens));
   const account =
     accounts.find(
       (candidate) =>
@@ -592,6 +818,10 @@ export async function getDefaultAccountSelection(
         ownerEmail.trim().toLowerCase(),
     ) ?? accounts[0];
   if (!account) {
+    const managed = await resolveManagedCalendarClient();
+    if (managed) {
+      return { ownerEmail, accountEmail: managed.email };
+    }
     throw new Error(
       "Google Calendar not connected. Connect via Settings first.",
     );
@@ -605,12 +835,21 @@ export async function getClientForAccount({
   accountEmail,
 }: GoogleAccountSelection): Promise<{ accessToken: string }> {
   const normalizedAccountEmail = accountEmail.trim().toLowerCase();
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasCalendarScope(account.tokens));
   const account = accounts.find(
     (candidate) =>
       candidate.accountId.trim().toLowerCase() === normalizedAccountEmail,
   );
   if (!account) {
+    const managed = await resolveManagedCalendarClient();
+    if (
+      managed &&
+      managed.email.trim().toLowerCase() === normalizedAccountEmail
+    ) {
+      return { accessToken: managed.accessToken };
+    }
     throw new Error(
       `Google Calendar account not connected for this user: ${accountEmail}`,
     );
@@ -654,7 +893,9 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
   errors: Array<{ email: string; error: string }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
 
   const clients: Array<{ email: string; accessToken: string }> = [];
   const errors: Array<{ email: string; error: string }> = [];
@@ -682,6 +923,18 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
     }
   }
 
+  if (clients.length === 0) {
+    try {
+      const managed = await resolveManagedCalendarClient();
+      if (managed) clients.push(managed);
+    } catch (err: any) {
+      errors.push({
+        email: "workspace",
+        error: err?.message || "Workspace Google Calendar connection failed",
+      });
+    }
+  }
+
   return { clients, errors };
 }
 
@@ -695,7 +948,9 @@ export async function getOwnedAccountEmails(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
   return accounts.map((account) => account.accountId);
 }
 
@@ -716,7 +971,47 @@ export async function getClientsForAccountsWithErrors(
       resolvedAccounts: [],
     };
   }
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length === 0) {
+    const managed = await resolveManagedCalendarClient();
+    if (!managed) {
+      if (accountEmails?.length) {
+        throw new Error(
+          `Google Calendar account not connected for this user: ${accountEmails.join(", ")}`,
+        );
+      }
+      return {
+        clients: [],
+        errors: [],
+        requestedAccounts: [],
+        resolvedAccounts: [],
+      };
+    }
+    const requestedAccounts = Array.from(
+      new Set(
+        (accountEmails ?? [managed.email])
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+    if (
+      requestedAccounts.some(
+        (email) => email !== managed.email.trim().toLowerCase(),
+      )
+    ) {
+      throw new Error(
+        `Google Calendar account not connected for this user: ${requestedAccounts.join(", ")}`,
+      );
+    }
+    return {
+      clients: [managed],
+      errors: [],
+      requestedAccounts,
+      resolvedAccounts: [managed.email],
+    };
+  }
   const byNormalized = new Map(
     accounts.map((account) => [
       account.accountId.trim().toLowerCase(),
@@ -764,16 +1059,185 @@ export async function getClientsForAccountsWithErrors(
   };
 }
 
+function asCalendarAccessRole(
+  value: unknown,
+): GoogleCalendarSource["accessRole"] | null {
+  return value === "freeBusyReader" ||
+    value === "reader" ||
+    value === "writer" ||
+    value === "owner"
+    ? value
+    : null;
+}
+
+const CALENDAR_ACCESS_RANK = {
+  freeBusyReader: 0,
+  reader: 1,
+  writer: 2,
+  owner: 3,
+} as const;
+
+function compareCalendarSourcePaths(
+  a: GoogleCalendarSource,
+  b: GoogleCalendarSource,
+): number {
+  const role =
+    CALENDAR_ACCESS_RANK[b.accessRole] - CALENDAR_ACCESS_RANK[a.accessRole];
+  if (role !== 0) return role;
+  if (a.primary !== b.primary) return a.primary ? -1 : 1;
+  return a.accountEmail.localeCompare(b.accountEmail);
+}
+
+function compareCalendarEventSources(
+  a: CalendarEvent,
+  b: CalendarEvent,
+): number {
+  const writable =
+    Number(b.calendarReadOnly === false) - Number(a.calendarReadOnly === false);
+  if (writable !== 0) return writable;
+
+  const primary =
+    Number(b.calendarPrimary === true) - Number(a.calendarPrimary === true);
+  if (primary !== 0) return primary;
+
+  const access =
+    (CALENDAR_ACCESS_RANK[b.calendarAccessRole ?? "freeBusyReader"] ?? -1) -
+    (CALENDAR_ACCESS_RANK[a.calendarAccessRole ?? "freeBusyReader"] ?? -1);
+  if (access !== 0) return access;
+
+  return (a.accountEmail ?? "").localeCompare(b.accountEmail ?? "");
+}
+
+/**
+ * Resolve a client-supplied canonical source identity against the user's live
+ * CalendarList. Provider paths stay server-selected, so a stale or forged
+ * source key can never choose an arbitrary account/calendar pair.
+ */
+export async function resolveGoogleCalendarSource(
+  ownerEmail: string,
+  sourceKey: string,
+): Promise<GoogleCalendarSource> {
+  const discovered = await listGoogleCalendars(ownerEmail);
+  const source = discovered.calendars
+    .flatMap((candidate) =>
+      (candidate.sourcePaths ?? [candidate]).map((path) => ({
+        ...candidate,
+        ...path,
+        readOnly:
+          path.primary !== true ||
+          (path.accessRole !== "owner" && path.accessRole !== "writer"),
+      })),
+    )
+    .find((candidate) => candidate.sourceKey === sourceKey);
+  if (!source) {
+    throw new Error(
+      "Google Calendar source is not connected or no longer available",
+    );
+  }
+  return source;
+}
+
+/** Discover every CalendarList entry visible to each connected Google account. */
+export async function listGoogleCalendars(forEmail?: string): Promise<{
+  calendars: GoogleCalendarSource[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const { clients, errors: refreshErrors } =
+    await getClientsForAccountsWithErrors(forEmail);
+  const errors = [...refreshErrors];
+  const results = await mapWithConcurrency(clients, async (client) => {
+    try {
+      const items: any[] = [];
+      let pageToken: string | undefined;
+      do {
+        const response = await calendarListCalendars(client.accessToken, {
+          maxResults: 250,
+          pageToken,
+        });
+        items.push(...(response.items ?? []));
+        pageToken =
+          typeof response.nextPageToken === "string"
+            ? response.nextPageToken
+            : undefined;
+      } while (pageToken);
+      return items
+        .filter((item) => typeof item.id === "string" && item.id.length > 0)
+        .flatMap((item): GoogleCalendarSource[] => {
+          const accessRole = asCalendarAccessRole(item.accessRole);
+          if (!accessRole) return [];
+          return [
+            {
+              sourceKey: createGoogleCalendarSourceKey({
+                accountEmail: client.email,
+                calendarId: item.id,
+              }),
+              canonicalKey: createGoogleCalendarCanonicalKey(item.id),
+              accountEmail: client.email,
+              calendarId: item.id,
+              name: item.summaryOverride || item.summary || item.id,
+              color: item.backgroundColor || undefined,
+              selected: item.selected === true,
+              primary: item.primary === true,
+              accessRole,
+              readOnly:
+                item.primary !== true ||
+                (accessRole !== "owner" && accessRole !== "writer"),
+            },
+          ];
+        });
+    } catch (error: any) {
+      errors.push({
+        email: client.email,
+        error: error?.message || "Unable to list Google calendars",
+      });
+      return [];
+    }
+  });
+  return {
+    calendars: Array.from(
+      results.flat().reduce((byCalendar, source) => {
+        const paths = byCalendar.get(source.calendarId) ?? [];
+        paths.push(source);
+        byCalendar.set(source.calendarId, paths);
+        return byCalendar;
+      }, new Map<string, GoogleCalendarSource[]>()),
+    )
+      .map(([, paths]) => {
+        const sortedPaths = [...paths].sort(compareCalendarSourcePaths);
+        const selected = sortedPaths[0]!;
+        return {
+          ...selected,
+          primary: sortedPaths.some((path) => path.primary),
+          sourcePaths: sortedPaths.map((path) => ({
+            sourceKey: path.sourceKey,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+          })),
+        };
+      })
+      .sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
+    errors: errors.sort((a, b) => a.email.localeCompare(b.email)),
+  };
+}
+
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  return isOAuthConnected("google", forEmail ?? "");
+  if (!forEmail) return false;
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
+  return Boolean(await resolveManagedCalendarClient());
 }
 
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
-  return accounts.map((a) => a.accountId);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
+  if (accounts.length > 0) return accounts.map((a) => a.accountId);
+  const managed = await resolveManagedCalendarClient();
+  return managed ? [managed.email] : [];
 }
 
 export async function getPrimaryAccountPhotoUrl(
@@ -781,7 +1245,9 @@ export async function getPrimaryAccountPhotoUrl(
 ): Promise<string | undefined> {
   if (!forEmail) return undefined;
   const fallbackUserImage = await getBetterAuthUserImage(forEmail);
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
   const account = accounts.find((a) => a.accountId === forEmail) ?? accounts[0];
   if (!account) return fallbackUserImage;
 
@@ -805,16 +1271,22 @@ export async function getAuthStatus(
   forEmail?: string,
   orgId?: string,
 ): Promise<GoogleAuthStatus> {
-  const oauthAccounts = await getOAuthAccounts("google", forEmail);
+  const oauthAccounts = (await getOAuthAccounts("google", forEmail)).filter(
+    (account) => hasCalendarScope(account.tokens),
+  );
 
   if (oauthAccounts.length === 0) {
-    return { connected: false, accounts: [] };
+    const managed = await resolveManagedCalendarClient();
+    return managed
+      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
+      : { connected: false, accounts: [] };
   }
 
   const result: Array<{
     email: string;
     expiresAt?: string;
     photoUrl?: string;
+    shared?: boolean;
   }> = [];
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -852,14 +1324,30 @@ export async function getAuthStatus(
 }
 
 export async function disconnect(email?: string): Promise<void> {
+  // The completed timezone cache is keyed by owner, which can differ from
+  // the accountId being disconnected (e.g. disconnecting a secondary
+  // account connected on someone else's behalf) - look the owner up before
+  // the row is deleted so we can invalidate the right cache key too.
+  let owner: string | null = null;
+  if (email) {
+    const accounts = await listOAuthAccounts("google");
+    owner = accounts.find((a) => a.accountId === email)?.owner ?? null;
+  }
+
   await deleteOAuthTokens("google", email);
+  if (email) invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 }
 
 export async function listEvents(
   timeMin: string,
   timeMax: string,
   forEmail?: string,
-  options: { accountEmails?: string[]; maxResults?: number } = {},
+  options: {
+    accountEmails?: string[];
+    calendarSourceKeys?: string[];
+    maxResults?: number;
+  } = {},
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
@@ -872,37 +1360,151 @@ export async function listEvents(
   // "calendar is empty" and the user sees no error.
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
+  const hasMultipleOwnedAccounts =
+    clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
+
+  const requestedSourceKeys = Array.from(
+    new Set((options.calendarSourceKeys ?? []).filter(Boolean)),
+  );
+  let selectedSourcesByAccount = new Map<string, GoogleCalendarSource[]>();
+  if (requestedSourceKeys.length > 0) {
+    const discovered = await listGoogleCalendars(forEmail);
+    errors.push(...discovered.errors);
+    const discoveredByKey = new Map<
+      string,
+      {
+        source: GoogleCalendarSource;
+        paths: Array<
+          Pick<
+            GoogleCalendarSource,
+            "sourceKey" | "accountEmail" | "accessRole" | "primary"
+          >
+        >;
+      }
+    >();
+    for (const source of discovered.calendars) {
+      const paths = source.sourcePaths ?? [source];
+      discoveredByKey.set(source.sourceKey, { source, paths });
+      for (const path of paths) {
+        if (path.sourceKey !== source.sourceKey) {
+          discoveredByKey.set(path.sourceKey, { source, paths: [path] });
+        }
+      }
+    }
+    const invalid = requestedSourceKeys.filter(
+      (sourceKey) => !discoveredByKey.has(sourceKey),
+    );
+    if (invalid.length > 0) {
+      throw new Error(
+        `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
+      );
+    }
+    for (const sourceKey of requestedSourceKeys) {
+      const { source, paths } = discoveredByKey.get(sourceKey)!;
+      for (const path of paths) {
+        const accountKey = path.accountEmail.trim().toLowerCase();
+        selectedSourcesByAccount.set(accountKey, [
+          ...(selectedSourcesByAccount.get(accountKey) ?? []),
+          {
+            ...source,
+            sourceKey: path.sourceKey,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+            readOnly:
+              path.primary !== true ||
+              (path.accessRole !== "owner" && path.accessRole !== "writer"),
+          },
+        ]);
+      }
+    }
+    const availableAccounts = new Set(
+      clients.map((client) => client.email.trim().toLowerCase()),
+    );
+    const excluded = Array.from(selectedSourcesByAccount.keys()).filter(
+      (accountEmail) => !availableAccounts.has(accountEmail),
+    );
+    if (excluded.length > 0) {
+      throw new Error(
+        `Google Calendar source account was not selected: ${excluded.join(", ")}`,
+      );
+    }
+  }
 
   const allResults = await mapWithConcurrency(
     clients,
     async ({ email, accessToken }) => {
       try {
+        const sources = selectedSourcesByAccount.size
+          ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
+          : [undefined];
         const events: any[] = [];
-        let pageToken: string | undefined;
-        do {
-          const response = await calendarListEvents(accessToken, "primary", {
-            timeMin,
-            timeMax,
-            singleEvents: true,
-            orderBy: "startTime",
-            maxResults: options.maxResults ?? 2500,
-            pageToken,
-            eventTypes: LIST_EVENT_TYPES,
-          });
-          events.push(...(response.items || []));
-          pageToken =
-            typeof response.nextPageToken === "string"
-              ? response.nextPageToken
-              : undefined;
-        } while (pageToken);
+        for (const source of sources) {
+          if (source?.accessRole === "freeBusyReader") {
+            errors.push({
+              email,
+              error: `Google Calendar source ${source.name} (${source.calendarId}) only grants free/busy access; detailed events were not read`,
+            });
+            continue;
+          }
+          try {
+            let pageToken: string | undefined;
+            do {
+              const response = await calendarListEvents(
+                accessToken,
+                source?.calendarId ?? "primary",
+                {
+                  timeMin,
+                  timeMax,
+                  singleEvents: true,
+                  orderBy: "startTime",
+                  maxResults: options.maxResults ?? 2500,
+                  pageToken,
+                  eventTypes: LIST_EVENT_TYPES,
+                },
+              );
+              events.push(
+                ...(response.items || []).map((event: any) => ({
+                  ...event,
+                  __calendarSource: source,
+                })),
+              );
+              pageToken =
+                typeof response.nextPageToken === "string"
+                  ? response.nextPageToken
+                  : undefined;
+            } while (pageToken);
+          } catch (error: any) {
+            errors.push({
+              email,
+              error: source
+                ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
+                : error?.message || "Unable to load Google Calendar events",
+            });
+          }
+        }
 
         return events.map((event: any) => {
+          const calendarSource = event.__calendarSource as
+            | GoogleCalendarSource
+            | undefined;
           // Find the current user's RSVP status from attendees
           const selfAttendee = event.attendees?.find(
             (a: any) => a.self === true,
           );
           return {
-            id: `google-${event.id}`,
+            // Google event ids are only unique within a calendar. Retain the
+            // primary legacy id while namespacing every selected non-primary
+            // source so client keys and mutations cannot collide.
+            id:
+              calendarSource && !calendarSource.primary
+                ? `google-${calendarSource.sourceKey}-${event.id}`
+                : hasMultipleOwnedAccounts
+                  ? createGoogleAccountEventId({
+                      accountEmail: email,
+                      googleEventId: event.id,
+                    })
+                  : `google-${event.id}`,
             title: event.summary || "Untitled",
             titleIsGenerated: !event.summary,
             description: event.description || "",
@@ -916,6 +1518,14 @@ export async function listEvents(
             googleEventId: event.id || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
+            calendarSourceKey: calendarSource?.sourceKey,
+            canonicalKey: calendarSource?.canonicalKey,
+            calendarId: calendarSource?.calendarId,
+            calendarName: calendarSource?.name,
+            calendarColor: calendarSource?.color,
+            calendarAccessRole: calendarSource?.accessRole,
+            calendarPrimary: calendarSource?.primary,
+            calendarReadOnly: calendarSource?.readOnly,
             responseStatus: selfAttendee?.responseStatus,
             transparency: event.transparency || undefined,
             ...mapColor(event),
@@ -969,7 +1579,21 @@ export async function listEvents(
     },
   );
 
-  return { events: allResults.flat(), errors };
+  const events = allResults.flat();
+  const dedupedEvents = new Map<string, CalendarEvent>();
+  for (const event of events) {
+    const key =
+      event.canonicalKey && event.googleEventId
+        ? `${event.canonicalKey}:${event.googleEventId}`
+        : event.googleEventId && event.accountEmail
+          ? `google-account:${event.accountEmail.toLowerCase()}:${event.googleEventId}`
+          : event.id;
+    const existing = dedupedEvents.get(key);
+    if (!existing || compareCalendarEventSources(event, existing) < 0) {
+      dedupedEvents.set(key, event);
+    }
+  }
+  return { events: Array.from(dedupedEvents.values()), errors };
 }
 
 export async function getFreeBusy(
@@ -1047,12 +1671,20 @@ export async function getFreeBusy(
         ?.map((error) => error.reason || error.domain)
         .filter(Boolean)
         .join(", ");
+      const missingCalendarError = calendar
+        ? undefined
+        : "Calendar was omitted from the Google free/busy response";
+      const error = calendarError || missingCalendarError;
       normalized[id] = {
         busy: calendar?.busy ?? [],
-        errors: calendar?.errors,
+        errors:
+          calendar?.errors ||
+          (missingCalendarError
+            ? [{ reason: missingCalendarError }]
+            : undefined),
       };
-      if (calendarError) {
-        calendarErrors.push({ email: id, error: calendarError });
+      if (error) {
+        calendarErrors.push({ email: id, error });
       }
     }
 
@@ -1082,8 +1714,23 @@ export async function listOverlayEvents(
   errors: Array<{ email: string; error: string }>;
   accountErrors: Array<{ email: string; error: string }>;
 }> {
-  const { clients, errors: refreshErrors } =
-    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
+  let clients: Array<{ email: string; accessToken: string }>;
+  let refreshErrors: Array<{ email: string; error: string }>;
+  try {
+    const resolved = await getClientsForAccountsWithErrors(
+      forEmail,
+      options.accountEmails,
+    );
+    clients = resolved.clients;
+    refreshErrors = resolved.errors;
+  } catch (error: any) {
+    const message = error?.message || "Unable to load overlay calendars";
+    return {
+      events: [],
+      errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: [{ email: forEmail ?? "google", error: message }],
+    };
+  }
   const errors: Array<{ email: string; error: string }> = [];
   if (clients.length === 0) {
     const message =
@@ -1134,6 +1781,8 @@ export async function listOverlayEvents(
             eventType: event.eventType || "default",
             accountEmail: client.email,
             overlayEmail,
+            calendarPrimary: false,
+            calendarReadOnly: true,
             ...mapColor(event),
             attendees: mapAttendees(event),
             organizer: mapOrganizer(event),
@@ -1164,18 +1813,40 @@ export async function listOverlayEvents(
 export async function getEvent(
   googleEventId: string,
   account: GoogleAccountSelection,
+  options: { calendarSourceKey?: string } = {},
 ): Promise<CalendarEvent> {
+  let calendarSource: GoogleCalendarSource | undefined;
+  if (options.calendarSourceKey) {
+    calendarSource = await resolveGoogleCalendarSource(
+      account.ownerEmail,
+      options.calendarSourceKey,
+    );
+    if (
+      !calendarSource ||
+      calendarSource.accountEmail.trim().toLowerCase() !==
+        account.accountEmail.trim().toLowerCase()
+    ) {
+      throw new Error(
+        "Google Calendar source is not connected or no longer available",
+      );
+    }
+    if (calendarSource.accessRole === "freeBusyReader") {
+      throw new Error("Google Calendar source only grants free/busy access");
+    }
+  }
   const client = await getClientForAccount(account);
 
   const event = await calendarGetEvent(
     client.accessToken,
-    "primary",
+    calendarSource?.calendarId ?? "primary",
     googleEventId,
   );
   const selfAttendee = event.attendees?.find((a: any) => a.self === true);
 
   return {
-    id: `google-${event.id}`,
+    id: calendarSource
+      ? `google-${calendarSource.sourceKey}-${event.id}`
+      : `google-${event.id}`,
     title: event.summary || "Untitled",
     titleIsGenerated: !event.summary,
     description: event.description || "",
@@ -1189,6 +1860,14 @@ export async function getEvent(
     googleEventId: event.id || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
+    calendarSourceKey: calendarSource?.sourceKey,
+    canonicalKey: calendarSource?.canonicalKey,
+    calendarId: calendarSource?.calendarId,
+    calendarName: calendarSource?.name,
+    calendarColor: calendarSource?.color,
+    calendarAccessRole: calendarSource?.accessRole,
+    calendarPrimary: calendarSource?.primary,
+    calendarReadOnly: calendarSource?.readOnly,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
     ...mapColor(event),
@@ -1274,6 +1953,9 @@ export async function createEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
 
@@ -1392,6 +2074,7 @@ export async function updateEvent(
     account: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
     addGoogleMeet?: boolean;
+    removeGoogleMeet?: boolean;
     scope?: UpdateEventScope;
   },
 ): Promise<{
@@ -1464,6 +2147,9 @@ export async function updateEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : { optional: false }),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
   if (eventPatch.recurrence !== undefined) {
@@ -1475,6 +2161,8 @@ export async function updateEvent(
   applyEventPatchOptions(requestBody, eventPatch);
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();
+  } else if (options?.removeGoogleMeet) {
+    requestBody.conferenceData = null;
   }
 
   // Google validates status events as complete resources during updates. A
@@ -1495,7 +2183,8 @@ export async function updateEvent(
         },
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },
@@ -1507,7 +2196,8 @@ export async function updateEvent(
         requestBody,
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },
@@ -1525,6 +2215,10 @@ export async function updateEvent(
       organizer: a.organizer || undefined,
       self: a.self || undefined,
       optional: a.optional === true ? true : undefined,
+      additionalGuests:
+        typeof a.additionalGuests === "number" && a.additionalGuests > 0
+          ? a.additionalGuests
+          : undefined,
     })),
   };
 }
@@ -1582,8 +2276,14 @@ export async function deleteEvent(
     return;
   }
 
-  const instanceStart = instance.start?.dateTime || instance.start?.date || "";
-  const isAllDay = !instance.start?.dateTime;
+  const instanceStart =
+    instance.originalStartTime?.dateTime ||
+    instance.originalStartTime?.date ||
+    instance.start?.dateTime ||
+    instance.start?.date ||
+    "";
+  const isAllDay =
+    !instance.originalStartTime?.dateTime && !instance.start?.dateTime;
 
   // Compute UNTIL value (day before this instance)
   const cutoff = new Date(instanceStart);
@@ -1623,6 +2323,56 @@ export async function deleteEvent(
     { recurrence: updatedRecurrence },
     { sendUpdates },
   );
+
+  // Truncating the master does not remove materialized exceptions after the
+  // cutoff, so remove those exceptions as well.
+  const instanceStartMs = Date.parse(instanceStart);
+  const exceptionIds = new Set<string>([googleEventId]);
+  let pageToken: string | undefined;
+  do {
+    const response = await calendarListEvents(client.accessToken, "primary", {
+      singleEvents: false,
+      showDeleted: true,
+      maxResults: 2500,
+      pageToken,
+    });
+    for (const event of response?.items || []) {
+      if (event.recurringEventId !== recurringEventId) continue;
+      const originalStart =
+        event.originalStartTime?.dateTime ||
+        event.originalStartTime?.date ||
+        event.start?.dateTime ||
+        event.start?.date;
+      const originalStartMs =
+        typeof originalStart === "string" ? Date.parse(originalStart) : NaN;
+      if (
+        event.id &&
+        Number.isFinite(instanceStartMs) &&
+        Number.isFinite(originalStartMs) &&
+        originalStartMs >= instanceStartMs
+      ) {
+        exceptionIds.add(event.id);
+      }
+    }
+    pageToken =
+      typeof response?.nextPageToken === "string"
+        ? response.nextPageToken
+        : undefined;
+  } while (pageToken);
+
+  for (const eventId of exceptionIds) {
+    try {
+      await calendarDeleteEvent(
+        client.accessToken,
+        "primary",
+        eventId,
+        sendUpdates,
+      );
+    } catch (error) {
+      // A generated occurrence may already be gone once the master is trimmed.
+      if (!isGoogleEventAbsentError(error)) throw error;
+    }
+  }
 }
 
 /**

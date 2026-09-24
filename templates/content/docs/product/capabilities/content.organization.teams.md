@@ -44,7 +44,7 @@ Content manages the framework-wide Team representation through canonical organiz
 
 ## Boundaries and non-goals
 
-Multi-scope and page/database access own context and authorization. This is not an app-local roster, automatic organization creation, or an alternate identity provider.
+Multi-scope and page/collection access own context and authorization. This is not an app-local roster, automatic organization creation, or an alternate identity provider.
 
 ## Acceptance stories
 

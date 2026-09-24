@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
 import {
   findMovedCodeLayerNodeInProjection,
   parseInlineStyleAttribute,
+  remapLegacyCodeLayerNodeId,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
   renameFilenamePreservingExtension,
@@ -85,6 +87,7 @@ import {
   getSidebarCodeLayerSelectionState,
   isScreenRootElementInfo,
   resolveAvailableActiveFileId,
+  resolveMarqueeAdditive,
   getSelectedScreenIdsForEditorState,
   getSelectedScreenGeometryForInspector,
   shouldLimitEditorChromeUntilContentReady,
@@ -247,6 +250,11 @@ describe("DesignEditor selected screen inspector geometry", () => {
       y: 48,
       width: 360,
       height: 225,
+      heightMode: undefined,
+      sizeConstraints: {
+        width: { min: null, max: null },
+        height: { min: null, max: null },
+      },
     });
   });
 
@@ -1520,8 +1528,18 @@ describe("DesignEditor URL state", () => {
         mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
+      "?design_host=builder&editorView=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
+  });
+
+  it("drops a conflicting legacy view when serializing the canonical editor view", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?editorView=overview&view=single&screen=old",
+        viewMode: "overview",
+        screenId: "screen-123",
+      }),
+    ).toBe("?editorView=overview&screen=screen-123");
   });
 
   it("removes stale selection aliases when no element is selected", () => {
@@ -1534,7 +1552,7 @@ describe("DesignEditor URL state", () => {
         selectionId: null,
         zoom: 33.3333,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=33.33");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=33.33");
   });
 
   it("drops gated Code panel state from the editor URL", () => {
@@ -1548,7 +1566,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
@@ -1559,7 +1577,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "pen",
       }),
-    ).toBe("?view=single&screen=screen-123&tool=pen&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&tool=pen&mode=interact");
 
     expect(
       getDesignEditorStateUrlSearch({
@@ -1568,7 +1586,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "move",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("removes stale Interact mode after returning to the overview", () => {
@@ -1580,7 +1598,7 @@ describe("DesignEditor URL state", () => {
         mode: "edit",
         zoom: 100,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=100");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=100");
   });
 });
 
@@ -1608,6 +1626,15 @@ describe("DesignEditor localhost route source", () => {
 
 describe("DesignEditor layer move source snapshots", () => {
   it("prefers the latest local active content snapshot during rapid edits", () => {
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        pendingContent: "fresh pending source publication",
+        latestContent: "stale active-file ref",
+        lastLocalContent: "older local content",
+      }),
+    ).toBe("fresh pending source publication");
+
     expect(
       getFreshActiveFileContent({
         activeContent: "stale react content",
@@ -1960,6 +1987,84 @@ describe("DesignEditor initial generation chrome", () => {
 });
 
 describe("DesignEditor element canonicalization", () => {
+  it("remaps a legacy selection id only into the requested Screen namespace", () => {
+    const html = `<main><button data-agent-native-node-id="shared" style="width: 100px">Action</button></main>`;
+    const legacyProjection = buildCodeLayerProjection(html);
+    const screenAProjection = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-a" },
+    });
+    const screenBProjection = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-b" },
+    });
+    const legacyNode = legacyProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    const screenANode = screenAProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    const screenBNode = screenBProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+
+    expect(legacyNode).toBeDefined();
+    expect(screenANode).toBeDefined();
+    expect(screenBNode).toBeDefined();
+    expect(screenANode!.id).not.toBe(screenBNode!.id);
+    expect(
+      remapLegacyCodeLayerNodeId(
+        legacyProjection,
+        screenAProjection,
+        legacyNode!.id,
+      ),
+    ).toBe(screenANode!.id);
+    expect(
+      remapLegacyCodeLayerNodeId(
+        legacyProjection,
+        screenBProjection,
+        legacyNode!.id,
+      ),
+    ).toBe(screenBNode!.id);
+  });
+
+  it("refreshes a selected layer in its Screen namespace only", () => {
+    const source = { kind: "design-file" as const, fileId: "screen-a" };
+    const before = `<main><button data-agent-native-node-id="shared" style="width: 100px">Action</button></main>`;
+    const after = `<main><button data-agent-native-node-id="shared" style="width: 140px">Action</button></main>`;
+    const projection = buildCodeLayerProjection(before, { source });
+    const node = projection.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    expect(node).toBeDefined();
+
+    const previous = {
+      tagName: "button",
+      selector: node!.selector,
+      sourceId: "shared",
+      id: node!.id,
+      sourceLayerIdentity: { screenId: "screen-a", nodeId: node!.id },
+      classes: [],
+      computedStyles: { width: "100px" },
+      inlineStyles: { width: "100px" },
+      boundingRect: { x: 0, y: 0, width: 100, height: 48 },
+      textContent: "Action",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(after, previous, source);
+    expect(refreshed?.sourceLayerIdentity).toEqual(
+      previous.sourceLayerIdentity,
+    );
+    expect(refreshed?.computedStyles.width).toBe("140px");
+    expect(
+      refreshElementInfoFromContent(after, previous, {
+        kind: "design-file",
+        fileId: "screen-b",
+      }),
+    ).toBe(previous);
+  });
+
   it("resolves stale runtime positional selectors by source-backed element details", () => {
     const projection = buildCodeLayerProjection(
       `<main><div class="tile">Alpha</div><div class="tile">Beta</div></main>`,
@@ -2049,21 +2154,72 @@ describe("DesignEditor element canonicalization", () => {
       selector: '[data-agent-native-node-id="hero"]',
       sourceId: "hero",
       classes: [],
-      computedStyles: { color: "red" },
-      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      computedStyles: {
+        color: "red",
+        width: "100px",
+        backgroundColor: "yellow",
+      },
+      inlineStyles: {
+        color: "red",
+        width: "100px",
+        backgroundColor: "yellow",
+        borderRadius: "4px",
+      },
+      boundingRect: { x: 7, y: 9, width: 100, height: 12 },
+      runtimeSelector: "body > section[data-agent-native-node-id=hero]",
+      runtimeSourceId: "bridge-hero",
       textContent: "Hero",
       isFlexChild: false,
       isFlexContainer: false,
     };
 
     const refreshed = refreshElementInfoFromContent(
-      `<main><section data-agent-native-node-id="hero" style="color: blue; background-color: yellow">Hero</section></main>`,
+      `<main><section data-agent-native-node-id="hero" style="color: blue; width: 140px">Hero</section></main>`,
       previous,
     );
 
     expect(refreshed?.computedStyles.color).toBe("blue");
-    expect(refreshed?.computedStyles["background-color"]).toBe("yellow");
-    expect(refreshed?.computedStyles.backgroundColor).toBe("yellow");
+    expect(refreshed?.inlineStyles).toEqual({
+      color: "blue",
+      width: "140px",
+    });
+    expect(refreshed?.boundingRect).toEqual({
+      x: 7,
+      y: 9,
+      width: 140,
+      height: 12,
+    });
+    expect(refreshed?.runtimeSelector).toBe(previous.runtimeSelector);
+    expect(refreshed?.runtimeSourceId).toBe(previous.runtimeSourceId);
+  });
+
+  it("refreshes authored inline styles through the DOM fallback", () => {
+    const previous = {
+      tagName: "script",
+      selector: "#script-target",
+      classes: [],
+      computedStyles: { color: "red", width: "100px" },
+      inlineStyles: { color: "red", width: "100px", opacity: "0.5" },
+      boundingRect: { x: 3, y: 5, width: 100, height: 10 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<script id="script-target" style="color: blue; width: 140px"></script>`,
+      previous,
+    );
+
+    expect(refreshed?.inlineStyles).toEqual({
+      color: "blue",
+      width: "140px",
+    });
+    expect(refreshed?.boundingRect).toEqual({
+      x: 3,
+      y: 5,
+      width: 140,
+      height: 10,
+    });
   });
 
   it("does not retain stale computed styles after the source style is removed", () => {
@@ -2511,6 +2667,18 @@ describe("U18: undo/redo refreshes stale layer selection", () => {
       keptNode!.id,
     ]);
   });
+
+  it("refreshes namespaced layer ids without replacing them with legacy ids", () => {
+    const source = { kind: "design-file" as const, fileId: "screen-a" };
+    const projection = buildCodeLayerProjection(html, { source });
+    const keptNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "kept",
+    );
+    expect(keptNode).toBeDefined();
+    const ids = [keptNode!.id];
+
+    expect(refreshSelectedLayerIdsFromContent(html, ids, source)).toBe(ids);
+  });
 });
 
 describe("external content checkpoint history scope", () => {
@@ -2870,6 +3038,29 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
         additive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveMarqueeAdditive", () => {
+  // Figma spec §1 (matching screen-element-select.ts's click-path
+  // additiveSelection): Shift is additive; Cmd/Ctrl alone deep-selects and
+  // REPLACES like a plain click, so it must not make a marquee additive.
+  it("is additive on shift", () => {
+    expect(resolveMarqueeAdditive({ shiftKey: true })).toBe(true);
+  });
+
+  it("is additive on an explicit additive/range intent", () => {
+    expect(resolveMarqueeAdditive({ additive: true })).toBe(true);
+    expect(resolveMarqueeAdditive({ range: true })).toBe(true);
+  });
+
+  it("is NOT additive on Cmd or Ctrl alone", () => {
+    expect(resolveMarqueeAdditive({ metaKey: true })).toBe(false);
+    expect(resolveMarqueeAdditive({ ctrlKey: true })).toBe(false);
+  });
+
+  it("is not additive with no intent at all", () => {
+    expect(resolveMarqueeAdditive(undefined)).toBe(false);
   });
 });
 

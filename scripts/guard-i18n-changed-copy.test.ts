@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { checkChangedCopyCoverage } from "./guard-i18n-changed-copy";
+import {
+  checkChangedCopyCoverage,
+  hasForwardedInlineLocaleUpdate,
+} from "./guard-i18n-changed-copy";
 
 describe("changed copy localization coverage", () => {
   it("reports a source copy change with no localized counterpart", () => {
@@ -38,6 +41,74 @@ describe("changed copy localization coverage", () => {
         },
       ]),
       [],
+    );
+  });
+
+  it("accepts an inline locale update forwarded by its sibling wrapper", () => {
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["es-ES"]),
+        source,
+        source,
+        `const messages = {\n  ...messagesByLocale["es-ES"],\n};`,
+      ),
+      true,
+    );
+  });
+
+  it("accepts a wrapper that re-exports the inline locale block", () => {
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["es-ES"]),
+        source,
+        source,
+        `import { messagesByLocale } from "../i18n-data";\n\nexport default messagesByLocale["es-ES"];\n`,
+      ),
+      true,
+    );
+  });
+
+  it("still fails when the target locale has no inline update", () => {
+    const source = "/catalog/i18n-data.ts";
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        new Set(["fr-FR"]),
+        source,
+        source,
+        `const messages = {\n  ...messagesByLocale["es-ES"],\n};`,
+      ),
+      false,
+    );
+  });
+
+  it("rejects a wrapper forwarding another locale or source", () => {
+    const source = "/catalog/i18n-data.ts";
+    const changedLocales = new Set(["es-ES"]);
+    const otherLocaleWrapper = `const messages = {\n  ...messagesByLocale["fr-FR"],\n};`;
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        changedLocales,
+        source,
+        source,
+        otherLocaleWrapper,
+      ),
+      false,
+    );
+    assert.equal(
+      hasForwardedInlineLocaleUpdate(
+        "es-ES",
+        changedLocales,
+        "/catalog/other-data.ts",
+        source,
+        `const messages = {\n  ...messagesByLocale["es-ES"],\n};`,
+      ),
+      false,
     );
   });
 });

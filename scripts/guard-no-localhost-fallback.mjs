@@ -96,6 +96,9 @@ const SKIP_DIRS = new Set([
   // Generated package corpus built from source files.
   "corpus",
   ".claude",
+  // Gitignored scratch. Agents copy whole checkouts here, so scanning it
+  // reports another session's files — including this guard's own regex.
+  ".tmp",
   ".video-bakeoff",
   ".video-bakeoff-recording",
   ".vscode-test",

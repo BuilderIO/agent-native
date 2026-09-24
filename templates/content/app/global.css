@@ -38,6 +38,7 @@
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 15%;
+  --suggestion: 207 39% 46%;
 
   --radius: 0.375rem;
 
@@ -82,6 +83,7 @@
 
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 100%;
+  --suggestion: 207 55% 68%;
 
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -166,17 +168,17 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
+    background: hsl(var(--muted-foreground) / 0.22);
     border-radius: 3px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
+    background: hsl(var(--muted-foreground) / 0.34);
   }
   .scrollbar-dark::-webkit-scrollbar-thumb {
-    background: hsl(var(--sidebar-border));
+    background: hsl(var(--sidebar-border) / 0.22);
   }
   .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--sidebar-muted));
+    background: hsl(var(--sidebar-muted) / 0.34);
   }
 }
 
@@ -587,6 +589,7 @@
 .notion-editor .notion-task-list li label {
   display: flex;
   align-items: center;
+  align-self: start;
   min-height: 1.7em;
   margin-top: 0;
 }
@@ -848,12 +851,6 @@
 }
 
 /* Tables */
-.notion-editor table colgroup,
-.notion-editor table col {
-  display: none !important;
-  width: auto !important;
-}
-
 .tableWrapper {
   overflow-x: auto;
   margin: 1.5em 0;
@@ -1171,6 +1168,14 @@ div[data-notion-column] > :last-child {
   font-size: 0.92rem;
   color: hsl(var(--foreground));
   word-break: break-word;
+}
+
+.notion-editor table [data-alignment="center"] {
+  text-align: center;
+}
+
+.notion-editor table [data-alignment="right"] {
+  text-align: right;
 }
 
 .notion-page-reference {
@@ -2371,6 +2376,7 @@ audio.media-block__content {
 
 /* ===== Bubble Toolbar ===== */
 .bubble-toolbar {
+  z-index: 20;
   display: flex;
   align-items: center;
   background: hsl(var(--popover));
@@ -2384,24 +2390,119 @@ audio.media-block__content {
 
 /* ===== Inline comment highlights ===== */
 .notion-editor .comment-highlight {
-  background-color: hsl(45 93% 47% / 0.2);
-  border-bottom: 2px solid hsl(45 93% 47% / 0.55);
+  --comment-highlight-fill: hsl(45 93% 47% / 0.14);
+  --comment-highlight-line: hsl(45 93% 40% / 0.5);
+  background-color: var(--comment-highlight-fill);
+  background-image: linear-gradient(
+    var(--comment-highlight-line),
+    var(--comment-highlight-line)
+  );
+  background-position: left bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-origin: content-box;
+  background-clip: content-box;
   border-radius: 2px;
+  padding-block: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  transition: background-color 0.12s ease;
+  transition: background-color 160ms var(--ease-out-strong);
 }
-.notion-editor .comment-highlight:hover {
-  background-color: hsl(45 93% 47% / 0.32);
+.notion-editor .comment-highlight:hover,
+.notion-editor .comment-highlight.comment-highlight--hovered {
+  --comment-highlight-fill: hsl(45 93% 47% / 0.28);
 }
-.notion-editor .comment-highlight--active {
-  background-color: hsl(45 93% 47% / 0.42);
+.notion-editor .comment-highlight.comment-highlight--active {
+  --comment-highlight-fill: hsl(45 93% 47% / 0.38);
 }
-.notion-editor .comment-highlight--pending {
-  background-color: hsl(210 100% 52% / 0.2);
-  border-bottom-color: hsl(210 100% 52% / 0.55);
+.notion-editor .comment-highlight.comment-highlight--pending {
+  --comment-highlight-fill: hsl(210 100% 52% / 0.2);
+  --comment-highlight-line: hsl(210 100% 52% / 0.55);
   cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notion-editor .comment-highlight {
+    transition: none;
+  }
+}
+
+/* Pending suggested edits are presentation-only decorations over canonical text. */
+.notion-editor .suggestion-proposed-text,
+.notion-editor .suggestion-deleted-text {
+  cursor: text;
+}
+
+.notion-editor .suggestion-inline-widget[data-suggestion-widget] {
+  display: inline;
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  white-space: break-spaces;
+}
+
+.notion-editor .suggestion-inline-widget[data-suggestion-widget] code {
+  color: inherit;
+}
+
+.notion-editor .suggestion-delete {
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.8);
+}
+
+.notion-editor .suggestion-delete-widget[data-suggestion-widget] {
+  border-radius: 0.2em;
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.8);
+}
+.notion-editor .suggestion-delete:hover,
+.notion-editor .suggestion-delete:focus-visible,
+.notion-editor .suggestion-delete-widget:hover,
+.notion-editor .suggestion-delete-widget:focus-visible {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  text-decoration: none;
+}
+
+.notion-editor .suggestion-change {
+  background: hsl(var(--suggestion) / 0.12);
+  box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
+  color: hsl(var(--suggestion));
+}
+
+.notion-editor .suggestion-insert[data-suggestion-widget],
+.notion-editor .suggestion-add-block[data-suggestion-widget] {
+  border-radius: 0.2em;
+  background: hsl(var(--suggestion) / 0.12);
+  box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
+  color: hsl(var(--suggestion));
+}
+
+.notion-editor .suggestion-highlight--active {
+  background: hsl(var(--suggestion) / 0.16);
+  box-shadow: inset 0 -2px hsl(var(--suggestion));
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.notion-editor .suggestion-delete.suggestion-highlight--active,
+.notion-editor .suggestion-delete-widget.suggestion-highlight--active {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  text-decoration: none;
 }
 
 /* @mention tokens inside comment bodies */
@@ -2453,7 +2554,9 @@ audio.media-block__content {
 }
 
 /* ===== Collaboration cursors ===== */
-.notion-editor .collaboration-cursor__selection {
+.notion-editor .collaboration-carets__selection,
+.notion-editor .collaboration-cursor__selection,
+.notion-editor .ProseMirror-yjs-selection {
   background-color: currentColor !important;
   border-radius: 2px;
   box-decoration-break: clone;
@@ -2461,7 +2564,17 @@ audio.media-block__content {
   opacity: 0.16;
 }
 
-.notion-editor .collaboration-cursor__caret {
+.notion-editor .collaboration-carets__selection,
+.notion-editor .ProseMirror-yjs-selection {
+  display: inline;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.notion-editor .collaboration-carets__caret,
+.notion-editor .collaboration-cursor__caret,
+.notion-editor .ProseMirror-yjs-cursor {
   border-left: 2px solid;
   border-color: currentColor;
   display: inline;
@@ -2472,11 +2585,14 @@ audio.media-block__content {
   pointer-events: none;
   line-height: 1;
 }
+
+.notion-editor .collaboration-carets__label,
 .notion-editor .collaboration-cursor__label {
   position: absolute;
   top: -1.4em;
   left: -1px;
   display: inline-block;
+  width: max-content;
   max-width: min(180px, 50vw);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2489,4 +2605,5 @@ audio.media-block__content {
   border-radius: 3px 3px 3px 0;
   user-select: none;
   pointer-events: none;
+  z-index: 20;
 }

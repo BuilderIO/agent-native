@@ -1,4 +1,4 @@
-// Integration tests for the record page actions against a real libsql (SQLite)
+// Integration tests for the record page actions against a real PGlite
 // database with the app's own migrations applied. The two things they have to
 // prove — that a superseded bitemporal row is never read as the current value,
 // and that two entries of one record in one list both survive — are exactly
@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-record-page-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-record-page-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -148,7 +148,7 @@ async function setValue(
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -182,9 +182,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("get-crm-record-page", () => {

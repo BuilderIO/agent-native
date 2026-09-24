@@ -1,14 +1,14 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import {
-  normalizeLocaleCode,
-  useLocale,
-  useT,
-} from "@agent-native/core/client/i18n";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState, type SyntheticEvent } from "react";
 import { Link } from "react-router";
 
 import { AgentNativeDemoVideo } from "../components/AgentNativeDemoVideo";
-import { sitePathForLocale } from "../components/docs-locale";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsLocaleFromSegment,
+  sitePathForLocale,
+} from "../components/docs-locale";
 import arSA from "../i18n/ar-SA";
 import deDE from "../i18n/de-DE";
 import enUS from "../i18n/en-US";
@@ -37,7 +37,7 @@ const SKILLS_PAGE_META = {
 };
 
 export const meta = ({ params }: { params?: { locale?: string } } = {}) => {
-  const locale = normalizeLocaleCode(params?.locale) ?? "en-US";
+  const locale = docsLocaleFromSegment(params?.locale) ?? DEFAULT_DOCS_LOCALE;
   const copy = SKILLS_PAGE_META[locale] ?? enUS.skillsPage;
 
   return withDefaultSocialImage([
@@ -104,7 +104,7 @@ function CliCopy({
 }) {
   const [copied, setCopied] = useState(false);
   function handleCopy() {
-    navigator.clipboard.writeText(command);
+    void navigator.clipboard.writeText(command);
     setCopied(true);
     trackEvent("copy cli command", { skill: "visual-plan", location });
     setTimeout(() => setCopied(false), 2000);
@@ -260,7 +260,7 @@ export default function SkillsPage() {
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
-    <main className="mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
+    <main className="mx-auto w-full max-w-site overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-center lg:gap-12">

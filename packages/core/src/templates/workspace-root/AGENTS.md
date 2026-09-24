@@ -14,7 +14,7 @@ workspace core or the app that needs it; do not copy it into every app.
 
 ## Framework Docs Lookup
 
-Version-matched Agent Native docs ship with `@agent-native/core` in
+Version-matched Agent-Native docs ship with `@agent-native/core` in
 `node_modules/@agent-native/core/docs`. A source-only corpus of first-party
 template patterns ships in `node_modules/@agent-native/core/corpus`.
 
@@ -54,6 +54,7 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 
 ## Lightweight defaults
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 New apps use English as the source locale and do not generate changelog
 entries. To opt into additional translations or changelog generation, edit
 `agent-native.config.ts` at the workspace root:
@@ -230,12 +231,10 @@ an additional locale or changelog.
   `server/routes/api/`, or middleware to guard one, stop and write a
   `defineAction` instead. Action-backed UI is what makes agent-created
   or agent-edited records appear without a manual refresh.
-- App database code must be provider-agnostic. Define schemas with
+- App database code is PostgreSQL-specific. Define schemas with
   `@agent-native/core/db/schema` helpers and write app reads/writes with
-  Drizzle's query builder and portable `drizzle-orm` operators. Do not import
-  from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates.
-  Keep raw SQL for additive migrations, health checks, or carefully scoped
-  maintenance, and never write SQLite-only or Postgres-only product code. Do
+  Drizzle's query builder and PostgreSQL operators. Keep raw SQL for additive
+  migrations, health checks, or carefully scoped maintenance. Do
   not use SQL as object storage; file bytes belong in upload/private-blob
   providers with only references saved to app tables.
 - In local development, scaffold the app from the workspace root with
@@ -244,6 +243,15 @@ an additional locale or changelog.
   should still create the separate workspace app, not patch chat. The local
   workspace gateway detects new app directories automatically and starts each
   app server lazily on first visit.
+- Before telling the user the app is created, request `/<app-id>` on the
+  running gateway and confirm it serves the new app, not a fallback route or
+  another app's shell, then tell the user that exact path to open — the
+  preview root can still show a different app. Never report the app as
+  created while the preview still shows something else.
+- If the preview/host isn't running the workspace gateway (root `pnpm dev`),
+  say plainly that its run/dev command must point at the workspace root
+  `pnpm dev` and name where to set it (Builder: project settings → dev
+  command); the agent cannot change a host's run/dev command itself.
 - When using the chat template, treat it as scaffolding only. The finished
   app must be branded as the requested app, with its own home screen,
   navigation, package metadata, manifest, and domain workflow. Do not leave

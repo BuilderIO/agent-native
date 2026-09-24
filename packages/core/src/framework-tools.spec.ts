@@ -76,6 +76,17 @@ describe("resolveFrameworkTools", () => {
       );
     });
 
+    it("honors frameworkTools.experiments as the Labs alias and warns", () => {
+      const resolved = resolveFrameworkTools({
+        frameworkTools: { experiments: false },
+      });
+
+      expect(resolved.isEnabled("labs")).toBe(false);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining("`frameworkTools.experiments` is deprecated"),
+      );
+    });
+
     it("accepts old and new forms that agree, including boolean spellings", () => {
       // `false` and `"off"` are the same mode, so this is not a conflict.
       expect(
@@ -90,6 +101,11 @@ describe("resolveFrameworkTools", () => {
           frameworkTools: { extensions: true },
         }).extensions,
       ).toBe(true);
+      expect(
+        resolveFrameworkTools({
+          frameworkTools: { experiments: false, labs: false },
+        }).isEnabled("labs"),
+      ).toBe(false);
     });
 
     it("throws when the old and new forms disagree", () => {
@@ -108,6 +124,11 @@ describe("resolveFrameworkTools", () => {
           frameworkTools: { extensions: true },
         }),
       ).toThrow(/extensionTools.*frameworkTools\.extensions.*disagree/s);
+      expect(() =>
+        resolveFrameworkTools({
+          frameworkTools: { experiments: false, labs: true },
+        }),
+      ).toThrow(/frameworkTools\.experiments.*frameworkTools\.labs.*disagree/s);
     });
 
     it("names both values so the error identifies the fix", () => {
@@ -157,6 +178,16 @@ describe("isFrameworkGroupedAction", () => {
 });
 
 describe("group membership resolves by name, not only by tag", () => {
+  it("keeps suggestion amendments in the review group", () => {
+    expect(CORE_ACTION_GROUPS["update-resource-suggestion"]).toBe("review");
+    expect(
+      filterFrameworkToolGroups(
+        { "update-resource-suggestion": {} },
+        new Set<FrameworkToolGroup>(["review"]),
+      ),
+    ).toEqual({});
+  });
+
   // The guard this file was missing. Every test above stamped `frameworkGroup`
   // by hand, so the filter looked correct while the tag was reaching almost no
   // real registry: it is written only by `mergeCoreSharingActions`, which runs

@@ -10,16 +10,22 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { isDesktopSettingsShortcut } from "@shared/desktop-shortcuts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
 import type {
   DesktopPrepareLocalCodeChangeResult,
+  DesktopIdentityStatus,
   DesktopWorkspaceAppListResult,
 } from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
-import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
+import {
+  rememberDesktopEnvironmentLane,
+  rememberDesktopIdentityStatus,
+} from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import DesktopIdentityGate from "./components/DesktopIdentityGate.js";
 import WindowControls, {
   CollapsedMacWindowControls,
 } from "./components/WindowControls.js";
@@ -39,6 +45,10 @@ export default function App() {
   const [workspaceAppList, setWorkspaceAppList] =
     useState<DesktopWorkspaceAppListResult>();
   const [loading, setLoading] = useState(true);
+  const [desktopIdentityStatus, setDesktopIdentityStatus] = useState<
+    DesktopIdentityStatus | "checking"
+  >(() => (window.electronAPI?.identity ? "checking" : "idle"));
+  const childIdentityFailureRef = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
@@ -65,6 +75,7 @@ export default function App() {
     appId: string;
     path?: string;
     nonce: number;
+    focusNonce?: number;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
@@ -73,42 +84,95 @@ export default function App() {
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      if (window.electronAPI?.appConfig) {
-        setApps(await window.electronAPI.appConfig.load());
-      } else {
-        setApps(DESKTOP_DEFAULT_APPS);
-      }
-      setLoading(false);
-    }
-    void load();
-  }, []);
-
   const refreshWorkspaceAppList = useCallback(async () => {
-    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    const loader = window.electronAPI?.appConfig
+      ? () => window.electronAPI!.appConfig!.loadWorkspace!()
+      : undefined;
     if (!loader) {
       setWorkspaceAppList(undefined);
       return;
     }
     try {
-      setWorkspaceAppList(await loader());
-    } catch {
-      setWorkspaceAppList({ enabled: false, apps: [] });
+      const result = await loader();
+      if (!result.unavailable) setWorkspaceAppList(result);
+    } catch (error) {
+      // Keep the last usable inventory visible when a refresh is transiently
+      // unavailable. The main process applies the same rule to deep-link
+      // resolution.
+      console.debug("[desktop] workspace app inventory refresh unavailable", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    }
+  }, []);
+
+  // The lane depends on the verified email, so it is only known once identity
+  // has resolved. A change has to remount webviews — they are already pointed
+  // at the previous origin.
+  const refreshEnvironmentLane = useCallback(async () => {
+    const getLane = window.electronAPI?.identity
+      ? () => window.electronAPI!.identity!.getEnvironmentLane()
+      : undefined;
+    if (!getLane) return;
+    try {
+      const state = await getLane();
+      if (rememberDesktopEnvironmentLane(state.lane)) {
+        setRefreshKey((current) => current + 1);
+      }
+    } catch (error) {
+      // coercion-ok: the lane keeps its last known value, which is the same
+      // origin every webview is already pointed at. A failed read must not
+      // move a signed-in user between lanes.
+      console.debug("[desktop-environment] lane read failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
     }
   }, []);
 
   useEffect(() => {
+    async function load() {
+      const loaded = window.electronAPI?.appConfig
+        ? await window.electronAPI.appConfig.load()
+        : DESKTOP_DEFAULT_APPS;
+      // Resolve the lane before clearing the loading state: mounting first
+      // would load production and then remount onto beta, which is the extra
+      // document and session load this is meant to remove.
+      await refreshEnvironmentLane();
+      setApps(loaded);
+      setLoading(false);
+    }
+    void load();
+  }, [refreshEnvironmentLane]);
+
+  useEffect(() => {
     void refreshWorkspaceAppList();
-    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
-    if (!onStatusChange) return;
-    return onStatusChange((status) => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) {
+      setDesktopIdentityStatus("idle");
+      return;
+    }
+    let mounted = true;
+    const handleStatusChange = (status: DesktopIdentityStatus) => {
+      if (!mounted) return;
+      childIdentityFailureRef.current = false;
+      setDesktopIdentityStatus(status);
       // App is the shell-level subscriber, so sign-out invalidates the
       // renderer cache even while every individual app webview is inactive.
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
-    });
-  }, [refreshWorkspaceAppList]);
+      void refreshEnvironmentLane();
+    };
+    const unsubscribe = identity.onStatusChange(handleStatusChange);
+    void identity
+      .getStatus()
+      .then(handleStatusChange)
+      .catch(() => {
+        if (mounted) setDesktopIdentityStatus("failed");
+      });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 
   const visibleEnabledApps = getDesktopVisibleApps(
     apps.filter((app) => app.enabled),
@@ -122,6 +186,30 @@ export default function App() {
     setSettingsTab(tab ?? "general");
     setShowSettings(true);
   }, []);
+
+  useEffect(() => {
+    const onKeydown = window.electronAPI?.shortcuts
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.shortcuts.onKeydown
+          >[0],
+        ) => window.electronAPI!.shortcuts!.onKeydown(callback)
+      : undefined;
+    if (!onKeydown) return;
+    return onKeydown((input) => {
+      if (
+        !isDesktopSettingsShortcut({
+          key: input.key,
+          code: input.code,
+          shift: input.shiftKey,
+          alt: input.altKey,
+        })
+      ) {
+        return;
+      }
+      handleOpenSettings();
+    });
+  }, [handleOpenSettings]);
 
   const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
     setActiveChatFirstAppId(appId ?? "");
@@ -192,17 +280,28 @@ export default function App() {
       const app = apps.find((candidate) => candidate.id === appId);
       if (!api || !app) return;
 
-      const updated = app.isBuiltIn
-        ? await api.update(appId, { enabled: false })
-        : await api.remove(appId);
-      setApps(updated);
-      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
-      setChatFirstPreviewRequest((current) =>
-        current?.appId === appId ? undefined : current,
-      );
-      setChatFirstPreviewStatus((current) =>
-        current?.appId === appId ? undefined : current,
-      );
+      try {
+        const updated = app.isBuiltIn
+          ? await api.update(appId, { enabled: false })
+          : await api.remove(appId);
+        setApps(updated);
+        setActiveChatFirstAppId((current) =>
+          current === appId ? "" : current,
+        );
+        setChatFirstPreviewRequest((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+        setChatFirstPreviewStatus((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+      } catch {
+        // The main process failed to persist the change (e.g. userData is
+        // unwritable), so local state must stay untouched and the failure
+        // must be visible instead of leaving a silently-reverted rail.
+        toast.error(`Couldn't remove ${app.name}`, {
+          description: "Please try again.",
+        });
+      }
     },
     [apps],
   );
@@ -233,14 +332,16 @@ export default function App() {
       if (!targetApp) {
         const configuredApp = apps.find((app) => app.id === appId);
         if (configuredApp && !isDesktopAppVisible(configuredApp)) return false;
-        return !loading;
+        return false;
       }
 
       const path = safeDesktopOpenPath(request.path);
+      const nonce = Date.now();
       setChatFirstAppOpenRequest({
         appId,
-        nonce: Date.now(),
+        nonce,
         ...(path ? { path } : {}),
+        ...("requestId" in request ? { focusNonce: nonce } : {}),
       });
       setShowSettings(false);
       setShowAddApp(false);
@@ -393,13 +494,46 @@ export default function App() {
                 void handleAppRemoval(app.id);
               }}
               onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
+              onDesktopIdentityStatusChange={(status) => {
+                if (status === "failed" || status === "sign-in-required") {
+                  childIdentityFailureRef.current = true;
+                  setDesktopIdentityStatus(status);
+                } else if (
+                  status === "signed-in" &&
+                  childIdentityFailureRef.current
+                ) {
+                  childIdentityFailureRef.current = false;
+                  rememberDesktopIdentityStatus("signed-in");
+                  setDesktopIdentityStatus("signed-in");
+                }
+              }}
             />
           </div>
         </div>
+        <DesktopIdentityGate
+          appName="Agent-Native Desktop"
+          status={desktopIdentityStatus}
+          onSignIn={() => window.electronAPI?.identity?.signIn() ?? false}
+          onAuthenticate={(request) =>
+            window.electronAPI?.identity?.authenticate(request) ??
+            Promise.resolve({
+              ok: false,
+              error: "The desktop identity surface is unavailable.",
+            })
+          }
+          onMagicLink={(request) =>
+            window.electronAPI?.identity?.requestMagicLink(request) ??
+            Promise.resolve({
+              ok: false,
+              error: "The desktop identity surface is unavailable.",
+            })
+          }
+        />
       </div>
 
       {showSettings ? (
         <AppSettings
+          key={settingsTab}
           apps={apps}
           initialTab={settingsTab}
           onClose={() => {

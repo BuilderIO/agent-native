@@ -1,6 +1,7 @@
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import {
   createError,
@@ -19,6 +20,7 @@ import type { ImageCategory, ImageRole } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
+import { assertCanApprove } from "../lib/library-access.js";
 import { getObject } from "../lib/storage.js";
 import {
   filterDuplicateAssetUploads,
@@ -145,7 +147,10 @@ async function assertFolderBelongsToLibrary(
   }
 }
 
-async function withUserContext(event: any, fn: () => Promise<unknown>) {
+async function withUserContext(
+  event: any,
+  fn: (userEmail: string) => Promise<unknown>,
+) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -153,19 +158,19 @@ async function withUserContext(event: any, fn: () => Promise<unknown>) {
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
-    fn,
+    () => fn(session.email),
   );
 }
 
 export const uploadAssets = defineEventHandler(async (event) =>
-  withUserContext(event, async () => {
+  withUserContext(event, async (userEmail) => {
     const parts = await readMultipartFormData(event);
     const libraryId = readField(parts, "libraryId");
     if (!libraryId) {
       setResponseStatus(event, 400);
       return { error: "libraryId is required" };
     }
-    await assertAccess("asset-library", libraryId, "editor");
+    await assertCanApprove(libraryId, "Uploading assets");
     const collectionId = readField(parts, "collectionId") || null;
     const folderId = readField(parts, "folderId") || null;
     if (collectionId) {
@@ -312,6 +317,20 @@ export const uploadAssets = defineEventHandler(async (event) =>
         errors,
       };
     }
+    if (assets.length > 0) {
+      track(
+        "brand_uploaded",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: libraryId,
+          output_type: "asset_library",
+          asset_type: category,
+          asset_count: assets.length,
+        },
+        { userId: userEmail },
+      );
+    }
     return {
       count: assets.length,
       assets: serializedAssets,
@@ -388,7 +407,10 @@ export async function markAssetSaved(
     .where(eq(schema.assets.id, assetId))
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
-  await assertAccess("asset-library", asset.libraryId, "editor");
+  await assertCanApprove(
+    asset.libraryId,
+    "Saving a generated asset to the kit",
+  );
   if (folderId !== undefined && folderId !== null) {
     await assertFolderBelongsToLibrary(folderId, asset.libraryId);
   }

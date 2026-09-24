@@ -67,6 +67,63 @@ describe("ChatHistoryRail", () => {
     expect(container.querySelectorAll(".an-chat-history-row")).toHaveLength(5);
   });
 
+  it("changes the disclosure glyph with its state, even when both labels match", () => {
+    // Brain, Assets, Factory, and Plan all pass the same word for both
+    // disclosure states, so the accessible name and tooltip never move. The
+    // glyph has to carry the state change or the control reads as dead.
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(8)}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          railLabels={{ ...railLabels, showMore: "Chats", showLess: "Chats" }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-rail__disclosure",
+    );
+    const glyph = () =>
+      disclosure?.querySelector("svg")?.getAttribute("class") ?? "";
+
+    expect(glyph()).toContain("tabler-icon-chevron-down");
+    expect(glyph()).not.toContain("tabler-icon-dots");
+
+    act(() => disclosure?.click());
+    expect(glyph()).toContain("tabler-icon-chevron-up");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+
+    act(() => disclosure?.click());
+    expect(glyph()).toContain("tabler-icon-chevron-down");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("does not reuse the row overflow glyph for the disclosure", () => {
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(8)}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          onDelete={() => {}}
+          railLabels={railLabels}
+        />,
+      );
+    });
+
+    const rowMenuGlyph = container
+      .querySelector(".an-chat-history-row__menu-trigger svg")
+      ?.getAttribute("class");
+    const disclosureGlyph = container
+      .querySelector(".an-chat-history-rail__disclosure svg")
+      ?.getAttribute("class");
+
+    expect(rowMenuGlyph).toContain("tabler-icon-dots");
+    expect(disclosureGlyph).not.toBe(rowMenuGlyph);
+  });
+
   it("keeps the disclosure to the right of new chat and calls its handler", () => {
     const onNewChat = vi.fn();
     act(() => {

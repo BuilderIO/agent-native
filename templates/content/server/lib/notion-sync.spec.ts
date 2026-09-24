@@ -47,10 +47,23 @@ const notionMocks = vi.hoisted(() => {
     }
   }
 
+  const getNotionConnectionForOwner = vi.fn();
+
   return {
     createNotionPageWithMarkdown: vi.fn(),
     fetchNotionPage: vi.fn(),
-    getNotionConnectionForOwner: vi.fn(),
+    getNotionConnectionForOwner,
+    // Mirrors the real helper: same lookup, but throws the connection-specific
+    // error instead of answering null.
+    requireNotionConnectionForOwner: vi.fn(
+      async (owner: string, intent: string) => {
+        const connection = await getNotionConnectionForOwner(owner);
+        if (!connection) {
+          throw new Error(`Connect your Notion account before ${intent}.`);
+        }
+        return connection;
+      },
+    ),
     normalizeNotionPageId: vi.fn((input: string) => input),
     notionFetch: vi.fn(),
     readNotionPageAsDocument: vi.fn(),
@@ -99,6 +112,7 @@ vi.mock("../db/index.js", () => {
   const schema = {
     documents: {
       id: "documents.id",
+      parentId: "documents.parentId",
       ownerEmail: "documents.ownerEmail",
       updatedAt: "documents.updatedAt",
     },
@@ -155,8 +169,11 @@ vi.mock("../db/index.js", () => {
   const db: any = {
     select: () => ({
       from: (table: unknown) => ({
-        where: async () => {
-          if (table === schema.documents) return [testState.document];
+        where: async (where: unknown) => {
+          if (table === schema.documents)
+            return matches(testState.document, where)
+              ? [testState.document]
+              : [];
           if (table === schema.documentSyncLinks) {
             return testState.link ? [testState.link] : [];
           }
@@ -520,6 +537,30 @@ describe("pullDocumentFromNotion", () => {
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Local body"),
     );
+  });
+
+  it("advances a same-millisecond replacement revision and its sync baseline", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const previous = testState.document.updatedAt;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(previous));
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Remote same-millisecond edit",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+    try {
+      await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+      expect(testState.document.updatedAt).toBe("2026-06-01T10:00:00.001Z");
+      expect(testState.link?.lastPushedLocalUpdatedAt).toBe(
+        testState.document.updatedAt,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("pulls and updates content cleanly when no concurrent write races it", async () => {

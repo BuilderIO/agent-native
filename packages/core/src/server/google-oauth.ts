@@ -17,29 +17,46 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import {
-  addSession,
-  getSession,
-  getSessionMaxAge,
-  hasLegacySessionForEmail,
-  safeReturnPath,
-  setFrameworkSessionCookie,
-} from "./auth.js";
-import {
+  getBetterAuthUserIdForEmail,
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
+import { getPublicFrameworkPathname } from "./framework-request-context.js";
+import {
+  canonicalFrameworkPathname,
+  isRetiredInternalFrameworkPath,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
+import { setIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
+import {
+  isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
+  isNetlifyDeployPermalinkGoogleOAuthClientRequest,
+} from "./identity-sso-store.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  firstOriginFromEnv,
+  getConfiguredOriginAllowlist,
+  isLoopbackHost,
+  normalizeOrigin,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "./origin-allowlist.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
+
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -87,7 +104,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Detect requests from the Agent Native desktop app specifically.
+ * Detect requests from the Agent-Native desktop app specifically.
  *
  * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
  * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
@@ -95,7 +112,7 @@ function escapeHtml(s: string): string {
  * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
  * etc. Falsely treating those as "the desktop app" sends users to the
  * `agentnative://oauth-complete` deep-link success page after Google sign-in,
- * where the protocol handler can't fire and the "Open Agent Native" button
+ * where the protocol handler can't fire and the "Open Agent-Native" button
  * does nothing.
  *
  * Kept exported as `isElectron` for backwards compatibility with consumers.
@@ -104,76 +121,17 @@ export function isElectron(event: H3Event): boolean {
   return /AgentNativeDesktop/i.test(getHeader(event, "user-agent") || "");
 }
 
+function getDesktopOAuthProtocol(
+  event: H3Event,
+): "agentnative" | "agentnative-nightly" {
+  return /AgentNativeDesktopNightly/i.test(getHeader(event, "user-agent") || "")
+    ? "agentnative-nightly"
+    : "agentnative";
+}
+
 /** Detect requests from a mobile browser (iOS/Android). */
 export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
-}
-
-/**
- * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * deployment-known public URLs. Each entry is normalised to
- * `${proto}://${host}` (no path). Duplicates collapse, invalid entries are
- * dropped silently.
- */
-const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_OAUTH_ORIGIN",
-  "VITE_WORKSPACE_OAUTH_ORIGIN",
-  "APP_URL",
-  "VITE_APP_URL",
-  "BETTER_AUTH_URL",
-  "VITE_BETTER_AUTH_URL",
-  "URL",
-  "DEPLOY_URL",
-] as const;
-
-const WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_GATEWAY_URL",
-  "VITE_WORKSPACE_GATEWAY_URL",
-] as const;
-
-function normalizeOrigin(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function addNormalizedOrigin(
-  out: Set<string>,
-  raw: string | undefined,
-  options: { allowLoopback: boolean },
-): void {
-  const origin = normalizeOrigin(raw);
-  if (!origin) return;
-  if (!options.allowLoopback && isLoopbackOrigin(origin)) return;
-  out.add(origin);
-}
-
-function firstOriginFromEnv(
-  keys: readonly string[],
-  options: { allowLoopback: boolean },
-): string | undefined {
-  for (const key of keys) {
-    const origin = normalizeOrigin(process.env[key]);
-    if (!origin) continue;
-    if (!options.allowLoopback && isLoopbackOrigin(origin)) continue;
-    return origin;
-  }
-  return undefined;
-}
-
-function getConfiguredOriginAllowlist(): Set<string> {
-  const out = new Set<string>();
-  for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
-  }
-  for (const key of WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
-  }
-  return out;
 }
 
 /** Return whether a candidate is one of this deployment's configured origins. */
@@ -191,30 +149,6 @@ function getWorkspaceCallbackOrigin(): string | undefined {
   return firstOriginFromEnv(WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS, {
     allowLoopback: false,
   });
-}
-
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const parsed = new URL(`http://${host}`);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1" ||
-      parsed.hostname === "[::1]"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    return isLoopbackHost(new URL(origin).host);
-  } catch {
-    return false;
-  }
 }
 
 function isBuilderPreviewHost(host: string | undefined): boolean {
@@ -235,6 +169,7 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
       hostname.endsWith(".builder.my")
     );
   } catch {
+    // coercion-ok: malformed callback URLs are rejected as invalid input.
     return false;
   }
 }
@@ -251,9 +186,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
@@ -297,7 +237,190 @@ export function getAppBasePath(): string {
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
+  return `${getOrigin(event)}${getAppBasePath()}${publicFrameworkPath(cleanPath)}`;
+}
+
+export const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL =
+  "https://beta.dispatch.agent-native.com/_agent-native/google/callback";
+export const AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV =
+  "AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET";
+export const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX =
+  "agent-native-preview-google-relay.";
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS = 10 * 60 * 1000;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS = 2 * 60 * 1000;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH = 32 * 1024;
+const NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_PATH_RE =
+  /^(?:\/[a-z0-9-]+)?\/_agent-native\/google\/(?:add-account\/)?callback$/;
+
+function isNetlifyPreviewGoogleOAuthCallbackPath(path: string): boolean {
+  return NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_PATH_RE.test(path);
+}
+
+export function getNetlifyPreviewGoogleOAuthCallbackUrl(
+  event: H3Event,
+  path = "/_agent-native/google/callback",
+): string | undefined {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const host = getHeader(event, "host")?.trim().toLowerCase();
+  if (
+    !host ||
+    !isNetlifyPreviewGoogleOAuthCallbackPath(cleanPath) ||
+    !isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+      host,
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return undefined;
+  }
+  const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
+  return `https://${host}${basePath}${cleanPath}`;
+}
+
+export function isNetlifyPreviewGoogleOAuthCallbackUrl(
+  value: string | undefined,
+): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      `${url.origin}${url.pathname}` === value &&
+      isNetlifyDeployPermalinkGoogleOAuthClientOrigin(url.origin) &&
+      isNetlifyPreviewGoogleOAuthCallbackPath(url.pathname)
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are rejected as invalid input.
+    return false;
+  }
+}
+
+export function isNetlifyPreviewGoogleOAuthRelayState(
+  value: unknown,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_MAX_LENGTH &&
+    value.startsWith(NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX)
+  );
+}
+
+function getNetlifyPreviewGoogleOAuthRelaySigningKey(): string {
+  const secret =
+    process.env[AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV]?.trim();
+  if (!secret) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} is required for the Netlify preview Google OAuth relay.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
+/**
+ * Wrap a signed app OAuth state for the fixed Google callback registered on
+ * the beta Dispatch site. The inner state remains authoritative and is
+ * verified by the preview app after the relay forwards it.
+ */
+export function encodeNetlifyPreviewGoogleOAuthRelayState(
+  state: string,
+  callbackUri: string,
+  now = Date.now(),
+): string {
+  if (
+    !state ||
+    state.length > 16 * 1024 ||
+    !isNetlifyPreviewGoogleOAuthCallbackUrl(callbackUri)
+  ) {
+    throw new Error("Invalid Netlify preview Google OAuth relay state.");
+  }
+  const payload = {
+    v: 1,
+    t: callbackUri,
+    s: state,
+    i: now,
+    e: now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_TTL_MS,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = crypto
+    .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${encodedPayload}.${signature}`;
+}
+
+export function decodeNetlifyPreviewGoogleOAuthRelayState(
+  value: string | undefined,
+  now = Date.now(),
+): { callbackUri: string; state: string } | null {
+  if (!isNetlifyPreviewGoogleOAuthRelayState(value)) return null;
+  try {
+    const encodedEnvelope = value.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = encodedEnvelope.lastIndexOf(".");
+    if (delimiter <= 0 || delimiter === encodedEnvelope.length - 1) return null;
+    const encodedPayload = encodedEnvelope.slice(0, delimiter);
+    const signature = encodedEnvelope.slice(delimiter + 1);
+    const expectedSignature = crypto
+      .createHmac("sha256", getNetlifyPreviewGoogleOAuthRelaySigningKey())
+      .update(encodedPayload)
+      .digest("base64url");
+    if (
+      signature.length !== expectedSignature.length ||
+      !crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature),
+      )
+    ) {
+      return null;
+    }
+    const parsed = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const issuedAt = parsed.i;
+    const expiresAt = parsed.e;
+    const callbackUri = parsed.t;
+    const state = parsed.s;
+    if (
+      parsed.v !== 1 ||
+      typeof callbackUri !== "string" ||
+      typeof state !== "string" ||
+      state.length > 16 * 1024 ||
+      typeof issuedAt !== "number" ||
+      typeof expiresAt !== "number" ||
+      !Number.isFinite(issuedAt) ||
+      !Number.isFinite(expiresAt) ||
+      issuedAt > now + NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_CLOCK_SKEW_MS ||
+      expiresAt < issuedAt ||
+      expiresAt < now ||
+      !isNetlifyPreviewGoogleOAuthCallbackUrl(callbackUri)
+    ) {
+      return null;
+    }
+    return { callbackUri, state };
+  } catch {
+    // coercion-ok: malformed relay state is rejected as invalid input.
+    return null;
+  }
+}
+
+export function wrapNetlifyPreviewGoogleOAuthState(
+  event: H3Event,
+  state: string,
+  callbackPath = "/_agent-native/google/callback",
+): string {
+  const callbackUri = getNetlifyPreviewGoogleOAuthCallbackUrl(
+    event,
+    callbackPath,
+  );
+  return callbackUri
+    ? encodeNetlifyPreviewGoogleOAuthRelayState(state, callbackUri)
+    : state;
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
@@ -308,6 +431,9 @@ function isFrameworkOAuthCallbackPath(pathname: string): boolean {
 }
 
 function getOriginalRequestPath(event: H3Event): string {
+  const publicPathname = getPublicFrameworkPathname(event);
+  if (publicPathname) return publicPathname;
+
   const mountedPathname = (event as any).context?._mountedPathname;
   if (typeof mountedPathname === "string" && mountedPathname) {
     return mountedPathname;
@@ -335,22 +461,36 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   const basePath = getAppBasePath();
   if (!basePath) return false;
   const requestPath = getOriginalRequestPath(event);
-  return (
-    requestPath === `${basePath}/_agent-native` ||
-    requestPath.startsWith(`${basePath}/_agent-native/`)
+  const frameworkPrefixes = [
+    `${basePath}/_agent-native`,
+    `${basePath}${publicFrameworkPath("/_agent-native")}`,
+  ];
+  return frameworkPrefixes.some(
+    (prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`),
   );
 }
 
-function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
+export type OAuthRedirectUriOptions = {
+  /** Allow a known framework callback to bypass an app mount prefix. */
+  allowRootCallback?: boolean;
+  /** Use the fixed Beta callback plus an immutable-preview relay. */
+  useNetlifyPreviewGoogleOAuthRelay?: boolean;
+};
+
+function getDefaultOAuthRedirectUrl(
+  event: H3Event,
+  path: string,
+  options: OAuthRedirectUriOptions = {},
+): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   if (
-    isWorkspaceOAuthCallbackRelayEnabled() &&
+    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
-    return `${getOrigin(event)}${cleanPath}`;
+    return `${getOrigin(event)}${publicFrameworkPath(cleanPath)}`;
   }
   const basePath = isRequestUnderAppBasePath(event) ? getAppBasePath() : "";
-  return `${getOrigin(event)}${basePath}${cleanPath}`;
+  return `${getOrigin(event)}${basePath}${publicFrameworkPath(cleanPath)}`;
 }
 
 // ─── redirect_uri Allowlist ──────────────────────────────────────────────────
@@ -369,8 +509,9 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
  * as a 400.
  *
  * The intentional shape is exact-prefix:
- *   - Origin must equal `getOrigin(event)` — no Host-header injection
- *     reusing somebody else's registered redirect URI.
+ *   - Origin must equal the resolved request origin — no Host-header injection
+ *     reusing somebody else's registered redirect URI. Callers with a
+ *     separately verified origin may pass it as `expectedOrigin`.
  *   - Path must start with `${appBasePath}/_agent-native/` so we never
  *     hand auth codes to a public marketing or open-redirect endpoint
  *     on the same registered host.
@@ -382,6 +523,8 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
 export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
+  expectedOrigin = getOrigin(event),
+  options: OAuthRedirectUriOptions = {},
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -391,15 +534,27 @@ export function isAllowedOAuthRedirectUri(
     return false;
   }
   // Must be same origin as our server.
-  const expectedOrigin = getOrigin(event);
   let expectedUrl: URL;
   try {
     expectedUrl = new URL(expectedOrigin);
   } catch {
     return false;
   }
+  if (
+    options.useNetlifyPreviewGoogleOAuthRelay &&
+    candidate === NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL &&
+    getNetlifyPreviewGoogleOAuthCallbackUrl(event) !== undefined
+  ) {
+    // The Beta relay has already authenticated this exact callback target;
+    // keep the signed inner state usable after it lands on the preview host.
+    return true;
+  }
   if (url.protocol !== expectedUrl.protocol) return false;
   if (url.host !== expectedUrl.host) return false;
+  // The candidate arrives in the deployment's PUBLIC namespace; a custom
+  // prefix retires the internal name, so a redirect there is not ours.
+  if (isRetiredInternalFrameworkPath(url.pathname)) return false;
+  const pathname = canonicalFrameworkPathname(url.pathname);
   // Must live under the framework's namespace. Workspace deploys can route
   // root /_agent-native/* to Dispatch even when Dispatch itself is mounted at
   // /dispatch, but app-prefixed requests should not be able to swap their
@@ -409,13 +564,14 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...(isWorkspaceOAuthCallbackRelayEnabled() &&
-          isFrameworkOAuthCallbackPath(url.pathname)
+          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
+            options.allowRootCallback) &&
+          isFrameworkOAuthCallbackPath(pathname)
             ? ["/_agent-native/"]
             : []),
         ]
       : ["/_agent-native/"];
-  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+  if (!allowedPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return false;
   }
   return true;
@@ -438,12 +594,28 @@ export function isAllowedOAuthRedirectUri(
 export function resolveOAuthRedirectUri(
   event: H3Event,
   defaultPath = "/_agent-native/google/callback",
+  options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
-  if (typeof supplied === "string" && supplied.length > 0) {
-    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+  const previewCallbackUri = options.useNetlifyPreviewGoogleOAuthRelay
+    ? getNetlifyPreviewGoogleOAuthCallbackUrl(event, defaultPath)
+    : undefined;
+  if (previewCallbackUri) {
+    if (
+      typeof supplied === "string" &&
+      supplied.length > 0 &&
+      supplied !== previewCallbackUri
+    ) {
+      return null;
+    }
+    return NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL;
   }
-  return getDefaultOAuthRedirectUrl(event, defaultPath);
+  if (typeof supplied === "string" && supplied.length > 0) {
+    return isAllowedOAuthRedirectUri(supplied, event, getOrigin(event), options)
+      ? supplied
+      : null;
+  }
+  return getDefaultOAuthRedirectUrl(event, defaultPath, options);
 }
 
 // ─── OAuth State ─────────────────────────────────────────────────────────────
@@ -462,6 +634,10 @@ export interface OAuthStatePayload {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  /** Optional signed scope for provider-specific OAuth flows. */
+  scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -471,6 +647,8 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Internal provider-resource id targeted by a reconnect flow. */
+  oauthTargetId?: string;
   /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
   desktopVerifierHash?: string;
   /** Hash of the initiating browser binding for a desktop OAuth exchange. */
@@ -506,7 +684,7 @@ let _devStateSigningKey: string | undefined;
  *
  * In production, throws if no usable server secret is set.
  */
-function getStateSigningKey(): string {
+export function getOAuthStateSigningKey(): string {
   const secret =
     process.env.OAUTH_STATE_SECRET ||
     process.env.BETTER_AUTH_SECRET ||
@@ -541,8 +719,12 @@ export interface EncodeOAuthStateOptions {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   returnUrl?: string;
   flowId?: string;
+  oauthTargetId?: string;
   desktopVerifierHash?: string;
   desktopBrowserBindingHash?: string;
   desktopWebview?: boolean;
@@ -624,8 +806,11 @@ export function encodeOAuthState(
   if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
+  if (opts.scope) payload.s = opts.scope;
+  if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.oauthTargetId) payload.ot = opts.oauthTargetId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
   if (opts.desktopBrowserBindingHash)
     payload.bh = opts.desktopBrowserBindingHash;
@@ -637,66 +822,119 @@ export function encodeOAuthState(
   if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
-    .createHmac("sha256", getStateSigningKey())
+    .createHmac("sha256", getOAuthStateSigningKey())
     .update(data)
     .digest("base64url");
   return `${data}.${sig}`;
 }
 
+/** Why `decodeOAuthState` rejected a state parameter. Distinguishes "nobody
+ *  sent one" from the shapes that mean tampering, an expired/rotated signing
+ *  key, or a corrupted payload — callers must not treat any of these as a
+ *  successful decode. */
+export type OAuthStateDecodeFailureReason =
+  | "missing-state"
+  | "missing-delimiter"
+  | "bad-signature"
+  | "malformed-payload";
+
+export type DecodeOAuthStateResult =
+  | ({ ok: true } & OAuthStatePayload)
+  | { ok: false; reason: OAuthStateDecodeFailureReason; redirectUri: string };
+
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * Rejects forged or tampered state by checking the HMAC signature.
- * Falls back to the provided URI if decoding or verification fails.
+ *
+ * Returns a discriminated result: `ok: true` only for a state blob this
+ * server itself signed and that round-trips intact. Every other case — no
+ * state param, no HMAC delimiter, a bad signature, or a payload that doesn't
+ * parse — comes back `ok: false` with a `reason`, and `redirectUri` set to
+ * the caller-supplied fallback. This used to return a success-shaped object
+ * with `redirectUri: fallbackUri` and every other field `undefined` for all
+ * of those failures, which callers processed as an anonymous plain sign-in —
+ * silently dropping owner/org/desktop context on a tampered or expired state
+ * instead of surfacing the failure. Callers MUST check `ok` before reading
+ * any other field.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,
   fallbackUri: string,
-): OAuthStatePayload {
-  if (stateParam) {
-    try {
-      const dotIdx = stateParam.lastIndexOf(".");
-      if (dotIdx === -1) return { redirectUri: fallbackUri };
-
-      const data = stateParam.slice(0, dotIdx);
-      const sig = stateParam.slice(dotIdx + 1);
-      const expected = crypto
-        .createHmac("sha256", getStateSigningKey())
-        .update(data)
-        .digest("base64url");
-
-      if (
-        sig.length !== expected.length ||
-        !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
-      ) {
-        return { redirectUri: fallbackUri };
-      }
-
-      const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
-      return {
-        redirectUri: parsed.r || fallbackUri,
-        owner: parsed.o || undefined,
-        orgId: typeof parsed.g === "string" ? parsed.g : undefined,
-        desktop: !!parsed.d,
-        mobile: !!parsed.m,
-        addAccount: !!parsed.a,
-        app: typeof parsed.app === "string" ? parsed.app : undefined,
-        // Pass returnUrl through as-is — same-origin validation runs at the
-        // consumer (oauthCallbackResponse → safeReturnPath). The state is
-        // HMAC-signed, but we still validate at consumption as defence in
-        // depth in case the signing key ever leaks.
-        returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
-        flowId: parsed.f || undefined,
-        desktopVerifierHash:
-          typeof parsed.vh === "string" ? parsed.vh : undefined,
-        desktopBrowserBindingHash:
-          typeof parsed.bh === "string" ? parsed.bh : undefined,
-        desktopWebview: parsed.dw === true,
-        signupAttribution: sanitizeStateAttribution(parsed.ft),
-        signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
-      };
-    } catch {}
+): DecodeOAuthStateResult {
+  if (!stateParam) {
+    return { ok: false, reason: "missing-state", redirectUri: fallbackUri };
   }
-  return { redirectUri: fallbackUri };
+  try {
+    const dotIdx = stateParam.lastIndexOf(".");
+    if (dotIdx === -1) {
+      return {
+        ok: false,
+        reason: "missing-delimiter",
+        redirectUri: fallbackUri,
+      };
+    }
+
+    const data = stateParam.slice(0, dotIdx);
+    const sig = stateParam.slice(dotIdx + 1);
+    const expected = crypto
+      .createHmac("sha256", getOAuthStateSigningKey())
+      .update(data)
+      .digest("base64url");
+
+    if (
+      sig.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+    ) {
+      return { ok: false, reason: "bad-signature", redirectUri: fallbackUri };
+    }
+
+    const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    return {
+      ok: true,
+      redirectUri: parsed.r || fallbackUri,
+      owner: parsed.o || undefined,
+      orgId: typeof parsed.g === "string" ? parsed.g : undefined,
+      desktop: !!parsed.d,
+      mobile: !!parsed.m,
+      addAccount: !!parsed.a,
+      app: typeof parsed.app === "string" ? parsed.app : undefined,
+      scope: typeof parsed.s === "string" ? parsed.s : undefined,
+      provider: typeof parsed.p === "string" ? parsed.p : undefined,
+      // Pass returnUrl through as-is — same-origin validation runs at the
+      // consumer (oauthCallbackResponse → safeReturnPath). The state is
+      // HMAC-signed, but we still validate at consumption as defence in
+      // depth in case the signing key ever leaks.
+      returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
+      flowId: parsed.f || undefined,
+      oauthTargetId: typeof parsed.ot === "string" ? parsed.ot : undefined,
+      desktopVerifierHash:
+        typeof parsed.vh === "string" ? parsed.vh : undefined,
+      desktopBrowserBindingHash:
+        typeof parsed.bh === "string" ? parsed.bh : undefined,
+      desktopWebview: parsed.dw === true,
+      signupAttribution: sanitizeStateAttribution(parsed.ft),
+      signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
+    };
+  } catch {
+    return { ok: false, reason: "malformed-payload", redirectUri: fallbackUri };
+  }
+}
+
+/**
+ * Structured, secret-free warning for a rejected OAuth state — the one signal
+ * that a tampered/expired/rotated-secret state didn't get silently processed
+ * as a plain sign-in. Call this from every `decodeOAuthState` call site on
+ * `!ok`, before falling back to that route's existing error page/redirect.
+ */
+export function logOAuthStateDecodeFailure(
+  event: H3Event,
+  reason: OAuthStateDecodeFailureReason,
+  provider?: string,
+): void {
+  console.warn("[agent-native][oauth] state decode failed", {
+    reason,
+    provider,
+    path: getOriginalRequestPath(event),
+  });
 }
 
 // ─── Session Creation ────────────────────────────────────────────────────────
@@ -714,6 +952,7 @@ export async function resolveOAuthOwner(
   event: H3Event,
   stateOwner?: string,
 ): Promise<OAuthOwnerResult> {
+  const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
   const hasProductionSession = !!existingSession?.email;
   const owner = hasProductionSession
@@ -742,15 +981,35 @@ export async function createOAuthSession(
     hasProductionSession: boolean;
     desktop?: boolean;
     mobile?: boolean;
+    authProvider?: "google" | `sso:${string}` | null;
     trackSignup?: {
       authProvider: string;
+      /** Provider subjects are retained for legacy callers, never used as auth_user_id. */
       authUserId?: string;
+      /** Canonical Better Auth fallback supplied by the core callback. */
+      canonicalAuthUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      /**
+       * Whether this callback created the account, decided by the caller at
+       * the moment it created it. Callers that provision the canonical user
+       * before getting here MUST pass this: the `hasBetterAuthUserEmail`
+       * probe below then reads the row they just wrote and concludes the
+       * person is an existing user, which silently deleted the only
+       * attributed signup event Google sign-in produces.
+       */
+      isNewUser?: boolean;
     };
   },
 ): Promise<OAuthSessionResult> {
+  const {
+    addSession,
+    getSessionMaxAge,
+    hasLegacySessionForEmail,
+    setFirstRunOnboardingCookie,
+    setFrameworkSessionCookie,
+  } = await import("./auth.js");
   // A native callback can arrive through a browser whose callback request
   // user-agent does not identify as mobile. Prefer the signed flow intent and
   // retain UA detection for ordinary mobile web sign-ins.
@@ -762,16 +1021,25 @@ export async function createOAuthSession(
   let shouldTrackSignup = false;
   if (!opts.hasProductionSession || needsDeepLink) {
     if (opts.trackSignup && !opts.hasProductionSession) {
-      const [hasLegacySession, hasBetterAuthUser] = await Promise.all([
-        hasLegacySessionForEmail(email).catch(() => true),
-        hasBetterAuthUserEmail(email).catch(() => true),
-      ]);
-      shouldTrackSignup = !hasLegacySession && !hasBetterAuthUser;
+      shouldTrackSignup =
+        opts.trackSignup.isNewUser ??
+        (await Promise.all([
+          hasLegacySessionForEmail(email).catch(() => true),
+          hasBetterAuthUserEmail(email).catch(() => true),
+        ]).then(
+          ([hasLegacySession, hasUser]) => !hasLegacySession && !hasUser,
+        ));
     }
 
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
     setFrameworkSessionCookie(event, sessionToken);
+    if (opts.authProvider !== null) {
+      setIdentityGoogleAuthCookie(event, email);
+    }
+    if (opts.trackSignup && opts.trackSignup.isNewUser !== false) {
+      setFirstRunOnboardingCookie(event);
+    }
     if (shouldTrackSignup && opts.trackSignup) {
       const attribution =
         opts.trackSignup.attribution ??
@@ -779,9 +1047,14 @@ export async function createOAuthSession(
       const anonymousId =
         opts.trackSignup.signupAnonymousId ??
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
+      const authUserId =
+        (await getBetterAuthUserIdForEmail(email)) ??
+        opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
-        authUserId: opts.trackSignup.authUserId,
+        origin: "google_oauth",
+        signupMethod: "google",
+        authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,
@@ -834,7 +1107,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);
@@ -850,6 +1123,7 @@ export function oauthCallbackResponse(
   // not the app root (else signed-out visitors land on the homepage).
   if (mobile) {
     const deepLink = buildOAuthCompleteDeepLink(
+      event,
       opts.sessionToken,
       callbackState,
     );
@@ -857,8 +1131,15 @@ export function oauthCallbackResponse(
       opts.returnUrl,
       opts.sessionToken,
     );
-    return htmlResponse(
+    const headers = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+    });
+    for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+      headers.append("set-cookie", cookie);
+    }
+    return new Response(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href=${JSON.stringify(webFallback)}},1500)</script></body></html>`,
+      { status: 200, headers },
     );
   }
 
@@ -923,7 +1204,7 @@ export function oauthCallbackResponse(
   // check, any client whose OAuth state was minted with `desktop=true` (e.g.
   // a stale link, or an upstream that wrongly set `?desktop=1`) would land
   // on the `agentnative://` page where the deep link can't fire and the
-  // "Open Agent Native" button does nothing — surfaces inside Builder.io's
+  // "Open Agent-Native" button does nothing — surfaces inside Builder.io's
   // Fusion webview hit this exact dead-end. Fall through to the web flow
   // for non-Agent-Native-Desktop clients so they get a real redirect.
   if (opts.desktop && isElectron(event)) {
@@ -977,11 +1258,11 @@ export function oauthCallbackResponse(
  *  callers pass `error.message` from a token-exchange or userinfo failure,
  *  which can echo upstream provider strings (and historically attacker-
  *  controlled query params via the `error_description` field). */
-export function oauthErrorPage(message: string): Response {
+export function oauthErrorPage(message: string, status = 400): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
-    400,
+    status,
   );
 }
 
@@ -999,7 +1280,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppName() || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent-Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)
@@ -1009,20 +1290,22 @@ function resolveOAuthAppName(explicit?: string): string {
 }
 
 function buildOAuthCompleteDeepLink(
+  event: H3Event,
   sessionToken?: string,
   state?: string,
 ): string {
+  const protocol = getDesktopOAuthProtocol(event);
   const params = new URLSearchParams();
   if (sessionToken) params.set("token", sessionToken);
   if (state) params.set("state", state);
   const suffix = params.toString();
   return suffix
-    ? `agentnative://oauth-complete?${suffix}`
-    : "agentnative://oauth-complete";
+    ? `${protocol}://oauth-complete?${suffix}`
+    : `${protocol}://oauth-complete`;
 }
 
 function desktopSuccessPage(
-  _event: H3Event,
+  event: H3Event,
   email?: string,
   sessionToken?: string,
   state?: string,
@@ -1030,21 +1313,22 @@ function desktopSuccessPage(
   const safeEmail = email ? escapeHtml(email) : "";
   const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
   if (sessionToken) {
-    const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
+    const deepLink = buildOAuthCompleteDeepLink(event, sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
-    // the Agent Native desktop app (server gate bypassed, stale link, etc.),
+    // the Agent-Native desktop app (server gate bypassed, stale link, etc.),
     // skip the `agentnative://` deep link entirely and bounce to the app
     // root. The deep link silently fails outside the desktop app and the
-    // "Open Agent Native" button is a dead end in a generic browser/webview.
+    // "Open Agent-Native" button is a dead end in a generic browser/webview.
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
+      // guard:allow-raw-color - standalone OAuth completion page has no app stylesheet.
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent-Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
     );
   }
   return htmlResponse(
     oauthSuccessCloseTabHtml(
       msg,
-      "You can close this tab and return to Agent Native.",
+      "You can close this tab and return to Agent-Native.",
     ),
   );
 }

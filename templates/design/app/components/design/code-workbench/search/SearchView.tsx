@@ -116,7 +116,7 @@ export function SearchView({ searchSeed }: SearchViewProps) {
       abortRef.current = controller;
       setDismissed({ files: new Set(), matches: new Set() });
       setReplaceAllFailures(0);
-      searchWorkspace({
+      void searchWorkspace({
         providers: providersRef.current,
         query,
         matchCase,

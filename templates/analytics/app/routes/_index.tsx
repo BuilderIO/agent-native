@@ -1,5 +1,5 @@
-import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { redirect, type LoaderFunctionArgs } from "react-router";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Analytics - Open Source Alternative to Amplitude & FullStory";
@@ -9,10 +9,7 @@ const SEO_DESCRIPTION =
 export function meta() {
   return [
     { title: SEO_TITLE },
-    {
-      name: "description",
-      content: SEO_DESCRIPTION,
-    },
+    { name: "description", content: SEO_DESCRIPTION },
     { property: "og:title", content: SEO_TITLE },
     { property: "og:description", content: SEO_DESCRIPTION },
     { name: "twitter:card", content: "summary" },
@@ -21,18 +18,19 @@ export function meta() {
   ];
 }
 
-function target(url: URL): string {
-  return `/ask${url.search}${url.hash}`;
-}
-
-export function loader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
-}
-
-export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
-}
-
-export default function IndexRoute() {
-  return null;
+export default function MarketingHomeRoute() {
+  return (
+    <MarketingHome
+      appName="Analytics"
+      tagline="Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you."
+      description={SEO_DESCRIPTION}
+      valueProps={[
+        "Ask questions across BigQuery, HubSpot, Jira, and more",
+        "Build dashboards from live data across your sources",
+        "Re-run saved analyses with fresh numbers",
+      ]}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
+  );
 }

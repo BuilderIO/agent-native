@@ -21,8 +21,11 @@ export function canManageOrg(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }
 
-export function canInviteOrgMembers(role: OrgRole | null | undefined): boolean {
-  return orgRoleAtLeast(role, "admin");
+export function canInviteOrgMembers(
+  role: OrgRole | null | undefined,
+  emailConfigured?: boolean,
+): boolean {
+  return emailConfigured !== false && orgRoleAtLeast(role, "admin");
 }
 
 export function canManageOrgDomain(role: OrgRole | null | undefined): boolean {

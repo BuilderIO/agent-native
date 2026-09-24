@@ -1,10 +1,11 @@
+import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
 import type {
   LoaderFunctionArgs,
   MetaArgs,
   MetaDescriptor,
 } from "react-router";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export interface BookingOgLoaderData {
   ogImageUrl: string;
@@ -41,6 +42,7 @@ export function bookingOgLoader({
     `${appBasePath()}/api/public/booking-links/${encodeURIComponent(slug)}/og.png`,
     request.url,
   );
+  imageUrl.searchParams.set("v", AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER);
   if (params.username) imageUrl.searchParams.set("username", params.username);
   return { ogImageUrl: imageUrl.toString() };
 }
@@ -49,7 +51,7 @@ export function bookingOgMeta({
   loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
   const image = loaderData?.ogImageUrl;
-  const title = messagesByLocale["en-US"].routeTitles.bookMeeting;
+  const title = enUSMessages.routeTitles.bookMeeting;
   return [
     { title },
     { property: "og:title", content: title },

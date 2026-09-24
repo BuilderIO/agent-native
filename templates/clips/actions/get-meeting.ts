@@ -2,7 +2,7 @@
  * Get a single meeting (with its participants and action items) — access checked.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -48,7 +48,7 @@ function safeParseArray<T>(
 
 export default defineAction({
   description:
-    "Get a meeting by id with its participants, action items, and a reference to its recording (if any). Returns null if the user lacks access.",
+    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
   }),
@@ -59,12 +59,17 @@ export default defineAction({
       const materialized = await materializeCalendarMeetingFromVirtualId(
         args.id,
       );
-      if (!materialized?.meeting?.id) return { meeting: null };
+      if (!materialized?.meeting?.id)
+        return { meeting: null, reason: "unavailable" as const };
       meetingId = materialized.meeting.id;
     }
 
+    // "cannot see it" and "does not exist" deliberately share one reason: a
+    // caller that could tell them apart could probe ids to learn which
+    // meetings exist. The distinction callers actually need is this vs a
+    // thrown read failure, which stays separate.
     const access = await resolveAccess("meeting", meetingId);
-    if (!access) return { meeting: null };
+    if (!access) return { meeting: null, reason: "unavailable" as const };
 
     const db = getDb();
     const [row] = await db
@@ -77,7 +82,7 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!row) return { meeting: null };
+    if (!row) return { meeting: null, reason: "unavailable" as const };
 
     // Server-side JSON parse — clients see structured arrays, not raw TEXT.
     const bullets = safeParseArray<Bullet>(

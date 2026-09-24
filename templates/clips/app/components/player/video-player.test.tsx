@@ -127,6 +127,17 @@ describe("VideoPlayer playback", () => {
     return video;
   }
 
+  function getPlayerControls(): HTMLDivElement {
+    const scrubber = container.querySelector<HTMLElement>(
+      "[data-player-scrubber]",
+    );
+    const controls = scrubber?.parentElement?.parentElement;
+    if (!(controls instanceof HTMLDivElement)) {
+      throw new Error("player controls did not render");
+    }
+    return controls;
+  }
+
   it("toggles play/pause on the real video element when the surface is clicked", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
@@ -151,6 +162,171 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a paused clip paused when its playback speed changes", () => {
+    const video = getVideo();
+    const playSpy = vi.spyOn(video, "play");
+
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+
+    act(() => {
+      handleRef.current?.pause();
+      handleRef.current?.setSpeed(1.5);
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(video.playbackRate).toBe(1.5);
+    expect(video.paused).toBe(true);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps playback errors above the player controls", () => {
+    const video = getVideo();
+    vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    const error = container.querySelector<HTMLElement>('[role="status"]');
+    expect(error?.textContent).toContain("Video could not be loaded.");
+    expect(error?.parentElement?.className).toContain("top-3");
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("z-20");
+  });
+
+  it("stops picture-in-picture playback when the player unmounts", () => {
+    const video = getVideo();
+    const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
+    const pipElementDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "pictureInPictureElement",
+    );
+    const exitPipDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "exitPictureInPicture",
+    );
+
+    Object.defineProperty(document, "pictureInPictureElement", {
+      configurable: true,
+      value: video,
+    });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: exitPictureInPicture,
+    });
+
+    try {
+      act(() => {
+        getPlayerSurface().click();
+      });
+      expect(video.paused).toBe(false);
+
+      act(() => {
+        root.render(null);
+      });
+
+      expect(video.paused).toBe(true);
+      expect(exitPictureInPicture).toHaveBeenCalledOnce();
+    } finally {
+      if (pipElementDescriptor) {
+        Object.defineProperty(
+          document,
+          "pictureInPictureElement",
+          pipElementDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "pictureInPictureElement");
+      }
+      if (exitPipDescriptor) {
+        Object.defineProperty(
+          document,
+          "exitPictureInPicture",
+          exitPipDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "exitPictureInPicture");
+      }
+    }
+  });
+
+  it("shows buffering while autoplay starts instead of a second play button", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/slack-clip.webm"
+            durationMs={10_000}
+            autoPlay
+            persistPlaybackPosition={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.autoplay).toBe(true);
+    expect(container.textContent).toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+
+    act(() => {
+      video.dispatchEvent(new Event("playing"));
+    });
+
+    expect(container.textContent).not.toContain("Buffering");
+    expect(
+      container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+    ).toBeNull();
+  });
+
+  it("restores click-to-play when autoplay is blocked", async () => {
+    const playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockRejectedValue(
+        new DOMException("Autoplay blocked", "NotAllowedError"),
+      );
+
+    try {
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <VideoPlayer
+              ref={(instance) => {
+                handleRef.current = instance;
+              }}
+              recordingId="recording-1"
+              videoUrl="https://cdn.example.com/slack-clip.webm"
+              durationMs={10_000}
+              autoPlay
+              persistPlaybackPosition={false}
+            />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(playSpy).toHaveBeenCalled();
+      expect(container.textContent).not.toContain("Buffering");
+      expect(
+        container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+      ).not.toBeNull();
+    } finally {
+      playSpy.mockRestore();
+    }
+  });
+
   it("keeps the center play control actionable before media readiness events fire", () => {
     const video = getVideo();
     const centerPlay = container.querySelector<HTMLButtonElement>(
@@ -172,6 +348,171 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps paused progress visible and interactive after the idle timeout", () => {
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
+  });
+
+  it("hides playback comments while the end CTA is visible", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-end",
+                content: "This should stay below the CTA.",
+                videoTimestampMs: 9_900,
+              },
+            ]}
+            cta={{
+              id: "cta-1",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "end",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(9_900);
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
+    expect(
+      container.querySelector<HTMLElement>("[data-player-end-cta]")?.style
+        .zIndex,
+    ).toBe("60");
+    expect(container.textContent).toContain("Visit site");
+  });
+
+  it("keeps an active marker hover preview above the playback comment", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-active",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const marker = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 comment"]',
+    );
+    act(() => {
+      marker?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const hoverPreview = container.querySelector("[data-player-comment-hover]");
+    const playbackComment = container.querySelector(
+      "[data-player-playback-comment]",
+    );
+    expect(hoverPreview).not.toBeNull();
+    expect(playbackComment).not.toBeNull();
+    expect(hoverPreview?.className).toContain("z-50");
+    expect(playbackComment?.className).toContain("z-40");
+    expect(getPlayerControls().className).toContain("z-20");
+  });
+
+  it("keeps throughout CTAs above playback comments", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            persistPlaybackPosition={false}
+            comments={[
+              {
+                id: "comment-throughout",
+                content: "This is active.",
+                videoTimestampMs: 1_000,
+              },
+            ]}
+            cta={{
+              id: "cta-throughout",
+              label: "Visit site",
+              url: "https://example.com",
+              color: "#000000",
+              placement: "throughout",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(1_000);
+    });
+
+    const cta = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://example.com"]',
+    );
+    expect(cta?.parentElement?.className).toContain("z-50");
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps the pause control visible on mobile after the idle timeout", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("play"));
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).toContain("sm:pointer-events-none");
+    expect(
+      container.querySelector('button[aria-label="Pause"]'),
+    ).not.toBeNull();
   });
 
   it("keeps owner playback on the same-origin media request path", () => {
@@ -351,6 +692,32 @@ describe("VideoPlayer playback", () => {
     expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
   });
 
+  it("reports imperative native seeks to the parent playback clock", () => {
+    const onTimeUpdate = vi.fn();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            onTimeUpdate={onTimeUpdate}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(onTimeUpdate).toHaveBeenCalledWith(4_000, 10_000);
+  });
+
   it("reads the latest Loom position from the imperative handle", () => {
     act(() => {
       root.render(
@@ -432,12 +799,20 @@ describe("VideoPlayer playback", () => {
       .mockReturnValue(new Promise<void>(() => {}));
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(playSpy).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("Buffering");
     expect(container.textContent).not.toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("opacity-100");
+    expect(controls.className).not.toContain("pointer-events-none");
   });
 
   it.each(["AbortError", "NotAllowedError"])(
@@ -479,7 +854,7 @@ describe("VideoPlayer playback", () => {
     video.currentTime = 10;
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(video.currentTime).toBe(0);
@@ -512,9 +887,14 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
-  it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
+  it("toggles playback on touch taps and suppresses the synthetic follow-up click", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
 
     act(() => {
       surface.dispatchEvent(
@@ -541,10 +921,8 @@ describe("VideoPlayer playback", () => {
       );
     });
 
-    // A touch tap on the surface only reveals controls (matching native
-    // mobile players) — it must not start playback on its own.
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPause).toHaveBeenCalledTimes(1);
 
     // Real browsers fire a synthetic "click" immediately after a touch tap.
     // The component must swallow exactly that one click rather than treating
@@ -556,7 +934,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(true);
-    expect(onPlay).not.toHaveBeenCalled();
+    expect(onPlay).toHaveBeenCalledOnce();
 
     // A later, unrelated real click still toggles playback normally — proving
     // the suppression is a one-shot flag consumed by the synthetic click, not
@@ -566,7 +944,7 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(video.paused).toBe(false);
-    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledTimes(2);
   });
 
   it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {

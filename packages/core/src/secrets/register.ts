@@ -84,12 +84,12 @@ export function registerRequiredSecret(secret: RegisteredSecret): void {
     secret.scope !== "org"
   ) {
     throw new Error(
-      `registerRequiredSecret: secret.scope must be "user", "workspace", or "org" (got "${secret.scope}")`,
+      `registerRequiredSecret: secret.scope must be "user", "workspace", or "org" (got "${String(secret.scope)}")`,
     );
   }
   if (secret.kind !== "api-key" && secret.kind !== "oauth") {
     throw new Error(
-      `registerRequiredSecret: secret.kind must be "api-key" or "oauth" (got "${secret.kind}")`,
+      `registerRequiredSecret: secret.kind must be "api-key" or "oauth" (got "${String(secret.kind)}")`,
     );
   }
   if (registry.has(secret.key) && process.env.DEBUG) {

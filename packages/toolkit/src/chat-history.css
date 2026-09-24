@@ -430,13 +430,7 @@
   border-radius: var(--radius);
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  --agent-shadow: 0 0% 0%;
-  --agent-shadow-o: 0.14;
-  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
-}
-
-.dark .an-chat-history-row__menu-content {
-  --agent-shadow-o: 0.08;
+  box-shadow: var(--agent-kit-overlay-elevation);
 }
 
 .an-chat-history-row__menu-item {

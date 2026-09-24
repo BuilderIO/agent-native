@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOpToDeck,
+  applyUndoOpToDecks,
   deriveInverseOp,
+  reorderSlidesById,
   type Deck,
   type PatchDeckOp,
   type Slide,
@@ -58,6 +60,13 @@ function expectRoundTrip(before: Deck, op: PatchDeckOp) {
 }
 
 describe("deriveInverseOp / applyOpToDeck round-trips", () => {
+  it("moves a selected slide group together while preserving its order", () => {
+    const slides = [slide("a"), slide("b"), slide("c"), slide("d")];
+    expect(
+      reorderSlidesById(slides, "b", "d", ["b", "c"])?.map((s) => s.id),
+    ).toEqual(["a", "d", "b", "c"]);
+  });
+
   it("patch-slide: inverse restores the prior field values", () => {
     const before = deck([
       slide("a", { content: "<div>original</div>", background: "bg-black" }),
@@ -226,6 +235,46 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     const after = applyOpToDeck(before, op);
     // The unnamed concurrent slide is preserved at the end.
     expect(after.slides.map((s) => s.id)).toEqual(["b", "a", "concurrent"]);
+  });
+
+  it("clears imported source provenance only for structural changes", () => {
+    const before = deck([slide("a"), slide("b")], {
+      sourceImport: { mode: "source-preserving" },
+    });
+    const contentEdit = applyOpToDeck(before, {
+      op: "patch-slide",
+      slideId: "a",
+      fields: { content: "<div>edited</div>" },
+    });
+    expect(contentEdit.sourceImport).toEqual({ mode: "source-preserving" });
+
+    const structuralOps: PatchDeckOp[] = [
+      { op: "delete-slide", slideId: "a" },
+      { op: "reorder-slides", orderedIds: ["b", "a"] },
+      { op: "add-slide", slideId: "c", fields: { content: "<div>c</div>" } },
+    ];
+    for (const op of structuralOps) {
+      expect(applyOpToDeck(before, op).sourceImport).toBeUndefined();
+    }
+  });
+
+  it("restores imported source provenance through a replacement undo", () => {
+    const before = deck([slide("a"), slide("b")], {
+      sourceImport: { mode: "source-preserving", slideIds: ["a", "b"] },
+    });
+    const after = applyOpToDeck(before, {
+      op: "delete-slide",
+      slideId: "a",
+    });
+
+    expect(after.sourceImport).toBeUndefined();
+    expect(
+      applyUndoOpToDecks([after], {
+        op: "replace-deck",
+        deckId: before.id,
+        deck: before,
+      }),
+    ).toEqual([before]);
   });
 
   it("patch-deck-fields: inverse restores prior deck fields", () => {

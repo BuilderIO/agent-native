@@ -1,10 +1,14 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
 import type { InteractionState } from "@shared/interaction-states";
 import type { RefObject } from "react";
 
+import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
 import type { StyleChangeMeta } from "@/components/design/EditPanel";
 import type { ElementInfo } from "@/components/design/types";
 import type { SelectedLayerTarget } from "@/pages/design-editor/code-layer-state";
 import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/editor-state";
+
+import { styleWriteTarget } from "./style-write-target";
 
 export interface StyleChangeArgs {
   commitInteractionStateStyles: (
@@ -13,9 +17,18 @@ export interface StyleChangeArgs {
   ) => boolean;
   commitRelativeStyleDeltaToSelectedLayers: (
     property: string,
-    delta: number,
+    operation: number | ScrubRelativeExpression,
+    phase?: StyleChangeMeta["phase"],
   ) => boolean;
-  commitStylesToSelectedLayers: (styles: Record<string, string>) => boolean;
+  commitStylesToSelectedLayers: (
+    styles: Record<string, string>,
+    phase?: StyleChangeMeta["phase"],
+  ) => boolean;
+  commitCapturedStyleTargets: (
+    styles: Record<string, string>,
+    targets: CapturedStyleTarget[],
+    interactionState?: InteractionState,
+  ) => void;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,
@@ -44,6 +57,7 @@ export function runStyleChange(
     commitInteractionStateStyles,
     commitRelativeStyleDeltaToSelectedLayers,
     commitStylesToSelectedLayers,
+    commitCapturedStyleTargets,
     commitVisualStyles,
     handleClearBreakpointOverride,
     previewInteractionStateStyles,
@@ -56,6 +70,20 @@ export function runStyleChange(
   value: string,
   meta?: StyleChangeMeta,
 ) {
+  // Gesture cancellation is paired with a preceding preview that restored the
+  // pointerdown value. It must not enter this command's preview or commit path.
+  if (meta?.phase === "cancel") {
+    commitStylesToSelectedLayers({}, "cancel");
+    return;
+  }
+  if (meta?.capturedStyleTargets && meta.phase !== "preview") {
+    commitCapturedStyleTargets(
+      { [property]: value },
+      meta.capturedStyleTargets,
+      meta.interactionState,
+    );
+    return;
+  }
   if (meta?.interactionState) {
     if (meta.phase === "preview") {
       previewInteractionStateStyles(meta.interactionState, {
@@ -79,16 +107,14 @@ export function runStyleChange(
     return;
   }
   const selector = selectedElement?.selector ?? "body";
-  if (
-    textEditingState.active &&
-    textEditingState.hasRange &&
-    textEditingState.selector === selector
-  ) {
+  const target = styleWriteTarget({ selector, selectedElement });
+  if (textEditingState.hasRange && textEditingState.selector === selector) {
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
       sendStyleChange(selector, property, value, {
         selectorCandidates: selectedCanvasSelectorCandidates,
         nodeId: selectedElement?.sourceId,
+        phase: meta?.phase,
       });
       return;
     }
@@ -114,7 +140,7 @@ export function runStyleChange(
   ) {
     const sendStyleChange = (window as any).__designCanvasSendStyle;
     if (typeof sendStyleChange === "function") {
-      sendStyleChange(selector, property, value, {
+      sendStyleChange(target, property, value, {
         selectorCandidates: selectedCanvasSelectorCandidates,
         nodeId: selectedElement?.sourceId,
       });
@@ -123,22 +149,23 @@ export function runStyleChange(
     // screen) — nothing cheap to do; wait for the gesture's "commit".
     return;
   }
-  // Mixed-value arrow-step parity (item 7): ScrubInput's own
-  // ScrubInputChangeMeta now carries `relativeDelta` (set on a mixed-
-  // selection arrow nudge), and EditPanel forwards that meta object
-  // straight through to onStyleChange — but StyleChangeMeta (this
-  // parameter's declared type) doesn't declare the field yet, so it's
-  // read defensively through a local cast rather than a direct property
-  // access. This works today (the field is present on the actual object
-  // at runtime) and degrades safely to "absent" if that ever changes —
-  // either way behavior falls through to the existing absolute-value
-  // paths below unchanged. Only routes through the per-node relative
-  // path for an actual multi-selection; commitRelativeStyleDeltaToSelectedLayers
-  // itself also no-ops (returns false) for a single target.
-  const relativeDelta = (meta as { relativeDelta?: number } | undefined)
-    ?.relativeDelta;
+  if (meta?.relativeExpression) {
+    commitRelativeStyleDeltaToSelectedLayers(
+      property,
+      meta.relativeExpression,
+      meta.phase,
+    );
+    return;
+  }
+  const relativeDelta = meta?.relativeDelta;
   if (typeof relativeDelta === "number") {
-    if (commitRelativeStyleDeltaToSelectedLayers(property, relativeDelta))
+    if (
+      commitRelativeStyleDeltaToSelectedLayers(
+        property,
+        relativeDelta,
+        meta?.phase,
+      )
+    )
       return;
   }
   // Page properties render only when there is no concrete DOM element
@@ -146,7 +173,10 @@ export function runStyleChange(
   // while Escape exposes Page (especially after overview/breakpoint
   // navigation); never let that stale structural selection hijack a page
   // background/font edit away from the body.
-  if (selectedElement && commitStylesToSelectedLayers({ [property]: value }))
+  if (
+    selectedElement &&
+    commitStylesToSelectedLayers({ [property]: value }, meta?.phase)
+  )
     return;
-  commitVisualStyles(selector, { [property]: value });
+  commitVisualStyles(target, { [property]: value });
 }

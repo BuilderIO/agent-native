@@ -73,6 +73,17 @@ describe("usePinchZoom", () => {
     target.dispatchEvent(event);
   }
 
+  const NOTCH_STEP = 1.1;
+  const PINCH_BAND_PX = 40;
+
+  /** Independent restatement of the hook's two curves: a trackpad pinch stays
+   *  inside the band, anything larger is a discrete notch. */
+  function expectedFactor(deltaY: number) {
+    return Math.abs(deltaY) < PINCH_BAND_PX
+      ? Math.exp(-deltaY * 0.0075)
+      : Math.pow(NOTCH_STEP, -deltaY / 100);
+  }
+
   interface HarnessHandle {
     scrollEl: HTMLDivElement;
     zoom: number;
@@ -81,14 +92,27 @@ describe("usePinchZoom", () => {
   function Harness({
     zoom,
     setZoom,
+    enabled,
     onRef,
+    onZoomFrame,
+    onZoomEnd,
   }: {
     zoom: number;
     setZoom: (n: number) => void;
+    enabled?: boolean;
     onRef: (el: HTMLDivElement) => void;
+    onZoomFrame?: (n: number) => void;
+    onZoomEnd?: (n: number) => void;
   }) {
     const ref = useRef<HTMLDivElement | null>(null);
-    usePinchZoom({ containerRef: ref, zoom, setZoom });
+    usePinchZoom({
+      containerRef: ref,
+      zoom,
+      setZoom,
+      enabled,
+      onZoomFrame,
+      onZoomEnd,
+    });
     return (
       <div
         ref={(el) => {
@@ -100,7 +124,14 @@ describe("usePinchZoom", () => {
     );
   }
 
-  async function renderHarness(initialZoom: number) {
+  async function renderHarness(
+    initialZoom: number,
+    callbacks?: {
+      onZoomFrame?: (n: number) => void;
+      onZoomEnd?: (n: number) => void;
+    },
+    enabled = true,
+  ) {
     let zoom = initialZoom;
     let scrollEl: HTMLDivElement | null = null;
     const setZoom = vi.fn((next: number) => {
@@ -112,6 +143,9 @@ describe("usePinchZoom", () => {
         <Harness
           zoom={zoom}
           setZoom={setZoom}
+          enabled={enabled}
+          onZoomFrame={callbacks?.onZoomFrame}
+          onZoomEnd={callbacks?.onZoomEnd}
           onRef={(el) => {
             scrollEl = el;
           }}
@@ -144,6 +178,15 @@ describe("usePinchZoom", () => {
     };
   }
 
+  it("ignores pinch gestures while disabled", async () => {
+    const { scrollEl, setZoom } = await renderHarness(100, undefined, false);
+
+    dispatchWheel(scrollEl, { clientX: 100, clientY: 100, deltaY: -20 });
+    flushRaf();
+
+    expect(setZoom).not.toHaveBeenCalled();
+  });
+
   it("applies a single wheel event's zoom-to-cursor compensation (baseline, unchanged behavior)", async () => {
     const { scrollEl, setZoom } = await renderHarness(100);
     scrollEl.scrollLeft = 0;
@@ -154,7 +197,7 @@ describe("usePinchZoom", () => {
 
     expect(setZoom).toHaveBeenCalledTimes(1);
     const nextZoom = setZoom.mock.calls[0][0] as number;
-    const factor = Math.exp(-Math.max(-50, Math.min(50, -50)) * 0.01);
+    const factor = expectedFactor(-50);
     const expectedZoom = Math.max(25, Math.min(400, 100 * factor));
     expect(nextZoom).toBeCloseTo(expectedZoom, 10);
 
@@ -165,6 +208,34 @@ describe("usePinchZoom", () => {
     const expectedDy = cy * (ratio - 1);
     expect(scrollEl.scrollLeft).toBeCloseTo(expectedDx, 6);
     expect(scrollEl.scrollTop).toBeCloseTo(expectedDy, 6);
+  });
+
+  it("moves one mouse notch by a Figma-sized step, not the saturated pinch curve", async () => {
+    // Every notch used to saturate a +/-50 delta clamp and land on exp(0.5),
+    // so 100px and 240px both zoomed 1.65x per detent.
+    const { scrollEl, setZoom } = await renderHarness(100);
+    scrollEl.scrollLeft = 0;
+    scrollEl.scrollTop = 0;
+
+    dispatchWheel(scrollEl, { clientX: 100, clientY: 100, deltaY: -100 });
+    flushRaf();
+
+    expect(setZoom.mock.calls[0][0] as number).toBeCloseTo(100 * NOTCH_STEP, 6);
+  });
+
+  it("keeps a whole gesture on the notch curve once its deltas ramp past the pinch band", async () => {
+    // macOS ramps an accelerated wheel up from pinch-sized deltas, so the
+    // first event alone cannot decide the device for the rest of the stream.
+    const { scrollEl, setZoom } = await renderHarness(100);
+    scrollEl.scrollLeft = 0;
+    scrollEl.scrollTop = 0;
+
+    dispatchWheel(scrollEl, { clientX: 100, clientY: 100, deltaY: -6 });
+    dispatchWheel(scrollEl, { clientX: 100, clientY: 100, deltaY: -240 });
+    flushRaf();
+
+    const expected = 100 * expectedFactor(-6) * Math.pow(NOTCH_STEP, 240 / 100);
+    expect(setZoom.mock.calls[0][0] as number).toBeCloseTo(expected, 6);
   });
 
   it("accumulates cursor-anchored scroll compensation across multiple wheel events coalesced into one frame", async () => {
@@ -190,7 +261,7 @@ describe("usePinchZoom", () => {
     // scroll position the previous event would have produced.
     const clamp = (n: number) => Math.max(25, Math.min(400, n));
     const step = (z: number, s: { x: number; y: number }, deltaY: number) => {
-      const factor = Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
+      const factor = expectedFactor(deltaY);
       const nextZ = clamp(z * factor);
       const cx = 200 - 0 + s.x;
       const cy = 150 - 0 + s.y;
@@ -213,7 +284,7 @@ describe("usePinchZoom", () => {
     // instead of the running simulated scroll position, so the second event's
     // dx would have been computed from cx = 200 + 0 rather than 200 + dx1.
     // The corrected accumulation must differ from that buggy total.
-    const factorStep = Math.exp(-Math.max(-50, Math.min(50, -20)) * 0.01);
+    const factorStep = expectedFactor(-20);
     const z1 = clamp(100 * factorStep);
     const z2 = clamp(z1 * factorStep);
     const buggyDx1 = 200 * (z1 / 100 - 1);
@@ -240,7 +311,7 @@ describe("usePinchZoom", () => {
       clientY: number,
       deltaY: number,
     ) => {
-      const factor = Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
+      const factor = expectedFactor(deltaY);
       const nextZ = clamp(z * factor);
       if (nextZ === z) return { z, s };
       const cx = clientX - 0 + s.x;
@@ -259,5 +330,64 @@ describe("usePinchZoom", () => {
     expect(setZoom.mock.calls[0][0] as number).toBeCloseTo(state.z, 6);
     expect(scrollEl.scrollLeft).toBeCloseTo(state.s.x, 6);
     expect(scrollEl.scrollTop).toBeCloseTo(state.s.y, 6);
+  });
+
+  it("paints imperative zoom frames and commits once after the gesture settles", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const frames: number[] = [];
+      const settled: number[] = [];
+      const { scrollEl, setZoom, getZoom } = await renderHarness(100, {
+        onZoomFrame: (next) => frames.push(next),
+        onZoomEnd: (next) => settled.push(next),
+      });
+
+      dispatchWheel(scrollEl, { clientX: 200, clientY: 150, deltaY: -20 });
+      flushRaf();
+
+      expect(frames).toHaveLength(1);
+      expect(setZoom).not.toHaveBeenCalled();
+      expect(getZoom()).toBe(100);
+
+      vi.advanceTimersByTime(119);
+      expect(settled).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(settled).toEqual(frames);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not commit a gesture after a newer controlled zoom arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const frames: number[] = [];
+      const settled: number[] = [];
+      const { scrollEl } = await renderHarness(100, {
+        onZoomFrame: (next) => frames.push(next),
+        onZoomEnd: (next) => settled.push(next),
+      });
+
+      dispatchWheel(scrollEl, { clientX: 200, clientY: 150, deltaY: -20 });
+      flushRaf();
+      expect(frames).toHaveLength(1);
+
+      await act(async () => {
+        root.render(
+          <Harness
+            zoom={240}
+            setZoom={() => {}}
+            onRef={() => {}}
+            onZoomFrame={(next) => frames.push(next)}
+            onZoomEnd={(next) => settled.push(next)}
+          />,
+        );
+      });
+      vi.advanceTimersByTime(120);
+
+      expect(settled).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

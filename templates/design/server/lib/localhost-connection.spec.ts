@@ -1,18 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRequestOrgId = vi.hoisted(() => vi.fn<() => string | undefined>());
+const mockRequestAuthCapability = vi.hoisted(() =>
+  vi.fn<() => string | undefined>(),
+);
 const mockResolveOrgIdForEmail = vi.hoisted(() =>
   vi.fn<(email: string) => Promise<string | null>>(),
 );
 const mockUserEmail = vi.hoisted(() => vi.fn<() => string | undefined>());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestAuthCapability: () => mockRequestAuthCapability(),
   getRequestOrgId: () => mockRequestOrgId(),
   getRequestUserEmail: () => mockUserEmail(),
 }));
 
 vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: (email: string) => mockResolveOrgIdForEmail(email),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (resourceType: string, resourceId: string) =>
+    mockResolveAccess(resourceType, resourceId),
 }));
 
 // Each `select()` shifts the next queued result, so the scoped query and the
@@ -54,9 +64,11 @@ const SCOPE = { connectionId: "conn_1", ownerEmail: "user@example.com" };
 
 beforeEach(() => {
   selectResults = [];
+  mockRequestAuthCapability.mockReturnValue(undefined);
   mockUserEmail.mockReturnValue("user@example.com");
   mockRequestOrgId.mockReturnValue(undefined);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
+  mockResolveAccess.mockReset();
 });
 
 describe("resolveLocalhostConnectionScope", () => {
@@ -96,6 +108,44 @@ describe("resolveLocalhostConnectionScope", () => {
     await expect(resolveLocalhostConnectionScope()).rejects.toThrow(
       /no authenticated user/,
     );
+  });
+
+  it("uses the public design owner's scope for signed-in viewers", async () => {
+    mockUserEmail.mockReturnValue("viewer@example.com");
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({
+        designId: "design_1",
+        allowPublicViewer: true,
+      }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+  });
+
+  it("uses a visual-edit capability before ambient signed-in account scope", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
 });
 

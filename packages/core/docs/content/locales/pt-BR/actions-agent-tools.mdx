@@ -93,12 +93,12 @@ export default createAgentChatPlugin({
 Os modos disponíveis são:
 
 - `off`. O padrão. Nenhuma ferramenta de execução de código é registrada em produção.
-- `sandboxed`. Registra `run-code`, um executor Node.js JavaScript isolado com um ambiente limpo, um diretório temporário novo, limites de saída/tempo, e uma ponte localhost para ferramentas registradas na lista de permissões, como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` e a ponte de arquivos do espaço de trabalho apoiada em Resources, usada por `workspaceRead` / `workspaceWrite`.
+- `sandboxed`. Registra `run-code`, um avaliador QuickJS reforçado com limites de memória, pilha, código-fonte, resultado e saída, além de funções de host para ferramentas permitidas como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` e a ponte de arquivos apoiada em Resources usada por `workspaceRead` / `workspaceWrite`. O código convidado não tem acesso a módulos Node, sistema de arquivos, variáveis de ambiente, rede, temporizadores ou imports.
 - `trusted`. Registra `run-code` mais o registro completo de ferramentas de codificação (`bash`, `read`, `edit`, `write`). Use isso somente para implantações de tenant único ou controladas pelo operador, onde o acesso total ao shell do host é intencional.
 
 Defina `AGENT_PROD_CODE_EXECUTION=sandboxed` ou `AGENT_PROD_CODE_EXECUTION=trusted` para sobrescrever a opção do plugin em uma implantação específica sem alterar o código. `AGENT_PROD_CODE_EXECUTION=off` força a desativação da execução de código mesmo quando a opção do plugin a habilita.
 
-O sandbox do `run-code` é um isolamento em nível de processo, não um container de sistema operacional. Ele remove os segredos do app do ambiente do processo filho e usa o modelo de permissões do Node quando disponível, mas o tráfego de rede de saída não é bloqueado pelo próprio Node. Chamadas autenticadas devem passar pelos auxiliares de ponte que a ferramenta expõe.
+O avaliador de produção do `run-code` usa QuickJS reforçado em vez de um processo filho Node. Não é um container de sistema operacional: as funções de host continuam sendo capacidades confiáveis e aplicam autenticação e autorização, enquanto o avaliador limita os recursos do código convidado e as chamadas à ponte.
 
 ## O que vem a seguir
 

@@ -68,7 +68,7 @@ function formValue(
   const value = props[name] ?? input.default;
   if (input.type === "boolean") return value === true || value === "true";
   if (value === undefined || value === null) return "";
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function LocalComponentInputEditor({
@@ -288,11 +288,12 @@ function LocalMdxComponentView({
           componentName={name}
           inputs={inputs}
           props={rawProps}
-          children={children}
           editor={editor}
           getPos={getPos}
           updateAttributes={updateAttributes}
-        />
+        >
+          {children}
+        </LocalComponentInputEditor>
       ) : null}
       {createElement(Component, props, children)}
     </NodeViewWrapper>

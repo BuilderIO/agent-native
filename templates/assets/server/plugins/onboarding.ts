@@ -114,7 +114,7 @@ export default async (nitroApp: any): Promise<void> => {
   registerOnboardingStep({
     id: "image-storage",
     order: 16,
-    required: true,
+    required: false,
     title: "Asset storage",
     description:
       "Assets needs S3-compatible object storage for original images, videos, thumbnails, and cross-agent exports.",

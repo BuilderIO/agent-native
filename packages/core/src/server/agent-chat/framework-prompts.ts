@@ -141,7 +141,7 @@ When no dedicated tool/action exists for what you need, reach for \`bash\`.
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- All SQL must target Postgres
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
 ${DEV_FRAMEWORK_CORE}`;
@@ -177,7 +177,7 @@ The agent and the UI are equal partners — everything the UI can do, you can do
 
 When editing code, follow the agent-native architecture:
 - Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- All SQL must target Postgres
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
 ${DEV_FRAMEWORK_CORE_COMPACT}`;

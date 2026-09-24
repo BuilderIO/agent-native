@@ -1,32 +1,15 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
 import type {
   AgentHarnessAdapter,
   AgentHarnessCapabilities,
   AgentHarnessContinueInput,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
+  AgentHarnessPermissionMode,
   AgentHarnessSession,
   AgentHarnessTurnInput,
 } from "./types.js";
 
 export type AiSdkHarnessRuntime = "claude-code" | "codex" | "pi";
-
-export type CodexCliAuthConfig =
-  | boolean
-  | {
-      /**
-       * Local Codex home to read auth from. Defaults to CODEX_HOME, then
-       * ~/.codex.
-       */
-      codexHome?: string;
-      /**
-       * Explicit local auth file path. Defaults to <codexHome>/auth.json.
-       */
-      authJsonPath?: string;
-    };
 
 export interface AiSdkHarnessAdapterOptions {
   runtime: AiSdkHarnessRuntime;
@@ -35,38 +18,7 @@ export interface AiSdkHarnessAdapterOptions {
   permissionMode?: AgentHarnessCreateSessionOptions["permissionMode"];
   harnessOptions?: Record<string, unknown>;
   agentOptions?: Record<string, unknown>;
-  /**
-   * Opt in to copying the local Codex CLI auth file into the harness sandbox
-   * before @ai-sdk/harness-codex starts. Use only with trusted/private
-   * sandboxes: ChatGPT login tokens from ~/.codex/auth.json are copied into
-   * the sandbox so the in-sandbox codex CLI can reuse `codex login`.
-   */
-  codexCliAuth?: CodexCliAuthConfig;
 }
-
-type SandboxRunResult = {
-  stdout?: string;
-  stderr?: string;
-  exitCode?: number;
-};
-
-export type CodexCliAuthSandboxSession = {
-  run(options: {
-    command: string;
-    abortSignal?: AbortSignal;
-  }): PromiseLike<SandboxRunResult>;
-  writeTextFile(options: {
-    path: string;
-    content: string;
-    abortSignal?: AbortSignal;
-  }): PromiseLike<void>;
-};
-
-export type CodexCliAuthSandboxHook = (opts: {
-  session: CodexCliAuthSandboxSession;
-  sessionWorkDir: string;
-  abortSignal?: AbortSignal;
-}) => Promise<void> | void;
 
 const RUNTIME_IMPORTS: Record<
   AiSdkHarnessRuntime,
@@ -101,6 +53,33 @@ const dynamicImport = new Function("specifier", "return import(specifier)") as (
   specifier: string,
 ) => Promise<any>;
 
+/** @internal */
+export function resolveAiSdkHarnessPermissionMode(
+  runtime: AiSdkHarnessRuntime,
+  requested?: AgentHarnessPermissionMode,
+): AgentHarnessPermissionMode {
+  const permissionMode =
+    requested ?? (runtime === "codex" ? "allow-all" : "allow-reads");
+  if (runtime === "codex" && permissionMode !== "allow-all") {
+    throw new Error(
+      `[agent-harness] The Codex AI SDK harness only supports permissionMode "allow-all".`,
+    );
+  }
+  return permissionMode;
+}
+
+/** @internal */
+export function toAiSdkToolApprovalContinuation(
+  approval: NonNullable<AgentHarnessContinueInput["approval"]>,
+) {
+  return {
+    type: "tool-approval-response" as const,
+    approvalId: approval.id,
+    approved: approval.approved,
+    ...(approval.message ? { reason: approval.message } : {}),
+  };
+}
+
 export function createAiSdkHarnessAdapter(
   options: AiSdkHarnessAdapterOptions,
 ): AgentHarnessAdapter {
@@ -121,9 +100,13 @@ export function createAiSdkHarnessAdapter(
     description:
       options.description ??
       `Runs ${runtime.label} through the AI SDK HarnessAgent adapter.`,
-    installPackage: `@ai-sdk/harness@canary ${runtime.packageName}@canary`,
+    installPackage: `@ai-sdk/harness@latest ${runtime.packageName}@latest`,
     capabilities,
     async createSession(sessionOptions) {
+      const permissionMode = resolveAiSdkHarnessPermissionMode(
+        options.runtime,
+        sessionOptions.permissionMode ?? options.permissionMode,
+      );
       const [{ HarnessAgent }, runtimeModule] = await Promise.all([
         dynamicImport("@ai-sdk/harness/agent"),
         dynamicImport(runtime.packageName),
@@ -145,20 +128,15 @@ export function createAiSdkHarnessAdapter(
         (hasHarnessOptions || exportName?.startsWith("create"))
           ? harnessFactory(options.harnessOptions)
           : harnessFactory;
-      const agentOptions = agentOptionsWithCodexCliAuth(options);
       const agent = new HarnessAgent({
-        ...agentOptions,
+        ...(options.agentOptions ?? {}),
         harness,
-        ...(sessionOptions.sandbox ? { sandbox: sessionOptions.sandbox } : {}),
         ...(sessionOptions.instructions
           ? { instructions: sessionOptions.instructions }
           : {}),
         ...(sessionOptions.skills ? { skills: sessionOptions.skills } : {}),
         ...(sessionOptions.tools ? { tools: sessionOptions.tools } : {}),
-        permissionMode:
-          sessionOptions.permissionMode ??
-          options.permissionMode ??
-          "allow-reads",
+        permissionMode,
       });
 
       const nativeSession = await createNativeSession(agent, sessionOptions);
@@ -167,195 +145,41 @@ export function createAiSdkHarnessAdapter(
   };
 }
 
-function agentOptionsWithCodexCliAuth(
-  options: AiSdkHarnessAdapterOptions,
-): Record<string, unknown> {
-  const agentOptions = { ...(options.agentOptions ?? {}) };
-  if (!options.codexCliAuth) return agentOptions;
-  if (options.runtime !== "codex") {
-    throw new Error(
-      "[agent-harness] codexCliAuth is only supported for the codex AI SDK harness runtime.",
-    );
-  }
-  const existingHook = agentOptions.onSandboxSession;
-  if (existingHook !== undefined && typeof existingHook !== "function") {
-    throw new Error(
-      "[agent-harness] agentOptions.onSandboxSession must be a function when codexCliAuth is enabled.",
-    );
-  }
-  agentOptions.onSandboxSession = createCodexCliAuthSandboxHook(
-    options.codexCliAuth,
-    existingHook as CodexCliAuthSandboxHook | undefined,
-  );
-  return agentOptions;
-}
-
 /** @internal */
-export function createCodexCliAuthSandboxHook(
-  config: CodexCliAuthConfig,
-  existingHook?: CodexCliAuthSandboxHook,
-): CodexCliAuthSandboxHook {
-  const codexCliAuth = normalizeCodexCliAuthConfig(config);
-  return async (hookOptions) => {
-    await installCodexCliAuthIntoSandbox(codexCliAuth, hookOptions);
-    await existingHook?.(hookOptions);
-  };
-}
-
-/** @internal */
-export function normalizeCodexCliAuthConfig(
-  config: CodexCliAuthConfig,
-): Required<Exclude<CodexCliAuthConfig, boolean>> {
-  const input = typeof config === "object" ? config : {};
-  const codexHome =
-    input.codexHome ??
-    // guard:allow-env-credential -- CODEX_HOME is a local auth-directory path override, not a credential value.
-    process.env.CODEX_HOME ??
-    path.join(os.homedir(), ".codex");
-  return {
-    codexHome,
-    authJsonPath: input.authJsonPath ?? path.join(codexHome, "auth.json"),
-  };
-}
-
-async function installCodexCliAuthIntoSandbox(
-  config: Required<Exclude<CodexCliAuthConfig, boolean>>,
-  opts: {
-    session: CodexCliAuthSandboxSession;
-    abortSignal?: AbortSignal;
-  },
-): Promise<void> {
-  const authJson = readCodexCliAuthJson(config.authJsonPath);
-  const home = await resolveSandboxHome(opts.session, opts.abortSignal);
-  const codexHome = path.posix.join(home, ".codex");
-  const sandboxAuthPath = path.posix.join(codexHome, "auth.json");
-
-  const mkdirResult = await opts.session.run({
-    command: `mkdir -p ${shellQuote(codexHome)} && chmod 700 ${shellQuote(codexHome)}`,
-    abortSignal: opts.abortSignal,
-  });
-  if (mkdirResult.exitCode !== undefined && mkdirResult.exitCode !== 0) {
-    throw new Error(
-      `[agent-harness] Unable to create sandbox Codex home: ${mkdirResult.stderr || mkdirResult.stdout || `exit ${mkdirResult.exitCode}`}`,
-    );
-  }
-  await opts.session.writeTextFile({
-    path: sandboxAuthPath,
-    content: authJson,
-    abortSignal: opts.abortSignal,
-  });
-  const chmodResult = await opts.session.run({
-    command: `chmod 600 ${shellQuote(sandboxAuthPath)}`,
-    abortSignal: opts.abortSignal,
-  });
-  if (chmodResult.exitCode !== undefined && chmodResult.exitCode !== 0) {
-    throw new Error(
-      `[agent-harness] Unable to secure sandbox Codex auth file: ${chmodResult.stderr || chmodResult.stdout || `exit ${chmodResult.exitCode}`}`,
-    );
-  }
-}
-
-function readCodexCliAuthJson(authJsonPath: string): string {
-  let authJson: string;
-  try {
-    authJson = fs.readFileSync(authJsonPath, "utf8");
-  } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String((error as { code?: unknown }).code)
-        : undefined;
-    const hint =
-      code === "ENOENT"
-        ? " Run `codex login`, or pass harnessOptions.auth for API-key/gateway auth."
-        : "";
-    throw new Error(
-      `[agent-harness] Codex CLI auth file was not readable at ${authJsonPath}.${hint}`,
-    );
-  }
-  assertCodexCliAuthJson(authJson, authJsonPath);
-  return authJson;
-}
-
-function assertCodexCliAuthJson(authJson: string, authJsonPath: string): void {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(authJson);
-  } catch {
-    throw new Error(
-      `[agent-harness] Codex CLI auth file at ${authJsonPath} is not valid JSON.`,
-    );
-  }
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error(
-      `[agent-harness] Codex CLI auth file at ${authJsonPath} has an invalid shape.`,
-    );
-  }
-  const record = parsed as Record<string, unknown>;
-  const tokens = record.tokens;
-  const hasChatGptTokens =
-    tokens !== null &&
-    typeof tokens === "object" &&
-    (typeof (tokens as Record<string, unknown>).access_token === "string" ||
-      typeof (tokens as Record<string, unknown>).refresh_token === "string");
-  const hasApiKey = typeof record.OPENAI_API_KEY === "string";
-  if (!hasChatGptTokens && !hasApiKey) {
-    throw new Error(
-      `[agent-harness] Codex CLI auth file at ${authJsonPath} does not contain usable ChatGPT tokens or an API key.`,
-    );
-  }
-}
-
-async function resolveSandboxHome(
-  session: CodexCliAuthSandboxSession,
-  abortSignal?: AbortSignal,
-): Promise<string> {
-  const result = await session.run({
-    command: 'printf "%s" "$HOME"',
-    abortSignal,
-  });
-  const home = result.stdout?.trim();
-  if (result.exitCode !== undefined && result.exitCode !== 0) {
-    throw new Error(
-      `[agent-harness] Unable to resolve sandbox HOME: ${result.stderr || result.stdout || `exit ${result.exitCode}`}`,
-    );
-  }
-  if (!home || !path.posix.isAbsolute(home)) {
-    throw new Error("[agent-harness] Sandbox HOME was not an absolute path.");
-  }
-  return home;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-async function createNativeSession(
+export async function createNativeSession(
   agent: any,
   options: AgentHarnessCreateSessionOptions,
 ): Promise<any> {
-  if (options.resumeState && typeof agent.resumeSession === "function") {
-    return agent.resumeSession(options.resumeState);
-  }
-  if (options.resumeState && typeof agent.createSession === "function") {
-    try {
-      return await agent.createSession({ resumeState: options.resumeState });
-    } catch (error) {
-      if (isExplicitlyMissingHarnessSession(error)) {
-        return agent.createSession();
-      }
-      throw error;
-    }
+  if (options.resumeState != null && options.sessionId == null) {
+    throw new Error(
+      "[agent-harness] Resuming an AI SDK Harness session requires sessionId.",
+    );
   }
   if (typeof agent.createSession !== "function") {
     throw new Error(
       "[agent-harness] HarnessAgent does not expose createSession()",
     );
   }
-  return agent.createSession();
+
+  const createOptions = {
+    ...(options.sessionId !== undefined
+      ? { sessionId: options.sessionId }
+      : {}),
+    ...(options.resumeState != null ? { resumeFrom: options.resumeState } : {}),
+    ...(options.sandbox != null ? { sandboxSession: options.sandbox } : {}),
+    ...(options.signal ? { abortSignal: options.signal } : {}),
+  };
+  return Object.keys(createOptions).length > 0
+    ? agent.createSession(createOptions)
+    : agent.createSession();
 }
 
 class AiSdkHarnessSession implements AgentHarnessSession {
   readonly id: string;
+  private readonly toolCalls = new Map<
+    string,
+    { name: string; input?: unknown }
+  >();
 
   constructor(
     private readonly agent: any,
@@ -379,7 +203,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
-      for (const event of aiSdkHarnessPartToEvents(part)) {
+      for (const event of aiSdkHarnessPartToEvents(part, this.toolCalls)) {
         yield event;
       }
     }
@@ -395,17 +219,24 @@ class AiSdkHarnessSession implements AgentHarnessSession {
     }
     const result = await this.agent.continueStream({
       session: this.nativeSession,
-      ...(input.approval ? { approval: input.approval } : {}),
+      ...(input.approval
+        ? {
+            toolApprovalContinuations: [
+              toAiSdkToolApprovalContinuation(input.approval),
+            ],
+          }
+        : {}),
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
     });
     for await (const part of result.fullStream ?? []) {
-      for (const event of aiSdkHarnessPartToEvents(part)) {
+      for (const event of aiSdkHarnessPartToEvents(part, this.toolCalls)) {
         yield event;
       }
     }
   }
 
   async detach(): Promise<unknown> {
+    this.toolCalls.clear();
     if (typeof this.nativeSession.detach === "function") {
       return this.nativeSession.detach();
     }
@@ -413,6 +244,7 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 
   async stop(): Promise<unknown> {
+    this.toolCalls.clear();
     if (typeof this.nativeSession.stop === "function") {
       return this.nativeSession.stop();
     }
@@ -420,40 +252,87 @@ class AiSdkHarnessSession implements AgentHarnessSession {
   }
 
   async destroy(): Promise<void> {
+    this.toolCalls.clear();
     await this.nativeSession.destroy?.();
   }
 }
 
-export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
+export function aiSdkHarnessPartToEvents(
+  part: any,
+  toolCalls = new Map<string, { name: string; input?: unknown }>(),
+): AgentHarnessEvent[] {
   const type = part?.type;
   const events: AgentHarnessEvent[] = [];
   switch (type) {
     case "text-delta":
-      if (part.text) events.push({ type: "text-delta", text: part.text });
+      {
+        const text = typeof part.delta === "string" ? part.delta : part.text;
+        if (typeof text === "string" && text) {
+          events.push({ type: "text-delta", text });
+        }
+      }
       break;
     case "reasoning-delta":
     case "thinking-delta":
-      if (part.text) events.push({ type: "thinking-delta", text: part.text });
+      {
+        const text = typeof part.delta === "string" ? part.delta : part.text;
+        if (typeof text === "string" && text) {
+          events.push({ type: "thinking-delta", text });
+        }
+      }
       break;
     case "tool-input-start":
-      events.push({
-        type: "tool-start",
-        id: part.id ?? part.toolCallId,
-        name: part.toolName ?? part.name ?? "tool",
-        input: {},
-      });
+    case "tool-input-delta":
+    case "tool-input-end":
       break;
     case "tool-call":
     case "dynamic-tool-call":
+      if (isSyntheticHarnessToolPart(part, "fileChange")) {
+        const input = part.input ?? part.args;
+        if (input && typeof input === "object" && !Array.isArray(input)) {
+          const path = input.path;
+          if (typeof path === "string") {
+            events.push({
+              type: "file-change",
+              path,
+              operation: normalizeFileOperation(input.event),
+            });
+          }
+        }
+        break;
+      }
+      if (isSyntheticHarnessToolPart(part, "compaction")) break;
+      const id = part.toolCallId ?? part.id;
+      const name = part.toolName ?? part.name ?? "tool";
+      const input = part.input ?? part.args ?? {};
+      if (typeof id === "string") toolCalls.set(id, { name, input });
       events.push({
         type: "tool-start",
-        id: part.toolCallId ?? part.id,
-        name: part.toolName ?? part.name ?? "tool",
-        input: part.input ?? part.args ?? {},
+        id,
+        name,
+        input,
       });
       break;
     case "tool-result":
     case "dynamic-tool-result":
+      if (isSyntheticHarnessToolPart(part, "fileChange")) break;
+      if (isSyntheticHarnessToolPart(part, "compaction")) {
+        const output = part.output ?? part.result;
+        events.push({
+          type: "compaction",
+          summary:
+            output && typeof output === "object" && !Array.isArray(output)
+              ? typeof output.summary === "string"
+                ? output.summary
+                : undefined
+              : undefined,
+        });
+        break;
+      }
+      {
+        const id = part.toolCallId ?? part.id;
+        if (typeof id === "string") toolCalls.delete(id);
+      }
       events.push({
         type: "tool-done",
         id: part.toolCallId ?? part.id,
@@ -464,21 +343,45 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
         result: part.output ?? part.result,
       });
       break;
-    case "tool-approval-request":
+    case "tool-approval-request": {
+      const toolCall = part.toolCall ?? {};
+      const toolCallId = part.toolCallId ?? toolCall.toolCallId;
+      const previousToolCall =
+        typeof toolCallId === "string" ? toolCalls.get(toolCallId) : undefined;
+      const tool =
+        part.toolName ??
+        part.name ??
+        toolCall.toolName ??
+        toolCall.name ??
+        previousToolCall?.name;
+      const input =
+        part.input ??
+        part.args ??
+        toolCall.input ??
+        toolCall.args ??
+        previousToolCall?.input;
+      const approvalId = part.approvalId ?? part.id ?? toolCallId ?? "approval";
+      if (!tool || input === undefined) {
+        throw new Error(
+          `[agent-harness] Approval "${approvalId}" is missing tool metadata.`,
+        );
+      }
       events.push({
         type: "approval-request",
-        id: part.id ?? part.toolCallId ?? "approval",
-        tool: part.toolName ?? part.name,
+        id: approvalId,
+        tool,
         message: part.message ?? "Harness is waiting for approval",
-        input: part.input ?? part.args,
+        input,
       });
+      if (typeof toolCallId === "string") toolCalls.delete(toolCallId);
       break;
+    }
     case "file-change":
       if (part.path) {
         events.push({
           type: "file-change",
           path: String(part.path),
-          operation: normalizeFileOperation(part.operation),
+          operation: normalizeFileOperation(part.event ?? part.operation),
           summary: typeof part.summary === "string" ? part.summary : undefined,
         });
       }
@@ -490,9 +393,11 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
       });
       break;
     case "finish":
+      toolCalls.clear();
       events.push({ type: "done", reason: part.finishReason });
       break;
     case "error":
+      toolCalls.clear();
       events.push({
         type: "error",
         error: part.error?.message ?? part.message ?? "Harness stream error",
@@ -505,22 +410,24 @@ export function aiSdkHarnessPartToEvents(part: any): AgentHarnessEvent[] {
 function normalizeFileOperation(
   value: unknown,
 ): Extract<AgentHarnessEvent, { type: "file-change" }>["operation"] {
-  return value === "create" ||
-    value === "update" ||
-    value === "delete" ||
-    value === "rename"
-    ? value
-    : "unknown";
+  return value === "modify"
+    ? "update"
+    : value === "create" ||
+        value === "update" ||
+        value === "delete" ||
+        value === "rename"
+      ? value
+      : "unknown";
 }
 
-function isExplicitlyMissingHarnessSession(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)|(?:unknown|unsupported).*(?:session|conversation)/i.test(
-    message,
+function isSyntheticHarnessToolPart(part: any, toolName: string): boolean {
+  return (
+    (part?.type === "tool-call" ||
+      part?.type === "dynamic-tool-call" ||
+      part?.type === "tool-result" ||
+      part?.type === "dynamic-tool-result") &&
+    part.dynamic === true &&
+    part.providerExecuted === true &&
+    (part.toolName ?? part.name) === toolName
   );
 }

@@ -269,7 +269,7 @@
 }
 ::-webkit-scrollbar-thumb {
   border-radius: 3px;
-  background: hsl(var(--border));
+  background: hsl(var(--muted-foreground) / 0.22);
 }
 
 .crm-chat-intro {

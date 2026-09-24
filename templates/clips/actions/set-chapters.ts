@@ -9,7 +9,7 @@
  *   pnpm action set-chapters --recordingId=<id> --chapters='[{"startMs":0,"title":"Intro"}]'
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";

@@ -79,6 +79,42 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
     : null;
 }
 
+/**
+ * Scale is a mode, not a one-shot: Figma keeps K armed across selection
+ * changes, while every gesture-scoped tool falls back to move.
+ */
+export function resolveToolAfterSelection(current: DesignTool): DesignTool {
+  return current === "scale" ? "scale" : "move";
+}
+
+/**
+ * Space's meaning while an on-canvas object drag is running: forwarded into
+ * the preview iframes (so the bridge can suppress reparenting) instead of
+ * arming the temporary hand tool. Keyup and blur must undo exactly what
+ * keydown armed, which is why they read `armed` and never `dragActive` — a
+ * drag that ends on mouseup before Space is released clears `dragActive`
+ * first, and re-checking it there would skip the matching `held:false` and
+ * leave every iframe's `bridgeSpaceKeyPressed` stuck true for the NEXT
+ * gesture. On keydown, `armed` determines whether forwarding owns the hold;
+ * `broadcast: null` only means there is no new iframe message to send.
+ *
+ * Exported for unit testing.
+ */
+export function resolveSpaceForwardTransition(
+  event: "keydown" | "keyup" | "blur",
+  armed: boolean,
+  dragActive: boolean,
+): { armed: boolean; broadcast: boolean | null } {
+  if (event === "keydown") {
+    return dragActive
+      ? { armed: true, broadcast: true }
+      : { armed, broadcast: null };
+  }
+  return armed
+    ? { armed: false, broadcast: false }
+    : { armed, broadcast: null };
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }
@@ -126,16 +162,50 @@ export function resolveModeChangeView(args: {
 
 export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
 
+/**
+ * The New Design button creates the row and lands in the editor, so the "what
+ * do you want" question is asked here with the drawing tools already on
+ * screen. One ask per arrival: the flag is stripped from the URL on the first
+ * one, and an embedded or shell editor belongs to a host that runs its own
+ * intake.
+ */
+/**
+ * A first creation from the agent rail lands in a layer tree the user cannot
+ * see, so reveal it once. Only the first: yanking the panel off the agent on
+ * every subsequent draw would fight the user instead of orienting them.
+ */
+export function shouldRevealLayersOnFirstCreate(args: {
+  activeLeftPanel: DesignLeftPanel | null;
+  alreadyRevealed: boolean;
+}): boolean {
+  if (args.alreadyRevealed) return false;
+  return args.activeLeftPanel !== "file";
+}
+
+export function shouldAskOnNewDesignArrival(args: {
+  arrivedFromNewDesign: boolean;
+  alreadyAsked: boolean;
+  canEditDesign: boolean;
+  embedded: boolean;
+  shellMode: boolean;
+}): boolean {
+  if (!args.arrivedFromNewDesign || args.alreadyAsked) return false;
+  if (args.shellMode || args.embedded) return false;
+  return args.canEditDesign;
+}
+
 export function getDesignBottomToolbarMode(args: {
   isSignedIn: boolean;
   canEditDesign: boolean;
   canCommentDesign: boolean;
   hasActiveFile: boolean;
 }): DesignBottomToolbarMode {
-  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
-    return "hidden";
-  }
-  return args.canEditDesign ? "editor" : "commenter";
+  if (!args.isSignedIn || !args.canCommentDesign) return "hidden";
+  // An editor needs the tools before a file exists: a new design has no file
+  // rows at all, and the draw tools are what create the first one. Commenting
+  // still needs something to comment on.
+  if (args.canEditDesign) return "editor";
+  return args.hasActiveFile ? "commenter" : "hidden";
 }
 
 export function getSingleScreenCreationTool(args: {

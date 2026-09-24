@@ -50,6 +50,10 @@ pub struct ScreenMemoryState {
 #[derive(Default)]
 struct ScreenMemoryRuntime {
     active: Option<ActiveScreenMemorySegment>,
+    /// A paused custom ScreenCaptureKit writer awaiting the end of an
+    /// ordinary recording. Keeping this separate from `active` makes the
+    /// picker handoff immediate without losing the segment's bytes.
+    suspended_active: Option<SuspendedScreenMemorySegment>,
     worker_stop: Option<Arc<AtomicBool>>,
     rewind_lease_id: Option<String>,
     exclusion_active: bool,
@@ -106,6 +110,12 @@ struct ActiveScreenMemorySegment {
     exclusion_tainted: Arc<AtomicBool>,
     graph_epoch_id: String,
     graph_started_elapsed_ms: u64,
+}
+
+struct SuspendedScreenMemorySegment {
+    active: ActiveScreenMemorySegment,
+    ended_at: Instant,
+    ended_at_iso: String,
 }
 
 #[derive(Clone)]
@@ -1130,22 +1140,81 @@ pub(crate) fn release_temporary_audio_consumer(
     };
     end_graph_lease(app, &consumer.graph_lease_id);
 
-    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
-    if !config.enabled || config.paused {
-        return Ok(());
-    }
-    let desired = effective_capture_mode(app, config.capture_mode);
-    let needs_restore = state
-        .inner
-        .lock()
-        .map_err(|error| error.to_string())?
-        .active
-        .as_ref()
-        .is_some_and(|active| active.capture_mode != desired);
-    if needs_restore {
-        rotate_segment_inner(app, &config)?;
+    // Restoring the configured capture mode is a full producer stop/start
+    // (the SCK source contract changed) that measures ~2s. Never charge that
+    // to the releasing caller — a clip cancel must return immediately — and
+    // give re-demand a grace window: a cancel-then-retake re-acquires the
+    // same audio sources within a couple of seconds, which turns the pending
+    // restore into a no-op instead of two stop/start cycles.
+    if capture_mode_restore_needed(app) {
+        schedule_capture_mode_restore(app.clone());
     }
     Ok(())
+}
+
+/// How long released audio demand may keep the producer in its upgraded mode
+/// before the configured capture mode is restored. Long enough that a rapid
+/// cancel→retake reattaches to the still-running audio producer for free;
+/// short enough that the microphone stops being captured promptly after the
+/// last consumer lets go.
+const CAPTURE_MODE_RESTORE_GRACE: Duration = Duration::from_secs(5);
+
+fn schedule_capture_mode_restore(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(CAPTURE_MODE_RESTORE_GRACE);
+        let state = app.state::<ScreenMemoryState>();
+        let _transition = match state.transition.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                record_error(&app, error.to_string());
+                return;
+            }
+        };
+        // Re-evaluate under the transition lock: new audio demand, a config
+        // change, or a producer stop during the grace all make this a no-op,
+        // so overlapping schedules can never double-reconfigure the producer.
+        if !capture_mode_restore_needed(&app) {
+            return;
+        }
+        let config =
+            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+        if let Err(error) = rotate_segment_inner(&app, &config) {
+            record_error(&app, error);
+        }
+    });
+}
+
+fn capture_mode_restore_needed(app: &AppHandle) -> bool {
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    let state = app.state::<ScreenMemoryState>();
+    let Ok(runtime) = state.inner.lock() else {
+        return false;
+    };
+    capture_mode_restore_decision(
+        config.enabled,
+        config.paused,
+        runtime.active.as_ref().map(|active| active.capture_mode),
+        config.capture_mode,
+        runtime.temporary_audio_consumers.len(),
+    )
+}
+
+/// True only while the producer is running in a capture mode the current
+/// demand (persisted config plus live temporary-audio consumers) no longer
+/// asks for. Disabled/paused configs are owned by `sync_from_config`'s stop
+/// path, and a stopped producer has nothing to restore.
+fn capture_mode_restore_decision(
+    enabled: bool,
+    paused: bool,
+    active_mode: Option<RewindCaptureMode>,
+    base_mode: RewindCaptureMode,
+    temporary_audio_consumers: usize,
+) -> bool {
+    if !enabled || paused {
+        return false;
+    }
+    let desired = effective_mode(base_mode, temporary_audio_consumers);
+    active_mode.is_some_and(|mode| mode != desired)
 }
 
 fn rollback_temporary_audio_consumer(app: &AppHandle, owner_id: &str) {
@@ -1941,7 +2010,7 @@ pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .exclusion_active;
     if !exclusion_active {
-        stop_active_segment_inner(app)?;
+        suspend_active_segment_inner(app)?;
     }
     Ok(())
 }
@@ -1952,6 +2021,26 @@ pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
 pub(crate) fn resume_physical_capture(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    if let Some(suspended) = take_suspended_active_segment(app)? {
+        let finalize_app = app.clone();
+        eprintln!("[clips-tray] finalizing suspended Screen Memory segment in background");
+        tauri::async_runtime::spawn_blocking(move || {
+            let result = finalize_active_segment_at(
+                &finalize_app,
+                suspended.active,
+                suspended.ended_at,
+                suspended.ended_at_iso,
+            )
+            .and_then(|segment| {
+                persist_finalized_segment(&finalize_app, segment)?;
+                let _ = finalize_app.emit(SCREEN_MEMORY_EVENT, ());
+                Ok(())
+            });
+            if let Err(error) = result {
+                record_error(&finalize_app, error);
+            }
+        });
+    }
     let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
     let exclusion_active = state
         .inner
@@ -1967,21 +2056,25 @@ pub(crate) fn resume_physical_capture(app: &AppHandle) -> Result<(), String> {
 fn stop_active_segment_inner(
     app: &AppHandle,
 ) -> Result<Option<ScreenMemorySegmentMetadata>, String> {
-    let (active, exclusion_gap) = {
-        let state = app.state::<ScreenMemoryState>();
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        if let Some(stop) = guard.worker_stop.take() {
-            stop.store(true, Ordering::Relaxed);
-        }
-        guard.exclusion_active = false;
-        (guard.active.take(), guard.exclusion_gap.take())
-    };
+    let (active, exclusion_gap) = take_active_segment(app)?;
 
     if let Some(gap) = exclusion_gap {
         record_source_coverage_gap(app, gap, Instant::now());
     }
 
     let Some(active) = active else {
+        if let Some(suspended) = take_suspended_active_segment(app)? {
+            let segment = finalize_active_segment_at(
+                app,
+                suspended.active,
+                suspended.ended_at,
+                suspended.ended_at_iso,
+            )?;
+            persist_finalized_segment(app, segment.clone())?;
+            end_rewind_lease(app);
+            let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+            return Ok(Some(segment));
+        }
         end_rewind_lease(app);
         let _ = app.emit(SCREEN_MEMORY_EVENT, ());
         return Ok(None);
@@ -1999,17 +2092,119 @@ fn stop_active_segment_inner(
     }
 
     let result = finalize_active_segment(app, active).and_then(|segment| {
-        write_segment_metadata(app, &segment)?;
-        let config =
-            normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
-        enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
-        prune_segments(app, &config)?;
+        persist_finalized_segment(app, segment.clone())?;
         Ok(segment)
     });
     end_rewind_lease(app);
     let segment = result?;
     let _ = app.emit(SCREEN_MEMORY_EVENT, ());
     Ok(Some(segment))
+}
+
+fn suspend_active_segment_inner(app: &AppHandle) -> Result<(), String> {
+    let (active, exclusion_gap) = take_active_segment(app)?;
+
+    if let Some(gap) = exclusion_gap {
+        record_source_coverage_gap(app, gap, Instant::now());
+    }
+
+    let Some(active) = active else {
+        end_rewind_lease(app);
+        let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+        return Ok(());
+    };
+
+    if active.exclusion_tainted.load(Ordering::SeqCst) {
+        let gap = active_exclusion_gap(active.started_at, active.capture_mode);
+        let segment_id = active.id.clone();
+        discard_active_segment(active);
+        discard_segment_artifacts(app, &segment_id)?;
+        record_source_coverage_gap(app, gap, Instant::now());
+        end_rewind_lease(app);
+        let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+        return Ok(());
+    }
+
+    // Pause the custom writer in place. This is materially faster than waiting
+    // for a fragment fence or AVAssetWriter finalization, and it removes the
+    // competing ScreenCaptureKit producer before macOS presents its picker.
+    let ended_at = Instant::now();
+    let ended_at_iso = now_iso();
+    let capture_source_paused = match active.backend.pause_capture_source() {
+        Ok(paused) => paused,
+        Err(error) => {
+            eprintln!(
+                "[screen-memory] custom capture pause failed; falling back to durable segment finalization: {error}"
+            );
+            false
+        }
+    };
+    if capture_source_paused {
+        let state = app.state::<ScreenMemoryState>();
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        runtime.suspended_active = Some(SuspendedScreenMemorySegment {
+            active,
+            ended_at,
+            ended_at_iso,
+        });
+        drop(runtime);
+        end_rewind_lease(app);
+        let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+        return Ok(());
+    }
+
+    // Non-custom backends still use the durable stop path. The fallback is
+    // intentionally slower, but it preserves the segment rather than
+    // silently dropping the bytes.
+    let result = match fence_rotate_segment(app, active) {
+        Ok((segment, next)) => {
+            discard_active_segment(next);
+            persist_finalized_segment(app, segment)
+        }
+        Err(active) => finalize_active_segment(app, active)
+            .and_then(|segment| persist_finalized_segment(app, segment)),
+    };
+    end_rewind_lease(app);
+    result?;
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    Ok(())
+}
+
+fn take_active_segment(
+    app: &AppHandle,
+) -> Result<
+    (
+        Option<ActiveScreenMemorySegment>,
+        Option<ActiveExclusionGap>,
+    ),
+    String,
+> {
+    let state = app.state::<ScreenMemoryState>();
+    let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+    if let Some(stop) = guard.worker_stop.take() {
+        stop.store(true, Ordering::Relaxed);
+    }
+    guard.exclusion_active = false;
+    Ok((guard.active.take(), guard.exclusion_gap.take()))
+}
+
+fn take_suspended_active_segment(
+    app: &AppHandle,
+) -> Result<Option<SuspendedScreenMemorySegment>, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let mut guard = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(guard.suspended_active.take())
+}
+
+fn persist_finalized_segment(
+    app: &AppHandle,
+    segment: ScreenMemorySegmentMetadata,
+) -> Result<(), String> {
+    write_segment_metadata(app, &segment)?;
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
+    prune_segments(app, &config)?;
+    Ok(())
 }
 
 fn stop_active_segment_if_matches(app: &AppHandle, segment_id: &str) -> Result<(), String> {
@@ -2066,6 +2261,8 @@ fn start_new_segment(
             None,
             None,
             target_display_id,
+            None,
+            None,
             None,
             false,
         ) {
@@ -2215,11 +2412,22 @@ fn discard_active_segment(mut active: ActiveScreenMemorySegment) {
 
 fn finalize_active_segment(
     app: &AppHandle,
+    active: ActiveScreenMemorySegment,
+) -> Result<ScreenMemorySegmentMetadata, String> {
+    let ended_at = Instant::now();
+    finalize_active_segment_at(app, active, ended_at, now_iso())
+}
+
+fn finalize_active_segment_at(
+    app: &AppHandle,
     mut active: ActiveScreenMemorySegment,
+    ended_at: Instant,
+    ended_at_iso: String,
 ) -> Result<ScreenMemorySegmentMetadata, String> {
     let stop_error = native_screen::stop_native_recording(&mut active.backend, true).err();
-    let ended_at = now_iso();
-    let duration_ms = active.started_at.elapsed().as_millis();
+    let duration_ms = ended_at
+        .saturating_duration_since(active.started_at)
+        .as_millis();
     let video_bytes = std::fs::metadata(&active.path)
         .map_err(|e| {
             let suffix = stop_error
@@ -2270,7 +2478,7 @@ fn finalize_active_segment(
         path: active.path,
         mime_type: active.mime_type.to_string(),
         started_at: active.started_at_iso,
-        ended_at,
+        ended_at: ended_at_iso,
         duration_ms,
         width: active.width,
         height: active.height,
@@ -2283,7 +2491,7 @@ fn finalize_active_segment(
         exclusion_tainted: active.exclusion_tainted.load(Ordering::Relaxed),
         graph_epoch_id: Some(active.graph_epoch_id),
         graph_started_elapsed_ms: active.graph_started_elapsed_ms,
-        graph_ended_elapsed_ms: graph_elapsed_ms(app, Instant::now()),
+        graph_ended_elapsed_ms: graph_elapsed_ms(app, ended_at),
     })
 }
 
@@ -3039,7 +3247,7 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
         let expired = ended_at.map(|value| value < cutoff).unwrap_or(false);
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
         if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
-            let _ = delete_segment(app, &segment.id);
+            delete_segment(app, &segment.id)?;
         }
     }
     prune_events(app, cutoff)?;
@@ -3779,6 +3987,67 @@ command = "keep"
         ));
         assert!(!temporary_audio_lease_available(
             true, false, true, false, false
+        ));
+    }
+
+    #[test]
+    fn deferred_capture_mode_restore_fires_only_for_a_stale_upgraded_producer() {
+        // The clip's audio demand is gone and the producer still runs
+        // upgraded: restore.
+        assert!(capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        // A retake (or a meeting) re-demanded audio during the grace window:
+        // the pending restore must become a no-op, not a downgrade under a
+        // live consumer.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            1
+        ));
+        // Producer already back at (or configured for) the desired mode.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::Visuals),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::VisualsAudio,
+            0
+        ));
+        // Producer stopped during the grace window: nothing to restore.
+        assert!(!capture_mode_restore_decision(
+            true,
+            false,
+            None,
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        // Disabled/paused teardown is owned by sync_from_config's stop path.
+        assert!(!capture_mode_restore_decision(
+            false,
+            false,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
+        ));
+        assert!(!capture_mode_restore_decision(
+            true,
+            true,
+            Some(RewindCaptureMode::VisualsAudio),
+            RewindCaptureMode::Visuals,
+            0
         ));
     }
 

@@ -16,6 +16,7 @@ import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   normalizeModelForEngine,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
@@ -114,8 +115,10 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!isAgentEnginePackageInstalled(entry)) {
     return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
   }
+  const acceptsCustomModels = await resolveEngineAcceptsCustomModels(entry);
   const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const normalizedModel = normalizeModelForEngine(entry, model, {
+    acceptsCustomModels,
     preserveCustomModels,
   });
 

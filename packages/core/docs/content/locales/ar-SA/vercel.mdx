@@ -14,8 +14,13 @@ export default defineConfig({
 انشر عبر Vercel CLI أو عبر git push:
 
 ```bash
-vercel deploy
+npx vercel deploy
 ```
+
+لإنشاء معاينة مؤقتة بدون تسجيل الدخول إلى Vercel، شغّل
+`npx vercel deploy --temporary`. لا تحتفظ عمليات النشر المؤقتة بمتغيرات بيئة
+المشروع، لذا مرّر قيم قاعدة البيانات والأسرار عبر خياري `--env` و`--build-env`
+عندما تحتاج إلى أكثر من معاينة للواجهة.
 
 بالنسبة لمساحة عمل، قم ببناء كل تطبيق في حزمة واحدة من Vercel Build Output API:
 

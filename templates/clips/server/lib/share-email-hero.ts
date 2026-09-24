@@ -66,9 +66,6 @@ export function recordingShareEmailExtras(ctx: {
   const summarizeUrl = new URL(ctx.href);
   summarizeUrl.searchParams.set("panel", "agent");
   return {
-    // The heading already says who shared what, so the clip thumbnail follows
-    // it directly.
-    paragraphs: [],
     secondaryCta: { label: "Summarize with AI", url: summarizeUrl.toString() },
     linkBlock: {
       intro: "Copy and paste this link for your own AI agent to summarize:",

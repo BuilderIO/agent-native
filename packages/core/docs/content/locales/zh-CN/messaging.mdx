@@ -11,7 +11,7 @@ description: "通过 Slack、Microsoft Teams、Discord 交互、电子邮件、T
 >
 > Teams 需要 `MICROSOFT_TEAMS_APP_ID`、`MICROSOFT_TEAMS_APP_PASSWORD` 和 `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`。Discord 需要 `DISCORD_APPLICATION_ID` 和 `DISCORD_PUBLIC_KEY`。Telegram 还需要 `TELEGRAM_WEBHOOK_SECRET`，WhatsApp 还需要 `WHATSAPP_APP_SECRET`。
 
-> **使用调度模板？** 所有这些都已在 **设置 → 消息传送** 中为您做好准备。单击以连接每个平台 - 您无需阅读本页的其余部分，除非您正在自定义或构建自己的模板。请参阅 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
+> **使用调度模板？** 所有这些都已在 **管理 → 消息传送** 中为您做好准备。单击以连接每个平台 - 您无需阅读本页的其余部分，除非您正在自定义或构建自己的模板。请参阅 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
 
 ## 你能做什么 {#what-you-can-do}
 
@@ -135,13 +135,13 @@ Slack 应用程序有一个事件 API 请求 URL。如果同一个 Slack 应用�
 
 ### 托管 Add to Slack
 
-推荐使用托管 OAuth。在**设置 → 消息**中选择 **Agent manifest**，下载当前主机专用的
+推荐使用托管 OAuth。在**管理 → 消息**中选择 **Agent manifest**，下载当前主机专用的
 `agent-native-slack-manifest.json`，然后从 Slack 的 **App Manifest** 导入。
 该清单会启用当前的 `agent_view` 体验，以及可写入的 **Messages** 私信标签页。
 请确认包含以下 Bot Token Scopes：
 
 应用图标不包含在清单中。请在 **Basic Information → Display Information** 中上传
-Agent Native 图标，使 Agents 选择器与产品品牌一致。可以使用应用公开的
+Agent-Native 图标，使 Agents 选择器与产品品牌一致。可以使用应用公开的
 `icon-512.svg` 作为源文件，并在需要时转换为 Slack 支持的上传格式。
 
 ```text
@@ -171,7 +171,7 @@ Interactivity Request URL 设置为
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`。
 订阅 `app_home_opened`、`app_context_changed`、`app_mention` 和 `message.im`。
 配置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和
-`SLACK_SIGNING_SECRET` 后，在**设置 → 消息**中点击 **Add to Slack**。
+`SLACK_SIGNING_SECRET` 后，在**管理 → 消息**中点击 **Add to Slack**。
 每个安装使用独立的加密令牌，并按工作区、应用、频道和线程隔离会话键。
 
 更改清单、权限范围、事件、Agent view 或 Messages 标签页后，请重新安装 Slack 应用。
@@ -180,7 +180,7 @@ Interactivity Request URL 设置为
 每位成员也可以从自己的顶部栏隐藏代理。如果安装成功但代理未显示，请检查这些显示
 设置，或从 **Tools → Apps** 打开。
 
-个人 Slack 私信只接受已验证的 Agent Native 组织成员，或已关联到该成员的 Slack
+个人 Slack 私信只接受已验证的 Agent-Native 组织成员，或已关联到该成员的 Slack
 身份。频道服务主体的策略和预算与个人身份分开管理。
 
 代理要处理的每条频道消息都必须明确提及代理；普通线程回复和一般频道聊天不会调用代理。有限上下文包含
@@ -485,7 +485,7 @@ export default defineAction({
 
 - **一名客服人员，一个收件箱。**您的所有渠道（Slack、电子邮件、Telegram、WhatsApp）都会流入 Dispatch。您只需设置集成一次。
 - **调度代表。** 询问“总结上周的注册情况” - Dispatch 调用分析代理。询问“起草给 Alice 的回复”——Dispatch 呼叫邮件代理。
-- **点击，而不是配置。** Dispatch 的 **设置 → 消息传递** 页面具有针对每个平台的连接按钮，并内置了 env-var 字段。
+- **点击，而不是配置。** Dispatch 的 **管理 → 消息传递** 页面具有针对每个平台的连接按钮，并内置了 env-var 字段。
 
 如果您不需要协调器，任何单个模板都可以使用此页面上的环境变量直接连接消息传递。
 

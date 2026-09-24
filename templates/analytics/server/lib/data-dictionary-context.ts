@@ -8,7 +8,9 @@ const MAX_INJECTED_ENTRIES = 40;
 const MAX_DICTIONARY_CONTEXT_CHARS = 10_000;
 
 function compact(value: unknown, max = 240): string {
-  const text = String(value ?? "")
+  const text = (
+    typeof value === "string" ? value : (JSON.stringify(value) ?? "")
+  )
     .replace(/\s+/g, " ")
     .trim();
   if (text.length <= max) return text;
@@ -23,7 +25,14 @@ function boolValue(value: unknown): boolean {
 
 function sortByMetric(entries: DictionaryEntry[]): DictionaryEntry[] {
   return [...entries].sort((a, b) =>
-    String(a.metric ?? "").localeCompare(String(b.metric ?? "")),
+    (typeof a.metric === "string"
+      ? a.metric
+      : (JSON.stringify(a.metric) ?? "")
+    ).localeCompare(
+      typeof b.metric === "string"
+        ? b.metric
+        : (JSON.stringify(b.metric) ?? ""),
+    ),
   );
 }
 

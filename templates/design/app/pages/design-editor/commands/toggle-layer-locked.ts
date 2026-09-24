@@ -1,5 +1,6 @@
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
@@ -31,6 +32,7 @@ export interface ToggleLayerLockedArgs {
     enabled: boolean,
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   codeLayerOwnerByNodeId: Map<
     string,
     {
@@ -71,6 +73,7 @@ export function runToggleLayerLocked(
     applyFileContentUpdate,
     applyLayerStatePreview,
     canEditDesign,
+    canEditLiveScreens,
     codeLayerOwnerByNodeId,
     designSourceType,
     files,
@@ -86,13 +89,13 @@ export function runToggleLayerLocked(
   layerId: string,
   locked: boolean,
 ) {
-  if (!canEditDesign) return;
   const owner = codeLayerOwnerByNodeId.get(layerId);
   const layerScreenId =
     owner?.fileId ??
     (files.some((file) => file.id === layerId)
       ? layerId
       : (activeFile?.id ?? layerId));
+  if (!canEditDesign && !canEditLiveScreens?.has(layerScreenId)) return;
   if (hasScopedLayerState(lockedLayerIds, layerScreenId, layerId) === locked)
     return;
   const ownerScreen = owner
@@ -100,8 +103,9 @@ export function runToggleLayerLocked(
     : undefined;
   if (
     owner &&
-    resolveOverviewScreenSourceType(ownerScreen, designSourceType) ===
-      "localhost" &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(ownerScreen, designSourceType),
+    ) &&
     recordPendingLiveLayerStateEdit(layerId, "locked", locked, !locked)
   ) {
     applyLayerStatePreview(layerScreenId, layerId, "locked", locked);

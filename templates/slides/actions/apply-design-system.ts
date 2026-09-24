@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -27,7 +27,7 @@ export default defineAction({
       .set({ designSystemId, updatedAt: now })
       .where(eq(schema.decks.id, deckId));
 
-    notifyClients(deckId);
+    await notifyClients(deckId);
 
     return { deckId, designSystemId, applied: true };
   },

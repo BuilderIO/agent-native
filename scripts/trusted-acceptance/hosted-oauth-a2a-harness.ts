@@ -175,7 +175,7 @@ export function createSyntheticQaIdentity(
     throw new Error("synthetic QA email domain is invalid");
   const password = randomBytes(32).toString("base64url");
   return {
-    email: `trusted-acceptance+qa-${suffix}@${domain.toLowerCase()}`,
+    email: `trusted-acceptance+autoz-${suffix}@${domain.toLowerCase()}`,
     passwordEntropyBits: 256,
     withPassword: async (use) => use(password),
   };

@@ -1,3 +1,6 @@
+import { getAppConfig } from "../app-config/index.js";
+import { SYNTHETIC_TRAFFIC_BETA_E2E } from "../shared/test-traffic.js";
+
 /**
  * Opt-in analytics injection for SSR streams.
  * Supported environment variables:
@@ -13,8 +16,9 @@
  * tag injection because their loaders must be `<script>` elements.
  *
  * When GTM is set, its head bootstrap is injected before `</head>` and its
- * noscript fallback immediately after `<body>`. GTM takes precedence over GA
- * so pageviews are not double-counted; configure the GA tag inside GTM.
+ * noscript fallback immediately after `<body>`. GTM owns pageviews so they are
+ * not double-counted; when a GA id is also configured, an isolated gtag
+ * channel sends app events directly with automatic pageviews disabled.
  * When only GA is set, the corresponding script tags are injected before
  * `</head>`.
  * When not set, the stream passes through untouched (zero overhead).
@@ -28,6 +32,9 @@
 
 declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
 declare const __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: string | undefined;
+
+const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
+  "https://analytics.agent-native.com/track";
 
 function normalizeMeasurementId(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -59,6 +66,10 @@ function getGtmContainerId(): string | null {
   );
 }
 
+function getSyntheticTrafficBrowserGuard(): string {
+  return `window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!==${JSON.stringify(SYNTHETIC_TRAFFIC_BETA_E2E)}`;
+}
+
 function getGaMeasurementId(): string | null {
   return (
     normalizeMeasurementId(process.env.GA_MEASUREMENT_ID) ||
@@ -67,23 +78,77 @@ function getGaMeasurementId(): string | null {
   );
 }
 
+function getAgentNativeAnalyticsPublicKey(): string | null {
+  return normalizeMeasurementId(getAppConfig().analytics.agentNativePublicKey);
+}
+
+function getAgentNativeAnalyticsEndpoint(): string {
+  return (
+    normalizeMeasurementId(getAppConfig().analytics.agentNativeEndpoint) ||
+    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+  );
+}
+
+/** Project public first-party Analytics config into static auth HTML. */
+export function getAgentNativeAnalyticsConfigScript(): string | null {
+  const publicKey = getAgentNativeAnalyticsPublicKey();
+  if (!publicKey) return null;
+  return [
+    "<script data-agent-native-analytics-config>",
+    "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
+    JSON.stringify({
+      agentNativeAnalyticsPublicKey: publicKey,
+      agentNativeAnalyticsEndpoint: getAgentNativeAnalyticsEndpoint(),
+    }),
+    ");</script>",
+  ].join("");
+}
+
 /**
- * The exact JS body (no surrounding `<script>` tags) of the inline gtag config
- * block injected next to the gtag.js loader.
+ * The exact JS body (no surrounding `<script>` tags) of the inline gtag
+ * bootstrap block. The loader is created only for real browser traffic so a
+ * synthetic browser never initializes Google's analytics runtime.
  * Returns `null` when GA is not configured.
  */
-export function getGaInlineConfigScriptBody(): string | null {
+export function getGaInlineConfigScriptBody(options?: {
+  dataLayerName?: string;
+  sendPageView?: boolean;
+}): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
-  const jsId = JSON.stringify(id);
+  const dataLayerName = options?.dataLayerName ?? "dataLayer";
+  const dataLayer = `window[${JSON.stringify(dataLayerName)}]`;
+  const dataLayerQuery =
+    dataLayerName === "dataLayer"
+      ? ""
+      : `&l=${encodeURIComponent(dataLayerName)}`;
+  const gtagCall = dataLayerName === "dataLayer" ? "gtag" : "agentNativeGtag";
+  const gtagBootstrap =
+    dataLayerName === "dataLayer"
+      ? `window.gtag=window.gtag||function(){${dataLayer}.push(arguments);};`
+      : `var agentNativeGtag=function(){${dataLayer}.push(arguments);};window.__AGENT_NATIVE_GA_GTAG__=agentNativeGtag;`;
+  const config =
+    options?.sendPageView === false
+      ? `${gtagCall}('config',${JSON.stringify(id)},{send_page_view:false});`
+      : `${gtagCall}('config',${JSON.stringify(id)});`;
+  const src = JSON.stringify(
+    `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}${dataLayerQuery}`,
+  );
+  const guard = getSyntheticTrafficBrowserGuard();
   return (
-    `window.dataLayer=window.dataLayer||[];` +
-    `function gtag(){dataLayer.push(arguments);}` +
-    `gtag('js',new Date());` +
-    `gtag('config',${jsId});` +
+    `if(${guard}){` +
+    `${dataLayer}=${dataLayer}||[];` +
+    gtagBootstrap +
+    `${gtagCall}('js',new Date());` +
+    config +
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
-    `gtag('event','sign_in');` +
+    `${gtagCall}('event','sign_in');` +
+    `}` +
+    `var agentNativeGtagScript=document.createElement('script');` +
+    `agentNativeGtagScript.async=true;` +
+    `agentNativeGtagScript.src=${src};` +
+    `document.head.appendChild(agentNativeGtagScript);` +
     `}`
   );
 }
@@ -91,17 +156,21 @@ export function getGaInlineConfigScriptBody(): string | null {
 function getGaScript(): string | null {
   const id = getGaMeasurementId();
   if (!id) return null;
-  const srcId = encodeURIComponent(id);
   const inlineBody = getGaInlineConfigScriptBody();
-  return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${srcId}"></script>` +
-    `<script>${inlineBody}</script>`
-  );
+  return `<script>${inlineBody}</script>`;
+}
+
+function getGtmGaFallbackScript(): string | null {
+  const inlineBody = getGaInlineConfigScriptBody({
+    dataLayerName: "__AGENT_NATIVE_GA_DATA_LAYER__",
+    sendPageView: false,
+  });
+  return inlineBody ? `<script>${inlineBody}</script>` : null;
 }
 
 function getGtmHeadScript(containerId: string): string {
   const jsId = JSON.stringify(containerId);
-  return `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${jsId});</script>`;
+  return `<script>if(${getSyntheticTrafficBrowserGuard()}){(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${jsId});}</script>`;
 }
 
 function getGtmBodyFallback(containerId: string): string {
@@ -115,16 +184,24 @@ type AnalyticsInjection = {
 };
 
 function getAnalyticsInjection(): AnalyticsInjection | null {
+  const agentNativeAnalytics = getAgentNativeAnalyticsConfigScript();
   const containerId = getGtmContainerId();
   if (containerId) {
     return {
-      head: getGtmHeadScript(containerId),
+      head: [
+        agentNativeAnalytics,
+        getGtmHeadScript(containerId),
+        getGtmGaFallbackScript(),
+      ]
+        .filter(Boolean)
+        .join(""),
       body: getGtmBodyFallback(containerId),
     };
   }
 
   const gaScript = getGaScript();
-  return gaScript ? { head: gaScript, body: "" } : null;
+  const head = [agentNativeAnalytics, gaScript].filter(Boolean).join("");
+  return head ? { head, body: "" } : null;
 }
 
 const HEAD_CLOSE_PATTERN = /<\/head>/i;

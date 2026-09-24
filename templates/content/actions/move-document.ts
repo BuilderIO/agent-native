@@ -1,6 +1,6 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, type Visibility } from "@agent-native/core/sharing";
+import type { Visibility } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,7 +9,13 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { movePageToSpace } from "./_move-page-to-space.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -78,7 +84,11 @@ async function preflightBlockDatabaseOwnershipClearance({
     return null;
   }
 
-  await assertAccess("document", database.ownerDocumentId, "editor");
+  await assertDocumentMutationAccess(
+    database.ownerDocumentId,
+    "editor",
+    "ownerDocumentId",
+  );
   return database.id;
 }
 
@@ -184,35 +194,76 @@ async function resolveSiblingPositionsAfterMove({
   }));
 }
 
+function documentMoveResult(doc: typeof schema.documents.$inferSelect) {
+  return {
+    id: doc.id,
+    urlPath: `/page/${doc.id}`,
+    spaceId: doc.spaceId,
+    parentId: doc.parentId,
+    title: doc.title,
+    content: doc.content,
+    icon: doc.icon,
+    position: doc.position,
+    isFavorite: parseDocumentFavorite(doc.isFavorite),
+    hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+    visibility: doc.visibility,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
 export default defineAction({
-  description: "Move a document to a parent and/or position in the page tree.",
+  description:
+    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Pages containing collections, collection rows, local-folder files, and Notion- or Builder-linked pages cannot change space.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     parentId: z
       .string()
       .nullable()
       .optional()
-      .describe("New parent document ID, or null to move to the root"),
+      .describe(
+        "New parent document ID, or null to move to the root. Use an id from a prior action result or <current-screen>; to file a page under a page that does not exist yet, create that parent first and use the returned id.",
+      ),
     position: z.coerce
       .number()
       .int()
       .optional()
       .describe("Sort position among siblings"),
+    spaceId: z
+      .string()
+      .optional()
+      .describe(
+        "Destination Content space ID from list-content-spaces. When it differs from the page's space, the page and its sub-pages move there, at the top level or under parentId (a page in that space you own).",
+      ),
   }),
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
-    if (args.parentId === undefined && args.position === undefined) {
-      throw new Error("--parentId or --position is required");
+    if (
+      args.parentId === undefined &&
+      args.position === undefined &&
+      args.spaceId === undefined
+    ) {
+      throw new Error("--parentId, --position, or --spaceId is required");
     }
     if (args.parentId === id) {
       throw new Error("A document cannot be moved under itself");
     }
 
-    const access = await assertAccess("document", id, "editor");
+    const access = await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();
+
+    if (args.spaceId && args.spaceId !== existing.spaceId) {
+      const { document: doc } = await movePageToSpace({
+        root: existing as any,
+        spaceId: args.spaceId,
+        parentId: args.parentId ?? null,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return documentMoveResult(doc);
+    }
 
     const updatedAt = new Date().toISOString();
     const updates: Record<string, unknown> = {
@@ -221,10 +272,10 @@ export default defineAction({
 
     if (args.parentId !== undefined) {
       if (args.parentId) {
-        const parentAccess = await assertAccess(
-          "document",
+        const parentAccess = await assertDocumentMutationAccess(
           args.parentId,
           "editor",
+          "parentId",
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
           throw new Error("Parent document must belong to the same owner");
@@ -336,7 +387,7 @@ export default defineAction({
         documentsPositionScope(ownerEmail, parentId),
         async () => {
           const maxPos = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.documents)
             .where(
               parentId
@@ -350,7 +401,7 @@ export default defineAction({
                     sql`parent_id IS NULL`,
                   ),
             );
-          updates.position = (maxPos[0]?.max ?? -1) + 1;
+          updates.position = nextAppendPosition(maxPos[0]?.max);
           await runMoveTransaction();
         },
       );
@@ -370,19 +421,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return {
-      id: doc.id,
-      urlPath: `/page/${doc.id}`,
-      parentId: doc.parentId,
-      title: doc.title,
-      content: doc.content,
-      icon: doc.icon,
-      position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
-      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-      visibility: doc.visibility,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    };
+    return documentMoveResult(doc);
   },
 });

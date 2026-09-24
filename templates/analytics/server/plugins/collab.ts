@@ -11,6 +11,8 @@ export default createCollabPlugin({
   idColumn: "id",
   autoSeed: true,
   resolveCollabDocumentId: (dashboardId) => `dash-${dashboardId}`,
+  resolveSourceIdFromCollabDocumentId: (docId) =>
+    docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
   access: {
     mode: "resource",
     resourceType: "dashboard",

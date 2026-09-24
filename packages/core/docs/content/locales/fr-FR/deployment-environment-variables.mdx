@@ -29,7 +29,7 @@ le comportement d'hébergement.
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secret HMAC partagé dédié de 32+ caractères pour le relais d'autorisation Builder sûr pour les previews. Définissez la même valeur sur le déploiement de rappel corporate approuvé et sur les déploiements de preview uniquement lorsque l'autorisation doit atterrir dans une base de données de preview isolée.                                                                                                                                                             |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Liste blanche uniquement pour le rappel corporate, séparée par des virgules, d'origines de preview de confiance exactes (par exemple, `https://0123456789abcdef01234567--content.netlify.app`). Définissez-la uniquement sur le déploiement de rappel corporate. Les origines Netlify doivent utiliser un permalien immuable de 24 caractères hexadécimaux propre au déploiement. Les alias mutables `deploy-preview-*`, les jokers, et les suffixes de domaine sont rejetés. |
 
-Les variables de connexion à la base de données (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` par application) vivent dans [Base de données](/docs/server-database#production).
+Les variables de connexion à la base de données (`DATABASE_URL`, `<APP_NAME>_DATABASE_URL` par application) vivent dans [Base de données](/docs/server-database#production).
 
 ## Configuration sensible pour la production {#env-required-prod}
 

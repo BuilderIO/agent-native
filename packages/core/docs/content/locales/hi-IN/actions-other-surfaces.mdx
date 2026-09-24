@@ -104,6 +104,8 @@ export default defineAction({
 
 `link` को CLI और non-UI MCP होस्ट्स के लिए fallback के रूप में रखें। यह embed का launch target भी है। embed ब्रिज (signed embed-start session, transplant बनाम controlled-frame rendering, `ui/*` host ब्रिज, CSP, और height clamping) [External Agents](/docs/external-agents#mcp-app-bridge) के स्वामित्व में है।
 
+यह कोई automated जांच मौजूद नहीं है कि किसी template में `view-screen`, `navigate`, या उसके primary resource के लिए create/read/update/list सेट है या नहीं; scaffold `view-screen` और `navigate` को शिप करता है, और `pnpm guard:external-result-contract` किसी externally-exposed action के `description` या `nextRequiredAction` में "user का इंतज़ार करें" जैसी भाषा को fail करता है, और किसी नए externally-exposed `create-*` action पर deep link अनिवार्य करता है। इनकी मौजूदगी एक review आइटम है।
+
 ## स्टैंडर्ड actions {#standard-actions}
 
 हर टेम्पलेट को [context awareness](/docs/context-awareness) के लिए ये दोनों शामिल करने चाहिए।

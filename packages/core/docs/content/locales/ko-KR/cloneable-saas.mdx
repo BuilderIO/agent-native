@@ -39,7 +39,7 @@ CLI 선택기에 이름이 표시되는 템플릿은 **퍼스트 파티**입니�
 Native가 프레임워크와 함께 유지 관리하고 테스트하며 문서화하고
 출시합니다. **커뮤니티 템플릿**의 유지 관리와 버전 관리는 해당
 리포지토리 소유자의 책임입니다. 동일한 프레임워크 기능을 사용할 수 있지만
-커뮤니티 목록에 포함된 것이 Agent Native의 보증이나 지원 약속을 의미하지는
+커뮤니티 목록에 포함된 것이 Agent-Native의 보증이나 지원 약속을 의미하지는
 않습니다.
 
 `create`를 실행하고 **커뮤니티 템플릿**을 선택한 다음, 공개 GitHub
@@ -49,8 +49,8 @@ Native가 프레임워크와 함께 유지 관리하고 테스트하며 문서�
 https://github.com/owner/repo
 ```
 
-리포지토리 루트가 하나의 Agent Native 앱이면 CLI는 다른 picker 없이 직접
-설치합니다. Agent Native workspace 리포지토리이면 CLI는 `apps/*`의 유효한
+리포지토리 루트가 하나의 Agent-Native 앱이면 CLI는 다른 picker 없이 직접
+설치합니다. Agent-Native workspace 리포지토리이면 CLI는 `apps/*`의 유효한
 직접 자식을 찾고 `dispatch`를 제외한 뒤 설치할 앱을 묻습니다.
 
 비어 있지 않은 `agent-native.workspaceCore` marker가 있으면 root package도
@@ -63,8 +63,8 @@ branch, tag 또는 commit을 고정하세요. Ref를 생략하면 CLI는 `main`,
 `master` 순서로 시도합니다.
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 Workspace repository에서 source 앱을 비대화형으로 선택하려면
@@ -72,8 +72,8 @@ Workspace repository에서 source 앱을 비대화형으로 선택하려면
 zsh 같은 shell은 `?`를 glob으로 처리하므로 전체 값을 따옴표로 묶으세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 Workspace 밖에서 `create`는 선택한 source 앱을 standalone으로 만듭니다.
@@ -133,7 +133,7 @@ Installer는 확인된 `source`와 `ref`를 설치된 앱의 `package.json`에 �
 
 > **Dependencies를 설치하거나 코드를 실행하기 전에 커뮤니티 코드를
 > 검토하세요.** 커뮤니티 템플릿은 제3자 리포지토리에서 다운로드됩니다.
-> Agent Native는 이를 sandbox, audit 또는 유지 관리하지 않습니다. CLI는
+> Agent-Native는 이를 sandbox, audit 또는 유지 관리하지 않습니다. CLI는
 > source만 다운로드하며 dependencies를 설치하거나 template scripts를
 > 실행하지 않습니다. Source, license, dependencies 및 package install
 > scripts를 확인하고 고정된 신뢰할 수 있는 ref를 사용하세요.
@@ -153,7 +153,7 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 
 - **작동하는 에이전트** — 앱에 연결되어 있고, 데이터에 대해 actions를 수행할 수 있으며, 보고 있는 내용을 인식합니다. [Messaging the agent](/docs/messaging)를 참조하세요.
 - **인증** — 로그인, 세션, 조직, 다중 테넌트 격리.
-- **데이터베이스** — 스키마, 쿼리, 마이그레이션이 바로 사용할 수 있게 준비되어 있습니다. 자체 SQL 데이터베이스(Postgres, SQLite, Turso, D1)를 가져오면 프레임워크가 이에 맞춰 조정됩니다.
+- **데이터베이스** — 바로 사용할 수 있는 스키마, 쿼리, 마이그레이션입니다. 개발 중에는 로컬 PGlite를 사용하고 배포 환경에서는 호스팅 PostgreSQL을 사용하세요.
 - **실시간 UI** — 화면은 에이전트와 동기화 상태를 유지합니다. 예를 들어 채팅에서 이메일 초안을 작성하면 받은편지함이 즉시 업데이트됩니다.
 - **배포 가능** — Netlify, Vercel, Cloudflare, AWS 또는 Node를 실행하는 모든 호스트에 배포합니다.
 - **브랜딩 후크** — 이름, 색상, 로고, 문구를 변경합니다.
@@ -214,7 +214,7 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 
 1. **앱을 선택하세요.** CLI 선택기를 사용하거나 문서를 둘러보세요.
 2. **브랜드화.** 이름, 색상, 로고 및 문구를 변경합니다. 대부분의 예제 앱은 이를 단일 구성 파일에 공개합니다.
-3. **사용자 정의하세요.** 자신의 저장소와 개발 워크플로에서 소스를 변경하세요. 에이전트 frame에 workspace 및 쓰기 도구를 의도적으로 부여하면 도움을 줄 수 있고, 그렇지 않으면 임베디드 에이전트가 actions, 데이터, 구성된 통합으로 앱을 운영합니다.
+3. **사용자 정의하세요.** 자신의 저장소와 개발 워크플로에서 소스를 변경하세요: "폼에 우선순위 필드를 추가해줘," "우리 Salesforce 인스턴스에 연결해줘," "브랜드에 맞게 색상 구성을 바꿔줘"처럼 요청하면 됩니다. 에이전트 frame에 workspace 및 쓰기 도구를 의도적으로 부여하면 도움을 줄 수 있고, 그렇지 않으면 임베디드 에이전트가 actions, 데이터, 구성된 통합으로 앱을 운영합니다.
 4. **배송하세요.** 배포 명령을 실행합니다. 이제 자신의 도메인에 프로덕션 앱이 있습니다.
 
 2~4단계는 일반적으로 며칠이 걸립니다. 3단계에는 정해진 종료 시점이 없습니다. 앱은 여러분이 계속 발전시켜 나가는 것이며, 그 사이 임베디드 에이전트는 배포된 제품을 계속 운영할 수 있고 코드 접근이 명시적으로 활성화되면 소스 변경도 도울 수 있습니다.
@@ -292,13 +292,13 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 새 앱을 스캐폴딩하려면:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat과 Dispatch가 있는 최소 작업 공간을 만들려면 **Chat**을, 다중 선택 도구를 열려면 **First-party template(s)**를 선택하세요. Community와 Headless는 독립 실행형 앱을 위한 선택지입니다. 작업 공간 앱은 인증, 브랜드, 에이전트 구성 및 데이터베이스를 공유하며 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx @agent-native/core@latest create my-agent --headless`를 사용하세요.
+CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat과 Dispatch가 있는 최소 작업 공간을 만들려면 **Chat**을, 다중 선택 도구를 열려면 **First-party template(s)**를 선택하세요. Community와 Headless는 독립 실행형 앱을 위한 선택지입니다. 작업 공간 앱은 인증, 브랜드, 에이전트 구성 및 데이터베이스를 공유하며 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx --yes @agent-native/core@latest create my-agent --headless`를 사용하세요.
 
 `.env`(`ANTHROPIC_API_KEY` 및 `DATABASE_URL`)를 입력한 다음 `pnpm install`과 `pnpm dev`를 실행하세요. 구현해야 할 로그인도, 자리 표시자 경로도 없습니다.
 
-배포 대상: 모든 Nitro 호환 호스트(Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) 및 모든 Drizzle 호환 SQL 데이터베이스(SQLite, Postgres, Turso, D1, Supabase, Neon). 작업 공간의 경우 `npx @agent-native/core@latest deploy`는 모든 앱을 한 번에 빌드하여 단일 원본으로 제공합니다. [Deployment](/docs/deployment)를 참조하세요.
+배포 대상: 지원되는 모든 Nitro 호환 호스트와 호스팅 PostgreSQL 데이터베이스입니다. 작업 공간에서는 `npx @agent-native/core@latest deploy`가 모든 앱을 한 번에 빌드하여 단일 origin 뒤에 제공합니다. [Deployment](/docs/deployment)를 참조하세요.
 
 자신만의 앱 템플릿을 작성하고 게시하려면 [Creating Templates](/docs/creating-templates)를 참조하세요.

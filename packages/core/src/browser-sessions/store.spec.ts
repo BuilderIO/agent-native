@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -9,13 +8,14 @@ import {
   vi,
 } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
   return {
     ...actual,
     getDbExec: () => sharedClient,
-    isPostgres: () => false,
-    intType: () => "INTEGER",
+    isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -27,45 +27,45 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let sharedClient: FrameworkClient = {
   async execute() {
     return { rows: [], rowsAffected: 0 };
   },
 };
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
+beforeAll(async () => {
+  pglite = await createTestPglite();
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   for (const table of [
     "agent_native_browser_session_requests",
     "agent_native_browser_sessions",
   ]) {
     try {
-      sqlite.prepare(`DELETE FROM ${table}`).run();
+      await pglite.prepare(`DELETE FROM ${table}`).run();
     } catch {
       // First test creates the tables through the store initializer.
     }
   }
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("browser session store", () => {
@@ -154,6 +154,96 @@ describe("browser session store", () => {
     await expect(
       getBrowserSessionRequest("alice@example.com", request.id),
     ).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("keeps WebMCP descriptors separate from client actions", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-webmcp" },
+      actions: [{ name: "select-row", description: "Select a row" }],
+      webmcpTools: [
+        {
+          name: "get-order",
+          description: "Read an order",
+          origin: "https://shop.example",
+          annotations: { readOnlyHint: true },
+        },
+      ],
+    });
+
+    const { getBrowserSession } = await import("./store.js");
+    await expect(
+      getBrowserSession("alice@example.com", "tab-webmcp"),
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ name: "select-row" })],
+      webmcpTools: [
+        expect.objectContaining({
+          name: "get-order",
+          origin: "https://shop.example",
+        }),
+      ],
+    });
+
+    const request = await createBrowserSessionRequest(
+      "alice@example.com",
+      "tab-webmcp",
+      {
+        type: "run-webmcp-tool",
+        name: "get-order",
+        origin: "https://shop.example",
+        args: { id: "order-1" },
+      },
+    );
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-webmcp"),
+    ).resolves.toMatchObject({
+      id: request.id,
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: { id: "order-1" },
+    });
+
+    await expect(
+      registerBrowserSession("alice@example.com", {
+        session: { id: "tab-too-many-webmcp" },
+        webmcpTools: Array.from({ length: 101 }, (_, index) => ({
+          name: `tool-${index}`,
+          description: "A tool",
+        })),
+      }),
+    ).rejects.toThrow("100-tool limit");
+  });
+
+  it("preserves empty WebMCP arguments when an origin is present", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-empty-webmcp" },
+    });
+    await createBrowserSessionRequest("alice@example.com", "tab-empty-webmcp", {
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+    });
+
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-empty-webmcp"),
+    ).resolves.toMatchObject({
+      type: "run-webmcp-tool",
+      name: "get-order",
+      origin: "https://shop.example",
+      args: {},
+    });
   });
 
   it("waits for a live browser result", async () => {

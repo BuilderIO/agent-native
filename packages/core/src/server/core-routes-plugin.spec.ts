@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { createApp, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,7 +34,201 @@ import {
   readLegacyCoreRouteInitSettings,
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
+  mountApplicationStateRoutes,
+  matchesSavedHostedAgentProbe,
+  stripRemoteAgentAuth,
+  createPublicRemoteAgentsHandler,
+  createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
+import type { H3AppShim } from "./framework-request-handler.js";
+
+describe("mountApplicationStateRoutes", () => {
+  it("registers the compose matcher before generic application state", () => {
+    const routes: string[] = [];
+
+    const app = {
+      use(path: string, _handler: unknown) {
+        routes.push(path);
+      },
+    } as H3AppShim;
+
+    mountApplicationStateRoutes({}, "/_agent-native", app);
+
+    expect(routes).toEqual([
+      "/_agent-native/application-state/compose",
+      "/_agent-native/application-state",
+    ]);
+  });
+});
+
+describe("OAuth popup waiting route", () => {
+  it("serves an inert public HTML document with restrictive framing policy", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    expect(response.headers.get("cross-origin-opener-policy")).toBe(
+      "unsafe-none",
+    );
+    expect(await response.text()).not.toContain("script");
+  });
+
+  it("rejects writes", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(405);
+  });
+});
+
+describe("public remote-agent discovery", () => {
+  it("does not expose hosted-agent credential wiring", () => {
+    const publicAgent = stripRemoteAgentAuth({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.test/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_SECRET",
+      },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    expect(publicAgent).toEqual({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+    });
+    expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
+  });
+
+  it("omits hosted-agent auth from the HTTP listing response", async () => {
+    const app = createApp();
+    app.use(
+      "/_agent-native/agents",
+      createPublicRemoteAgentsHandler(async () => [
+        {
+          id: "foundry",
+          name: "Foundry",
+          description: "Hosted agent",
+          url: "https://agent.example.test",
+          color: "#000",
+          cardUrl: "https://agent.example.test/card",
+          auth: {
+            type: "bearer",
+            credentialRef: "FOUNDRY_SECRET",
+          },
+        },
+      ]),
+    );
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/agents"),
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    expect(payload.agents).toEqual([
+      {
+        id: "foundry",
+        name: "Foundry",
+        description: "Hosted agent",
+        url: "https://agent.example.test",
+        color: "#000",
+        cardUrl: "https://agent.example.test/card",
+      },
+    ]);
+    expect(payload.agents[0]).not.toHaveProperty("auth");
+  });
+});
+
+describe("hosted-agent probes", () => {
+  it("only accepts credentials for the matching saved connection", () => {
+    const auth = {
+      type: "bearer" as const,
+      credentialRef: "FOUNDRY_TOKEN",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://attacker.example.test",
+          cardUrl: "https://attacker.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
+        },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("readLegacyCoreRouteInitSettings", () => {
   it("starts independent setting reads in parallel and isolates failures", async () => {
@@ -167,6 +361,26 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("RESEND_API_KEY");
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
+  });
+
+  it("marks non-credential flags and addresses as non-secret", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("ENABLE_BUILDER")?.secret).toBe(false);
+    expect(byKey.get("AGENT_ENGINE_PREFER_BYO_KEY")?.secret).toBe(false);
+    expect(byKey.get("EMAIL_FROM")?.secret).toBe(false);
+  });
+
+  it("leaves API key entries as secret by default", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("RESEND_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("SENDGRID_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("ANTHROPIC_API_KEY")?.secret).toBeUndefined();
   });
 });
 
@@ -455,7 +669,7 @@ describe("resolveBuilderWaitlistFormTargetForRequest", () => {
     Object.assign(process.env, originalEnv);
   });
 
-  it("uses the Builder-org waitlist form on hosted Agent Native domains", () => {
+  it("uses the Builder-org waitlist form on hosted Agent-Native domains", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
     );
@@ -536,6 +750,30 @@ describe("buildBuilderWaitlistFormPayload", () => {
         pageUrl: "https://design.agent-native.com/design/abc",
         source: "design_editor_publish_app_menu",
         useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("preserves the design make-real waitlist use case", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      },
+      _meta: {
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
       },
     });
   });
@@ -806,17 +1044,21 @@ describe("resolveAvatarEmailParam", () => {
 
 describe("runDbHealthProbe", () => {
   it("reports db:true when SELECT 1 succeeds", async () => {
-    let ran: string | undefined;
+    // Captures every statement, not just the last one: `db:true` also
+    // triggers the identity read on this same exec (see the "database
+    // identity" describe block below), so more than one call is expected.
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran = sql;
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toBe("SELECT 1");
+    expect(queries[0]).toBe("SELECT 1");
     expect(result.ok).toBe(true);
     expect(result.db).toBe(true);
     expect(result.ms).toBeGreaterThanOrEqual(0);
+    expect(result.database).not.toHaveProperty("authTokenConfigured");
   });
 
   it("answers within a deadline when the query HANGS, and says so distinctly", async () => {
@@ -853,40 +1095,23 @@ describe("runDbHealthProbe", () => {
   });
 
   it("omits pressure unless asked, so the warm cron pays nothing for it", async () => {
-    const ran: string[] = [];
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran.push(sql);
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toEqual(["SELECT 1"]);
+    // The one query pressure would add, not counting the identity read that
+    // every db:true probe now makes on this same connection.
+    expect(queries).toEqual([
+      "SELECT 1",
+      {
+        sql: "SELECT value FROM public.settings WHERE key = ?",
+        args: ["framework.database_identity"],
+      },
+    ]);
     expect(result.pressure).toBeUndefined();
-  });
-
-  // This suite's dialect is sqlite, which has no pg_stat_activity. The probe
-  // must report that as unmeasured rather than running the query anyway — and
-  // the monitor must not read unmeasured as healthy. The measured path is
-  // covered in db-pressure.spec.ts.
-  it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
-    const ran: string[] = [];
-    const result = await runDbHealthProbe(
-      () => ({
-        execute: async (sql: string) => {
-          ran.push(sql);
-          return { rows: [], rowsAffected: 0 };
-        },
-      }),
-      { pressure: true },
-    );
-    expect(ran).toEqual(["SELECT 1"]);
-    expect(result.pressure).toEqual({
-      measured: false,
-      reason: "dialect sqlite has no pg_stat_activity",
-    });
-    // Pressure never moves `ready`. Folding it in would page every uptime
-    // monitor on a warning and teach everyone to mute the route.
-    expect(result.ready).toBe(true);
   });
 
   it("says pressure is unmeasured when the database is unreachable", async () => {
@@ -902,5 +1127,112 @@ describe("runDbHealthProbe", () => {
       measured: false,
       reason: "database unreachable",
     });
+  });
+});
+
+describe("runDbHealthProbe: database identity", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const settingsRowExec = (row: Record<string, unknown> | null) => () => ({
+    execute: async (sql: unknown) => {
+      if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+      return {
+        rows: row ? [{ value: JSON.stringify(row) }] : [],
+        rowsAffected: 0,
+      };
+    },
+  });
+
+  it("omits identity entirely when the database is unreachable", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.database.identity).toBeUndefined();
+    expect(result.database.identityMismatch).toBeUndefined();
+  });
+
+  it("reports unrecorded when db is healthy but nothing has been written yet", async () => {
+    const result = await runDbHealthProbe(settingsRowExec(null));
+    expect(result.database.identity).toEqual({ state: "unrecorded" });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports no mismatch when the recorded app matches the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "chat", recordedAt: "2026-08-19T00:00:00.000Z" }),
+    );
+    expect(result.database.identity).toEqual({
+      state: "recorded",
+      app: "chat",
+      recordedAt: "2026-08-19T00:00:00.000Z",
+    });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  // The exact incident this exists to catch: a database recorded for one app
+  // while a different app is actually running against it.
+  it("reports a mismatch when the recorded app differs from the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({
+        app: "factory",
+        recordedAt: "2026-08-19T00:00:00.000Z",
+      }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "factory",
+    });
+    expect(result.database.identityMismatch).toBe(true);
+  });
+
+  // The first crm production promotion failed on exactly this: the release
+  // migration recorded "crm" while the hosted bundle could not derive any
+  // identity for itself. An unknown runtime identity is a gap to report, not a
+  // mismatch to block on.
+  it("does not claim a mismatch when the runtime cannot derive its own app identity", async () => {
+    vi.stubEnv("APP_ID", "");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "crm", recordedAt: "2026-09-03T17:29:04.800Z" }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "crm",
+    });
+    expect(result.database.runningApp).toBeNull();
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports unreadable, not unrecorded, for a malformed stored value", async () => {
+    const result = await runDbHealthProbe(settingsRowExec({ app: 42 }));
+    expect(result.database.identity?.state).toBe("unreadable");
+    // Only "recorded" can prove a mismatch — a check that failed proves nothing.
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("times out the identity read instead of hanging the probe", async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = runDbHealthProbe(() => ({
+        execute: async (sql: unknown) => {
+          if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+          return new Promise(() => {}); // never settles
+        },
+      }));
+      await vi.advanceTimersByTimeAsync(6_000);
+      const result = await probe;
+      expect(result.db).toBe(true);
+      // A hung read is its own state, not "unrecorded" — the exact coercion
+      // this file already bans for `dbTimedOut` above, applied here too.
+      expect(result.database.identity).toEqual({ state: "timeout" });
+      expect(result.database.identityMismatch).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

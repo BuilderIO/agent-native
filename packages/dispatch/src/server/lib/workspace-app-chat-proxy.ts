@@ -99,7 +99,11 @@ function sessionCacheKey(input: {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error ?? "");
+  return error instanceof Error
+    ? error.message
+    : typeof error === "string" || typeof error === "number"
+      ? String(error)
+      : JSON.stringify(error);
 }
 
 /**

@@ -1,18 +1,14 @@
-import { Spinner } from "@/components/ui/spinner";
-import { APP_TITLE } from "@/lib/app-config";
-import { PlanChatPage } from "@/pages/PlanChatPage";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
-const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
+const SEO_TITLE = "Plan";
 const SEO_DESCRIPTION =
-  "Open Source planning workspace for coding agents with visual plans, PR recaps, diagrams, wireframes, API specs, and prototypes.";
+  "Visual plans, diagrams, wireframes, and shareable reviews for coding-agent work.";
 
 export function meta() {
   return [
     { title: SEO_TITLE },
-    {
-      name: "description",
-      content: SEO_DESCRIPTION,
-    },
+    { name: "description", content: SEO_DESCRIPTION },
     { property: "og:title", content: SEO_TITLE },
     { property: "og:description", content: SEO_DESCRIPTION },
     { name: "twitter:card", content: "summary" },
@@ -21,14 +17,19 @@ export function meta() {
   ];
 }
 
-export function HydrateFallback() {
+export default function MarketingHomeRoute() {
   return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8 text-foreground" />
-    </div>
+    <MarketingHome
+      appName="Plan"
+      tagline="Turn coding-agent plans into visual, annotatable HTML before code changes happen."
+      description={SEO_DESCRIPTION}
+      valueProps={[
+        "Create diagrams, wireframes, mockups, and prototype options from one prompt",
+        "Annotate plans as a visual review surface",
+        "Share account-backed review links when a plan needs outside feedback",
+      ]}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
   );
-}
-
-export default function IndexPage() {
-  return <PlanChatPage />;
 }

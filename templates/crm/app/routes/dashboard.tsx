@@ -3,8 +3,9 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { IconRefresh } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -39,10 +40,23 @@ export default function DashboardRoute() {
     );
   }, [dashboards.data, searchParams]);
 
+  useEffect(() => {
+    if (!dashboard) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard.title,
+      "Dashboard",
+    )} — CRM`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.title]);
+
   async function installDashboard() {
     try {
       const result = await install.mutateAsync({});
-      navigate(`/dashboard?id=${encodeURIComponent(result.dashboardId)}`, {
+      void navigate(`/dashboard?id=${encodeURIComponent(result.dashboardId)}`, {
         replace: true,
       });
       toast.success(t("dashboard.ready"));

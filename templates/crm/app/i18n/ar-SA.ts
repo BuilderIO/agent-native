@@ -60,7 +60,7 @@ const messages = {
   settings: {
     title: "إعدادات CRM",
     description:
-      "يبقي SQL الأصلي سجلات CRM محلية وقابلة للنقل. يستخدم HubSpot وSalesforce اتصالات مساحة العمل؛ ولا تخزن مرايا هذه الاتصالات سوى الحقول المسموح بها وبيانات وصفية محدودة النطاق ومراجع أدلة محدودة.",
+      "يبقي SQL الأصلي سجلات CRM الخاصة بـ CRM في Postgres. يستخدم HubSpot وSalesforce اتصالات مساحة العمل؛ ولا تخزن مرايا هذه الاتصالات سوى الحقول المسموح بها وبيانات وصفية محدودة النطاق ومراجع أدلة محدودة.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -598,6 +598,19 @@ const messages = {
     evaluatedThroughAsk: "تم التقييم عبر Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "مراجعة المكررات",
+    duplicateReviewTitle: "سجلات قد تكون مكررة",
+    duplicateReviewDescription:
+      "قارن هذا السجل بالمرشحين المسموح بالوصول إليهم. يرسل Jev أسماء السجلات وأنواعها وإشارات تطابق ما يصل إلى خمسة مرشحين إلى TypeSafe. الاحتمال مجرد اقتراح؛ ويتطلب الدمج مراجعة منفصلة.",
+    duplicateReviewRun: "فحص المكررات",
+    duplicateReviewLoading: "جارٍ الفحص…",
+    duplicateReviewFailed: "تعذر إكمال مراجعة المكررات.",
+    duplicateReviewUnavailable:
+      "تعذرت مراجعة Jev لهذه السجلات. لا يزال المرشحون المستندون إلى القواعد ظاهرين.",
+    duplicateReviewEmpty: "لم يُعثر على مكررات محتملة.",
+    duplicateRuleConfidence: "تطابق قائم على القواعد: {{percent}}%",
+    duplicateJevProbability: "احتمال Jev لتطابق الكيان: {{percent}}%",
+    duplicateMatchedOn: "إشارات التطابق: {{values}}",
     evidenceAttached: "تم إرفاق دليل المكالمة.",
     evidenceAttachFailed: "تعذر إرفاق الدليل.",
     addEvidence: "إضافة دليل",

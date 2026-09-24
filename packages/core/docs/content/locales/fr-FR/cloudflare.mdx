@@ -28,12 +28,12 @@ export default defineConfig({
 Construisez et déployez le Worker généré avec Wrangler :
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
 Vous pouvez aussi sélectionner le préréglage explicitement avec
-`NITRO_PRESET=cloudflare_module`. Configurez une base de données SQL externe
+`NITRO_PRESET=cloudflare_module`. Configurez une base de données PostgreSQL externe
 durable avant de déployer. Un système de fichiers de Worker n'est pas un magasin
 d'application persistant.
 

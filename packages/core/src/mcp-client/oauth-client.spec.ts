@@ -9,6 +9,7 @@ const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 const replaceOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const getAppConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
@@ -39,6 +40,10 @@ vi.mock("../oauth-tokens/store.js", () => ({
   deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
 }));
 
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: getAppConfigMock,
+}));
+
 vi.mock("../settings/store.js", () => ({
   mutateSetting: vi.fn(
     async (
@@ -62,6 +67,9 @@ import {
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
+  McpOAuthRegistrationUnsupportedError,
+  resolveMcpOAuthAuthorizationServerDiscovery,
+  resolveMcpOAuthAuthorizationServerUrl,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
   validateMcpOAuthCallbackIssuer,
@@ -97,6 +105,7 @@ const credentials = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
@@ -126,6 +135,7 @@ beforeEach(() => {
       return true;
     },
   );
+  ssrfSafeFetchMock.mockReset();
   ssrfSafeFetchMock.mockImplementation((url: string, init?: RequestInit) =>
     fetch(url, init),
   );
@@ -133,6 +143,86 @@ beforeEach(() => {
 });
 
 describe("MCP OAuth client", () => {
+  it("starts Google Workspace OAuth without MCP discovery", async () => {
+    const result = await startMcpOAuthAuthorization({
+      serverUrl: "https://workspacemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+    });
+    const authorizationUrl = result.authorizationUrl;
+
+    expect(authMock).not.toHaveBeenCalled();
+    expect(authorizationUrl.origin).toBe("https://accounts.google.com");
+    expect(authorizationUrl.pathname).toBe("/o/oauth2/v2/auth");
+    expect(authorizationUrl.searchParams.get("client_id")).toBe(
+      "google-client-id",
+    );
+    expect(authorizationUrl.searchParams.get("state")).toBe("<STATE>");
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorizationUrl.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/drive.readonly",
+    );
+    expect(result.discoveryState).toMatchObject({
+      authorizationServerUrl: "https://accounts.google.com",
+      authorizationServerMetadata: {
+        token_endpoint: "https://oauth2.googleapis.com/token",
+      },
+      resourceMetadata: {
+        resource: "https://workspacemcp.googleapis.com/mcp/v1",
+      },
+    });
+  });
+
+  it("exchanges Google Workspace OAuth codes at Google's token endpoint", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "<ACCESS_TOKEN>",
+          refresh_token: "<REFRESH_TOKEN>",
+          token_type: "Bearer",
+          expires_in: 3_600,
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await finishMcpOAuthAuthorization({
+      serverUrl: "https://drivemcp.googleapis.com/mcp/v1",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation: {
+        client_id: "google-client-id",
+        client_secret: "google-client-secret",
+        token_endpoint_auth_method: "client_secret_post",
+      },
+      authorizationCode: "<AUTHORIZATION_CODE>",
+    });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://oauth2.googleapis.com/token",
+      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
+    );
+    const request = ssrfSafeFetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = request.body as URLSearchParams;
+    expect(body.get("client_id")).toBe("google-client-id");
+    expect(body.get("client_secret")).toBe("google-client-secret");
+    expect(body.get("code_verifier")).toBe("<CODE_VERIFIER>");
+    expect(result.credentials.tokens).toMatchObject({
+      access_token: "<ACCESS_TOKEN>",
+      refresh_token: "<REFRESH_TOKEN>",
+      issuer: "https://accounts.google.com",
+    });
+  });
+
   it("starts a standard MCP authorization flow and preserves PKCE state", async () => {
     authMock.mockImplementationOnce(
       async (provider: McpOAuthClientProvider) => {
@@ -165,6 +255,114 @@ describe("MCP OAuth client", () => {
     ).toMatchObject({
       application_type: "web",
       grant_types: ["authorization_code", "refresh_token"],
+    });
+  });
+
+  it("uses app branding in OAuth client metadata", () => {
+    getAppConfigMock.mockReturnValue({
+      app: {
+        name: "Auttendo",
+        logoUrl: "https://auttendo.example/logo.png",
+        url: "https://different.example/workspace",
+      },
+    });
+
+    const metadata = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://auttendo.example/callback",
+      state: "<STATE>",
+    }).clientMetadata;
+
+    expect(metadata).toMatchObject({
+      client_name: "Auttendo",
+      logo_uri: "https://auttendo.example/logo.png",
+      client_uri: "https://auttendo.example",
+    });
+  });
+
+  it("resolves arbitrary OAuth metadata URLs to their issuer", async () => {
+    const metadata = {
+      issuer: "https://auth.example.com/tenant",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+    };
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerUrl(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toBe("https://auth.example.com/tenant");
+
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(metadata), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/custom",
+      ),
+    ).resolves.toEqual({
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: metadata,
+    });
+  });
+
+  it("bounds OAuth metadata before buffering the response", async () => {
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response("{" + "x".repeat(256 * 1024) + "}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      resolveMcpOAuthAuthorizationServerDiscovery(
+        "https://auth.example.com/.well-known/oversized",
+      ),
+    ).rejects.toThrow("MCP OAuth response exceeded the size limit.");
+  });
+
+  it("keeps arbitrary authorization metadata through the real start flow", async () => {
+    const discoveryState = {
+      authorizationServerUrl: "https://auth.example.com/tenant",
+      authorizationServerMetadata: {
+        issuer: "https://auth.example.com/tenant",
+        authorization_endpoint: "https://auth.example.com/authorize",
+        token_endpoint: "https://auth.example.com/token",
+        registration_endpoint: "https://auth.example.com/register",
+      },
+    };
+    authMock.mockImplementationOnce(
+      async (provider: McpOAuthClientProvider) => {
+        expect(provider.discoveryState()).toEqual(discoveryState);
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+
+    await expect(
+      startMcpOAuthAuthorization({
+        serverUrl: "https://mcp.example.com/mcp",
+        redirectUrl: "https://app.example.com/callback",
+        state: "<STATE>",
+        discoveryState,
+      }),
+    ).resolves.toMatchObject({
+      codeVerifier: "<CODE_VERIFIER>",
+      clientInformation,
     });
   });
 
@@ -861,5 +1059,157 @@ describe("MCP OAuth client", () => {
     expect(
       tokenExpiresAt({ expires_in: "not-a-duration" } as any),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * Mirrors the SDK's ordering: discovery state is persisted before the SDK picks
+ * a resource, resolves scope, or registers a client, and `saveDiscoveryState`
+ * is not wrapped in a catch there.
+ */
+function authSavingDiscovery(
+  authorizationServerMetadata: Record<string, unknown>,
+  afterDiscovery?: () => never,
+) {
+  return async (provider: {
+    saveDiscoveryState?: (state: Record<string, unknown>) => void;
+  }) => {
+    provider.saveDiscoveryState?.({
+      authorizationServerUrl: String(authorizationServerMetadata.issuer ?? ""),
+      authorizationServerMetadata,
+    });
+    afterDiscovery?.();
+    return "REDIRECT" as const;
+  };
+}
+
+describe("MCP OAuth start failures that no retry can fix", () => {
+  beforeEach(() => {
+    authMock.mockReset();
+  });
+
+  const githubMetadata = {
+    issuer: "https://github.com/login/oauth",
+    authorization_endpoint: "https://github.com/login/oauth/authorize",
+    token_endpoint: "https://github.com/login/oauth/access_token",
+    response_types_supported: ["code"],
+    code_challenge_methods_supported: ["S256"],
+  };
+
+  const start = (overrides: Record<string, unknown> = {}) =>
+    startMcpOAuthAuthorization({
+      serverUrl: "https://api.githubcopilot.com/mcp/",
+      redirectUrl:
+        "https://app.example.com/_agent-native/mcp/servers/oauth/callback",
+      state: "<STATE>",
+      ...overrides,
+    });
+
+  it("refuses as soon as discovery shows no client can be registered", async () => {
+    authMock.mockImplementation(authSavingDiscovery(githubMetadata));
+
+    const failure = await start().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
+    expect((failure as McpOAuthRegistrationUnsupportedError).issuer).toBe(
+      "https://github.com/login/oauth",
+    );
+  });
+
+  it("refuses a caller-supplied discovery state with no registration path", async () => {
+    authMock.mockResolvedValue("REDIRECT");
+
+    const failure = await start({
+      discoveryState: {
+        authorizationServerUrl: "https://github.com/login/oauth",
+        authorizationServerMetadata: githubMetadata,
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(McpOAuthRegistrationUnsupportedError);
+    expect(authMock).not.toHaveBeenCalled();
+  });
+
+  // The metadata only proves registration is unavailable. It must not be read
+  // as proof that registration is what failed.
+  it("does not blame registration for a failure raised after discovery", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      authSavingDiscovery(
+        {
+          ...githubMetadata,
+          registration_endpoint: "https://auth.example.com/register",
+        },
+        () => {
+          throw cause;
+        },
+      ),
+    );
+
+    await expect(start()).rejects.toBe(cause);
+  });
+
+  // The SDK needs a provider clientMetadataUrl as well as the server flag to
+  // skip registration, and this provider supplies none, so the flag alone is
+  // not an escape from dynamic registration.
+  it("still refuses when only the server advertises CIMD", async () => {
+    authMock.mockImplementation(
+      authSavingDiscovery({
+        ...githubMetadata,
+        client_id_metadata_document_supported: true,
+      }),
+    );
+
+    await expect(start()).rejects.toBeInstanceOf(
+      McpOAuthRegistrationUnsupportedError,
+    );
+  });
+
+  it("allows CIMD when the provider does supply a client metadata URL", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      async (provider: {
+        saveDiscoveryState?: (state: Record<string, unknown>) => void;
+      }) => {
+        Object.assign(provider, {
+          clientMetadataUrl: "https://app.example.com/client-metadata.json",
+        });
+        provider.saveDiscoveryState?.({
+          authorizationServerUrl: "https://github.com/login/oauth",
+          authorizationServerMetadata: {
+            ...githubMetadata,
+            client_id_metadata_document_supported: true,
+          },
+        });
+        throw cause;
+      },
+    );
+
+    await expect(start()).rejects.toBe(cause);
+  });
+
+  it("does not refuse a managed client that never needs registration", async () => {
+    const cause = new Error("authorization endpoint unreachable");
+    authMock.mockImplementation(
+      authSavingDiscovery(githubMetadata, () => {
+        throw cause;
+      }),
+    );
+
+    await expect(
+      start({
+        clientInformation: {
+          client_id: "managed-client",
+          client_secret: "managed-secret",
+        },
+      }),
+    ).rejects.toBe(cause);
+  });
+
+  it("keeps a pre-discovery failure generic", async () => {
+    const cause = new Error("network unreachable");
+    authMock.mockRejectedValue(cause);
+
+    await expect(start()).rejects.toBe(cause);
   });
 });

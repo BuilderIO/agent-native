@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,9 +16,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Select,
   SelectContent,
@@ -39,6 +40,7 @@ export type MemberRole = "owner" | "admin" | "member";
 export interface MemberRow {
   id: string;
   email: string;
+  name?: string | null;
   role: MemberRole;
   joinedAt: string | null;
   invitedAt: string | null;
@@ -52,9 +54,9 @@ interface MembersListProps {
   disabled?: boolean;
 }
 
-function initials(email: string): string {
-  const [name] = email.split("@");
-  return (name || email).slice(0, 2).toUpperCase();
+function initials(nameOrEmail: string): string {
+  const [name] = nameOrEmail.split("@");
+  return (name || nameOrEmail).slice(0, 2).toUpperCase();
 }
 
 const ROLE_OPTIONS: { value: MemberRole; labelKey: string }[] = [
@@ -93,7 +95,7 @@ export function MembersList({
       toast.success(
         t("membersList.roleUpdated", { email: member.email, role }),
       );
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
@@ -111,7 +113,7 @@ export function MembersList({
         email: pendingRemove.email,
       });
       toast.success(t("membersList.removed", { email: pendingRemove.email }));
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
@@ -125,9 +127,13 @@ export function MembersList({
 
   if (!members.length) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        {t("membersList.noMembers")}
-      </div>
+      <Empty className="gap-2 border py-6 md:p-6">
+        <EmptyHeader>
+          <EmptyTitle className="text-sm font-medium text-muted-foreground">
+            {t("membersList.noMembers")}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -148,18 +154,21 @@ export function MembersList({
           <TableBody>
             {members.map((m) => {
               const isSelf = m.email === currentUserEmail;
+              const displayName = m.name?.trim() || m.email;
               return (
                 <TableRow key={m.id}>
                   <TableCell>
                     <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-8 w-8 flex-shrink-0">
-                        <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                          {initials(m.email)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ClipsAvatar
+                        email={m.email}
+                        alt={displayName}
+                        fallback={initials(displayName)}
+                        className="h-8 w-8 flex-shrink-0"
+                        fallbackClassName="text-xs bg-primary text-primary-foreground"
+                      />
                       <div className="min-w-0">
                         <div className="truncate font-medium flex items-center gap-1.5">
-                          {m.email}
+                          {displayName}
                           {m.role === "admin" ? (
                             <IconCrown className="size-3.5 text-amber-500" />
                           ) : null}
@@ -169,6 +178,11 @@ export function MembersList({
                             </span>
                           ) : null}
                         </div>
+                        {displayName !== m.email ? (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {m.email}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </TableCell>

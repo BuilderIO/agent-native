@@ -9,7 +9,7 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 
 ## 您免费获得的东西 {#free}
 
-新的 `npx @agent-native/core@latest create` 脚手架已附带：
+新的 `npx --yes @agent-native/core@latest create` 脚手架已附带：
 
 - **用户注册和登录** — 参见 [Authentication](/docs/authentication)。
 - **组织** — 用户创建组织并通过电子邮件邀请成员。每个组织都是一个完全隔离的租户。
@@ -122,3 +122,7 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 - [**Authentication**](/docs/authentication#organizations) — 会话、社交提供商和组织管理界面
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL 级隔离、`ownableColumns()` 合约和访问防护
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — 在一个 monorepo 中托管多个 Agent-Native 应用，共享身份验证和 RBAC
+
+## 隔离模型
+
+服务端读写应使用 `accessFilter()` 和 `assertAccess()`。Agent SQL 范围控制会为可拥有的数据表创建临时过滤视图。`pnpm guards` 包含无范围查询检查。RLS 目前不是实际执行层，计划作为 1.0 之后的强化措施。[管理式部署指南](/docs/administered-deployments)有更多说明。

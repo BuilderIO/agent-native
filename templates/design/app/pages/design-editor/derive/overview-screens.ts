@@ -1,6 +1,8 @@
-import { isBoardFile } from "@shared/board-file";
+import { isOverviewScreenFile } from "@shared/design-files";
+import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
 
-import { normalizedDesignFileType } from "../canvas-primitive-insert";
+import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
+
 import { getDesignDataRecord } from "../design-data-geometry-utils";
 import type { DesignFile } from "../types";
 
@@ -21,11 +23,13 @@ export interface OverviewScreen {
   width?: number;
   height?: number;
   heightPinned: boolean;
+  heightMode?: "auto" | "fixed" | "hug";
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
   previewToken?: string;
   breakpointWidths?: number[];
+  breakpointHeights?: Record<string, number>;
   activeBreakpointWidth?: number;
 }
 
@@ -91,56 +95,120 @@ export function deriveOverviewScreens({
   // Exclude the board file — it is rendered by its own DesignCanvas instance
   // in MultiScreenCanvas and must not appear as a screen frame.  Support files
   // such as CSS are editable files, not visual screens.
-  return files
-    .filter(
-      (file) =>
-        normalizedDesignFileType(file.fileType) === "html" &&
-        !isBoardFile(file.filename),
-    )
-    .map((file) => {
-      const metadata = getDesignDataRecord(metadataByFileId, file.id);
-      const stringValue = (key: string) =>
-        typeof metadata[key] === "string"
-          ? (metadata[key] as string)
-          : undefined;
-      const numberValue = (key: string) =>
-        typeof metadata[key] === "number" && Number.isFinite(metadata[key])
-          ? (metadata[key] as number)
-          : undefined;
-      return {
-        id: file.id,
-        filename: file.filename,
-        content: file.content,
-        updatedAt: file.updatedAt,
-        sourceType: stringValue("sourceType"),
-        source: stringValue("source"),
-        sourceFile: stringValue("sourceFile"),
-        connectionId: stringValue("connectionId"),
-        lod: stringValue("lod"),
-        previewState: stringValue("previewState"),
-        status: stringValue("status"),
-        title: stringValue("title"),
-        layoutGroupId: stringValue("variantSetId"),
-        width: numberValue("width"),
-        height: numberValue("height"),
-        // Without this the pin never reaches the canvas and the content-fit
-        // pass grows a deliberately-sized screen straight back.
-        heightPinned:
-          metadata.heightPinned === true || locallyPinnedHeightIds.has(file.id),
-        url: stringValue("url"),
-        previewUrl: stringValue("previewUrl"),
-        bridgeUrl: stringValue("bridgeUrl"),
-        previewToken: stringValue("previewToken"),
-        // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-        // renders one iframe per width to the right of the primary frame.
-        breakpointWidths: bpWidths,
-        // Active breakpoint width tracked in component state; shared across all
-        // screens (a design has one active breakpoint set at a time in v1).
-        activeBreakpointWidth: bpWidths?.includes(
-          activeBreakpointWidthState ?? -1,
-        )
-          ? activeBreakpointWidthState
-          : undefined,
-      };
-    });
+  const overviewFiles = files.filter(isOverviewScreenFile);
+  return overviewFiles.map((file) => {
+    const metadata = getDesignDataRecord(metadataByFileId, file.id);
+    const stringValue = (key: string) =>
+      typeof metadata[key] === "string" ? (metadata[key] as string) : undefined;
+    const numberValue = (key: string) =>
+      typeof metadata[key] === "number" && Number.isFinite(metadata[key])
+        ? (metadata[key] as number)
+        : undefined;
+    const rawBreakpointHeights = metadata.breakpointHeights;
+    const heightMode = resolveScreenHeightMode(
+      metadata.heightMode,
+      metadata.heightPinned === true,
+      metadata.sourceType,
+    );
+    const breakpointHeights =
+      rawBreakpointHeights &&
+      typeof rawBreakpointHeights === "object" &&
+      !Array.isArray(rawBreakpointHeights)
+        ? Object.fromEntries(
+            Object.entries(rawBreakpointHeights).filter(
+              ([width, height]) =>
+                Number.isSafeInteger(Number(width)) &&
+                Number(width) > 0 &&
+                String(Number(width)) === width &&
+                typeof height === "number" &&
+                Number.isFinite(height) &&
+                height > 0 &&
+                height <= MAX_SANE_FRAME_DIMENSION_PX,
+            ),
+          )
+        : undefined;
+    return {
+      id: file.id,
+      filename: file.filename,
+      content: file.content,
+      updatedAt: file.updatedAt,
+      sourceType: stringValue("sourceType"),
+      source: stringValue("source"),
+      sourceFile: stringValue("sourceFile"),
+      connectionId: stringValue("connectionId"),
+      lod: stringValue("lod"),
+      previewState: stringValue("previewState"),
+      status: stringValue("status"),
+      title: stringValue("title"),
+      layoutGroupId: stringValue("variantSetId"),
+      width: numberValue("width"),
+      height: numberValue("height"),
+      breakpointHeights,
+      // Without this the pin never reaches the canvas and the content-fit
+      // pass grows a deliberately-sized screen straight back.
+      heightPinned:
+        heightMode === "fixed" || locallyPinnedHeightIds.has(file.id),
+      heightMode,
+      url: stringValue("url"),
+      previewUrl: stringValue("previewUrl"),
+      bridgeUrl: stringValue("bridgeUrl"),
+      previewToken: stringValue("previewToken"),
+      // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
+      // renders one iframe per width to the right of the primary frame.
+      breakpointWidths: bpWidths,
+      // Active breakpoint width tracked in component state; shared across all
+      // screens (a design has one active breakpoint set at a time in v1).
+      activeBreakpointWidth: bpWidths?.includes(
+        activeBreakpointWidthState ?? -1,
+      )
+        ? activeBreakpointWidthState
+        : undefined,
+    };
+  });
+}
+
+function sameFieldValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  return (
+    aKeys.length === Object.keys(bRecord).length &&
+    aKeys.every((key) => aRecord[key] === bRecord[key])
+  );
+}
+
+/**
+ * Hands back the previous screen object wherever the rebuilt one is
+ * field-for-field equal (one level deep for breakpoint arrays and records),
+ * and the previous array when nothing changed. The canvas memoizes frames and
+ * live editors on screen identity, so a fresh object per screen on every data
+ * change re-renders the whole board.
+ */
+export function reuseUnchangedOverviewScreens<T extends { id: string }>(
+  previous: readonly T[],
+  next: T[],
+): T[] {
+  const previousById = new Map(previous.map((screen) => [screen.id, screen]));
+  let changed = previous.length !== next.length;
+  const reused = next.map((screen, index) => {
+    const prior = previousById.get(screen.id);
+    const priorRecord = prior as Record<string, unknown> | undefined;
+    const nextRecord = screen as Record<string, unknown>;
+    const nextKeys = Object.keys(nextRecord);
+    if (
+      prior &&
+      nextKeys.length === Object.keys(priorRecord!).length &&
+      nextKeys.every((key) =>
+        sameFieldValue(priorRecord![key], nextRecord[key]),
+      )
+    ) {
+      if (previous[index] !== prior) changed = true;
+      return prior;
+    }
+    changed = true;
+    return screen;
+  });
+  return changed ? reused : (previous as T[]);
 }

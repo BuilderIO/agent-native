@@ -1,6 +1,8 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
 import type { ReactNode } from "react";
 
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
+import { resolveScreenHeightMode } from "./screen-height";
 import type {
   FrameGeometry,
   MultiScreenCanvasProps,
@@ -8,6 +10,7 @@ import type {
   ScreenContentCacheEntry,
   ScreenFile,
   ScreenMetadata,
+  ScreenContentRenderOptions,
   ScreenPreviewState,
   ScreenSourceType,
 } from "./types";
@@ -31,6 +34,7 @@ export function sameResolvedMetadata(
     a.width === b.width &&
     a.height === b.height &&
     a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.previewUrl === b.previewUrl
   );
 }
@@ -51,6 +55,7 @@ function sameScreenMetadataInput(
     a.width === b.width &&
     a.height === b.height &&
     a.heightPinned === b.heightPinned &&
+    a.heightMode === b.heightMode &&
     a.url === b.url &&
     a.previewUrl === b.previewUrl &&
     a.bridgeUrl === b.bridgeUrl &&
@@ -128,27 +133,31 @@ export function getCachedScreenContentNode(
   renderScreenContent: NonNullable<
     MultiScreenCanvasProps["renderScreenContent"]
   >,
+  options?: ScreenContentRenderOptions,
 ): ReactNode {
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
+  const renderKey = options?.cacheKey;
   const prior = cache.get(screen.id);
   if (
     prior &&
     prior.screen === screen &&
     prior.renderScreenContent === renderScreenContent &&
+    prior.renderKey === renderKey &&
     sameResolvedMetadata(prior.metadata, metadata) &&
     prior.width === width &&
     prior.height === height
   ) {
     return prior.contentNode;
   }
-  const contentNode = renderScreenContent(screen, metadata, geometry);
+  const contentNode = renderScreenContent(screen, metadata, geometry, options);
   cache.set(screen.id, {
     screen,
     metadata,
     width,
     height,
     renderScreenContent,
+    renderKey,
     contentNode,
   });
   return contentNode;
@@ -178,6 +187,11 @@ export function resolveScreenMetadata(
   const height =
     deviceViewport?.height ??
     (metadata.height && metadata.height > 0 ? metadata.height : 2560);
+  const heightMode = resolveScreenHeightMode(
+    metadata.heightMode,
+    metadata.heightPinned,
+    metadata.sourceType,
+  );
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??
@@ -190,7 +204,8 @@ export function resolveScreenMetadata(
     width,
     height,
     // A height the user dragged. Auto-fit must not grow past it.
-    heightPinned: metadata.heightPinned === true,
+    heightPinned: heightMode === "fixed",
+    heightMode,
     previewUrl,
   };
 }
@@ -263,14 +278,9 @@ export function getPreviewUrl(content: string) {
   )?.toString();
 }
 
+// Screen content is usually a whole HTML document; the predicate rejects it at
+// the first `<` or whitespace instead of running the WHATWG parser over it.
 function getUrl(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  if (!value || !isStandaloneHttpUrl(value)) return undefined;
+  return new URL(value.trim());
 }

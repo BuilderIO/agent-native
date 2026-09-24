@@ -195,6 +195,16 @@ const enUS = {
     privacyClassifierModelPlaceholder: "Default privacy classifier model",
     privacyClassifierEngine: "Classifier engine",
     privacyClassifierEnginePlaceholder: "Default classifier engine",
+    hours: "{{count}} hours",
+    privacyClassifierChoice: "Sensitivity classifier",
+    privacyClassifierJev: "Jev (recommended)",
+    privacyClassifierCustom: "Custom model",
+    privacyClassifierDeterministic: "Deterministic only",
+    jevCredentialLabel: "Jev credential",
+    jevCredentialStoredKey: "Stored key",
+    jevCredentialGateway: "Builder connection",
+    jevCredentialNone: "Not found",
+    jevCredentialUnavailable: "Lookup failed",
     quarantineRetentionHours: "Quarantine retention hours",
     quarantineRetentionHoursDescription:
       "Metadata-only quarantine events are deleted after this period.",
@@ -436,6 +446,14 @@ const enUS = {
     slackAccessRuleScopes:
       "Slack access should support auth.test, conversations.info/history, and chat.getPermalink. Add private-channel access when piloting private channels.",
     allowedChannels: "Allowed channels",
+    invalidAllowedChannels:
+      "Not valid Slack channels: {{entries}}. Use a channel ID like C0123456789 or #channel-name.",
+    invalidSlackDirectMessages:
+      "Slack direct messages are not supported: {{entries}}. Brain only syncs public and private channels.",
+    invalidGithubRepositories:
+      "Not valid repositories: {{entries}}. Use owner/repo or a github.com repository URL.",
+    missingProviderCredential:
+      "{{keys}} is not configured, so this source cannot sync until it is added.",
     allowedChannelsDescription:
       "Brain verifies the allow-list, rejects DMs/MPIMs, and never stores credential values in source config.",
     slackDiscoveryMode: "Discovery mode",
@@ -3026,6 +3044,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "يتحقق Brain من القائمة المسموح بها، ويرفض DMs/MPIMs، ولا يخزن أبدًا قيم بيانات الاعتماد في تكوين المصدر.",
       allowedChannels: "القنوات المسموح بها",
+      invalidAllowedChannels:
+        "قنوات Slack غير صالحة: {{entries}}. استخدم معرف قناة مثل C0123456789 أو ‎#channel-name.",
+      invalidSlackDirectMessages:
+        "الرسائل المباشرة في Slack غير مدعومة: {{entries}}. يزامن Brain القنوات العامة والخاصة فقط.",
+      invalidGithubRepositories:
+        "مستودعات غير صالحة: {{entries}}. استخدم owner/repo أو عنوان URL لمستودع على github.com.",
+      missingProviderCredential:
+        "لم يتم تكوين {{keys}}، لذا لا يمكن مزامنة هذا المصدر حتى تتم إضافته.",
       approvedRepositories: "المستودعات المعتمدة",
       autoSyncDescription: "يستخدم استطلاع الخلفية هذا المصدر عند استحقاقه",
       autoSync: "المزامنة التلقائية",
@@ -3459,6 +3485,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain überprüft die Zulassungsliste, lehnt DMs/MPIMs ab und speichert niemals Anmeldeinformationswerte in der Quellkonfiguration.",
       allowedChannels: "Zulässige Kanäle",
+      invalidAllowedChannels:
+        "Keine gültigen Slack-Kanäle: {{entries}}. Verwenden Sie eine Kanal-ID wie C0123456789 oder #kanalname.",
+      invalidSlackDirectMessages:
+        "Slack-Direktnachrichten werden nicht unterstützt: {{entries}}. Brain synchronisiert nur öffentliche und private Kanäle.",
+      invalidGithubRepositories:
+        "Keine gültigen Repositorys: {{entries}}. Verwenden Sie owner/repo oder eine github.com-Repository-URL.",
+      missingProviderCredential:
+        "{{keys}} ist nicht konfiguriert, daher kann diese Quelle erst nach dem Hinzufügen synchronisiert werden.",
       approvedRepositories: "Zugelassene Repositories",
       autoSyncDescription:
         "Bei der Hintergrundabfrage wird bei Fälligkeit diese Quelle verwendet",
@@ -3907,6 +3941,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain verifica la lista de permitidos, rechaza DMs/MPIMs y nunca almacena valores de credenciales en la configuración de origen.",
       allowedChannels: "Canales permitidos",
+      invalidAllowedChannels:
+        "Canales de Slack no válidos: {{entries}}. Usa un ID de canal como C0123456789 o #nombre-de-canal.",
+      invalidSlackDirectMessages:
+        "Los mensajes directos de Slack no son compatibles: {{entries}}. Brain solo sincroniza canales públicos y privados.",
+      invalidGithubRepositories:
+        "Repositorios no válidos: {{entries}}. Usa owner/repo o una URL de repositorio de github.com.",
+      missingProviderCredential:
+        "{{keys}} no está configurado, por lo que esta fuente no puede sincronizarse hasta que se añada.",
       approvedRepositories: "Repositorios aprobados",
       autoSyncDescription:
         "Las encuestas de antecedentes utilizan esta fuente cuando corresponde",
@@ -4353,6 +4395,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain vérifie la liste verte, rejette DMs/MPIMs et ne stocke jamais les valeurs d'informations d'identification dans la configuration source.",
       allowedChannels: "Chaînes autorisées",
+      invalidAllowedChannels:
+        "Canaux Slack non valides : {{entries}}. Utilisez un ID de canal comme C0123456789 ou #nom-de-canal.",
+      invalidSlackDirectMessages:
+        "Les messages directs Slack ne sont pas pris en charge : {{entries}}. Brain ne synchronise que les canaux publics et privés.",
+      invalidGithubRepositories:
+        "Dépôts non valides : {{entries}}. Utilisez owner/repo ou une URL de dépôt github.com.",
+      missingProviderCredential:
+        "{{keys}} n'est pas configuré, cette source ne pourra donc pas se synchroniser tant qu'il n'est pas ajouté.",
       approvedRepositories: "Référentiels approuvés",
       autoSyncDescription:
         "L'interrogation en arrière-plan utilise cette source lorsqu'elle est due",
@@ -4777,6 +4827,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain अनुमति-सूची को सत्यापित करता है, DMs/MPIMs को अस्वीकार करता है, और स्रोत कॉन्फ़िगरेशन में कभी भी क्रेडेंशियल मान संग्रहीत नहीं करता है।",
       allowedChannels: "अनुमत चैनल",
+      invalidAllowedChannels:
+        "मान्य Slack चैनल नहीं: {{entries}}. C0123456789 जैसी चैनल ID या #channel-name का उपयोग करें।",
+      invalidSlackDirectMessages:
+        "Slack डायरेक्ट मैसेज समर्थित नहीं हैं: {{entries}}. Brain केवल सार्वजनिक और निजी चैनल सिंक करता है।",
+      invalidGithubRepositories:
+        "मान्य रिपॉज़िटरी नहीं: {{entries}}. owner/repo या github.com रिपॉज़िटरी URL का उपयोग करें।",
+      missingProviderCredential:
+        "{{keys}} कॉन्फ़िगर नहीं है, इसलिए जोड़े जाने तक यह स्रोत सिंक नहीं हो सकता।",
       appAccess: {
         brainAllowList: "Brain अनुमति-सूची",
       },
@@ -5194,6 +5252,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain は許可リストを検証し、DMs/MPIMs を拒否し、資格情報の値をソース構成に保存しません。",
       allowedChannels: "許可されたチャネル",
+      invalidAllowedChannels:
+        "有効な Slack チャネルではありません: {{entries}}。C0123456789 のようなチャネル ID または #channel-name を使用してください。",
+      invalidSlackDirectMessages:
+        "Slack のダイレクトメッセージはサポートされていません: {{entries}}。Brain はパブリックおよびプライベートチャネルのみを同期します。",
+      invalidGithubRepositories:
+        "有効なリポジトリではありません: {{entries}}。owner/repo または github.com のリポジトリ URL を使用してください。",
+      missingProviderCredential:
+        "{{keys}} が設定されていないため、追加されるまでこのソースは同期できません。",
       approvedRepositories: "承認されたリポジトリ",
       autoSyncDescription:
         "バックグラウンドポーリングは期限が来るとこのソースを使用します",
@@ -5618,6 +5684,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain은 허용 목록을 확인하고 DMs/MPIMs을 거부하며 소스 구성에 자격 증명 값을 저장하지 않습니다.",
       allowedChannels: "허용된 채널",
+      invalidAllowedChannels:
+        "유효한 Slack 채널이 아닙니다: {{entries}}. C0123456789 같은 채널 ID 또는 #channel-name을 사용하세요.",
+      invalidSlackDirectMessages:
+        "Slack 다이렉트 메시지는 지원되지 않습니다: {{entries}}. Brain은 공개 및 비공개 채널만 동기화합니다.",
+      invalidGithubRepositories:
+        "유효한 리포지토리가 아닙니다: {{entries}}. owner/repo 또는 github.com 리포지토리 URL을 사용하세요.",
+      missingProviderCredential:
+        "{{keys}}이(가) 구성되지 않아 추가될 때까지 이 소스를 동기화할 수 없습니다.",
       approvedRepositories: "승인된 저장소",
       autoSyncDescription:
         "백그라운드 폴링은 예정된 경우 이 소스를 사용합니다.",
@@ -6049,6 +6123,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain verifica a lista de permissões, rejeita DMs/MPIMs e nunca armazena valores de credenciais na configuração de origem.",
       allowedChannels: "Canais permitidos",
+      invalidAllowedChannels:
+        "Canais do Slack inválidos: {{entries}}. Use um ID de canal como C0123456789 ou #nome-do-canal.",
+      invalidSlackDirectMessages:
+        "Mensagens diretas do Slack não são compatíveis: {{entries}}. O Brain sincroniza apenas canais públicos e privados.",
+      invalidGithubRepositories:
+        "Repositórios inválidos: {{entries}}. Use owner/repo ou uma URL de repositório do github.com.",
+      missingProviderCredential:
+        "{{keys}} não está configurado, portanto esta fonte não pode sincronizar até que seja adicionado.",
       approvedRepositories: "Repositórios aprovados",
       autoSyncDescription:
         "A pesquisa em segundo plano usa esta fonte quando devido",
@@ -6454,6 +6536,14 @@ const exactEnglishDebtOverrides: Partial<
       allowedChannelsDescription:
         "Brain 验证允许列表，拒绝 DMs/MPIMs，并且从不在源配置中存储凭证值。",
       allowedChannels: "允许的频道",
+      invalidAllowedChannels:
+        "不是有效的 Slack 频道：{{entries}}。请使用类似 C0123456789 的频道 ID 或 #channel-name。",
+      invalidSlackDirectMessages:
+        "不支持 Slack 私信：{{entries}}。Brain 仅同步公开和私有频道。",
+      invalidGithubRepositories:
+        "不是有效的仓库：{{entries}}。请使用 owner/repo 或 github.com 仓库 URL。",
+      missingProviderCredential:
+        "{{keys}} 尚未配置，因此在添加之前此来源无法同步。",
       approvedRepositories: "批准的存储库",
       autoSyncDescription: "后台轮询在到期时使用此来源",
       autoSync: "自动同步",
@@ -6637,6 +6727,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "نموذج مصنّف الخصوصية الافتراضي",
       privacyClassifierEngine: "محرك المصنّف",
       privacyClassifierEnginePlaceholder: "محرك المصنّف الافتراضي",
+      hours: "{{count}} ساعة",
+      privacyClassifierChoice: "مصنّف الحساسية",
+      privacyClassifierJev: "Jev (موصى به)",
+      privacyClassifierCustom: "نموذج مخصص",
+      privacyClassifierDeterministic: "الفحص الحتمي فقط",
+      jevCredentialLabel: "بيانات اعتماد Jev",
+      jevCredentialStoredKey: "مفتاح مخزَّن",
+      jevCredentialGateway: "اتصال Builder",
+      jevCredentialNone: "غير موجود",
+      jevCredentialUnavailable: "فشل البحث",
       quarantineRetentionHours: "ساعات الاحتفاظ بالعزل",
       quarantineRetentionHoursDescription:
         "تُحذف أحداث العزل الوصفية فقط بعد هذه المدة.",
@@ -6704,6 +6804,16 @@ const privacySearchLocalizationOverrides: Partial<
         "Standardmodell für Datenschutzklassifizierung",
       privacyClassifierEngine: "Klassifikator-Engine",
       privacyClassifierEnginePlaceholder: "Standard-Engine für Klassifizierung",
+      hours: "{{count}} Stunden",
+      privacyClassifierChoice: "Sensibilitätsklassifikator",
+      privacyClassifierJev: "Jev (empfohlen)",
+      privacyClassifierCustom: "Eigenes Modell",
+      privacyClassifierDeterministic: "Nur deterministisch",
+      jevCredentialLabel: "Jev-Zugangsdaten",
+      jevCredentialStoredKey: "Gespeicherter Schlüssel",
+      jevCredentialGateway: "Builder-Verbindung",
+      jevCredentialNone: "Nicht gefunden",
+      jevCredentialUnavailable: "Abfrage fehlgeschlagen",
       quarantineRetentionHours: "Quarantäne-Aufbewahrung in Stunden",
       quarantineRetentionHoursDescription:
         "Reine Metadatenereignisse werden nach diesem Zeitraum gelöscht.",
@@ -6773,6 +6883,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierEngine: "Motor del clasificador",
       privacyClassifierEnginePlaceholder:
         "Motor de clasificación predeterminado",
+      hours: "{{count}} horas",
+      privacyClassifierChoice: "Clasificador de sensibilidad",
+      privacyClassifierJev: "Jev (recomendado)",
+      privacyClassifierCustom: "Modelo personalizado",
+      privacyClassifierDeterministic: "Solo determinista",
+      jevCredentialLabel: "Credencial de Jev",
+      jevCredentialStoredKey: "Clave almacenada",
+      jevCredentialGateway: "Conexión de Builder",
+      jevCredentialNone: "No encontrada",
+      jevCredentialUnavailable: "Error de consulta",
       quarantineRetentionHours: "Horas de retención en cuarentena",
       quarantineRetentionHoursDescription:
         "Los eventos de cuarentena con solo metadatos se eliminan tras este periodo.",
@@ -6841,6 +6961,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "Modèle de classification par défaut",
       privacyClassifierEngine: "Moteur du classificateur",
       privacyClassifierEnginePlaceholder: "Moteur de classification par défaut",
+      hours: "{{count}} heures",
+      privacyClassifierChoice: "Classificateur de sensibilité",
+      privacyClassifierJev: "Jev (recommandé)",
+      privacyClassifierCustom: "Modèle personnalisé",
+      privacyClassifierDeterministic: "Déterministe uniquement",
+      jevCredentialLabel: "Identifiant Jev",
+      jevCredentialStoredKey: "Clé enregistrée",
+      jevCredentialGateway: "Connexion Builder",
+      jevCredentialNone: "Introuvable",
+      jevCredentialUnavailable: "Échec de la recherche",
       quarantineRetentionHours: "Heures de conservation en quarantaine",
       quarantineRetentionHoursDescription:
         "Les événements de quarantaine limités aux métadonnées sont supprimés après ce délai.",
@@ -6908,6 +7038,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "डिफ़ॉल्ट गोपनीयता क्लासिफ़ायर मॉडल",
       privacyClassifierEngine: "क्लासिफ़ायर इंजन",
       privacyClassifierEnginePlaceholder: "डिफ़ॉल्ट क्लासिफ़ायर इंजन",
+      hours: "{{count}} घंटे",
+      privacyClassifierChoice: "संवेदनशीलता क्लासिफ़ायर",
+      privacyClassifierJev: "Jev (अनुशंसित)",
+      privacyClassifierCustom: "कस्टम मॉडल",
+      privacyClassifierDeterministic: "केवल नियम-आधारित",
+      jevCredentialLabel: "Jev क्रेडेंशियल",
+      jevCredentialStoredKey: "संग्रहीत कुंजी",
+      jevCredentialGateway: "Builder कनेक्शन",
+      jevCredentialNone: "नहीं मिला",
+      jevCredentialUnavailable: "खोज विफल",
       quarantineRetentionHours: "क्वारंटीन अवधारण घंटे",
       quarantineRetentionHoursDescription:
         "केवल मेटाडेटा वाले क्वारंटीन इवेंट इस अवधि के बाद मिटा दिए जाते हैं।",
@@ -6973,6 +7113,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "既定のプライバシー分類モデル",
       privacyClassifierEngine: "分類エンジン",
       privacyClassifierEnginePlaceholder: "既定の分類エンジン",
+      hours: "{{count}} 時間",
+      privacyClassifierChoice: "機密度分類器",
+      privacyClassifierJev: "Jev (推奨)",
+      privacyClassifierCustom: "カスタムモデル",
+      privacyClassifierDeterministic: "決定論的スクリーニングのみ",
+      jevCredentialLabel: "Jev 資格情報",
+      jevCredentialStoredKey: "保存済みキー",
+      jevCredentialGateway: "Builder 接続",
+      jevCredentialNone: "見つかりません",
+      jevCredentialUnavailable: "照会に失敗しました",
       quarantineRetentionHours: "隔離の保持時間",
       quarantineRetentionHoursDescription:
         "メタデータのみの隔離イベントは、この期間後に削除されます。",
@@ -7042,6 +7192,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "기본 개인정보 분류 모델",
       privacyClassifierEngine: "분류 엔진",
       privacyClassifierEnginePlaceholder: "기본 분류 엔진",
+      hours: "{{count}}시간",
+      privacyClassifierChoice: "민감도 분류기",
+      privacyClassifierJev: "Jev (권장)",
+      privacyClassifierCustom: "사용자 지정 모델",
+      privacyClassifierDeterministic: "결정적 검사만",
+      jevCredentialLabel: "Jev 자격 증명",
+      jevCredentialStoredKey: "저장된 키",
+      jevCredentialGateway: "Builder 연결",
+      jevCredentialNone: "찾을 수 없음",
+      jevCredentialUnavailable: "조회 실패",
       quarantineRetentionHours: "격리 보존 시간",
       quarantineRetentionHoursDescription:
         "메타데이터 전용 격리 이벤트는 이 기간 후 삭제됩니다.",
@@ -7108,6 +7268,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "Modelo padrão do classificador",
       privacyClassifierEngine: "Mecanismo do classificador",
       privacyClassifierEnginePlaceholder: "Mecanismo de classificação padrão",
+      hours: "{{count}} horas",
+      privacyClassifierChoice: "Classificador de sensibilidade",
+      privacyClassifierJev: "Jev (recomendado)",
+      privacyClassifierCustom: "Modelo personalizado",
+      privacyClassifierDeterministic: "Somente determinístico",
+      jevCredentialLabel: "Credencial do Jev",
+      jevCredentialStoredKey: "Chave armazenada",
+      jevCredentialGateway: "Conexão do Builder",
+      jevCredentialNone: "Não encontrada",
+      jevCredentialUnavailable: "Falha na consulta",
       quarantineRetentionHours: "Horas de retenção da quarentena",
       quarantineRetentionHoursDescription:
         "Eventos de quarentena somente com metadados são excluídos após este período.",
@@ -7175,6 +7345,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "默认隐私分类器模型",
       privacyClassifierEngine: "分类器引擎",
       privacyClassifierEnginePlaceholder: "默认分类器引擎",
+      hours: "{{count}} 小时",
+      privacyClassifierChoice: "敏感度分类器",
+      privacyClassifierJev: "Jev（推荐）",
+      privacyClassifierCustom: "自定义模型",
+      privacyClassifierDeterministic: "仅规则筛查",
+      jevCredentialLabel: "Jev 凭据",
+      jevCredentialStoredKey: "已存储密钥",
+      jevCredentialGateway: "Builder 连接",
+      jevCredentialNone: "未找到",
+      jevCredentialUnavailable: "查询失败",
       quarantineRetentionHours: "隔离保留小时数",
       quarantineRetentionHoursDescription:
         "仅含元数据的隔离事件将在此期限后删除。",
@@ -7238,6 +7418,16 @@ const privacySearchLocalizationOverrides: Partial<
       privacyClassifierModelPlaceholder: "預設隱私分類器模型",
       privacyClassifierEngine: "分類器引擎",
       privacyClassifierEnginePlaceholder: "預設分類器引擎",
+      hours: "{{count}} 小時",
+      privacyClassifierChoice: "敏感度分類器",
+      privacyClassifierJev: "Jev（建議）",
+      privacyClassifierCustom: "自訂模型",
+      privacyClassifierDeterministic: "僅規則篩查",
+      jevCredentialLabel: "Jev 憑證",
+      jevCredentialStoredKey: "已儲存金鑰",
+      jevCredentialGateway: "Builder 連線",
+      jevCredentialNone: "找不到",
+      jevCredentialUnavailable: "查詢失敗",
       quarantineRetentionHours: "隔離保留時數",
       quarantineRetentionHoursDescription:
         "僅含中繼資料的隔離事件將在此期限後刪除。",

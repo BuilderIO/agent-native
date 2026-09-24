@@ -59,6 +59,24 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
+    name: "get-labs",
+    specifier: "@agent-native/core/labs/actions/get-labs",
+  },
+  {
+    name: "set-lab",
+    specifier: "@agent-native/core/labs/actions/set-lab",
+  },
+  {
+    name: "get-chatgpt-subscription-status",
+    specifier:
+      "@agent-native/core/agent/actions/get-chatgpt-subscription-status",
+  },
+  {
+    name: "disconnect-chatgpt-subscription",
+    specifier:
+      "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
@@ -67,6 +85,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-hosted-harness-enabled",
     specifier:
       "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled",
+  },
+  {
+    name: "set-tool-approval-policy",
+    specifier: "@agent-native/core/agent/actions/set-tool-approval-policy",
   },
   {
     name: "share-resource",
@@ -172,6 +194,21 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/history/actions/list-resource-history",
   },
   {
+    name: "list-observability-reviews",
+    specifier:
+      "@agent-native/core/observability/actions/list-observability-reviews",
+  },
+  {
+    name: "get-observability-review-app",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-app",
+  },
+  {
+    name: "save-observability-instruction-update",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-instruction-update",
+  },
+  {
     name: "list-review-comments",
     specifier: "@agent-native/core/review/actions/list-review-comments",
   },
@@ -188,8 +225,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/review/actions/resolve-review-thread",
   },
   {
+    name: "update-review-comment-anchor",
+    specifier: "@agent-native/core/review/actions/update-review-comment-anchor",
+  },
+  {
     name: "delete-review-comment",
     specifier: "@agent-native/core/review/actions/delete-review-comment",
+  },
+  {
+    name: "update-review-comment",
+    specifier: "@agent-native/core/review/actions/update-review-comment",
   },
   {
     name: "consume-review-feedback",
@@ -206,6 +251,47 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "send-review-thread-to-agent",
     specifier: "@agent-native/core/review/actions/send-review-thread-to-agent",
+  },
+  {
+    name: "react-to-review-comment",
+    specifier: "@agent-native/core/review/actions/react-to-review-comment",
+  },
+  {
+    name: "set-review-thread-unread",
+    specifier: "@agent-native/core/review/actions/set-review-thread-unread",
+  },
+  {
+    name: "set-review-threads-unread",
+    specifier: "@agent-native/core/review/actions/set-review-threads-unread",
+  },
+  {
+    name: "set-review-thread-muted",
+    specifier: "@agent-native/core/review/actions/set-review-thread-muted",
+  },
+  {
+    name: "create-resource-suggestion",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/create-resource-suggestion",
+  },
+  {
+    name: "update-resource-suggestion",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/update-resource-suggestion",
+  },
+  {
+    name: "list-resource-suggestions",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/list-resource-suggestions",
+  },
+  {
+    name: "get-resource-suggestion",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/get-resource-suggestion",
+  },
+  {
+    name: "decide-resource-suggestion",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/decide-resource-suggestion",
   },
 ];
 

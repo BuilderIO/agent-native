@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { getDbExec } from "@agent-native/core/db";
 
 import {
@@ -117,6 +119,12 @@ export interface FirstPartyAnalyticsInsertOptions {
   maxRowsPerRequest?: number;
   /** Maximum insertAll requests in flight for a dedicated backfill worker. */
   maxConcurrentRequests?: number;
+}
+
+export interface FirstPartyAnalyticsInsertResult {
+  acceptedIds: string[];
+  rejectedIds: string[];
+  error: string | null;
 }
 
 const backendConfigCache = new Map<
@@ -347,11 +355,26 @@ function firstPartyEventRowToBigQuery(
   };
 }
 
+interface InsertBatchResult {
+  rejectedIndexes: number[];
+  error: string | null;
+}
+
+interface InsertPayloadResult {
+  acceptedRows: Record<string, unknown>[];
+  rejectedRows: Record<string, unknown>[];
+  error: string | null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function insertBatch(
   table: BigQueryTableRef,
   token: string,
   rows: Record<string, unknown>[],
-): Promise<void> {
+): Promise<InsertBatchResult> {
   const response = await fetchGoogleWithRetry(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
     {
@@ -361,7 +384,7 @@ async function insertBatch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        skipInvalidRows: false,
+        skipInvalidRows: true,
         ignoreUnknownValues: false,
         rows: rows.map((row) => ({
           insertId: typeof row.id === "string" ? row.id : undefined,
@@ -383,17 +406,37 @@ async function insertBatch(
       errors?: Array<{ message?: string }>;
     }>;
   };
-  if (result.insertErrors?.length) {
-    const detail = result.insertErrors
-      .flatMap((entry) => entry.errors ?? [])
-      .map((entry) => entry.message)
-      .filter((message): message is string => Boolean(message))
-      .slice(0, 3)
-      .join("; ");
-    throw new Error(
-      `BigQuery rejected ${result.insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
-    );
+  const insertErrors = Array.isArray(result.insertErrors)
+    ? result.insertErrors
+    : [];
+  if (!insertErrors.length) return { rejectedIndexes: [], error: null };
+
+  const rejectedIndexes = insertErrors.map((entry) => entry.index);
+  if (
+    rejectedIndexes.some(
+      (index) =>
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= rows.length,
+    ) ||
+    new Set(rejectedIndexes).size !== rejectedIndexes.length
+  ) {
+    throw new Error("BigQuery returned row errors without valid row indexes");
   }
+
+  const detail = insertErrors
+    .flatMap((entry) => entry.errors ?? [])
+    .map((entry) => entry.message)
+    .filter((message): message is string => Boolean(message))
+    .slice(0, 3)
+    .join("; ");
+  return {
+    rejectedIndexes: rejectedIndexes.filter(
+      (index): index is number => typeof index === "number",
+    ),
+    error: `BigQuery rejected ${insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
+  };
 }
 
 function boundedInsertOption(
@@ -414,7 +457,7 @@ async function insertPayloadRows(
   token: string,
   payloadRows: Record<string, unknown>[],
   options: FirstPartyAnalyticsInsertOptions = {},
-): Promise<void> {
+): Promise<InsertPayloadResult> {
   const maxRowsPerRequest = boundedInsertOption(
     options.maxRowsPerRequest,
     MAX_INSERT_BATCH_SIZE,
@@ -458,22 +501,94 @@ async function insertPayloadRows(
   if (currentBatch.length > 0) batches.push(currentBatch);
 
   let nextBatch = 0;
+  const rejectedRows = new Set<Record<string, unknown>>();
+  const rejectionMessages: string[] = [];
   const worker = async (): Promise<void> => {
     while (true) {
       const batchIndex = nextBatch;
       nextBatch += 1;
       const batch = batches[batchIndex];
       if (!batch) return;
-      await insertBatch(table, token, batch);
+      const result = await insertBatch(table, token, batch);
+      for (const index of result.rejectedIndexes) {
+        rejectedRows.add(batch[index]!);
+      }
+      if (result.error) rejectionMessages.push(result.error);
     }
   };
 
-  await Promise.all(
+  const workerResults = await Promise.allSettled(
     Array.from(
       { length: Math.min(maxConcurrentRequests, batches.length) },
       () => worker(),
     ),
   );
+  const failedWorker = workerResults.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failedWorker) throw failedWorker.reason;
+
+  return {
+    acceptedRows: payloadRows.filter((row) => !rejectedRows.has(row)),
+    rejectedRows: payloadRows.filter((row) => rejectedRows.has(row)),
+    error: rejectionMessages[0] ?? null,
+  };
+}
+
+function payloadRowId(row: Record<string, unknown>): string {
+  if (typeof row.id !== "string" || !row.id) {
+    throw new Error("First-party Analytics BigQuery row is missing its id");
+  }
+  return row.id;
+}
+
+async function reconcileInsertedPayloadRows(
+  table: BigQueryTableRef,
+  payloadRows: Record<string, unknown>[],
+): Promise<InsertPayloadResult> {
+  const ids = payloadRows.map(payloadRowId);
+  const nonce = randomUUID();
+  const result = await runQuery(
+    `SELECT id FROM \`${table.fullyQualified}\`
+      WHERE id IN (${ids.map(sqlLiteral).join(", ")})
+        AND ${sqlLiteral(nonce)} IS NOT NULL`,
+  );
+  const acceptedIds = new Set(
+    result.rows
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return {
+    acceptedRows: payloadRows.filter((row) =>
+      acceptedIds.has(payloadRowId(row)),
+    ),
+    rejectedRows: payloadRows.filter(
+      (row) => !acceptedIds.has(payloadRowId(row)),
+    ),
+    error: null,
+  };
+}
+
+async function insertPayloadRowsWithResults(
+  table: BigQueryTableRef,
+  token: string,
+  payloadRows: Record<string, unknown>[],
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  try {
+    return await insertPayloadRows(table, token, payloadRows, options);
+  } catch (error) {
+    let reconciled: InsertPayloadResult;
+    try {
+      reconciled = await reconcileInsertedPayloadRows(table, payloadRows);
+    } catch {
+      throw error;
+    }
+    return {
+      ...reconciled,
+      error: errorMessage(error),
+    };
+  }
 }
 
 /**
@@ -495,8 +610,53 @@ export async function createFirstPartyAnalyticsInserter(
     if (!rows.length) return 0;
     const token = await getAccessToken();
     const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-    await insertPayloadRows(table, token, payloadRows, options);
-    return payloadRows.length;
+    const result = await insertPayloadRowsWithResults(
+      table,
+      token,
+      payloadRows,
+      options,
+    );
+    if (result.rejectedRows.length) {
+      throw new Error(
+        result.error ??
+          `BigQuery rejected ${result.rejectedRows.length} event row(s)`,
+      );
+    }
+    return result.acceptedRows.length;
+  };
+}
+
+async function insertFirstPartyAnalyticsRowsWithResultsInternal(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  if (!rows.length) {
+    return { acceptedRows: [], rejectedRows: [], error: null };
+  }
+  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const [table, token] = await Promise.all([
+    getFirstPartyAnalyticsTable(configuredTable),
+    getAccessToken(),
+  ]);
+  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
+  return insertPayloadRowsWithResults(table, token, payloadRows, options);
+}
+
+export async function insertFirstPartyAnalyticsRowsWithResults(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<FirstPartyAnalyticsInsertResult> {
+  const result = await insertFirstPartyAnalyticsRowsWithResultsInternal(
+    rows,
+    configuredTable,
+    options,
+  );
+  return {
+    acceptedIds: result.acceptedRows.map(payloadRowId),
+    rejectedIds: result.rejectedRows.map(payloadRowId),
+    error: result.error,
   };
 }
 
@@ -505,15 +665,18 @@ export async function insertFirstPartyAnalyticsRows(
   configuredTable?: string | null,
   options: FirstPartyAnalyticsInsertOptions = {},
 ): Promise<number> {
-  if (!rows.length) return 0;
-  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
-  const [table, token] = await Promise.all([
-    getFirstPartyAnalyticsTable(configuredTable),
-    getAccessToken(),
-  ]);
-  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-  await insertPayloadRows(table, token, payloadRows, options);
-  return payloadRows.length;
+  const result = await insertFirstPartyAnalyticsRowsWithResults(
+    rows,
+    configuredTable,
+    options,
+  );
+  if (result.rejectedIds.length) {
+    throw new Error(
+      result.error ??
+        `BigQuery rejected ${result.rejectedIds.length} event row(s)`,
+    );
+  }
+  return result.acceptedIds.length;
 }
 
 function sqlLiteral(value: string | null): string {
@@ -521,19 +684,127 @@ function sqlLiteral(value: string | null): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function bindSqlArguments(sql: string, args: Array<string | null>): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => {
-    const value = args[index++];
-    if (value === undefined) {
-      throw new Error("First-party BigQuery query has too few bind arguments");
+function readSqlDollarQuoteDelimiter(
+  sql: string,
+  start: number,
+): string | null {
+  if (sql[start] !== "$") return null;
+  const firstTagCharacter = sql[start + 1];
+  if (firstTagCharacter === "$") return "$$";
+  if (!firstTagCharacter || !/[A-Za-z_]/.test(firstTagCharacter)) return null;
+
+  let end = start + 2;
+  while (end < sql.length && /[A-Za-z0-9_]/.test(sql[end] ?? "")) end++;
+  return sql[end] === "$" ? sql.slice(start, end + 1) : null;
+}
+
+function readSqlQuotedEnd(
+  sql: string,
+  start: number,
+  quote: "'" | '"' | "`",
+  allowBackslashEscapes = false,
+): number {
+  let index = start + 1;
+  while (index < sql.length) {
+    const character = sql[index];
+    if (allowBackslashEscapes && character === "\\") {
+      index += 2;
+      continue;
     }
-    return sqlLiteral(value);
-  });
+    if (character === quote) {
+      if (sql[index + 1] === quote) {
+        index += 2;
+        continue;
+      }
+      return index + 1;
+    }
+    index++;
+  }
+  return sql.length;
+}
+
+function bindSqlArguments(sql: string, args: Array<string | null>): string {
+  let nextPositionalIndex = 0;
+  let index = 0;
+  let result = "";
+
+  while (index < sql.length) {
+    const character = sql[index];
+    const nextCharacter = sql[index + 1];
+
+    if (character === "'" || character === '"' || character === "`") {
+      const isEscapeString =
+        character === "'" &&
+        /[eE]/.test(sql[index - 1] ?? "") &&
+        !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
+      const end = readSqlQuotedEnd(sql, index, character, isEscapeString);
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "-" && nextCharacter === "-") {
+      const lineEnd = sql.indexOf("\n", index + 2);
+      const end = lineEnd === -1 ? sql.length : lineEnd;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "*") {
+      const commentEnd = sql.indexOf("*/", index + 2);
+      const end = commentEnd === -1 ? sql.length : commentEnd + 2;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const dollarQuoteDelimiter = readSqlDollarQuoteDelimiter(sql, index);
+    if (dollarQuoteDelimiter) {
+      const bodyEnd = sql.indexOf(
+        dollarQuoteDelimiter,
+        index + dollarQuoteDelimiter.length,
+      );
+      const end =
+        bodyEnd === -1 ? sql.length : bodyEnd + dollarQuoteDelimiter.length;
+      result += sql.slice(index, end);
+      index = end;
+      continue;
+    }
+
+    const explicitBind =
+      character === "$" ? /^\$(\d+)/.exec(sql.slice(index)) : null;
+    if (explicitBind || character === "?") {
+      const placeholder = explicitBind?.[0] ?? "?";
+      const explicitIndex = explicitBind?.[1];
+      const bindIndex = explicitIndex
+        ? Number(explicitIndex) - 1
+        : nextPositionalIndex++;
+      if (!Number.isInteger(bindIndex) || bindIndex < 0) {
+        throw new Error(
+          `First-party BigQuery query has an invalid bind ${placeholder}`,
+        );
+      }
+      const value = args[bindIndex];
+      if (value === undefined) {
+        throw new Error(
+          "First-party BigQuery query has too few bind arguments",
+        );
+      }
+      result += sqlLiteral(value);
+      index += placeholder.length;
+      continue;
+    }
+
+    result += character;
+    index++;
+  }
+
+  return result;
 }
 
 function maskSqlLiterals(sql: string): string {
-  const chars = [...sql];
+  const chars = Array.from(sql);
   let inLiteral = false;
   for (let index = 0; index < chars.length; index++) {
     if (chars[index] !== "'") continue;
@@ -1069,6 +1340,8 @@ function addPartitionPrunedEventDeduplication(
         break;
       }
     }
+    // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
+    // for physical exactly-once if the warehouse contract requires it.
     result +=
       sql.slice(cursor, predicateEnd) +
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
@@ -1093,12 +1366,12 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   args: Array<string | null>,
   table: BigQueryTableRef,
 ): string {
-  // The Postgres/SQLite scope builder uses a text fallback for nullable event
+  // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
   const normalizedScopeSql = scopedSql.replace(
-    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?\)/g,
-    "(event_date <= ?)",
+    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
+    (_match, placeholder: string) => `(event_date <= ${placeholder})`,
   );
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
@@ -1116,11 +1389,16 @@ export async function queryFirstPartyAnalyticsInBigQuery(
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }> {
   const result = await runQuery(
     `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
   );
-  return { rows: result.rows, schema: result.schema };
+  return {
+    rows: result.rows,
+    schema: result.schema,
+    ...(result.truncated ? { truncated: true } : {}),
+  };
 }
 
 export async function assertFirstPartyAnalyticsBigQueryReady(
@@ -1387,12 +1665,29 @@ function backfillBranchSql(
   args: unknown[];
 } {
   const lowerCursor = cursor.receivedAt ? cursor : rangeStart;
-  const cursorSql = lowerCursor ? "(received_at, id) > (?, ?)" : "";
+  let nextParameter = predicateArgs.length + 1;
+  const lookbackParameter = `$${nextParameter++}`;
+  const defaultSkipEvents =
+    skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
+    skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0];
+  const skipParameters = defaultSkipEvents
+    ? []
+    : skipEventNames.map(() => `$${nextParameter++}`);
+  const rangeEndParameters = rangeEnd
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const cursorParameters = lowerCursor
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const limitParameter = `$${nextParameter++}`;
+  const cursorSql = lowerCursor
+    ? `(received_at, id) > (${cursorParameters[0]}, ${cursorParameters[1]})`
+    : "";
   const cursorArgs = lowerCursor
     ? [lowerCursor.receivedAt, lowerCursor.id]
     : [];
   const rangeEndSql = rangeEnd
-    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (?, ?)`
+    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (${rangeEndParameters[0]}, ${rangeEndParameters[1]})`
     : "";
   const rangeEndArgs = rangeEnd ? [rangeEnd.receivedAt, rangeEnd.id] : [];
   const skipSql =
@@ -1400,15 +1695,19 @@ function backfillBranchSql(
     skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
       ? "event_name IS DISTINCT FROM 'http.response'"
       : skipEventNames.length
-        ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
+        ? `(event_name IS NULL OR event_name NOT IN (${skipParameters.join(", ")}))`
         : "";
-  const filters = ["received_at >= ?", skipSql, rangeEndSql].filter(Boolean);
+  const filters = [
+    `received_at >= ${lookbackParameter}`,
+    skipSql,
+    rangeEndSql,
+  ].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ${limitParameter}`,
     args: [
       ...predicateArgs,
       lookbackStart,
@@ -1437,15 +1736,15 @@ export async function getFirstPartyAnalyticsBackfillHighWaterMark(
   const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1481,12 +1780,12 @@ function backfillRowsByIdsSql(ids: string[]): {
   return {
     sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
       FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(", ")})`,
     args: ids,
   };
 }
 
-const MAX_SQLITE_BIND_VARIABLES = 900;
+const MAX_BIND_VARIABLES = 900;
 
 function backfillRowCursor(
   row: Record<string, unknown>,
@@ -1540,15 +1839,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const rangeEndInclusive = options?.rangeEndInclusive === true;
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1591,10 +1890,10 @@ export async function backfillFirstPartyAnalyticsBatch(
   for (
     let offset = 0;
     offset < selectedIds.length;
-    offset += MAX_SQLITE_BIND_VARIABLES
+    offset += MAX_BIND_VARIABLES
   ) {
     const hydratedQuery = backfillRowsByIdsSql(
-      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
+      selectedIds.slice(offset, offset + MAX_BIND_VARIABLES),
     );
     const hydratedResult = await db.execute({
       sql: hydratedQuery.sql,

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { bookingOgMeta } from "../routes/booking-og-meta";
+import { bookingOgLoader, bookingOgMeta } from "../routes/booking-og-meta";
 
 describe("booking OG meta", () => {
+  it("version the generated OG image URL when the shared renderer changes", () => {
+    const { ogImageUrl } = bookingOgLoader({
+      params: { slug: "meet-steve", username: "steve" },
+      request: new Request("https://calendar.example.test/book/meet-steve"),
+    } as unknown as Parameters<typeof bookingOgLoader>[0]);
+    const url = new URL(ogImageUrl);
+
+    expect(url.searchParams.get("v")).toBe("background-v1");
+    expect(url.searchParams.get("username")).toBe("steve");
+  });
+
   it("advertises concrete PNG dimensions for social preview crawlers", () => {
     const image = "https://calendar.example.test/api/public/book/og.png";
     const meta = bookingOgMeta({

@@ -73,7 +73,7 @@ export function runPasteCopiedScreens(
       {
         onSuccess: (result: any) => {
           const nextId = typeof result?.id === "string" ? result.id : null;
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
           if (!nextId) return;

@@ -4,8 +4,27 @@ import {
   markDefaultPluginProvided,
 } from "@agent-native/core/server";
 
+import {
+  ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+} from "../../shared/resource-agent-access.js";
+import {
+  SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
+  SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
+  SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
+} from "../../shared/session-replay-agent-access.js";
+
 const authPlugin = createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   publicPaths: [
+    // Agent-readable context links: fetched with no session cookie, so the
+    // gate must not 401 before each handler verifies its scoped token. One
+    // by one: a `/api/session-replay` prefix would also expose recordings.
+    ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+    ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+    SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
+    SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
+    SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
     "/track",
     "/api/analytics/track",
     "/api/analytics/replay",
@@ -22,6 +41,10 @@ const authPlugin = createAuthPlugin({
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
+    screenshotPath: "/auth-marketing/analytics.webp",
+    screenshotWidth: 927,
+    screenshotHeight: 818,
+    learnMoreUrl: "https://agent-native.com/apps/analytics",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [

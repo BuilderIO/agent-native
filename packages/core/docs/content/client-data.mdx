@@ -42,7 +42,7 @@ A typical app builds its own API layer and calls it with hand-written `fetch` re
   </div>
   <div class="fmcmp-vs diagram-muted">vs</div>
   <div class="fmcmp-col">
-    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="fmcmp-label diagram-muted">Agent-Native</div>
     <div class="diagram-node">Component</div>
     <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
     <div class="diagram-node">useActionQuery("get-lead")</div>
@@ -401,7 +401,7 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
   returns={{ type: "void" }}
 />
 
-This hook is intended to keep the UI in sync with database changes that happen outside of your own actions, like an agent write, a webhook, or a change made from another browser tab. It listens for changes over server-sent events, and falls back to polling when server-sent events are unavailable.
+This hook is intended to keep the UI in sync with database changes that happen outside of your own actions, like an agent write, a webhook, or a change made from another browser tab. It listens for changes over server-sent events, and falls back to polling when server-sent events are unavailable. On a production serverless deploy, the app's own `/_agent-native/events` stream is unavailable by design — the server answers an immediate 204 instead of holding a function instance open — so polling carries all sync there, at the same cadence, unless the app has opted in to the [Hosted Realtime Sync Gateway](/docs/real-time-collaboration#hosted-gateway).
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

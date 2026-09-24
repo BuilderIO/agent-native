@@ -1,26 +1,19 @@
-/**
- * Regression guard: public share/embed/download/invite paths must be correctly
- * identified so root.tsx renders them outside ClientOnly (SSR-first, not
- * spinner-first).
- */
 import { describe, expect, it } from "vitest";
 
-// Re-implement the same predicate that root.tsx uses so tests stay in sync
-// with the real predicate. If root.tsx changes its predicate, update both.
-function isStandalonePublicPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, "") || "/";
-  return (
-    path === "/download" ||
-    path.startsWith("/share/") ||
-    path.startsWith("/embed/") ||
-    path.startsWith("/invite/")
-  );
-}
+import {
+  isLegacyRecordingPath,
+  isStandalonePublicPath,
+} from "./public-ssr-paths";
 
 describe("isStandalonePublicPath", () => {
   it("matches the /download page", () => {
     expect(isStandalonePublicPath("/download")).toBe(true);
     expect(isStandalonePublicPath("/download/")).toBe(true);
+  });
+
+  it("matches bug-report routes", () => {
+    expect(isStandalonePublicPath("/bug-report")).toBe(true);
+    expect(isStandalonePublicPath("/bug-report/done")).toBe(true);
   });
 
   it("matches /share/:shareId recording pages", () => {
@@ -43,7 +36,20 @@ describe("isStandalonePublicPath", () => {
     expect(isStandalonePublicPath("/spaces/abc")).toBe(false);
   });
 
-  it("does NOT match /r/:recordingId which is the private owner dashboard", () => {
+  it("does not treat /r/:recordingId as a standalone SSR page", () => {
     expect(isStandalonePublicPath("/r/abc123")).toBe(false);
+  });
+});
+
+describe("isLegacyRecordingPath", () => {
+  it("matches legacy recording links before the session gate", () => {
+    expect(isLegacyRecordingPath("/r/abc123")).toBe(true);
+    expect(isLegacyRecordingPath("/r/abc123/")).toBe(true);
+  });
+
+  it("does not match other authenticated paths", () => {
+    expect(isLegacyRecordingPath("/r")).toBe(false);
+    expect(isLegacyRecordingPath("/library")).toBe(false);
+    expect(isLegacyRecordingPath("/share/abc123")).toBe(false);
   });
 });

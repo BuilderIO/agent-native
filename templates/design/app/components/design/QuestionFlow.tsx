@@ -81,7 +81,7 @@ export function QuestionFlow({
        column overflows its own padding box, so its `pb` renders above the
        overflow and the scroll container's `py` bottom is dropped. */
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
-      <main className="w-full max-w-[820px] pb-16">
+      <main className="w-full min-w-0 max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
           <h2 className="text-[22px] font-semibold leading-7 tracking-normal text-foreground sm:text-2xl sm:leading-8">
             {title ?? t("questionFlow.defaultTitle")}
@@ -356,7 +356,9 @@ function OptionButton({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] font-semibold leading-4">
-          <span className="min-w-0 truncate">{option.label}</span>
+          <span className="min-w-0 break-words whitespace-normal">
+            {option.label}
+          </span>
           {option.recommended && (
             <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none text-muted-foreground">
               {t("questionFlow.recommended")}
@@ -385,9 +387,17 @@ function ColorOptions({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const options = question.options ?? question.choices ?? [];
+  const t = useT();
+  const options = recommendedFirst(question.options ?? question.choices ?? []);
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
+  const otherSelected = multiSelect
+    ? selectedValues.some(isOtherGuidedAnswer)
+    : isOtherGuidedAnswer(value);
+  const otherText = multiSelect
+    ? getOtherGuidedAnswerText(selectedValues.find(isOtherGuidedAnswer))
+    : getOtherGuidedAnswerText(value);
+  const allowOther = question.allowOther !== false;
   const isSelected = (optionValue: string) =>
     multiSelect ? selectedValues.includes(optionValue) : value === optionValue;
 
@@ -403,38 +413,88 @@ function ColorOptions({
     );
   };
 
+  const toggleOther = () => {
+    if (!multiSelect) {
+      onChange(otherSelected ? "" : makeOtherGuidedAnswer());
+      return;
+    }
+    if (otherSelected) {
+      onChange(selectedValues.filter((item) => !isOtherGuidedAnswer(item)));
+      return;
+    }
+    onChange([...selectedValues, makeOtherGuidedAnswer()]);
+  };
+
+  const setOtherText = (text: string) => {
+    const nextOther = makeOtherGuidedAnswer(text);
+    if (!multiSelect) {
+      onChange(nextOther);
+      return;
+    }
+    onChange([
+      ...selectedValues.filter((item) => !isOtherGuidedAnswer(item)),
+      nextOther,
+    ]);
+  };
+
   return (
-    <div className="flex max-w-4xl flex-wrap gap-2">
-      {options.map((option) => {
-        const selected = isSelected(option.value);
-        return (
-          <button
-            type="button"
-            key={`${option.value}:${option.label}`}
-            onClick={() => toggleOption(option.value)}
-            aria-pressed={selected}
-            className={cn(
-              "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
-              selected
-                ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
-            )}
-          >
-            <span
+    <div className="space-y-3">
+      <div className="flex max-w-4xl flex-wrap gap-2">
+        {options.map((option) => {
+          const selected = isSelected(option.value);
+          return (
+            <button
+              type="button"
+              key={`${option.value}:${option.label}`}
+              onClick={() => toggleOption(option.value)}
+              aria-pressed={selected}
               className={cn(
-                "size-5 shrink-0 rounded-full border border-[var(--design-editor-control-border)]",
-                selected &&
-                  "ring-1 ring-[var(--design-editor-accent-color)] ring-offset-1 ring-offset-[var(--design-editor-control-bg)]",
+                "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
+                selected
+                  ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
+                  : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
               )}
-              style={{ backgroundColor: option.color || option.value }}
-            />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
-              {option.label}
-            </span>
-            {selected && <IconPalette className="size-3.5 shrink-0" />}
-          </button>
-        );
-      })}
+            >
+              <span
+                className={cn(
+                  "size-5 shrink-0 rounded-full border border-[var(--design-editor-control-border)]",
+                  selected &&
+                    "ring-1 ring-[var(--design-editor-accent-color)] ring-offset-1 ring-offset-[var(--design-editor-control-bg)]",
+                )}
+                style={{ backgroundColor: option.color || option.value }}
+              />
+              <span className="min-w-0 flex-1 break-words whitespace-normal text-[12px] font-semibold leading-4">
+                {option.label}
+              </span>
+              {selected && <IconPalette className="size-3.5 shrink-0" />}
+            </button>
+          );
+        })}
+        {allowOther && (
+          <OptionButton
+            option={{
+              label: t("questionFlow.other"),
+              value: "__other__",
+              description: t("questionFlow.otherDescription"),
+            }}
+            selected={otherSelected}
+            compact
+            multiSelect={multiSelect}
+            onClick={toggleOther}
+          />
+        )}
+      </div>
+      {allowOther && otherSelected && (
+        <Textarea
+          autoFocus
+          value={otherText}
+          onChange={(event) => setOtherText(event.target.value)}
+          placeholder={
+            question.placeholder ?? t("questionFlow.customPlaceholder")
+          }
+          className="min-h-[72px] max-w-xl resize-none rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
+      )}
     </div>
   );
 }
@@ -561,6 +621,32 @@ function optionKey(option: GuidedQuestionOption): string {
   return `${option.value.toLowerCase()}::${option.label.toLowerCase()}`;
 }
 
+function isDecisionOption(option: GuidedQuestionOption): boolean {
+  const label = option.label.trim().toLowerCase();
+  const value = option.value.trim().toLowerCase();
+  return (
+    label === "decide for me" ||
+    label === "let the agent decide" ||
+    value === "decide" ||
+    value === "__decide__"
+  );
+}
+
+function recommendedFirst(
+  options: readonly GuidedQuestionOption[],
+): GuidedQuestionOption[] {
+  const normalized = options.map((option) =>
+    isDecisionOption(option) && option.recommended
+      ? { ...option, recommended: false }
+      : option,
+  );
+  if (!normalized.some((option) => option.recommended)) return normalized;
+  return [
+    ...normalized.filter((option) => option.recommended),
+    ...normalized.filter((option) => !option.recommended),
+  ];
+}
+
 function questionFlowFingerprint(questions: GuidedQuestion[]): string {
   return JSON.stringify(
     questions.map((question) => ({
@@ -593,7 +679,7 @@ function withDefaultOptions(
   question: GuidedQuestion,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): GuidedQuestionOption[] {
-  const base = question.options ?? question.choices ?? [];
+  const base = recommendedFirst(question.options ?? question.choices ?? []);
   const seen = new Set(base.map(optionKey));
   const result = [...base];
   const maybePush = (option: GuidedQuestionOption, enabled: boolean) => {

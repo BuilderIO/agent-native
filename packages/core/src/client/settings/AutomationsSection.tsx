@@ -1,5 +1,10 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { IconArrowRight, IconBolt, IconClock } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconBolt,
+  IconCalendarEvent,
+  IconClock,
+} from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { useT } from "../i18n.js";
@@ -7,7 +12,7 @@ import { useT } from "../i18n.js";
 export const AUTOMATION_CREATION_SCOPE = "personal" as const;
 
 export function automationCreationContext(): string {
-  return `The user wants to create a new ${AUTOMATION_CREATION_SCOPE} automation. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`;
+  return `The user wants to create a new ${AUTOMATION_CREATION_SCOPE} automation. Use manage-automations with action=define to create it. Ask clarifying questions if needed about whether it should run on a schedule, event, or webhook, conditions, and what actions to take.`;
 }
 
 export function AutomationsSection() {
@@ -18,7 +23,7 @@ export function AutomationsSection() {
       <p className="text-xs leading-5 text-muted-foreground">
         {t("jobs.settingsSummary", {
           defaultValue:
-            "Manage scheduled and event-triggered agent tasks together from the Automations page.",
+            "Manage scheduled, event-triggered, and webhook-triggered agent tasks together from the Automations page.",
         })}
       </p>
       <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
@@ -28,6 +33,10 @@ export function AutomationsSection() {
         </span>
         <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1">
           <IconBolt className="size-3" />
+          {t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1">
+          <IconCalendarEvent className="size-3" />
           {t("jobs.eventTrigger", { defaultValue: "Event-triggered" })}
         </span>
       </div>

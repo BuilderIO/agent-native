@@ -2,10 +2,14 @@
 
 import { readFileSync } from "node:fs";
 
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
   getAgentPanelShortcutHints,
@@ -14,15 +18,38 @@ import {
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
-  shouldAllowAgentChatSurfaceSettingsMode,
+  shouldDefaultAgentChatSurfacePageHeader,
   shouldDefaultAgentChatSurfacePageNewChatButton,
+  shouldHandleAgentSidebarToggle,
+  shouldHandleAgentPanelChatShortcut,
   shouldShowAgentPanelFullViewAction,
+  shouldShowAgentPanelPageHeader,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
+  settingsRouteHashForSection,
+  AgentSidebar as LegacyAgentSidebar,
+  AgentToggleButton as LegacyAgentToggleButton,
+  focusAgentChat as legacyFocusAgentChat,
+  preloadAgentChatSurface as legacyPreloadAgentChatSurface,
 } from "./AgentPanel.js";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  preloadAgentChatSurface,
+} from "./AgentSidebar.js";
+
+describe("AgentPanel compatibility exports", () => {
+  it("preserves the legacy sidebar entry point", () => {
+    expect(LegacyAgentSidebar).toBe(AgentSidebar);
+    expect(LegacyAgentToggleButton).toBe(AgentToggleButton);
+    expect(legacyFocusAgentChat).toBe(focusAgentChat);
+    expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
+  });
+});
 
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
@@ -67,8 +94,8 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(0);
   });
 
-  it("hides sidebar chat tabs until a second main tab is open", () => {
-    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+  it("shows sidebar chat tabs when a main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(true);
     expect(
       shouldShowAgentPanelSidebarChatTabs([
         chatTab("main"),
@@ -137,49 +164,254 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(false);
   });
 
-  it("defaults the page new-chat button on for page chats", () => {
-    expect(
-      shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
-    ).toBe(true);
-    expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", true)).toBe(
+  it("shows page chrome only after the conversation begins", () => {
+    expect(shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0)).toBe(
+      false,
+    );
+    expect(shouldShowAgentPanelPageHeader([chatTab("main")], "main", 1)).toBe(
       true,
     );
+    expect(
+      shouldShowAgentPanelPageHeader(
+        [chatTab("main", undefined, "running")],
+        "main",
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps new chat out of the page canvas header by default", () => {
+    expect(
+      shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),
+    ).toBe(false);
+    expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", true)).toBe(
+      false,
+    );
     expect(shouldDefaultAgentChatSurfacePageNewChatButton("page", false)).toBe(
-      true,
+      false,
     );
     expect(shouldDefaultAgentChatSurfacePageNewChatButton("panel", true)).toBe(
       false,
     );
   });
 
-  it("does not allow sidebar settings mode in page chat by default", () => {
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", undefined)).toBe(
-      false,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("panel", undefined)).toBe(
-      true,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", true)).toBe(true);
+  it("defaults the active-thread header on only for page chats", () => {
+    expect(shouldDefaultAgentChatSurfacePageHeader("page")).toBe(true);
+    expect(shouldDefaultAgentChatSurfacePageHeader("panel")).toBe(false);
+    expect(shouldDefaultAgentChatSurfacePageHeader(undefined)).toBe(false);
   });
 
-  it("normalizes settings back to chat when settings mode is not allowed", () => {
-    expect(normalizeAgentPanelModeForSurface("settings", false)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true)).toBe(
-      "settings",
+  it("exposes page header composition without moving it into app chrome", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", "utf8");
+
+    expect(source).toContain('data-agent-page-chat-header=""');
+    expect(source).toContain("pageHeaderLeadingSlot");
+    expect(source).toContain("pageToolbarSlot");
+    expect(source).toContain("activeTab?.label");
+    expect(source).toContain('data-agent-page-title-menu=""');
+    expect(source).toContain("<IconShare3 size={15}");
+    expect(source.indexOf("<IconShare3 size={15}")).toBeLessThan(
+      source.indexOf(
+        "{pageToolbarSlot}",
+        source.indexOf("triggerContent={<IconShare3"),
+      ),
     );
-    expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
-      "resources",
-    );
+    expect(source).toContain("border-b border-border/70");
   });
 
-  it("normalizes every legacy sidebar mode back to chat on chat-only surfaces", () => {
-    expect(normalizeAgentPanelModeForSurface("resources", false, true)).toBe(
-      "chat",
+  it("normalizes legacy and unknown modes back to chat", () => {
+    expect(normalizeAgentPanelModeForSurface("settings")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("unknown")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("resources")).toBe("resources");
+    expect(normalizeAgentPanelModeForSurface("resources", true)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("cli", true)).toBe("chat");
+  });
+
+  it("preserves secret-specific hashes for canonical settings navigation", () => {
+    expect(settingsRouteHashForSection("secrets:FIGMA_ACCESS_TOKEN")).toBe(
+      "#secrets:FIGMA_ACCESS_TOKEN",
     );
-    expect(normalizeAgentPanelModeForSurface("cli", false, true)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true, true)).toBe(
-      "chat",
+    expect(
+      settingsRouteHashForSection("secrets", "#secrets:OPENAI_API_KEY"),
+    ).toBe("#secrets:OPENAI_API_KEY");
+    expect(settingsRouteHashForSection("automations")).toBe(
+      "#agent:automations",
     );
+    expect(settingsRouteHashForSection("voice")).toBe("#voice");
+    for (const section of [
+      "llm",
+      "uploads",
+      "hosting",
+      "database",
+      "auth",
+      "demo-mode",
+      "limits",
+      "app-models",
+      "background",
+      "email",
+      "browser",
+      "usage",
+    ]) {
+      expect(settingsRouteHashForSection(section)).toBe(`#${section}`);
+    }
+    expect(settingsRouteHashForSection("a2a")).toBe("#agent:agents");
+  });
+});
+
+describe("AgentPanel settings navigation", () => {
+  it("routes settings requests to a host-owned settings surface", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const onOpenSettings = vi.fn();
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation, {
+              onOpenSettings,
+            }),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(onOpenSettings).toHaveBeenCalledWith("voice");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("routes a mounted settings request to an existing secret-specific hash", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+    let hash = "";
+
+    function LocationProbe() {
+      const location = useLocation();
+      pathname = location.pathname;
+      hash = location.hash;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/#secrets:OPENAI_API_KEY");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "secrets" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/settings");
+      expect(hash).toBe("#secrets:OPENAI_API_KEY");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("preserves the app base path when opening settings", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+
+    function LocationProbe() {
+      pathname = useLocation().pathname;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/dispatch/settings");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("notifies mounted settings sections after browser navigation", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const popstate = vi.fn();
+    const hashchange = vi.fn();
+    window.addEventListener("popstate", popstate);
+    window.addEventListener("hashchange", hashchange);
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+          ),
+        );
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "uploads" },
+          }),
+        );
+      });
+
+      expect(popstate).toHaveBeenCalledTimes(1);
+      expect(hashchange).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("popstate", popstate);
+      window.removeEventListener("hashchange", hashchange);
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });
 
@@ -187,13 +419,13 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides mode buttons in the sidebar and shows them on the full page", () => {
     expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+    expect(shouldShowAgentPanelModeButtons(false, true)).toBe(false);
   });
 
-  it("shows the full-view action for resources and settings when a page href exists", () => {
+  it("shows the full-view action for resources when a page href exists", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
       true,
     );
-    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
   });
 
   it("keeps the full Agent page reachable from chat-only sidebars", () => {
@@ -233,9 +465,6 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
       false,
     );
-    expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
-      false,
-    );
   });
 });
 
@@ -253,6 +482,137 @@ describe("AgentPanel shortcut hints", () => {
       toggleSidebar: "^\\",
       widenChat: "^⇧\\",
     });
+  });
+
+  it("does not capture chat focus inside editable controls", () => {
+    const input = document.createElement("input");
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    const nested = document.createElement("span");
+    editor.appendChild(nested);
+
+    expect(shouldHandleAgentPanelChatShortcut(input)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(editor)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(nested)).toBe(false);
+    expect(shouldHandleAgentPanelChatShortcut(document.body)).toBe(true);
+  });
+});
+
+describe("AgentSidebar composer focus", () => {
+  it("opens the sidebar and focuses its composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const events: string[] = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+    const recordEvent = (event: Event) => events.push(event.type);
+    window.addEventListener("agent-panel:set-mode", recordEvent);
+    window.addEventListener("agent-panel:open", recordEvent);
+
+    try {
+      focusAgentChat();
+
+      expect(events).toEqual(["agent-panel:set-mode", "agent-panel:open"]);
+      expect(frames).toHaveLength(1);
+
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.removeEventListener("agent-panel:set-mode", recordEvent);
+      window.removeEventListener("agent-panel:open", recordEvent);
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
+
+  it("waits for a lazy-loaded composer", () => {
+    vi.useFakeTimers();
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.dataset.agentSidebarState = "open";
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      const composer = document.createElement("div");
+      composer.className = "ProseMirror";
+      panel.appendChild(composer);
+      vi.advanceTimersByTime(50);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it("focuses a frame-owned composer", () => {
+    const previousRequestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<FrameRequestCallback> = [];
+    const panel = document.createElement("div");
+    const composer = document.createElement("div");
+    panel.className = "agent-frame-sidebar";
+    panel.dataset.agentFrameSidebarState = "open";
+    composer.className = "ProseMirror";
+    panel.appendChild(composer);
+    document.body.appendChild(panel);
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      focusAgentChat();
+      frames[0]!(0);
+
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      window.requestAnimationFrame = previousRequestAnimationFrame;
+      panel.remove();
+    }
+  });
+});
+
+describe("AgentSidebar toggle routing", () => {
+  it("routes a scoped toggle only to the matching mounted sidebar", () => {
+    const event = new CustomEvent("agent-panel:toggle", {
+      detail: { scopeId: "mail-tab-1" },
+    });
+    const mountedScopes = ["mail-tab-1", "mail-tab-2"];
+
+    expect(
+      mountedScopes.filter((scope) =>
+        shouldHandleAgentSidebarToggle(event, scope),
+      ),
+    ).toEqual(["mail-tab-1"]);
+    expect(
+      shouldHandleAgentSidebarToggle(
+        new Event("agent-panel:toggle"),
+        "mail-tab-2",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -304,6 +664,9 @@ describe("AgentPanel header overflow actions", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
+    const sidebarSource = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
     const headerActions = source.slice(
       source.indexOf("const renderHeaderActions"),
       source.indexOf(
@@ -323,15 +686,34 @@ describe("AgentPanel header overflow actions", () => {
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
     expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
+    expect(source).toContain("event.preventDefault();");
+    expect(overflowMenu).toContain(
+      'toggleHistory,\n                    "timeout"',
+    );
     expect(overflowMenu).toContain("onCloseAutoFocus");
     expect(
       overflowMenu.match(/closeHeaderMenuForOverlay/g)?.length,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBeGreaterThanOrEqual(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
-    expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
+    expect(sidebarSource).toContain("onFullViewRequest={onFullscreenRequest}");
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
+  });
+
+  it("keeps the overflow menu scrollable within the viewport", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain(
+      "max-h-[var(--radix-dropdown-menu-content-available-height)]",
+    );
+    expect(overflowMenu).toContain("overflow-y-auto");
   });
 
   it("offers sharing from the sidebar overflow for an active chat", () => {
@@ -349,22 +731,70 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
+    // Regression: without the "timeout" timing, the animation-frame handoff
+    // races with the dropdown's own close/focus-restore cycle and the share
+    // popover never opens (same failure mode fixed for "All chats" in #4644).
+    expect(overflowMenu).toContain(
+      'setShareFromMenuOpen(true),\n                        "timeout"',
+    );
   });
 
-  it("keeps per-app chat headers stable while switching app surfaces", () => {
+  it("keeps chat headers persistent while switching app surfaces", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
+    expect(source).not.toContain(
+      ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;",
     );
+  });
+
+  it("supports a persistent two-state sidebar toggle", () => {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
+      encoding: "utf8",
+    });
+    const panelSource = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("if (open && !showWhenOpen) return null");
+    expect(source).toContain("aria-pressed={open}");
+    expect(source).toContain('data-state={open ? "open" : "closed"}');
+    expect(source).toContain(
+      "{icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}",
+    );
+    expect(source).not.toContain("IconLayoutSidebarRightExpand");
+    expect(panelSource).toContain("{onCollapse && showCollapseButton && (");
+    expect(source).toContain("showCollapseButton={showCollapseButton}");
+  });
+
+  it("keeps host CLI tabs mounted while chat is active", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain('(mode === "cli" || Boolean(renderCliTab))');
+    expect(source).toContain('active: mode === "cli" && id === activeCliTab');
+    expect(source).toContain("const [mountedCliTabs, setMountedCliTabs]");
+    expect(source).toContain(
+      "cliTabs.filter((id) => mountedCliTabs.includes(id))",
+    );
+    expect(source).toContain("previousDefaultModeRef.current === defaultMode");
+  });
+
+  it("only shows tabs for the active desktop surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(/\{mode === "chat" &&\s+mainTabs\.map/);
+    expect(source).toMatch(/\{mode === "cli" &&\s+cliTabs\.map/);
   });
 });
 
 describe("AgentSidebar wide drawer layout", () => {
   it("can disable the panel without unmounting the app surface", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
 
@@ -376,7 +806,7 @@ describe("AgentSidebar wide drawer layout", () => {
   });
 
   it("does not reserve the drawer placeholder after the panel closes", () => {
-    const source = readFileSync("src/client/AgentPanel.tsx", {
+    const source = readFileSync("src/client/AgentSidebar.tsx", {
       encoding: "utf8",
     });
     const placeholderStart = source.indexOf("const drawerPlaceholder");
@@ -397,6 +827,18 @@ describe("AgentChatSurface chrome defaults", () => {
 
     expect(panel.props.showHeader).toBe(false);
     expect(panel.props.showTabBar).toBe(false);
+    expect(panel.props).not.toHaveProperty("allowSettingsMode");
+  });
+
+  it("keeps settings out of every chat surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("SettingsPanel");
+    expect(source).not.toContain("allowSettingsMode");
+    expect(source).not.toContain('mode === "settings"');
+    expect(source).toContain('pathname: appPath("/settings")');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

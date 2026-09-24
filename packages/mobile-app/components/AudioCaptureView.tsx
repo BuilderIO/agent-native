@@ -406,7 +406,7 @@ export default function AudioCaptureView({
   }, [captureState, handleClose, isActive, pendingMedia]);
   const statusCopy =
     kind === "meeting"
-      ? "Keep Agent Native open or lock your phone—capture continues in the background."
+      ? "Keep Agent-Native open or lock your phone—capture continues in the background."
       : "Speak naturally. You can review and edit the transcript before copying it.";
 
   return (
@@ -488,7 +488,7 @@ export default function AudioCaptureView({
             <Text className="text-text-muted text-sm leading-[20px] mb-4 mt-1.5">
               {permissionIssue === "notifications"
                 ? "Android requires a visible notification while a meeting records in the background. Enable notifications in system settings to continue."
-                : "Agent Native only records after you tap Start. Enable microphone access in system settings to continue."}
+                : "Agent-Native only records after you tap Start. Enable microphone access in system settings to continue."}
             </Text>
             <Pressable
               accessibilityRole="button"

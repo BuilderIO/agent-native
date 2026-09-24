@@ -1,7 +1,13 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabs } from "@agent-native/core/client/labs";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import {
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
@@ -32,9 +38,22 @@ import {
   IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
+// The composer bundle is heavy; only load it when the generate prompt opens.
+const PromptComposer = React.lazy(() =>
+  import("@agent-native/core/client/composer").then((m) => ({
+    default: m.PromptComposer,
+  })),
+);
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
@@ -43,8 +62,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useCreateInlineContentDatabase } from "@/hooks/use-content-database";
+import {
+  contentDatabaseCreationRequest,
+  useCreateContentDatabase,
+  useCreateInlineContentDatabase,
+} from "@/hooks/use-content-database";
 import { useCreatePage } from "@/hooks/use-create-page";
+import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
@@ -57,6 +81,9 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  contentSpaceId?: string;
+  /** Restrict the menu to block operations supported by suggestion capture. */
+  suggesting?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
@@ -64,7 +91,7 @@ interface SlashCommandMenuProps {
    * registry-derived block slash items are filtered to specs that round-trip to
    * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
    * structured block that would silently drop on the next Notion push. When
-   * unset (the common case), all registry blocks are offered.
+   * unset (the common case), Content's Labs and authoring policy applies.
    */
   notionPageId?: string | null;
 }
@@ -153,6 +180,8 @@ export interface CommandItem {
   searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
+  /** The suggestion operation model can represent this command losslessly. */
+  suggestionSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
     editor: Editor,
@@ -170,6 +199,31 @@ export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
   return candidateCommands.filter(
     (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
   );
+}
+
+export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
+  commands: readonly T[],
+  suggesting: boolean,
+): T[] {
+  return suggesting
+    ? commands.filter((command) => command.suggestionSafe === true)
+    : [...commands];
+}
+
+export function slashCommandAllowedInMode(
+  command: Pick<CommandItem, "suggestionSafe">,
+  suggesting: boolean,
+): boolean {
+  return !suggesting || command.suggestionSafe === true;
+}
+
+export function runGeneratePromptIfAllowed(
+  suggesting: boolean,
+  submit: () => void,
+): boolean {
+  if (suggesting) return false;
+  submit();
+  return true;
 }
 
 export type MediaPlaceholderType = "image" | "video" | "audio";
@@ -277,6 +331,7 @@ export function buildHeadingCommands(
 ): CommandTemplate[] {
   return headingCommandMetadata.map((heading) => ({
     ...heading,
+    suggestionSafe: true,
     action: (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
@@ -355,6 +410,55 @@ export function insertInlineDatabaseBlock(
     : chain.insertContent(content).run();
 }
 
+function removeCreatedPageReference(editor: Editor, pageId: string) {
+  let range: { from: number; to: number } | null = null;
+  const attrsJson = JSON.stringify({ id: pageId });
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "notionBlockAtom" &&
+      node.attrs.tagName === "page" &&
+      node.attrs.attrsJson === attrsJson
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+function removeCreatedInlineCollection(editor: Editor, blockId: string) {
+  let range: { from: number; to: number } | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "registryBlock" &&
+      node.attrs.blockType === "inline-database" &&
+      node.attrs.blockId === blockId
+    ) {
+      range = { from: pos, to: pos + node.nodeSize };
+      return false;
+    }
+  });
+  if (range) editor.commands.deleteRange(range);
+}
+
+export async function cleanupFailedSlashCreation(
+  removeReference: () => void,
+  trashResource: () => Promise<unknown>,
+): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  try {
+    removeReference();
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await trashResource();
+  } catch (error) {
+    errors.push(error);
+  }
+  return errors;
+}
+
 export function equationNodeContent(latex: string, displayMode: boolean) {
   return displayMode
     ? {
@@ -410,6 +514,7 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
+    suggestionSafe: true,
     action: setPlainTextBlock,
   },
   ...buildHeadingCommands("toggle"),
@@ -418,6 +523,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
@@ -425,6 +531,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
@@ -432,6 +539,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -458,6 +566,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
+    suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       setCodeBlockFromSlashCommand(editor, slashRange),
@@ -467,6 +576,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -489,6 +599,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.dividerDescription",
     shortcut: "---",
     icon: IconMinus,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
   {
@@ -510,6 +621,7 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
+    suggestionSafe: true,
     action: setPlainTextBlock,
   },
   ...buildHeadingCommands("set"),
@@ -518,6 +630,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
     icon: IconList,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
@@ -525,6 +638,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
     icon: IconListNumbers,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
@@ -532,6 +646,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
     icon: IconSquareCheck,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -564,6 +679,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
+    suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       setCodeBlockFromSlashCommand(editor, slashRange),
@@ -573,6 +689,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
     icon: QuoteCommandIcon,
+    suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
@@ -604,17 +721,22 @@ const turnIntoCommands: CommandTemplate[] = [
 export function SlashCommandMenu({
   editor,
   documentId,
+  contentSpaceId,
+  suggesting = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
+  const labs = useLabs();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
+  const rollbackCreatedSlashDocument = useRollbackCreatedSlashDocument();
   const createInlineDatabase = useCreateInlineContentDatabase(
     documentId ?? null,
   );
+  const createFullPageDatabase = useCreateContentDatabase(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
@@ -624,6 +746,8 @@ export function SlashCommandMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const slashPosRef = useRef<number | null>(null);
+  const suggestingRef = useRef(suggesting);
+  suggestingRef.current = suggesting;
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -645,17 +769,22 @@ export function SlashCommandMenu({
     (prompt: string) => {
       const trimmed = prompt.trim();
       if (!trimmed) return;
-      if (!documentId) {
-        toast.error(t("editor.noDocumentSelected"));
-        return;
-      }
-      setGenerateOpen(false);
-      const content = (editor.storage as any).markdown.getMarkdown();
-      send({
-        message: trimmed,
-        context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
-        submit: true,
+      const allowed = runGeneratePromptIfAllowed(suggestingRef.current, () => {
+        if (!documentId) {
+          toast.error(t("editor.noDocumentSelected"));
+          return;
+        }
+        setGenerateOpen(false);
+        const content = (editor.storage as any).markdown.getMarkdown();
+        send({
+          message: trimmed,
+          context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+          submit: true,
+        });
       });
+      if (!allowed) {
+        setGenerateOpen(false);
+      }
     },
     [documentId, editor, send, t],
   );
@@ -737,44 +866,58 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      let pageId: string;
+      const pageId = crypto.randomUUID();
       try {
-        pageId = await createPage(documentId);
-      } catch {
+        await createPage(documentId, pageId);
+      } catch (error) {
+        try {
+          await rollbackCreatedSlashDocument.mutateAsync({
+            id: pageId,
+            parentId: documentId,
+          });
+        } catch (cleanupError) {
+          toast.error(t("editor.failedToCreatePage"), {
+            description: [error, cleanupError]
+              .map((value) =>
+                value instanceof Error
+                  ? value.message
+                  : t("empty.genericError"),
+              )
+              .join("; "),
+          });
+        }
         return;
       }
-      const pageReference = {
-        type: "notionBlockAtom",
-        attrs: {
-          tagName: "page",
-          attrsJson: JSON.stringify({
-            id: pageId,
-          }),
-          label: "Untitled",
-        },
-      };
-      const insertContent = [pageReference, { type: "paragraph" }];
-      const range = slashRange
-        ? (() => {
-            const $from = editor.state.doc.resolve(slashRange.from);
-            return $from.parent.isTextblock
-              ? { from: $from.before(), to: $from.after() }
-              : slashRange;
-          })()
-        : null;
-
-      if (range) {
-        editor.chain().focus().insertContentAt(range, insertContent).run();
-      } else {
-        const { $from } = editor.state.selection;
-        editor
-          .chain()
-          .focus()
-          .insertContentAt($from.after(), insertContent)
-          .run();
-      }
-      await waitForEditorUpdateFrame();
+      let parentPersisted = false;
       try {
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: "Untitled",
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
           docToNfm(editor.getJSON() as any),
           {
@@ -785,22 +928,38 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
       } catch (error) {
+        const cleanupErrors = parentPersisted
+          ? []
+          : await cleanupFailedSlashCreation(
+              () => removeCreatedPageReference(editor, pageId),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: pageId,
+                  parentId: documentId,
+                }),
+            );
         toast.error(t("editor.failedToCreatePage"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
         return;
       }
-      navigate(`/page/${pageId}`, { flushSync: true });
+      void navigate(`/page/${pageId}`, { flushSync: true });
     },
   };
 
-  const databaseCommand: CommandItem = {
-    title: t("editor.slash.database"),
-    description: t("editor.slash.databaseDescription"),
+  const inlineCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionInline"),
+    description: t("editor.slash.collectionInlineDescription"),
+    searchText: "database collection inline",
     icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
@@ -808,16 +967,24 @@ export function SlashCommandMenu({
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      if (slashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
       const toastId = toast.loading(t("editor.creatingDatabase"));
+      const createdDocumentId = crypto.randomUUID();
+      const createdOwnerBlockId = `inline-database-${crypto.randomUUID()}`;
+      let createdBlock: CreateInlineDatabaseResponse["block"] | null = null;
+      let parentPersisted = false;
       try {
         const result = await createInlineDatabase.mutateAsync({
           hostDocumentId: documentId,
           title: t("editor.untitledDatabase"),
+          newDocumentId: createdDocumentId,
+          ownerBlockId: createdOwnerBlockId,
         });
-        const inserted = insertInlineDatabaseBlock(editor, result.block);
+        createdBlock = result.block;
+        const inserted = insertInlineDatabaseBlock(
+          editor,
+          result.block,
+          slashRange,
+        );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
         const content = collapseExactRepeatedNfm(
@@ -830,14 +997,132 @@ export function SlashCommandMenu({
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
         } else {
-          await onDraftCommitted?.();
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
         }
+        parentPersisted = true;
         toast.success(t("editor.databaseCreated"), { id: toastId });
       } catch (error) {
+        const blockToCleanup = createdBlock;
+        const cleanupErrors = !parentPersisted
+          ? await cleanupFailedSlashCreation(
+              () =>
+                removeCreatedInlineCollection(
+                  editor,
+                  blockToCleanup?.ownerBlockId ?? createdOwnerBlockId,
+                ),
+              () =>
+                rollbackCreatedSlashDocument.mutateAsync({
+                  id: createdDocumentId,
+                  parentId: documentId,
+                }),
+            )
+          : [];
         toast.error(t("editor.failedToCreateDatabase"), {
           id: toastId,
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
+        });
+      }
+    },
+  };
+
+  const fullPageCollectionCommand: CommandItem = {
+    title: t("editor.slash.collectionFullPage"),
+    description: t("editor.slash.collectionFullPageDescription"),
+    searchText: "database collection full page",
+    icon: IconDatabase,
+    preserveSlashRange: true,
+    action: async (editor, { slashRange }) => {
+      if (!documentId) {
+        toast.error(t("editor.noDocumentSelected"));
+        return;
+      }
+      const toastId = toast.loading(t("editor.creatingDatabase"));
+      let createdPageId: string | null = null;
+      let parentPersisted = false;
+      try {
+        const newDocumentId = crypto.randomUUID();
+        const request = contentDatabaseCreationRequest({
+          newDocumentId,
+          parentId: documentId,
+          spaceId: contentSpaceId,
+          title: t("editor.untitledDatabase"),
+        });
+        createdPageId = newDocumentId;
+        const result = await createFullPageDatabase
+          .mutateAsync(request)
+          .catch(() => createFullPageDatabase.mutateAsync(request));
+        const pageId = result.database.documentId;
+        createdPageId = pageId;
+        const pageReference = {
+          type: "notionBlockAtom",
+          attrs: {
+            tagName: "page",
+            attrsJson: JSON.stringify({ id: pageId }),
+            label: t("editor.untitledDatabase"),
+          },
+        };
+        const insertContent = [pageReference, { type: "paragraph" }];
+        const range = slashRange
+          ? (() => {
+              const $from = editor.state.doc.resolve(slashRange.from);
+              return $from.parent.isTextblock
+                ? { from: $from.before(), to: $from.after() }
+                : slashRange;
+            })()
+          : null;
+        if (range) {
+          editor.chain().focus().insertContentAt(range, insertContent).run();
+        } else {
+          const { $from } = editor.state.selection;
+          editor
+            .chain()
+            .focus()
+            .insertContentAt($from.after(), insertContent)
+            .run();
+        }
+        await waitForEditorUpdateFrame();
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          { requiredText: `id="${pageId}"` },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          const committed = await onDraftCommitted?.();
+          if (committed === false) throw new Error(t("empty.genericError"));
+        }
+        parentPersisted = true;
+        toast.success(t("editor.databaseCreated"), { id: toastId });
+        navigate(`/page/${pageId}`, { flushSync: true });
+      } catch (error) {
+        const pageIdToCleanup = createdPageId;
+        const cleanupErrors =
+          pageIdToCleanup && !parentPersisted
+            ? await cleanupFailedSlashCreation(
+                () => {
+                  if (createdPageId)
+                    removeCreatedPageReference(editor, createdPageId);
+                },
+                () =>
+                  rollbackCreatedSlashDocument.mutateAsync({
+                    id: pageIdToCleanup,
+                    parentId: documentId,
+                  }),
+              )
+            : [];
+        toast.error(t("editor.failedToCreateDatabase"), {
+          id: toastId,
+          description: [error, ...cleanupErrors]
+            .map((value) =>
+              value instanceof Error ? value.message : t("empty.genericError"),
+            )
+            .join("; "),
         });
       }
     },
@@ -927,8 +1212,14 @@ export function SlashCommandMenu({
         ? []
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
+            policy: {
+              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
+              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
+              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
+              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+            },
           }) as unknown as CommandItem[]),
-    [isTurnInto, notionPageId],
+    [isTurnInto, labs, notionPageId],
   );
   const localComponentCommands = useMemo<CommandItem[]>(
     () =>
@@ -954,7 +1245,9 @@ export function SlashCommandMenu({
     blockCommands,
     registryCommands,
   );
-  const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
+  const pageCommands = isTurnInto
+    ? []
+    : [pageCommand, inlineCollectionCommand, fullPageCollectionCommand];
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
@@ -963,21 +1256,42 @@ export function SlashCommandMenu({
     cmd.title.toLowerCase().includes(normalizedQuery) ||
     cmd.description.toLowerCase().includes(normalizedQuery) ||
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
-  const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
-  const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
+  const availableAiCommands = slashCommandsForMode(aiCommands, suggesting);
+  const availableBlockCommands = slashCommandsForMode(
+    blockCommands,
+    suggesting,
+  );
+  const availableRegistryCommands = slashCommandsForMode(
+    uniqueRegistryCommands,
+    suggesting,
+  );
+  const availableLocalComponentCommands = slashCommandsForMode(
+    localComponentCommands,
+    suggesting,
+  );
+  const availablePageCommands = slashCommandsForMode(pageCommands, suggesting);
+  const availableMediaCommands = slashCommandsForMode(
+    mediaCommands,
+    suggesting,
+  );
+  const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
+  const filteredBlockCommands =
+    availableBlockCommands.filter(commandMatchesQuery);
   const filteredRegistryCommands =
-    uniqueRegistryCommands.filter(commandMatchesQuery);
+    availableRegistryCommands.filter(commandMatchesQuery);
   const filteredLocalComponentCommands =
-    localComponentCommands.filter(commandMatchesQuery);
-  const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
-  const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+    availableLocalComponentCommands.filter(commandMatchesQuery);
+  const filteredPageCommands =
+    availablePageCommands.filter(commandMatchesQuery);
+  const filteredMediaCommands =
+    availableMediaCommands.filter(commandMatchesQuery);
   const allCommands = [
-    ...aiCommands,
-    ...blockCommands,
-    ...uniqueRegistryCommands,
-    ...localComponentCommands,
-    ...mediaCommands,
-    ...pageCommands,
+    ...availableAiCommands,
+    ...availableBlockCommands,
+    ...availableRegistryCommands,
+    ...availableLocalComponentCommands,
+    ...availableMediaCommands,
+    ...availablePageCommands,
   ];
   const filteredCommands = [
     ...filteredAiCommands,
@@ -1008,6 +1322,10 @@ export function SlashCommandMenu({
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
+      // A mode transition can leave a pointer callback queued from the prior
+      // render. Recheck the command at execution time before deleting the slash
+      // or invoking any upload, navigation, action, or external callback.
+      if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
       const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
@@ -1078,17 +1396,22 @@ export function SlashCommandMenu({
           !e.altKey
         ) {
           const inlineGenerate = readInlineGenerateCommand();
-          if (inlineGenerate) {
-            e.preventDefault();
-            editor
-              .chain()
-              .focus()
-              .deleteRange({
-                from: inlineGenerate.from,
-                to: inlineGenerate.to,
-              })
-              .run();
-            submitGeneratePrompt(inlineGenerate.prompt);
+          if (
+            inlineGenerate &&
+            runGeneratePromptIfAllowed(suggestingRef.current, () => {
+              e.preventDefault();
+              editor
+                .chain()
+                .focus()
+                .deleteRange({
+                  from: inlineGenerate.from,
+                  to: inlineGenerate.to,
+                })
+                .run();
+              submitGeneratePrompt(inlineGenerate.prompt);
+            })
+          ) {
+            return;
           }
         }
         return;
@@ -1110,7 +1433,7 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands[selectedIndex]) {
-          executeCommand(filteredCommands[selectedIndex]);
+          void executeCommand(filteredCommands[selectedIndex]);
         }
       } else if (e.key === "Escape") {
         e.stopPropagation();
@@ -1118,7 +1441,7 @@ export function SlashCommandMenu({
         setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
-        onDraftCommitted?.();
+        void onDraftCommitted?.();
       }
     };
 
@@ -1331,18 +1654,24 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
+            className="relative w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
             <p className="px-1 pb-2 text-sm font-semibold text-foreground">
               {t("editor.generateWithAi")}
             </p>
-            <PromptComposer
-              autoFocus
-              disabled={isGenerating}
-              placeholder={t("editor.describeWhatToGenerate")}
-              draftScope={`content:generate:${documentId ?? "document"}`}
-              onSubmit={submitGeneratePrompt}
-            />
+            <React.Suspense
+              fallback={
+                <div className="flex h-[72px] items-center rounded-md border border-input px-3 text-sm text-muted-foreground" />
+              }
+            >
+              <PromptComposer
+                autoFocus
+                disabled={isGenerating}
+                placeholder={t("editor.describeWhatToGenerate")}
+                draftScope={`content:generate:${documentId ?? "document"}`}
+                onSubmit={submitGeneratePrompt}
+              />
+            </React.Suspense>
           </PopoverContent>
         </Popover>
       )}

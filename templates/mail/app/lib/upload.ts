@@ -19,7 +19,15 @@ export async function uploadFile(file: File): Promise<UploadResult> {
     },
   );
   if (!resp.ok) {
-    throw new Error(`Upload failed: ${resp.statusText}`);
+    let errorMessage = `Upload failed: ${resp.statusText}`;
+    try {
+      const body = (await resp.json()) as { error?: unknown };
+      if (typeof body.error === "string") errorMessage = body.error;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // Use the HTTP status when the server did not return JSON.
+    }
+    throw new Error(errorMessage);
   }
   return resp.json();
 }

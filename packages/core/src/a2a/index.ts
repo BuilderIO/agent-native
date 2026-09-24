@@ -23,10 +23,48 @@ export {
 } from "./activity.js";
 
 // Client
-export { A2AClient, callAction, callAgent, signA2AToken } from "./client.js";
+export {
+  A2AClient,
+  A2AJsonRpcResponseError,
+  A2AMissingJsonRpcResponseError,
+  A2ANoJsonRpcInterfaceError,
+  A2AProtocolError,
+  callAction,
+  callAgent,
+  clearA2ACardCache,
+  signA2AToken,
+} from "./client.js";
+export type { A2AProtocolErrorCode } from "./client.js";
+export {
+  clearRemoteAgentTokenCache,
+  RemoteAgentAuthError,
+  RemoteAgentCredentialRejectedError,
+  resolveRemoteAgentToken,
+} from "./remote-agent-auth.js";
+export type {
+  RemoteAgentAuthErrorCode,
+  RemoteAgentCredentialContext,
+} from "./remote-agent-auth.js";
 export { canonicalA2AAudience } from "./audience.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
+export {
+  ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
+  ANTHROPIC_MANAGED_AGENTS_API_URL,
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  AnthropicManagedAgentsError,
+  createAnthropicManagedAgentsHandler,
+} from "./anthropic-managed-agents.js";
+export type {
+  AnthropicManagedAgentApproval,
+  AnthropicManagedAgentConfirmation,
+  AnthropicManagedAgentContinuation,
+  AnthropicManagedAgentHandlerOptions,
+  AnthropicManagedAgentsHandlerOptions,
+  AnthropicManagedAgentRuntimeEvent,
+  AnthropicManagedAgentEvent,
+  AnthropicManagedAgentsErrorCode,
+} from "./anthropic-managed-agents.js";
 export {
   AgentInvocationError,
   buildAgentInvocationPrompt,
@@ -44,8 +82,11 @@ export type {
   A2AHandlerResult,
   A2ASourceContext,
   AgentCard,
+  AgentAdditionalInterface,
+  AgentInterface,
   AgentSkill,
   AgentCapabilities,
+  A2AProtocolVersion,
   Task,
   TaskState,
   TaskStatus,
@@ -66,6 +107,14 @@ export type {
   A2AAgentActivityToolCall,
   A2AAgentActivityToolStatus,
 } from "./types.js";
+export type {
+  RemoteAgentAuth,
+  RemoteAgentBearerAuth,
+  RemoteAgentManifest,
+  RemoteAgentKind,
+  AnthropicManagedAgentsRemoteAgentKind,
+  RemoteAgentOAuthClientCredentialsAuth,
+} from "../resources/metadata.js";
 export type {
   AgentInvocationErrorCode,
   AgentActionInvocationResult,

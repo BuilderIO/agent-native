@@ -60,6 +60,7 @@ export function NotificationsBell({
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   // Init to "default" unconditionally so server and client render the same
   // HTML — reading Notification.permission at init would diverge between SSR
   // ("denied", no API) and hydration ("default"/"granted"), causing a mismatch
@@ -156,7 +157,7 @@ export function NotificationsBell({
 
   useEffect(() => {
     if (!open) return;
-    loadItems();
+    void loadItems();
   }, [open, loadItems]);
 
   const markRead = async (id: string) => {
@@ -175,7 +176,7 @@ export function NotificationsBell({
             )
           : prev,
       );
-      refresh();
+      void refresh();
     } catch {
       // best-effort
     }
@@ -224,7 +225,7 @@ export function NotificationsBell({
         method: "DELETE",
       });
       setItems((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
-      refresh();
+      void refresh();
     } catch {
       // best-effort
     }
@@ -234,6 +235,7 @@ export function NotificationsBell({
   const Icon = hasUnread ? IconBellRinging : IconBell;
   const setOpenAndNotify = (value: boolean) => {
     setOpen(value);
+    if (!value) setExpandedId(null);
     onOpenChange?.(value);
   };
 
@@ -310,8 +312,11 @@ export function NotificationsBell({
                 if (link) {
                   setOpenAndNotify(false);
                   window.location.assign(link);
+                } else {
+                  setExpandedId((current) => (current === n.id ? null : n.id));
                 }
               };
+              const expanded = expandedId === n.id;
               return (
                 <div
                   key={n.id}
@@ -323,19 +328,24 @@ export function NotificationsBell({
                   <button
                     type="button"
                     onClick={onItemClick}
+                    aria-expanded={link ? undefined : expanded}
                     className={
                       "flex w-full flex-col items-start gap-0.5 px-3 py-2 pe-8 text-start" +
                       (link ? " cursor-pointer" : "")
                     }
                   >
                     <div className="flex w-full items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">
+                      <span
+                        className={`${expanded ? "break-words" : "truncate"} text-sm font-medium text-foreground`}
+                      >
                         {n.title}
                       </span>
                       <SeverityBadge severity={n.severity} />
                     </div>
                     {n.body ? (
-                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                      <span
+                        className={`${expanded ? "whitespace-pre-wrap break-words" : "line-clamp-2"} text-xs text-muted-foreground`}
+                      >
                         {n.body}
                       </span>
                     ) : null}

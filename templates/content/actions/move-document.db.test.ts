@@ -10,9 +10,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // after every move, through a separate raw connection from the action's own
 // `getDb()`. Six concurrent moves each opening/closing a `db.transaction()`
 // on the drizzle connection while that separate connection tries to upsert
-// `application_state` is enough cross-connection SQLite write-lock
-// contention to occasionally exceed `busy_timeout` and throw "database is
-// locked" — a pre-existing test-harness artifact of that dual-connection
+// `application_state` creates cross-connection lock contention in local tests,
+// which can occasionally exceed the query timeout — a pre-existing test-harness
+// artifact of that dual-connection
 // design, unrelated to the sibling-position race this file tests. Stub it
 // out so the test isolates the resequencing behavior.
 vi.mock("@agent-native/core/application-state", () => ({
@@ -21,7 +21,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `move-document-position-race-${process.pid}-${Date.now()}.sqlite`,
+  `move-document-position-race-${process.pid}-${Date.now()}.pglite`,
 );
 
 type Schema = typeof import("../server/db/schema.js");
@@ -32,7 +32,7 @@ let moveDocumentAction: typeof import("./move-document.js").default;
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -42,9 +42,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -104,6 +102,72 @@ describe("move-document position race", () => {
     ).rejects.toThrow("same Content space");
   });
 
+  it("reports a nonexistent moved document as not-found naming the id argument", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id: "missing_doc_id", position: 0 } as any),
+      ),
+    ).rejects.toThrow(/not found \(argument: id\)/);
+  });
+
+  it("reports a nonexistent parent as not-found naming the parentId argument", async () => {
+    const id = await createDocument({ title: "Movable" });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        moveDocumentAction.run({ id, parentId: "missing_parent_id" } as any),
+      ),
+    ).rejects.toThrow(/not found \(argument: parentId\)/);
+  });
+
+  it("rejects a viewer-only actor naming the required role and argument", async () => {
+    const viewer = "viewer@example.com";
+    const id = await createDocument({ title: "Viewer-shared page" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: viewer,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const parentId = await createDocument({ title: "Parent" });
+    await expect(
+      runWithRequestContext({ userEmail: viewer }, () =>
+        moveDocumentAction.run({ id, parentId, position: 0 } as any),
+      ),
+    ).rejects.toThrow(/Requires editor role on document .*argument: id/);
+  });
+
+  it("keeps an existing but inaccessible parent forbidden instead of not-found", async () => {
+    const outsider = "outsider@example.com";
+    const id = await createDocument({ title: "Movable" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: id,
+        principalType: "user",
+        principalId: outsider,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const privateParentId = await createDocument({
+      title: "Private parent",
+      ownerEmail: "someoneelse@example.com",
+    });
+    await expect(
+      runWithRequestContext({ userEmail: outsider }, () =>
+        moveDocumentAction.run({ id, parentId: privateParentId } as any),
+      ),
+    ).rejects.toThrow(
+      `No access to document ${privateParentId} (argument: parentId)`,
+    );
+  });
+
   it("assigns distinct, gapless positions when several documents are reparented into the same parent at an explicit position concurrently", async () => {
     const parentId = await createDocument({ title: "Parent" });
     // Two pre-existing children the resequence branch must also account for.
@@ -135,8 +199,10 @@ describe("move-document position race", () => {
 
     await Promise.all(
       incomingIds.map((id) =>
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          moveDocumentAction.run({ id, parentId, position: 0 } as any),
+        Promise.resolve(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            moveDocumentAction.run({ id, parentId, position: 0 } as any),
+          ),
         ),
       ),
     );

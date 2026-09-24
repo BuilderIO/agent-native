@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
-  IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
   IconArrowAutofitHeight,
@@ -18,11 +18,15 @@ import {
   IconSquare,
   IconStrikethrough,
   IconTextSize,
+  IconUpload,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
+import { toast } from "sonner";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -35,27 +39,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { uploadFont, type UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
 import type { ElementInfo } from "../types";
 import { InspectorIconButton, InspectorSegment } from "./inspector-controls";
+import {
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
-import type { StyleChangeHandler } from "./style-change-types";
-import {
-  optionValue,
-  parseNumericValue,
-  resolveLineHeight,
-} from "./style-options";
+import type {
+  StyleChangeMeta,
+  StyleChangeHandler,
+  StylesChangeHandler,
+} from "./style-change-types";
+import { optionValue, parseNumericValue } from "./style-options";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
@@ -63,8 +76,16 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  letterSpacingScrubCssValue,
+  parseLetterSpacingInput,
+  parseLineHeightInput,
+  resolveLetterSpacingFieldValue,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
+  resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
+  textTruncationLineCount,
+  textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
   type TextDecorationLineToken,
   type TextResizeMode,
@@ -130,7 +151,7 @@ function TypographyDetailsTabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "cursor-pointer rounded px-2.5 py-1 !text-[11px] font-medium text-muted-foreground",
+        "design-sidebar-control-text cursor-pointer rounded px-2.5 py-1 font-medium text-muted-foreground",
         active &&
           "bg-[var(--design-editor-panel-raised-bg)] font-semibold text-foreground",
       )}
@@ -162,6 +183,13 @@ function TypographyDetailsPopover({
   textCase,
   textCaseIsMixed,
   onTextCaseChange,
+  truncationEnabled,
+  truncationLineCount,
+  truncationMixed,
+  truncationToggleDisabled,
+  truncationLineCountDisabled,
+  onTruncationEnabledChange,
+  onTruncationLineCountChange,
 }: {
   resizeMode: TextResizeMode;
   onResizeModeChange: (mode: TextResizeMode) => void;
@@ -172,10 +200,21 @@ function TypographyDetailsPopover({
   textCase: string;
   textCaseIsMixed: boolean;
   onTextCaseChange: (value: string) => void;
+  truncationEnabled: boolean;
+  truncationLineCount: number;
+  truncationMixed: boolean;
+  truncationToggleDisabled: boolean;
+  truncationLineCountDisabled: boolean;
+  onTruncationEnabledChange: (enabled: boolean) => void;
+  onTruncationLineCountChange: (value: number, meta: StyleChangeMeta) => void;
 }) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TypographyDetailsTab>("basics");
+  const truncationSwitchId = useId();
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -206,6 +245,7 @@ function TypographyDetailsPopover({
         side="left"
         align="end"
         sideOffset={8}
+        data-design-chrome-region="right-panel"
         className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
@@ -231,7 +271,7 @@ function TypographyDetailsPopover({
               {"Preview" /* i18n-ignore design typography details preview */}
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="!text-[11px] font-medium text-muted-foreground">
+              <span className="design-sidebar-field-label text-muted-foreground">
                 {"Text box" /* i18n-ignore design typography details label */}
               </span>
               <TextResizeControls
@@ -239,17 +279,48 @@ function TypographyDetailsPopover({
                 onResizeModeChange={onResizeModeChange}
               />
             </div>
+            <div className="flex items-center justify-between gap-3">
+              <Label
+                htmlFor={truncationSwitchId}
+                className="design-sidebar-field-label text-muted-foreground"
+              >
+                {t("editPanel.typographyDetails.truncateText")}
+              </Label>
+              <Switch
+                id={truncationSwitchId}
+                aria-label={t("editPanel.typographyDetails.truncateText")}
+                checked={truncationEnabled && !truncationMixed}
+                disabled={truncationToggleDisabled}
+                onCheckedChange={onTruncationEnabledChange}
+              />
+            </div>
+            {truncationEnabled && !truncationMixed ? (
+              <ScrubInput
+                label={t("editPanel.typographyDetails.maxLines")}
+                ariaLabel={t("editPanel.typographyDetails.maxLines")}
+                value={truncationLineCount}
+                onChange={onTruncationLineCountChange}
+                min={1}
+                max={100}
+                step={1}
+                precision={0}
+                disabled={truncationLineCountDisabled}
+                className="w-full gap-0"
+                labelClassName="h-6 min-w-6 justify-center rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px]"
+                inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3 p-4 !text-[11px]">
             <div className="flex items-center justify-between gap-3">
-              <span className="!text-[11px] font-medium text-muted-foreground">
+              <span className="design-sidebar-field-label text-muted-foreground">
                 {t("editPanel.typographyDetails.decorationLabel")}
               </span>
               <InspectorSegment>
                 <InspectorIconButton
                   label={t("editPanel.textDecorations.underline")}
-                  shortcut="⌘U"
+                  shortcut={shortcut("$mod+u")}
                   active={underlineActive}
                   onClick={onToggleUnderline}
                 >
@@ -257,7 +328,7 @@ function TypographyDetailsPopover({
                 </InspectorIconButton>
                 <InspectorIconButton
                   label={t("editPanel.textDecorations.strikethrough")}
-                  shortcut="⌘⇧X"
+                  shortcut={shortcut("$mod+shift+x")}
                   active={strikethroughActive}
                   onClick={onToggleStrikethrough}
                 >
@@ -266,7 +337,7 @@ function TypographyDetailsPopover({
               </InspectorSegment>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="!text-[11px] font-medium text-muted-foreground">
+              <span className="design-sidebar-field-label text-muted-foreground">
                 {t("editPanel.typographyDetails.caseLabel")}
               </span>
               <InspectorSegment>
@@ -311,16 +382,30 @@ function TypographyDetailsPopover({
 export function TypographyProperties({
   element,
   onStyleChange,
+  onStylesChange,
+  designId,
+  onFontUploaded,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+  designId?: string;
+  onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
 }) {
   const t = useT();
+  const fontUploadInputRef = useRef<HTMLInputElement>(null);
+  const [fontUploading, setFontUploading] = useState(false);
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
+  const baseFontFamilyOptions = sortFontFamilyOptions([
+    ...FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label:
+        option.label ??
+        (option.key
+          ? t(`editPanel.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
+    })),
+  ]);
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -335,6 +420,37 @@ export function TypographyProperties({
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
   const textTransformIsMixed = isMixedValue(styles.textTransform);
+  const letterSpacingField = resolveLetterSpacingFieldValue(
+    authoredStyleValue(element, "letterSpacing"),
+    styles.letterSpacing,
+  );
+  const lineHeightField = resolveLineHeightFieldValue(
+    authoredStyleValue(element, "lineHeight"),
+    styles.lineHeight,
+    styles.fontSize,
+    styles.resolvedLineHeightPx,
+  );
+  const lineClampIsMixed = isMixedValue(styles.webkitLineClamp);
+  const truncationLineCount = lineClampIsMixed
+    ? null
+    : textTruncationLineCount(authoredStyleValue(element, "webkitLineClamp"));
+  const truncationEnabled = truncationLineCount !== null;
+  const applyTextTruncation = (
+    enabled: boolean,
+    lineCount: number,
+    meta?: StyleChangeMeta,
+  ) => {
+    const changes = textTruncationStyleChanges(
+      enabled,
+      lineCount,
+      element.inlineStyles,
+    );
+    if (!changes) {
+      toast.error(t("editPanel.typographyDetails.restoreError"));
+      return;
+    }
+    onStylesChange?.(changes, meta);
+  };
 
   // Text decoration (underline/strikethrough) reads through the bridge's
   // clean `textDecorationLine` computed longhand (never the composite
@@ -370,17 +486,36 @@ export function TypographyProperties({
   // instead of a normal, clickable option that could commit the literal
   // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
-  const fontFamilyOptions = fontFamilyIsMixed
-    ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+  const fontFamilyOptions = sortFontFamilyOptions(
+    fontFamilyIsMixed
       ? baseFontFamilyOptions
-      : [
-          {
-            value: fontFamily,
-            label: displayFontFamilyName(styles.fontFamily || fontFamily),
-          },
-          ...baseFontFamilyOptions,
-        ];
+      : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+          displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+        ? baseFontFamilyOptions
+        : [
+            {
+              value: fontFamily,
+              label: displayFontFamilyName(styles.fontFamily || fontFamily),
+            },
+            ...baseFontFamilyOptions,
+          ],
+  );
+  const handleFontUpload = async (file: File) => {
+    if (!designId || !onFontUploaded) return;
+    setFontUploading(true);
+    try {
+      const uploaded = await uploadFont(file, designId);
+      await onFontUploaded(uploaded);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("promptDialog.failedToUploadFile"),
+      );
+    } finally {
+      setFontUploading(false);
+    }
+  };
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
@@ -510,199 +645,266 @@ export function TypographyProperties({
           overlap the weight/size row below (bug: trigger extended ~12 px into
           the next row, causing clicks meant for the size input to open this
           dropdown instead). */}
-      <div className="h-6 overflow-hidden">
-        <Select
-          value={fontFamily}
-          onValueChange={(v) => onStyleChange("fontFamily", v)}
-        >
-          <SelectTrigger
-            aria-label={t("editPanel.labels.font")}
-            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {fontFamilyIsMixed ? (
-              <SelectItem
-                value={MIXED_VALUE}
-                disabled
-                className="!text-[11px] text-muted-foreground"
-              >
-                {MIXED_VALUE}
-              </SelectItem>
+      <InspectorGrid layout="field-action">
+        <InspectorGridCell span={28} className="h-6 overflow-hidden">
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <VisualFontFamilyPicker
+                label={t("editPanel.labels.font")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={MIXED_VALUE}
+                searchable
+                searchPlaceholder={t("root.commandSearch")}
+                contentProps={{
+                  "data-design-chrome-region": "right-panel",
+                }}
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                onChange={(value) => onStyleChange("fontFamily", value)}
+              />
+            </div>
+            {designId && onFontUploaded ? (
+              <>
+                <input
+                  ref={fontUploadInputRef}
+                  type="file"
+                  accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+                  className="sr-only"
+                  aria-label={t("promptDialog.uploadFile")}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void handleFontUpload(file);
+                  }}
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={fontUploading}
+                      aria-label={t("promptDialog.uploadFile")}
+                      className="size-6 shrink-0"
+                      onClick={() => fontUploadInputRef.current?.click()}
+                    >
+                      <IconUpload className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("promptDialog.uploadFile")}
+                  </TooltipContent>
+                </Tooltip>
+              </>
             ) : null}
-            {fontFamilyOptions.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                className="!text-[11px]"
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
 
       {/* Row 2: weight + size side by side */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <Select
-          value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
-          onValueChange={(v) => onStyleChange("fontWeight", v)}
-        >
-          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {fontWeightIsMixed ? (
-              <SelectItem
-                value={MIXED_VALUE}
-                disabled
-                className="!text-[11px] text-muted-foreground"
-              >
-                {MIXED_VALUE}
-              </SelectItem>
-            ) : null}
-            {fontWeightOptions.map((opt) => (
-              <SelectItem
-                key={opt.value}
-                value={opt.value}
-                className="!text-[11px]"
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ScrubInput
-          label={t("editPanel.labels.size")}
-          ariaLabel={t("editPanel.labels.size")}
-          icon={IconTextSize}
-          value={
-            fontSizeIsMixed
-              ? 0
-              : styles.fontSize
-                ? parseNumericValue(styles.fontSize)
-                : 16
-          }
-          mixed={fontSizeIsMixed}
-          onChange={(value, meta) =>
-            onStyleChange(
-              "fontSize",
-              `${Math.max(1, roundToOneDecimal(value))}px`,
-              meta,
-            )
-          }
-          unit="px"
-          min={1}
-          precision={1}
-          className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-        />
-      </div>
+      <InspectorGrid className="items-center" layout="action-pair">
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <Select
+            value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
+            onValueChange={(v) => onStyleChange("fontWeight", v)}
+          >
+            <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent data-design-chrome-region="right-panel">
+              {fontWeightIsMixed ? (
+                <SelectItem
+                  value={MIXED_VALUE}
+                  disabled
+                  className="!text-[11px] text-muted-foreground"
+                >
+                  {MIXED_VALUE}
+                </SelectItem>
+              ) : null}
+              {fontWeightOptions.map((opt) => (
+                <SelectItem
+                  key={opt.value}
+                  value={opt.value}
+                  className="!text-[11px]"
+                >
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <ScrubInput
+            label={t("editPanel.labels.size")}
+            ariaLabel={t("editPanel.labels.size")}
+            icon={IconTextSize}
+            value={
+              fontSizeIsMixed
+                ? 0
+                : styles.fontSize
+                  ? parseNumericValue(styles.fontSize)
+                  : 16
+            }
+            mixed={fontSizeIsMixed}
+            onChange={(value, meta) =>
+              onStyleChange(
+                "fontSize",
+                `${Math.max(1, roundToOneDecimal(value))}px`,
+                meta,
+              )
+            }
+            unit="px"
+            min={1}
+            precision={1}
+            className="w-full gap-0"
+            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+          />
+        </InspectorGridCell>
+      </InspectorGrid>
 
-      {/* Row 3: line-height + letter-spacing with design-editor leading icons */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <ScrubInput
-          label={t("editPanel.labels.lineHeight")}
-          ariaLabel={t("editPanel.labels.lineHeight")}
-          icon={IconLineHeight}
-          value={
-            lineHeightIsMixed
-              ? 0
-              : resolveLineHeight(styles.lineHeight, styles.fontSize)
-          }
-          mixed={lineHeightIsMixed}
-          onChange={(value, meta) =>
-            onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
-          }
-          min={0.1}
-          step={0.1}
-          precision={2}
-          className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-        />
-        <ScrubInput
-          label={t("editPanel.labels.tracking")}
-          ariaLabel={t("editPanel.labels.tracking")}
-          icon={IconLetterSpacing}
-          value={
-            letterSpacingIsMixed
-              ? 0
-              : styles.letterSpacing
-                ? parseNumericValue(styles.letterSpacing)
-                : 0
-          }
-          mixed={letterSpacingIsMixed}
-          onChange={(value, meta) =>
-            onStyleChange("letterSpacing", `${value}px`, meta)
-          }
-          unit="px"
-          precision={1}
-          className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
-          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-        />
+      {/* Row 3: labelled line-height + letter-spacing fields */}
+      <InspectorGrid className="items-center" layout="action-pair">
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <div className="flex flex-col gap-2">
+            <p className="design-sidebar-field-label text-muted-foreground">
+              {t("editPanel.labels.lineHeight")}
+            </p>
+            <ScrubInput
+              label={t("editPanel.labels.lineHeight")}
+              ariaLabel={t("editPanel.labels.lineHeight")}
+              icon={IconLineHeight}
+              value={lineHeightIsMixed ? 0 : lineHeightField.value}
+              textValue={lineHeightIsMixed ? undefined : lineHeightField.text}
+              unit={lineHeightField.unit}
+              mixed={lineHeightIsMixed}
+              onChange={(value, meta) =>
+                onStyleChange(
+                  "lineHeight",
+                  `${Math.max(0, value)}${lineHeightField.unit}`,
+                  meta,
+                )
+              }
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLineHeightInput(draft, lineHeightField);
+                if (!parsed) return { accepted: false };
+                onStyleChange("lineHeight", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              min={0}
+              step={1}
+              precision={2}
+              className="w-full gap-0"
+              labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+              inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <div className="flex flex-col gap-2">
+            <p className="design-sidebar-field-label text-muted-foreground">
+              {t("editPanel.labels.tracking")}
+            </p>
+            <ScrubInput
+              label={t("editPanel.labels.tracking")}
+              ariaLabel={t("editPanel.labels.tracking")}
+              icon={IconLetterSpacing}
+              value={letterSpacingIsMixed ? 0 : letterSpacingField.value}
+              textValue={
+                letterSpacingIsMixed ? undefined : letterSpacingField.text
+              }
+              mixed={letterSpacingIsMixed}
+              onChange={(value, meta) =>
+                onStyleChange(
+                  "letterSpacing",
+                  letterSpacingScrubCssValue(value, letterSpacingField.unit),
+                  meta,
+                )
+              }
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLetterSpacingInput(
+                  draft,
+                  letterSpacingField,
+                );
+                if (!parsed) return { accepted: false };
+                onStyleChange("letterSpacing", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              unit={letterSpacingField.unit}
+              precision={2}
+              className="w-full gap-0"
+              labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
+              inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+            />
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
+
+      <div className="design-sidebar-field-label text-muted-foreground">
+        {t("editPanel.labels.align")}
       </div>
 
       {/* Row 4: horizontal + vertical text alignment */}
-      <div className="flex items-center gap-1.5">
-        <InspectorSegment>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.left")}
-            active={textAlign === "left" || textAlign === "start"}
-            onClick={() => onStyleChange("textAlign", "left")}
-          >
-            <IconAlignLeft className="size-3.5" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.center")}
-            active={textAlign === "center"}
-            onClick={() => onStyleChange("textAlign", "center")}
-          >
-            <IconAlignCenter className="size-3.5" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.right")}
-            active={textAlign === "right" || textAlign === "end"}
-            onClick={() => onStyleChange("textAlign", "right")}
-          >
-            <IconAlignRight className="size-3.5" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.justify")}
-            active={textAlign === "justify"}
-            onClick={() => onStyleChange("textAlign", "justify")}
-          >
-            <IconAlignJustified className="size-3.5" />
-          </InspectorIconButton>
-        </InspectorSegment>
-        <InspectorSegment>
-          <InspectorIconButton
-            label={"Align top" /* i18n-ignore design vertical text align */}
-            active={verticalAlign === "top"}
-            onClick={() => setVerticalAlign("top")}
-          >
-            <IconLayoutAlignTop className="size-3.5" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={"Align middle" /* i18n-ignore design vertical text align */}
-            active={verticalAlign === "middle"}
-            onClick={() => setVerticalAlign("middle")}
-          >
-            <IconLayoutAlignMiddle className="size-3.5" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={"Align bottom" /* i18n-ignore design vertical text align */}
-            active={verticalAlign === "bottom"}
-            onClick={() => setVerticalAlign("bottom")}
-          >
-            <IconLayoutAlignBottom className="size-3.5" />
-          </InspectorIconButton>
-        </InspectorSegment>
-        <div className="ml-auto shrink-0">
+      <InspectorGrid className="items-center">
+        <InspectorGridCell span={13}>
+          <InspectorSegment className="w-full">
+            <InspectorIconButton
+              label={t("editPanel.textAligns.left")}
+              active={textAlign === "left" || textAlign === "start"}
+              onClick={() => onStyleChange("textAlign", "left")}
+            >
+              <IconAlignLeft className="size-3.5" />
+            </InspectorIconButton>
+            <InspectorIconButton
+              label={t("editPanel.textAligns.center")}
+              active={textAlign === "center"}
+              onClick={() => onStyleChange("textAlign", "center")}
+            >
+              <IconAlignCenter className="size-3.5" />
+            </InspectorIconButton>
+            <InspectorIconButton
+              label={t("editPanel.textAligns.right")}
+              active={textAlign === "right" || textAlign === "end"}
+              onClick={() => onStyleChange("textAlign", "right")}
+            >
+              <IconAlignRight className="size-3.5" />
+            </InspectorIconButton>
+          </InspectorSegment>
+        </InspectorGridCell>
+        <InspectorGridCell span={1} ariaHidden />
+        <InspectorGridCell span={10}>
+          <InspectorSegment className="w-full">
+            <InspectorIconButton
+              label={"Align top" /* i18n-ignore design vertical text align */}
+              active={verticalAlign === "top"}
+              onClick={() => setVerticalAlign("top")}
+            >
+              <IconLayoutAlignTop className="size-3.5" />
+            </InspectorIconButton>
+            <InspectorIconButton
+              label={
+                "Align middle" /* i18n-ignore design vertical text align */
+              }
+              active={verticalAlign === "middle"}
+              onClick={() => setVerticalAlign("middle")}
+            >
+              <IconLayoutAlignMiddle className="size-3.5" />
+            </InspectorIconButton>
+            <InspectorIconButton
+              label={
+                "Align bottom" /* i18n-ignore design vertical text align */
+              }
+              active={verticalAlign === "bottom"}
+              onClick={() => setVerticalAlign("bottom")}
+            >
+              <IconLayoutAlignBottom className="size-3.5" />
+            </InspectorIconButton>
+          </InspectorSegment>
+        </InspectorGridCell>
+        <InspectorGridCell span={4} className="flex justify-center">
           <TypographyDetailsPopover
             resizeMode={resizeMode}
             onResizeModeChange={setResizeMode}
@@ -715,9 +917,26 @@ export function TypographyProperties({
             textCase={textCase}
             textCaseIsMixed={textTransformIsMixed}
             onTextCaseChange={setTextCase}
+            truncationEnabled={truncationEnabled}
+            truncationLineCount={truncationLineCount ?? 1}
+            truncationMixed={lineClampIsMixed}
+            truncationToggleDisabled={
+              lineClampIsMixed ||
+              !onStylesChange ||
+              (!truncationEnabled && resizeMode === "fixed")
+            }
+            truncationLineCountDisabled={
+              !onStylesChange || resizeMode === "fixed"
+            }
+            onTruncationEnabledChange={(enabled) =>
+              applyTextTruncation(enabled, truncationLineCount ?? 1)
+            }
+            onTruncationLineCountChange={(value, meta) =>
+              applyTextTruncation(true, value, meta)
+            }
           />
-        </div>
-      </div>
+        </InspectorGridCell>
+      </InspectorGrid>
     </PanelSection>
   );
 }

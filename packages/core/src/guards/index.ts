@@ -23,7 +23,9 @@ export {
 } from "./no-empty-migrations.js";
 export { scanEnvCredentials } from "./no-env-credentials.js";
 export { scanEnvMutation } from "./no-env-mutation.js";
+export { scanIdentityColumnsRegistered } from "./identity-columns-registered.js";
 export { scanLocalhostFallback } from "./no-localhost-fallback.js";
+export { scanResourceActionAccess } from "./resource-action-access.js";
 export type { LocalhostFallbackOptions } from "./no-localhost-fallback.js";
 export { scanUnscopedCredentials } from "./no-unscoped-credentials.js";
 export { scanUnscopedQueries } from "./no-unscoped-queries.js";

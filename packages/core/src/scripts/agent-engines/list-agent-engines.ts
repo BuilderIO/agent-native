@@ -3,7 +3,6 @@
  */
 
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
-import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import {
   listAgentEngines,
   registerBuiltinEngines,
@@ -13,10 +12,12 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEngineAcceptsCustomModels,
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { prefetchSecrets } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -33,6 +34,16 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
   const engines = listAgentEngines();
+  await prefetchSecrets([
+    ...new Set(
+      engines
+        .filter(
+          (entry) =>
+            entry.name !== "builder" && isAgentEnginePackageInstalled(entry),
+        )
+        .flatMap((entry) => entry.requiredEnvVars),
+    ),
+  ]);
   const currentSetting = await getSetting("agent-engine");
   const current = currentSetting
     ? (currentSetting as { engine?: string; model?: string })
@@ -77,17 +88,18 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       (storedUsable ? storedEntry : undefined) ??
       detectedFromUser ??
       detectedFromEnv ??
-      undefined);
+      getAgentEngineEntry("anthropic"));
   const currentModelCandidate =
     appDefaultUsable && currentEntry?.name === appDefault?.engine
       ? appDefault?.model
       : storedUsable && currentEntry?.name === current?.engine
         ? current?.model
         : undefined;
-  const currentEngineName = currentEntry?.name ?? "anthropic";
-  // Resolve the OpenAI-compatible-endpoint capability so a custom gateway model
-  // is reported as-is instead of being normalized to the engine default — the
-  // read-side counterpart of the same fix in set-/manage-agent-engine.
+  // Resolve both gateway and provider model capabilities so a saved custom
+  // model is reported as-is instead of being normalized to the engine default.
+  const acceptsCustomModels = currentEntry
+    ? await resolveEngineAcceptsCustomModels(currentEntry)
+    : false;
   const preserveCustomModels = currentEntry
     ? await resolveEnginePreservesCustomModels(currentEntry)
     : false;
@@ -96,27 +108,60 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
-          { preserveCustomModels },
+          { acceptsCustomModels, preserveCustomModels },
         )
-      : (currentModelCandidate ?? DEFAULT_MODEL);
+      : undefined;
+  // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
+  // vault-stored keys or the deploy-injected Builder gateway lane, so a client
+  // that re-derives it from env keys marks working engines unconfigured.
+  const engineEntries = await Promise.all(
+    engines.map(async (e) => {
+      // Resolved per engine, not across the set: one provider whose credential
+      // store is momentarily unreadable must not reject the whole listing. The
+      // chat refresh catches that rejection and renders an empty catalog, so a
+      // single unrelated provider would make every engine unselectable — the
+      // exact symptom this readiness plumbing exists to fix.
+      //
+      // A read error is its own state, left as `configured: undefined` so the
+      // client falls back to its env heuristic. Folding it into `false` would
+      // claim the engine needs an API key when nobody actually knows.
+      let configured: boolean | undefined;
+      let configuredError: string | undefined;
+      try {
+        configured = await isStoredEngineUsableForRequest(
+          { engine: e.name, model: e.defaultModel },
+          e,
+        );
+      } catch (error) {
+        configuredError =
+          error instanceof Error ? error.message : String(error);
+      }
+      return {
+        name: e.name,
+        label: e.label,
+        description: e.description,
+        defaultModel: e.defaultModel,
+        supportedModels: e.supportedModels,
+        acceptsCustomModels: await resolveEngineAcceptsCustomModels(e),
+        preserveCustomModels: await resolveEnginePreservesCustomModels(e),
+        capabilities: e.capabilities,
+        requiredEnvVars: e.requiredEnvVars,
+        installPackage: e.installPackage,
+        packageInstalled: isAgentEnginePackageInstalled(e),
+        configured,
+        configuredError,
+      };
+    }),
+  );
   const result = {
-    engines: engines.map((e) => ({
-      name: e.name,
-      label: e.label,
-      description: e.description,
-      defaultModel: e.defaultModel,
-      supportedModels: e.supportedModels,
-      capabilities: e.capabilities,
-      requiredEnvVars: e.requiredEnvVars,
-      installPackage: e.installPackage,
-      packageInstalled: isAgentEnginePackageInstalled(e),
-    })),
-    current: envUnavailable
-      ? null
-      : {
-          engine: currentEngineName,
-          model: currentModel,
-        },
+    engines: engineEntries,
+    current:
+      !currentEntry || envUnavailable
+        ? null
+        : {
+            engine: currentEntry.name,
+            model: currentModel,
+          },
   };
 
   return JSON.stringify(result, null, 2);

@@ -1,7 +1,10 @@
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
 
 import { runMailMigrations } from "../server/plugins/db.js";
+
+loadEnv();
 
 /**
  * Release-time schema entrypoint for Mail.

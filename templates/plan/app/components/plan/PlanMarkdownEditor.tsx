@@ -93,11 +93,14 @@ export function PlanMarkdownEditor({
     ydoc,
     awareness,
     isSynced: collabSynced,
+    initialization,
   } = useCollaborativeDoc({
     docId,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
   });
+  const editorEditable =
+    editable && (!collabEnabled || initialization.status === "ready");
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -156,10 +159,10 @@ export function PlanMarkdownEditor({
   const handleChange = useCallback(
     (nextMarkdown: string) => {
       latestMarkdownRef.current = nextMarkdown;
-      if (!editable) return;
+      if (!editorEditable) return;
       queueFlush();
     },
-    [editable, queueFlush],
+    [editorEditable, queueFlush],
   );
 
   return (
@@ -167,7 +170,7 @@ export function PlanMarkdownEditor({
       value={markdown}
       onChange={handleChange}
       onBlur={() => void flushSave()}
-      editable={editable}
+      editable={editorEditable}
       contentUpdatedAt={contentUpdatedAt}
       dialect="gfm"
       preset="plan"
@@ -177,7 +180,7 @@ export function PlanMarkdownEditor({
       slashItems={PLAN_SLASH_COMMANDS}
       className={cn("plan-rich-markdown-editor mt-4", className)}
       ariaLabel={ariaLabel}
-      interactive={editable}
+      interactive={editorEditable}
       ydoc={collabEnabled ? ydoc : null}
       collabSynced={collabEnabled ? collabSynced : true}
       awareness={collabEnabled ? awareness : null}

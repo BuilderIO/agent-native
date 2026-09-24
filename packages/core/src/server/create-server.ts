@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
-import { getOrgContext } from "../org/context.js";
+import { getEffectiveDatabaseEnvStatus } from "../db/runtime-diagnostics.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -20,19 +20,15 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import { getRuntimeConfigReport } from "../shared/runtime-config.js";
-import { getSession } from "./auth.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { resolveSecret } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
-import {
-  findUnsupportedScopedKeyNames,
-  saveKeyValuesToScopedSecrets,
-  ScopedKeyStorageError,
-  type ScopedKeySaveRequestScope,
-} from "./scoped-key-storage.js";
+import type { ScopedKeySaveRequestScope } from "./scoped-key-storage.js";
+
+const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
+  import("./auth.js").then(({ getSession }) => getSession(...args));
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -43,6 +39,15 @@ export interface EnvKeyConfig {
   required?: boolean;
   /** Optional UI hint shown next to the field describing where to find this value. */
   helpText?: string;
+  /**
+   * Whether this key is a credential (API key, token, secret) rather than a
+   * plain config flag/address/URL. Default: true (unspecified keys are
+   * treated as secrets, so existing app-declared keys keep working). Set to
+   * `false` for non-credential settings like feature flags or a sender
+   * address — they should not be offered as Vault "keys" to store as shared
+   * secrets.
+   */
+  secret?: boolean;
 }
 
 export interface CreateServerOptions {
@@ -231,23 +236,34 @@ export function createServer(
     router.get(
       "/_agent-native/env-status",
       defineEventHandler(async (event) => {
+        const { resolveSecret } = await import("./credential-provider.js");
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
         let orgId: string | undefined;
         if (userEmail) {
+          const { getOrgContext } = await import("../org/context.js");
           const orgCtx = await getOrgContext(event).catch(() => null);
           orgId = orgCtx?.orgId ?? undefined;
         }
         return Promise.all(
-          envKeys.map(async (cfg) => ({
-            key: cfg.key,
-            label: cfg.label,
-            required: cfg.required ?? false,
-            configured: await runWithRequestContext({ userEmail, orgId }, () =>
-              resolveSecret(cfg.key).then(Boolean),
-            ),
-            ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-          })),
+          envKeys.map(async (cfg) => {
+            const effectiveDatabaseStatus = getEffectiveDatabaseEnvStatus(
+              cfg.key,
+            );
+            const configured =
+              effectiveDatabaseStatus ??
+              (await runWithRequestContext({ userEmail, orgId }, () =>
+                resolveSecret(cfg.key).then(Boolean),
+              ));
+            return {
+              key: cfg.key,
+              label: cfg.label,
+              required: cfg.required ?? false,
+              configured,
+              ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+              ...(cfg.secret === false ? { secret: false } : {}),
+            };
+          }),
         );
       }),
     );
@@ -260,6 +276,11 @@ export function createServer(
           vars?: Array<{ key: string; value: string }>;
           scope?: ScopedKeySaveRequestScope;
         };
+        const {
+          findUnsupportedScopedKeyNames,
+          saveKeyValuesToScopedSecrets,
+          ScopedKeyStorageError,
+        } = await import("./scoped-key-storage.js");
         const unsupportedKeys = findUnsupportedScopedKeyNames(
           vars,
           allowedEnvKeyNames,

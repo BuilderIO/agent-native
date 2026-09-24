@@ -7,7 +7,7 @@ const GOOGLE_SLIDES_DEFAULT_LIMIT = 15;
 const RECENT_WINDOW_MONTHS = 12;
 
 export function smartDefaultExternalIds(input: {
-  kind: ContextConnectorKind | string;
+  kind: ContextConnectorKind | (string & {});
   items: ContextConnectorInventoryItem[];
   canonicalExternalIds?: string[];
   pinnedExternalIds?: string[];

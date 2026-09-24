@@ -40,7 +40,7 @@ export interface DesignHotkeyTabDetails extends DesignHotkeyDetails {
 }
 
 export interface DesignHotkeyOpacityDetails extends DesignHotkeyDetails {
-  /** 1-100. Digit "1".."9" (no modifier) map to 10-90; "0" maps to 100. */
+  /** 0-100. Rapid digits use the last two as a percentage; a single "0" maps to 100. */
   opacity: number;
 }
 
@@ -109,6 +109,7 @@ export interface UseDesignHotkeysProps {
   onCut?: DesignHotkeyHandler;
   onPaste?: DesignHotkeyHandler;
   onPasteOver?: DesignHotkeyHandler;
+  onPlaceImage?: DesignHotkeyHandler;
   onCopyProps?: DesignHotkeyHandler;
   onPasteProps?: DesignHotkeyHandler;
   onDuplicate?: DesignHotkeyHandler;
@@ -126,6 +127,7 @@ export interface UseDesignHotkeysProps {
   /** Figma's Cmd+Alt+G — "Frame selection": wrap the selection in a frame
    *  container (distinct from onGroup's plain-group wrapper). */
   onFrameSelection?: DesignHotkeyHandler;
+  onBooleanSubtract?: DesignHotkeyHandler;
   onUndo?: DesignHotkeyHandler;
   onRedo?: DesignHotkeyHandler;
   onBringForward?: DesignHotkeyHandler;
@@ -152,12 +154,16 @@ export interface UseDesignHotkeysProps {
    */
   onDetachInstance?: DesignHotkeyHandler;
   /**
-   * Figma's plain digit 1-9 / 0 — set selection opacity (10-90%, 0 = 100%).
+   * Figma's plain digits set selection opacity immediately; consecutive digits
+   * form a percentage (a single "0" sets 100%, "00" sets 0%).
    * Only fires when a layer is selected (caller decides via presence of the
    * handler / its own guard) and the event isn't a modifier combo or an
    * editable-target keystroke (already filtered by ignoreEditableTargets).
    */
   onOpacityChange?: DesignHotkeyOpacityHandler;
+  /** Stable identity for the selected layer and screen; changing it clears a
+   *  partially typed opacity so digits cannot cross selections. */
+  opacitySelectionKey?: string | null;
   /** Figma's Cmd+Shift+H — toggle hide/show for the current selection (all
    *  selected layers/screens). */
   onToggleHidden?: DesignHotkeyHandler;
@@ -179,9 +185,9 @@ export interface UseDesignHotkeysProps {
    *  internal canvas clipboard's contents. */
   onPasteToReplace?: DesignHotkeyHandler;
   /**
-   * Figma's Control+C on Apple platforms — eyedropper: sample a color from
-   * anywhere on screen and apply it to the current selection. A one-shot
-   * action, not a persistent tool.
+   * Figma's I (and literal Control+C on Apple platforms) — eyedropper: sample
+   * a color from anywhere on screen and apply it to the current selection. A
+   * one-shot action, not a persistent tool.
    */
   onEyedropper?: DesignHotkeyHandler;
   /**
@@ -205,14 +211,24 @@ export interface UseDesignHotkeysProps {
    * modifiers held) or SHIFT_TOOL_SHORTCUTS (which has no "a" entry).
    */
   onAddAutoLayout?: DesignHotkeyHandler;
-  /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
-   *  chrome (left rail, right panel, and bottom toolbar). */
+  /** Cmd/Ctrl+\ toggles the left and right Design sidebars. */
+  /**
+   * Whether Design can act on its own chords at all. False on a read-only or
+   * signed-out prototype, where consuming Cmd+Z/Cmd+D/Cmd+G would cost the
+   * viewer their browser defaults in exchange for nothing.
+   */
+  canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
+  /** Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode. */
+  onToggleMinimalUi?: DesignHotkeyHandler;
+  onToggleLayoutGrids?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
   /** Figma's Ctrl+Shift+? — open the keyboard-shortcuts reference panel. */
   onShowKeyboardShortcuts?: DesignHotkeyHandler;
 }
+
+const OPACITY_SEQUENCE_WINDOW_MS = 1000;
 
 const TOOL_SHORTCUTS: Record<
   string,
@@ -220,6 +236,7 @@ const TOOL_SHORTCUTS: Record<
 > = {
   v: { tool: "move", handler: "onMoveTool" },
   f: { tool: "frame", handler: "onFrameTool" },
+  a: { tool: "frame", handler: "onFrameTool" },
   r: { tool: "rectangle", handler: "onRectangleTool" },
   o: { tool: "ellipse", handler: "onEllipseTool" },
   l: { tool: "line", handler: "onLineTool" },
@@ -228,7 +245,6 @@ const TOOL_SHORTCUTS: Record<
   h: { tool: "hand", handler: "onHandTool" },
   k: { tool: "scale", handler: "onScaleTool" },
   c: { tool: "comment", handler: "onCommentTool" },
-  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 // H1: shift+key variants of a base tool shortcut (Figma muscle-memory), e.g.
@@ -240,6 +256,9 @@ const SHIFT_TOOL_SHORTCUTS: Record<
   { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
 > = {
   l: { tool: "arrow", handler: "onArrowTool" },
+  // Draw switches the whole editor into annotate mode, so it takes a
+  // modifier: a bare letter flips modes by accident.
+  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
@@ -275,6 +294,20 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("[data-design-history-hotkeys]"));
+}
+
+function isDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+  );
 }
 
 /** Chat bodies and panel labels are selectable but not editable targets, so the
@@ -331,6 +364,14 @@ function isFocusableChromeTarget(target: EventTarget | null) {
   );
 }
 
+export function isNativeKeyboardActivationTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest("a[href], button, input, select, textarea, summary"),
+  );
+}
+
 export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   const propsRef = useRef(props);
 
@@ -344,33 +385,118 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       (typeof window === "undefined" ? null : (window as DesignHotkeyTarget));
     if (!eventTarget || props.enabled === false) return;
 
+    let opacityDigits = "";
+    let opacityLastDigitAt = 0;
+    let opacitySelectionKey: string | null = null;
+
+    const resetOpacitySequence = () => {
+      opacityDigits = "";
+      opacityLastDigitAt = 0;
+      opacitySelectionKey = null;
+    };
+
+    const applyOpacityDigit = (
+      event: KeyboardEvent,
+      digit: string,
+      current: UseDesignHotkeysProps,
+    ) => {
+      const selectionKey = current.opacitySelectionKey ?? null;
+      const now = Date.now();
+      if (
+        selectionKey !== opacitySelectionKey ||
+        now - opacityLastDigitAt > OPACITY_SEQUENCE_WINDOW_MS
+      ) {
+        opacityDigits = "";
+      }
+      opacitySelectionKey = selectionKey;
+      // Figma keeps the latest two digits, so a rapid "100" finishes at 0%.
+      opacityDigits = `${opacityDigits}${digit}`.slice(-2);
+      opacityLastDigitAt = now;
+      const opacity =
+        opacityDigits === "0"
+          ? 100
+          : Math.min(
+              100,
+              opacityDigits.length === 1
+                ? Number(opacityDigits) * 10
+                : Number(opacityDigits),
+            );
+      if (current.preventDefault !== false) event.preventDefault();
+      current.onOpacityChange?.({
+        event,
+        key: normalizedKey(event),
+        primary: false,
+        shift: false,
+        alt: false,
+        repeat: event.repeat,
+        opacity,
+      });
+    };
+
     const handleKeyDown = (event: Event) => {
       if (!(event instanceof KeyboardEvent)) return;
       const current = propsRef.current;
-      if (current.enabled === false) return;
-      if (event.defaultPrevented || event.isComposing) return;
-      if (current.shouldHandleEvent && !current.shouldHandleEvent(event))
+      if (current.enabled === false) {
+        resetOpacitySequence();
         return;
+      }
+      if (event.defaultPrevented || event.isComposing) {
+        resetOpacitySequence();
+        return;
+      }
+      if (current.shouldHandleEvent && !current.shouldHandleEvent(event)) {
+        resetOpacitySequence();
+        return;
+      }
       if (
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
-        !isShowKeyboardShortcutsHotkey(event)
+        !isShowKeyboardShortcutsHotkey(event) &&
+        !(
+          isDesignHistoryHotkey(event) &&
+          isDesignHistoryHotkeyTarget(event.target)
+        )
       ) {
+        resetOpacitySequence();
         return;
       }
+
+      const digit = digitFromEvent(event);
+      if (
+        digit &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        current.onOpacityChange
+      ) {
+        applyOpacityDigit(event, digit, current);
+        return;
+      }
+
+      resetOpacitySequence();
 
       handleDesignHotkey(event, current);
     };
 
+    const handleBoundary = () => resetOpacitySequence();
+
     eventTarget.addEventListener("keydown", handleKeyDown, {
       capture: props.capture,
     });
+    eventTarget.addEventListener("pointerdown", handleBoundary);
+    eventTarget.addEventListener("focusin", handleBoundary);
+    eventTarget.addEventListener("blur", handleBoundary);
     return () => {
+      resetOpacitySequence();
       eventTarget.removeEventListener("keydown", handleKeyDown, {
         capture: props.capture,
       });
+      eventTarget.removeEventListener("pointerdown", handleBoundary);
+      eventTarget.removeEventListener("focusin", handleBoundary);
+      eventTarget.removeEventListener("blur", handleBoundary);
     };
-  }, [props.capture, props.enabled, props.target]);
+  }, [props.capture, props.enabled, props.opacitySelectionKey, props.target]);
 }
 
 export function handleDesignHotkey(
@@ -396,6 +522,18 @@ export function handleDesignHotkey(
     if (!handler) return false;
     prevent();
     handler(details);
+    return true;
+  };
+
+  /** Consume a Design-bound chord even with no handler attached: "bound but
+   *  inapplicable" must not reach the browser (Cmd+U opens View Source).
+   *  Clipboard chords stay on `run` — they need the native copy/cut/paste
+   *  event — and a canvas the user cannot edit claims nothing, because there
+   *  is no Design action to trade the browser default for. */
+  const claim = (handler: DesignHotkeyHandler | undefined) => {
+    if (!handler && props.canClaimBoundChords === false) return false;
+    prevent();
+    handler?.(details);
     return true;
   };
 
@@ -463,12 +601,25 @@ export function handleDesignHotkey(
     }
   }
 
+  if (!primary && event.altKey && event.shiftKey && key === "s") {
+    return run(props.onBooleanSubtract);
+  }
+
   if (event.key.startsWith("Arrow") && !primary && !event.altKey) {
     return runSharedCanvasCommand();
   }
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") {
+    if (
+      isNativeKeyboardActivationTarget(event.target) &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest("[data-layer-row-button]")
+      )
+    ) {
+      return false;
+    }
     // Figma: Enter drills into the selection (selects its first child /
     // begins text editing); Shift+Enter is its sibling — select the
     // selection's PARENT. Checked before the plain onEnter fallback so
@@ -508,16 +659,16 @@ export function handleDesignHotkey(
   // deletion has been ruled out. Shift+Cmd+G (below, in the Cmd+G family) is
   // a second, equally-supported binding for the same onUngroup handler.
   if (primary && !event.altKey && !event.shiftKey && key === "Backspace") {
-    return run(props.onUngroup);
+    return claim(props.onUngroup);
   }
 
   if (primary && key === "z") {
     return (
       runSharedCanvasCommand() ||
-      (event.shiftKey ? run(props.onRedo) : run(props.onUndo))
+      (event.shiftKey ? claim(props.onRedo) : claim(props.onUndo))
     );
   }
-  if (primary && key === "y") return run(props.onRedo);
+  if (primary && key === "y") return claim(props.onRedo);
   // Figma Find uses the operating system's primary modifier, rather than
   // treating literal Control and Command as interchangeable on macOS. Keep
   // Ctrl+F available for platform/browser behavior on Apple devices while
@@ -528,6 +679,8 @@ export function handleDesignHotkey(
     !event.shiftKey &&
     key === "f"
   ) {
+    // `run`, not `claim`: Find is withheld during initial generation, and
+    // browser Find is better than nothing while Design cannot offer its own.
     return run(props.onFind);
   }
   if (primary && !event.altKey && !event.shiftKey && key === "a") {
@@ -536,14 +689,14 @@ export function handleDesignHotkey(
   // Figma's Cmd+Shift+X — toggle strikethrough. Must be checked before plain
   // Cmd+X (cut) below, since that check doesn't itself gate on shiftKey.
   if (primary && event.shiftKey && key === "x") {
-    return run(props.onToggleStrikethrough);
+    return claim(props.onToggleStrikethrough);
   }
   if (primary && key === "x" && !hasDocumentTextSelection()) {
     return runSharedCanvasCommand() || run(props.onCut);
   }
   // Figma's Cmd+U — toggle underline. No existing binding claims plain "u".
   if (primary && !event.altKey && !event.shiftKey && key === "u") {
-    return run(props.onToggleUnderline);
+    return claim(props.onToggleUnderline);
   }
 
   // Current Figma: Ctrl+Alt+H / Ctrl+Alt+V — distribute evenly. These use
@@ -552,6 +705,11 @@ export function handleDesignHotkey(
   if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
     if (key === "h") return runDistribute("horizontal");
     if (key === "v") return runDistribute("vertical");
+  }
+
+  // Figma's I — the Control+C binding below is macOS-only.
+  if (!primary && !event.altKey && !event.shiftKey && key === "i") {
+    return run(props.onEyedropper);
   }
 
   // On macOS Figma reserves literal Control+C for Pick color while Cmd+C
@@ -580,20 +738,26 @@ export function handleDesignHotkey(
     return runSharedCanvasCommand() || run(props.onPaste);
   }
   if (primary && key === "d") {
-    return runSharedCanvasCommand() || run(props.onDuplicate);
+    return runSharedCanvasCommand() || claim(props.onDuplicate);
   }
-  // Keep Shift+Cmd+R available for Figma's "Paste to replace" command. Bare
-  // Cmd/Ctrl+R stays native so browser refresh keeps its expected meaning.
+  // Figma uses Cmd/Ctrl+R to rename the selected layer. Shift keeps its
+  // separate Paste to replace command below.
+  if (primary && !event.altKey && !event.shiftKey && key === "r") {
+    return claim(props.onRename);
+  }
   if (primary && event.shiftKey && key === "r") {
     return run(props.onPasteToReplace);
+  }
+  if (primary && event.shiftKey && !event.altKey && key === "k") {
+    return claim(props.onPlaceImage);
   }
   // Cmd+Shift+H/L (hide/lock the current selection) must take precedence over
   // the unmodified/shift-only h/l transform and alignment families.
   if (primary && event.shiftKey && key === "h") {
-    return run(props.onToggleHidden);
+    return claim(props.onToggleHidden);
   }
   if (primary && event.shiftKey && key === "l") {
-    return run(props.onToggleLocked);
+    return claim(props.onToggleLocked);
   }
   if (primary && key === "g") {
     // Figma: ⌥⌘G is "Frame selection". Current Figma's primary ungroup chord
@@ -602,14 +766,14 @@ export function handleDesignHotkey(
     // item performs the identical action (handleUngroupSelection) — leaving
     // this chord dead while the menu item works is a regression users hit,
     // not an intentional gap. Support both bindings for ungroup.
-    if (event.altKey) return run(props.onFrameSelection);
-    if (event.shiftKey) return run(props.onUngroup);
-    return run(props.onGroup);
+    if (event.altKey) return claim(props.onFrameSelection);
+    if (event.shiftKey) return claim(props.onUngroup);
+    return claim(props.onGroup);
   }
 
-  if (primary && (key === "=" || key === "+")) return run(props.onZoomIn);
-  if (primary && key === "-") return run(props.onZoomOut);
-  if (primary && key === "0") return run(props.onZoomReset);
+  if (primary && (key === "=" || key === "+")) return claim(props.onZoomIn);
+  if (primary && key === "-") return claim(props.onZoomOut);
+  if (primary && key === "0") return claim(props.onZoomReset);
 
   // Figma: plain +/= and - (no modifiers) also zoom in/out.
   if (!primary && !event.altKey && !event.shiftKey) {
@@ -632,12 +796,12 @@ export function handleDesignHotkey(
 
   // H2: Cmd+Alt+K — create component from the current selection.
   if (primary && event.altKey && key === "k") {
-    return run(props.onCreateComponent);
+    return claim(props.onCreateComponent);
   }
 
   // Figma's Cmd+Alt+B — Detach instance.
   if (primary && event.altKey && key === "b") {
-    return run(props.onDetachInstance);
+    return claim(props.onDetachInstance);
   }
 
   const digit = digitFromEvent(event);
@@ -655,11 +819,9 @@ export function handleDesignHotkey(
   if (event.shiftKey && !primary && digit === "2") {
     return run(props.onZoomToSelection);
   }
-  // H2: plain digit 1-9/0 (no modifier) — set selection opacity. Figma maps
-  // 1-9 to 10%-90% and 0 to 100%. Only handled when nothing else claimed the
-  // digit (e.g. Shift+1/Shift+2 zoom above) and no modifier is held; the
-  // caller supplies onOpacityChange only when a layer is selected and canvas
-  // has focus, so an absent handler naturally no-ops here.
+  // H2: plain digit 1-9/0 (no modifier) — set selection opacity. The hook
+  // buffers rapid digits as a percentage; this fallback remains for direct
+  // callers of handleDesignHotkey and maps a single digit to 10%-90%/100%.
   if (
     !primary &&
     !event.altKey &&
@@ -678,7 +840,14 @@ export function handleDesignHotkey(
   // backward (single-step reorder). Alt+Cmd+]/Alt+Cmd+[ are silent aliases
   // of the plain front/back commands (kept for muscle memory / older
   // bindings), NOT of forward/backward.
-  if (key === "]" || key === "[" || key === "}" || key === "{") {
+  if (
+    key === "]" ||
+    key === "[" ||
+    key === "}" ||
+    key === "{" ||
+    event.code === "BracketRight" ||
+    event.code === "BracketLeft"
+  ) {
     return runSharedCanvasCommand();
   }
 
@@ -736,22 +905,31 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma's Shift+\ "Minimize UI" chord avoids the bare Cmd+\ shortcut that
-  // desktop coding hosts can reserve for closing their focused pane. Use the
-  // physical key code because Shift+\ produces "|" on US keyboard layouts.
-  if (
-    !primary &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.code === "Backslash"
-  ) {
-    return run(props.onToggleUi);
+  // Cmd/Ctrl+Shift+\ toggles the minimal Design chrome mode, while the
+  // unshifted chord toggles the sidebars. Use the physical key code so both
+  // shortcuts remain stable across keyboard layouts.
+  if (primary && !event.altKey && event.code === "Backslash") {
+    return event.shiftKey
+      ? claim(props.onToggleMinimalUi)
+      : claim(props.onToggleUi);
   }
 
   // Figma: Shift+C — Show/Hide comments. Plain "c" (no modifiers) is the
   // comment-pin TOOL_SHORTCUTS entry, so shift+c can't shadow it.
   if (!primary && !event.altKey && event.shiftKey && key === "c") {
     return run(props.onToggleComments);
+  }
+
+  // Figma's Mac and Windows forms differ outright here: Control G vs Ctrl
+  // Shift 4. Literal Control on both, never the remapped `primary` flag, and
+  // Digit4 by physical code because Shift+4 is "$" on US layouts.
+  if (event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (!event.shiftKey && key === "g") {
+      return run(props.onToggleLayoutGrids);
+    }
+    if (event.shiftKey && event.code === "Digit4") {
+      return run(props.onToggleLayoutGrids);
+    }
   }
 
   return false;

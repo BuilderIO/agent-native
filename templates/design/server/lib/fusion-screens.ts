@@ -21,7 +21,7 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -30,6 +30,7 @@ import {
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
 import { getDb, schema } from "../db/index.js";
+import { withDesignSourceMutationTransaction } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
 
 const PATH_BASE_PLACEHOLDER = "http://fusion-screen-base.invalid";
@@ -149,31 +150,56 @@ export async function upsertFusionScreens(args: {
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
     const preferredFilename = `fusion-${slugForPath(path)}.html`;
-    const existing = existingByFilename.get(preferredFilename);
+    let existing = existingByFilename.get(preferredFilename);
     const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);
-    const fileId = existing?.id ?? nanoid();
+    let fileId = existing?.id ?? nanoid();
     const title = titleFromPath(path);
 
     if (existing) {
-      await db
-        .update(schema.designFiles)
-        .set({ content: url, fileType: "html", updatedAt: now })
-        .where(eq(schema.designFiles.id, existing.id));
-      if (await hasCollabState(existing.id)) {
-        await applyText(existing.id, url, "content", "agent");
-      } else {
-        await seedFromText(existing.id, url);
-      }
-    } else {
-      await db.insert(schema.designFiles).values({
-        id: fileId,
+      const updated = await withDesignSourceMutationTransaction(
         designId,
-        filename,
-        fileType: "html",
-        content: url,
-        createdAt: now,
-        updatedAt: now,
-      });
+        async (tx) => {
+          const [current] = await tx
+            .select({ id: schema.designFiles.id })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.id, existing!.id),
+                eq(schema.designFiles.designId, designId),
+              ),
+            )
+            .limit(1);
+          if (!current) return false;
+          await tx
+            .update(schema.designFiles)
+            .set({ content: url, fileType: "html", updatedAt: now })
+            .where(eq(schema.designFiles.id, existing!.id));
+          return true;
+        },
+      );
+      if (updated) {
+        if (await hasCollabState(existing.id)) {
+          await applyText(existing.id, url, "content", "agent");
+        } else {
+          await seedFromText(existing.id, url);
+        }
+      } else {
+        existing = undefined;
+        fileId = nanoid();
+      }
+    }
+    if (!existing) {
+      await withDesignSourceMutationTransaction(designId, (tx) =>
+        tx.insert(schema.designFiles).values({
+          id: fileId,
+          designId,
+          filename,
+          fileType: "html",
+          content: url,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
       await seedFromText(fileId, url);
     }
 

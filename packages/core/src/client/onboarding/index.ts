@@ -17,11 +17,16 @@ export {
 } from "./first-run-startup-gate.js";
 export {
   useOnboardingPreviewMode,
+  useOnboardingPreviewStep,
   ONBOARDING_PREVIEW_STORAGE_KEY,
   ONBOARDING_PREVIEW_QUERY_PARAM,
   ONBOARDING_PREVIEW_QUERY_VALUE,
+  ONBOARDING_PREVIEW_STEP_QUERY_PARAM,
+  ONBOARDING_PREVIEW_STEPS,
+  getOnboardingPreviewStep,
   isOnboardingPreviewQuery,
 } from "./use-preview-mode.js";
+export type { OnboardingPreviewStep } from "./use-preview-mode.js";
 export { OnboardingPanel } from "./OnboardingPanel.js";
 export { OnboardingBanner } from "./OnboardingBanner.js";
 export { SetupButton } from "./SetupButton.js";

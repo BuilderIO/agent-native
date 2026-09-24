@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   appState: {} as Record<string, unknown>,
   listAgentRunFailures: vi.fn(),
   listThreadDebugSources: vi.fn(),
+  listDispatchUsageMetrics: vi.fn(),
   listWorkspaceResourceOptions: vi.fn(),
 }));
 
@@ -37,7 +38,8 @@ vi.mock("../server/lib/thread-debug-store.js", () => ({
 }));
 
 vi.mock("../server/lib/usage-metrics-store.js", () => ({
-  listDispatchUsageMetrics: vi.fn(),
+  listDispatchUsageMetrics: (...args: any[]) =>
+    mocks.listDispatchUsageMetrics(...args),
 }));
 
 vi.mock("../server/lib/vault-store.js", () => ({
@@ -64,6 +66,7 @@ describe("view-screen Thread Debug summary", () => {
     mocks.listAgentRunFailures.mockResolvedValue({ failures: [] });
     mocks.listThreadDebugSources.mockReset();
     mocks.listThreadDebugSources.mockResolvedValue({ sources: [] });
+    mocks.listDispatchUsageMetrics.mockReset();
     mocks.listWorkspaceResourceOptions.mockReset();
     mocks.listWorkspaceResourceOptions.mockResolvedValue([]);
   });
@@ -207,6 +210,52 @@ describe("view-screen embedded workspace app", () => {
     expect(result.embeddedApp).toMatchObject({
       status: "unknown",
       source: "chat-first-pane",
+    });
+  });
+});
+
+describe("view-screen metrics summary", () => {
+  beforeEach(() => {
+    mocks.navigation = {
+      view: "metrics",
+      usageScope: "app",
+      usageAppId: "orders",
+    };
+    mocks.appState = {};
+    mocks.listDispatchUsageMetrics.mockReset();
+    mocks.listDispatchUsageMetrics.mockResolvedValue({
+      billing: { unit: "usd" },
+      viewScope: "app",
+      selectedUserEmail: null,
+      selectedAppId: "orders",
+      totals: { calls: 2 },
+      byApp: [],
+      byUser: [],
+      appAccess: [
+        {
+          id: "orders",
+          isDispatch: false,
+          usageCalls: 2,
+        },
+      ],
+    });
+    mocks.listWorkspaceResourceOptions.mockReset();
+    mocks.listWorkspaceResourceOptions.mockResolvedValue([]);
+  });
+
+  it("passes the selected app through and returns it in the screen summary", async () => {
+    const result = JSON.parse(await viewScreen.run({}));
+
+    expect(mocks.listDispatchUsageMetrics).toHaveBeenCalledWith({
+      sinceDays: 30,
+      scope: "app",
+      userEmail: undefined,
+      appId: "orders",
+    });
+    expect(result.usageMetrics).toMatchObject({
+      viewScope: "app",
+      selectedAppId: "orders",
+      byUser: [],
     });
   });
 });

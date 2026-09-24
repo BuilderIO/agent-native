@@ -1,5 +1,8 @@
+import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
@@ -26,6 +29,7 @@ export interface AgentNativeJsonSchema {
 }
 
 export interface ActionTool {
+  title?: string;
   description: string;
   parameters?: AgentNativeJsonSchema & {
     type: "object";
@@ -40,6 +44,124 @@ export type ScriptTool = ActionTool;
 export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+export interface AgentFileMutationProof {
+  path: string;
+  contentSha256: string;
+}
+
+export type AgentActionScopeJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | AgentActionScopeJsonValue[]
+  | { [key: string]: AgentActionScopeJsonValue };
+
+/** Opaque, request-specific data interpreted by an app's scoped actions. */
+export type AgentActionScope = Record<string, AgentActionScopeJsonValue>;
+
+export const AGENT_ACTION_SCOPE_MAX_BYTES = 8 * 1024;
+const AGENT_ACTION_SCOPE_MAX_DEPTH = 8;
+const AGENT_ACTION_SCOPE_MAX_NODES = 256;
+
+function cloneAgentActionScopeValue(
+  value: unknown,
+  depth: number,
+  state: { nodes: number },
+): AgentActionScopeJsonValue {
+  state.nodes += 1;
+  if (
+    depth > AGENT_ACTION_SCOPE_MAX_DEPTH ||
+    state.nodes > AGENT_ACTION_SCOPE_MAX_NODES
+  ) {
+    throw new TypeError("actionScope exceeds its structural limits");
+  }
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("actionScope must contain only JSON values");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const keys = Reflect.ownKeys(value);
+    if (
+      keys.some(
+        (key) =>
+          typeof key !== "string" ||
+          (key !== "length" &&
+            (String(Number(key)) !== key || Number(key) >= value.length)),
+      ) ||
+      Object.keys(value).length !== value.length
+    ) {
+      throw new TypeError("actionScope must contain only JSON arrays");
+    }
+    return Array.from(value, (item) =>
+      cloneAgentActionScopeValue(item, depth + 1, state),
+    );
+  }
+  if (typeof value !== "object") {
+    throw new TypeError("actionScope must contain only JSON values");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("actionScope must contain only JSON objects");
+  }
+  const object = value as Record<string, unknown>;
+  const keys = Reflect.ownKeys(object);
+  if (
+    keys.some((key) => {
+      if (typeof key !== "string") return true;
+      const descriptor = Object.getOwnPropertyDescriptor(object, key);
+      return !descriptor?.enumerable || !("value" in descriptor);
+    })
+  ) {
+    throw new TypeError("actionScope must contain only JSON values");
+  }
+  return Object.fromEntries(
+    Object.entries(object).map(([key, item]) => [
+      key,
+      cloneAgentActionScopeValue(item, depth + 1, state),
+    ]),
+  );
+}
+
+/** Validate and clone an untrusted action scope into bounded JSON data. */
+export function normalizeAgentActionScope(value: unknown): AgentActionScope {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("actionScope must be a JSON object");
+  }
+  const cloned = cloneAgentActionScopeValue(value, 0, {
+    nodes: 0,
+  }) as AgentActionScope;
+  if (
+    new TextEncoder().encode(JSON.stringify(cloned)).byteLength >
+    AGENT_ACTION_SCOPE_MAX_BYTES
+  ) {
+    throw new TypeError(
+      `actionScope must be at most ${AGENT_ACTION_SCOPE_MAX_BYTES} bytes`,
+    );
+  }
+  return cloned;
+}
+
+export function tryNormalizeAgentActionScope(
+  value: unknown,
+): AgentActionScope | undefined {
+  try {
+    return normalizeAgentActionScope(value);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
 }
 
 export type AgentChatStructuredContentPart =
@@ -80,11 +202,32 @@ export interface AgentChatReference {
   metadata?: Record<string, unknown>;
 }
 
+export type MentionItemMedia =
+  | {
+      type: "text";
+      /** Short text shown inside the media frame, such as an emoji or initials. */
+      text: string;
+      /** Optional CSS color used behind the text. */
+      backgroundColor?: string;
+    }
+  | {
+      type: "image";
+      /** Image URL shown inside the media frame. Relative URLs are supported. */
+      src: string;
+      /** How the image fits the frame. Defaults to contain. */
+      fit?: "contain" | "cover";
+      /** Optional CSS color visible behind contained images. */
+      backgroundColor?: string;
+    }
+  | { type: "none" };
+
 export interface MentionProviderItem {
   id: string;
   label: string;
   description?: string;
   icon?: string;
+  /** Optional presentation that takes precedence over the legacy icon. */
+  media?: MentionItemMedia;
   refType: string;
   refId?: string;
   refPath?: string;
@@ -98,6 +241,8 @@ export interface MentionProviderItem {
 export interface MentionProviderReference {
   label: string;
   icon?: string;
+  /** Optional presentation that takes precedence over the legacy icon. */
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;
@@ -122,6 +267,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  /** Keep a user-visible chip without sending the attachment as model input. */
+  displayOnly?: boolean;
   data?: string;
   /** Stable object-storage URL for this attachment, when uploaded. */
   url?: string;
@@ -151,6 +298,8 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
+  /** Requested app-defined action scope. Authorization is resolved server-side. */
+  actionScope?: AgentActionScope;
   /** Stable identity of a durable queued message, used to reject replayed delivery. */
   queuedMessageId?: string;
   /**
@@ -167,6 +316,8 @@ export interface AgentChatRequest {
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  /** Parent message for assistant-ui sends and regenerations. */
+  parentId?: string | null;
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
@@ -189,7 +340,8 @@ export interface AgentChatRequest {
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
-      | "network_interrupted";
+      | "network_interrupted"
+      | "rate_limited";
     actionPreparationTool?: string;
     /**
      * Number of server-driven background→background continuations already
@@ -232,6 +384,7 @@ export interface AgentChatRequest {
     | {
         orgId: string | null;
         allowedActionNames: string[];
+        actionScope?: AgentActionScope;
       }
     | {
         orgId: string | null;
@@ -279,9 +432,36 @@ export interface AgentChatRequest {
 
 export type AgentToolInput = Record<string, unknown>;
 
+export interface AgentChatRichEventReference {
+  /** Reference class, for example action, audit, trace, context, or artifact. */
+  kind: string;
+  /** Stable identifier in the owning system. Never place credentials here. */
+  id: string;
+  label?: string;
+  uri?: string;
+}
+
+/**
+ * Provider-neutral extension envelope for rich events not yet promoted into
+ * the shared event union. Producers must keep `data` bounded and sanitized;
+ * durable or sensitive values belong behind references, not in the stream.
+ */
+export interface AgentChatRichEventEnvelope {
+  /** Reverse-DNS or package-style owner namespace. */
+  namespace: string;
+  /** Event name within the owner namespace. */
+  name: string;
+  version?: number;
+  data?: unknown;
+  references?: AgentChatRichEventReference[];
+  metadata?: Record<string, unknown>;
+}
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
+  | { type: "suggestions"; suggestions: AgentSuggestion[] }
+  | { type: "rich_event"; event: AgentChatRichEventEnvelope }
   | {
       type: "activity";
       label: string;
@@ -306,15 +486,30 @@ export type AgentChatEvent =
        * without producing any forwarded event, so the backstop's clock saw pure
        * silence and killed demonstrably-alive runs at 150s. `trackInFlightWork`
        * counts this pair exactly like `tool_start`/`tool_done`: an engine call
-       * in flight suspends the backstop, bounded by the in-loop watchdog the
-       * same way a tool call is bounded by its own timeout.
+       * in flight suspends the backstop.
+       *
+       * WHAT BOUNDS THE SUSPENDED WINDOW, now that the in-loop watchdogs are
+       * gone: the engine's own first-event abort covers a call that never
+       * speaks, and the chunk/run budget covers everything after that. An
+       * in-stream wedge AFTER the first frame is therefore caught by the budget
+       * rather than by a dedicated clock — a deliberate trade, because no clock
+       * here could tell it apart from a model composing a large tool argument.
        *
        * Deliberately NOT a keepalive: a keepalive proves the transport is up,
-       * this proves the loop is inside a model call it will be held accountable
-       * for by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`.
+       * this proves the loop is inside a model call.
        */
       type: "model_stream";
       status: "start" | "end";
+      /** Why the model stopped, on the closing event: `end_turn`, `tool_use`,
+       *  `max_tokens`, `stop_sequence`, `error`. Absent when the stream was cut
+       *  before the engine reported one — a truncated call and a call that
+       *  ended cleanly must stay distinguishable. */
+      reason?:
+        | "end_turn"
+        | "tool_use"
+        | "max_tokens"
+        | "stop_sequence"
+        | "error";
     }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
@@ -325,6 +520,8 @@ export type AgentChatEvent =
       result: string;
       isError?: boolean;
       completedSideEffect?: boolean;
+      fileMutation?: AgentFileMutationProof;
+      artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
     }
@@ -340,6 +537,8 @@ export type AgentChatEvent =
       input: Record<string, string>;
       /** Stable key the client echoes back in `approvedToolCalls` to approve. */
       approvalKey: string;
+      /** False when this action requires a fresh approval for every call. */
+      allowPersistentApproval?: false;
       /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
       /**
@@ -351,6 +550,16 @@ export type AgentChatEvent =
        * permanently hide Approve/Deny with no way to retry.
        */
       askId?: string;
+    }
+  | {
+      /** Host-resolved provider setup required before this run can continue. */
+      type: "connection_required";
+      requestId: string;
+      provider: string;
+      reason: "connect" | "grant" | "reauthorize" | "admin_required";
+      appId?: string;
+      detail?: string;
+      source?: { id: string; kind?: string; label?: string };
     }
   | {
       type: "agent_call";
@@ -485,6 +694,7 @@ export const CONTINUATION_REASONS = [
   "stream_ended",
   "gateway_timeout",
   "network_interrupted",
+  "rate_limited",
 ] as const;
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];

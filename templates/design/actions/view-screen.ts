@@ -7,7 +7,7 @@
  *   pnpm action view-screen
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
   readAppState,
@@ -23,6 +23,7 @@ import {
   type ReviewResourceContext,
 } from "@agent-native/core/review";
 import * as reviewRuntime from "@agent-native/core/review";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -30,6 +31,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 import {
@@ -40,6 +42,7 @@ import {
   isNodeRewriteProposal,
   isPendingDesignReprompt,
 } from "../shared/node-rewrite.js";
+import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -304,6 +307,7 @@ export default defineAction({
           })
           .from(schema.designFiles)
           .where(eq(schema.designFiles.designId, designId));
+        const overviewScreens = files.filter(isOverviewScreenFile);
         let data: Record<string, unknown> = {};
         const rawData = (access.resource as { data?: unknown }).data;
         if (typeof rawData === "string") {
@@ -321,14 +325,30 @@ export default defineAction({
           }
         }
         const activeScreen = resolveActiveScreen(
-          files,
+          overviewScreens,
           navigation,
           designSelection,
+        );
+        const linkedDesignSystem = await loadAgentDesignSystemContext(
+          typeof (access.resource as { designSystemId?: unknown })
+            .designSystemId === "string"
+            ? (access.resource as { designSystemId: string }).designSystemId
+            : null,
+          getDesignSystem,
         );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
-          screens: files,
+          // The design's own linked system, not the template's. Picking one on
+          // an empty design writes it here and nowhere else, so leaving it out
+          // meant the first read after the choice could not see it.
+          designSystemId:
+            typeof (access.resource as { designSystemId?: unknown })
+              .designSystemId === "string"
+              ? (access.resource as { designSystemId: string }).designSystemId
+              : null,
+          designSystem: linkedDesignSystem,
+          screens: overviewScreens,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),

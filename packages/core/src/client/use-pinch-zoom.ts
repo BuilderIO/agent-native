@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
 
+import {
+  clampZoomFactor,
+  normalizeWheelDeltaPx,
+  resolveZoomGestureDevice,
+  zoomFactorForWheelDelta,
+  type ZoomGestureDevice,
+} from "./zoom-gesture.js";
+
 export interface UsePinchZoomOptions {
   /** Scrolling viewport that receives the gesture. The scaled content should
    *  live inside this element. */
@@ -8,6 +16,14 @@ export interface UsePinchZoomOptions {
   zoom: number;
   /** Setter for the zoom value (called with the next percentage). */
   setZoom: (next: number) => void;
+  /**
+   * Apply a frame's visual zoom without scheduling a React render. When this
+   * is supplied, `onZoomEnd` receives the settled value after the gesture has
+   * been idle for one camera-debounce interval and owns the state commit.
+   */
+  onZoomFrame?: (next: number) => void;
+  /** Commit the final visual zoom after a frame-driven gesture settles. */
+  onZoomEnd?: (next: number) => void;
   /** Minimum zoom percentage. Default 25. */
   min?: number;
   /** Maximum zoom percentage. Default 400. */
@@ -42,11 +58,37 @@ export function usePinchZoom({
   max = 400,
   zoomToCursor = true,
   enabled = true,
+  onZoomFrame,
+  onZoomEnd,
 }: UsePinchZoomOptions) {
   const zoomRef = useRef(zoom);
+  const imperativeZoomRef = useRef<number | null>(null);
   const setZoomRef = useRef(setZoom);
-  zoomRef.current = zoom;
+  const onZoomFrameRef = useRef(onZoomFrame);
+  const onZoomEndRef = useRef(onZoomEnd);
+  const zoomPropRef = useRef(zoom);
+  const zoomGestureGenerationRef = useRef(0);
+  if (zoomPropRef.current !== zoom) {
+    zoomPropRef.current = zoom;
+    // A controlled zoom update is authoritative unless it is the value just
+    // painted by this gesture. Invalidate the settle timer when a preset,
+    // sync, or camera command arrives during the debounce window.
+    if (imperativeZoomRef.current !== zoom) {
+      imperativeZoomRef.current = null;
+      zoomRef.current = zoom;
+      zoomGestureGenerationRef.current += 1;
+    }
+  }
+  // An unrelated render can land between two wheel frames. Keep the
+  // imperative camera value until the owning state commit reaches this hook;
+  // otherwise the next gesture frame would jump back to the stale prop.
+  if (imperativeZoomRef.current === zoom) {
+    imperativeZoomRef.current = null;
+  }
+  zoomRef.current = imperativeZoomRef.current ?? zoom;
   setZoomRef.current = setZoom;
+  onZoomFrameRef.current = onZoomFrame;
+  onZoomEndRef.current = onZoomEnd;
 
   useEffect(() => {
     if (!enabled) return;
@@ -78,6 +120,25 @@ export function usePinchZoom({
     let simScrollLeft = 0;
     let simScrollTop = 0;
     let rafId: number | null = null;
+    let settleTimerId: number | null = null;
+    let gestureDevice: ZoomGestureDevice | null = null;
+
+    const scheduleGestureEnd = () => {
+      if (!onZoomFrameRef.current && !onZoomEndRef.current) return;
+      if (settleTimerId !== null) window.clearTimeout(settleTimerId);
+      const generation = zoomGestureGenerationRef.current;
+      const expectedZoom = zoomRef.current;
+      settleTimerId = window.setTimeout(() => {
+        settleTimerId = null;
+        if (
+          generation !== zoomGestureGenerationRef.current ||
+          zoomRef.current !== expectedZoom
+        ) {
+          return;
+        }
+        onZoomEndRef.current?.(zoomRef.current);
+      }, 120);
+    };
 
     const flush = () => {
       rafId = null;
@@ -86,7 +147,14 @@ export function usePinchZoom({
       const scrollDelta = pendingScrollDelta;
       pendingZoom = null;
       pendingScrollDelta = null;
-      setZoomRef.current(nextZoom);
+      zoomRef.current = nextZoom;
+      if (onZoomFrameRef.current) {
+        imperativeZoomRef.current = nextZoom;
+        onZoomFrameRef.current(nextZoom);
+        scheduleGestureEnd();
+      } else {
+        setZoomRef.current(nextZoom);
+      }
       if (scrollDelta) {
         container.scrollLeft += scrollDelta.dx;
         container.scrollTop += scrollDelta.dy;
@@ -100,14 +168,28 @@ export function usePinchZoom({
 
     const handleWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
+      // Chrome sends non-cancelable wheel events during a fling; cancelling one
+      // is a no-op that logs an Intervention per event and still scrolls.
+      if (e.cancelable) e.preventDefault();
 
+      gestureDevice = resolveZoomGestureDevice({
+        deltaY: e.deltaY,
+        deltaMode: e.deltaMode,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        atMs: e.timeStamp,
+        previous: gestureDevice,
+      });
       // Use the latest not-yet-applied zoom (if a flush is pending) so rapid
       // wheel events within the same frame compound correctly instead of
       // each computing off the last-committed React state.
       const currentZoom = pendingZoom ?? zoomRef.current;
-      const clampedDelta = Math.max(-50, Math.min(50, e.deltaY));
-      const factor = Math.exp(-clampedDelta * 0.01);
+      const factor = clampZoomFactor(
+        zoomFactorForWheelDelta(
+          normalizeWheelDeltaPx(e.deltaY, e.deltaMode),
+          gestureDevice.pinch,
+        ),
+      );
       const nextZoom = clamp(currentZoom * factor);
 
       if (nextZoom === currentZoom) return;
@@ -170,7 +252,7 @@ export function usePinchZoom({
           pendingZoom = nextZoom;
           scheduleFlush();
         }
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
       }
     };
 
@@ -195,8 +277,10 @@ export function usePinchZoom({
       container.removeEventListener("pointerup", handlePointerEnd);
       container.removeEventListener("pointercancel", handlePointerEnd);
       if (rafId !== null) cancelAnimationFrame(rafId);
+      if (settleTimerId !== null) window.clearTimeout(settleTimerId);
       pendingZoom = null;
       pendingScrollDelta = null;
+      imperativeZoomRef.current = null;
     };
   }, [containerRef, enabled, min, max, zoomToCursor]);
 }

@@ -149,8 +149,8 @@ async function resolveBrowserDevice(
   if (matches.length === 0) {
     throw new Error(
       sessionHandle
-        ? "That browser session is no longer connected. Re-open the Agent Native side panel on the page."
-        : `No online browser device advertises browser.${mode}. Open Agent Native for Chrome and grant page access first.`,
+        ? "That browser session is no longer connected. Re-open the Agent-Native side panel on the page."
+        : `No online browser device advertises browser.${mode}. Open Agent-Native for Chrome and grant page access first.`,
     );
   }
   throw new Error(
@@ -477,7 +477,7 @@ export function createRemoteBrowserActionEntries(
       readOnly: true,
       tool: {
         description:
-          "List online Agent Native Chrome sessions. Use the opaque sessionHandle to read or control the page; never ask the user for a Chrome tab id.",
+          "List online Agent-Native Chrome sessions. Use the opaque sessionHandle to read or control the page; never ask the user for a Chrome tab id.",
         parameters: {
           type: "object",
           properties: {},

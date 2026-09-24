@@ -1,4 +1,11 @@
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  DEFAULT_BIG_NUDGE_PX,
+  DEFAULT_SMALL_NUDGE_PX,
+} from "@shared/canvas-math";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerSource,
+} from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
 
@@ -18,7 +25,10 @@ export interface NudgeAmounts {
   big: number;
 }
 
-export const DEFAULT_NUDGE_AMOUNTS: NudgeAmounts = { small: 1, big: 10 };
+export const DEFAULT_NUDGE_AMOUNTS: NudgeAmounts = {
+  small: DEFAULT_SMALL_NUDGE_PX,
+  big: DEFAULT_BIG_NUDGE_PX,
+};
 
 export type FlowAxis = "horizontal" | "vertical";
 
@@ -411,8 +421,22 @@ function isRenderedBlockDisplay(display: string | null | undefined): boolean {
   return display === "block" || display === "list-item";
 }
 
+function hasRenderedGridPlacement(
+  computedStyles: Record<string, string> | undefined,
+): boolean {
+  return [computedStyles?.gridColumn, computedStyles?.gridRow].some((value) => {
+    const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!normalized) return false;
+    return normalized.split("/").some((line) => {
+      const trimmed = line.trim();
+      return trimmed !== "auto" && !/^span(?:\s|$)/.test(trimmed);
+    });
+  });
+}
+
 export interface ResolveElementNudgeIntentArgs {
   content: string;
+  source?: CodeLayerSource;
   selectedElement: ElementInfo;
   direction: NudgeDirection;
   largeStep: boolean;
@@ -433,7 +457,9 @@ export function resolveElementNudgeIntent(
   }) as { kind: "translate"; dx: number; dy: number };
 
   if (!args.content) return translate;
-  const projection = buildCodeLayerProjection(args.content);
+  const projection = buildCodeLayerProjection(args.content, {
+    ...(args.source ? { source: args.source } : {}),
+  });
   const node = resolveCodeLayerNodeFromElementInfo(
     projection,
     args.selectedElement,
@@ -464,14 +490,45 @@ export function resolveElementNudgeIntent(
   // round-trip has happened yet and `parentDisplay` is simply absent. An
   // element that really is inline or a flex child is handled above — the parser
   // sees those, and a rendered value always wins over this default.
-  const rendered = args.selectedElement.parentDisplay;
-  // A rendered grid needs its column count to map an arrow onto the next visual
-  // cell, and `display: grid` alone does not carry it. Guessing "flex row" walks
-  // DOM order instead, which is a different element in any multi-column grid.
-  if (
+  const rendered =
+    args.selectedElement.parentDisplay ??
+    args.selectedElement.parentLayout?.display;
+  // A rendered grid needs its track count to map an arrow onto the next visual
+  // cell, and `display: grid` alone does not carry it. Reuse the computed track
+  // templates already reported by the bridge instead of guessing a flex row.
+  const renderedGrid =
     parsedContainer.kind === "none" &&
     !escapesFlow(position) &&
     (rendered === "grid" || rendered === "inline-grid")
+      ? describeFlowContainer({
+          style: {
+            display: rendered,
+            ...(args.selectedElement.parentLayout?.gridTemplateColumns
+              ? {
+                  "grid-template-columns":
+                    args.selectedElement.parentLayout.gridTemplateColumns,
+                }
+              : {}),
+            ...(args.selectedElement.parentLayout?.gridTemplateRows
+              ? {
+                  "grid-template-rows":
+                    args.selectedElement.parentLayout.gridTemplateRows,
+                }
+              : {}),
+            ...(args.selectedElement.parentLayout?.gridAutoFlow
+              ? {
+                  "grid-auto-flow":
+                    args.selectedElement.parentLayout.gridAutoFlow,
+                }
+              : {}),
+          },
+        })
+      : NO_FLOW_CONTAINER;
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    (rendered === "grid" || rendered === "inline-grid") &&
+    (renderedGrid.kind !== "grid" || renderedGrid.lineLength === null)
   ) {
     return { kind: "none" };
   }
@@ -483,29 +540,31 @@ export function resolveElementNudgeIntent(
   if (
     parsedContainer.kind === "none" &&
     !escapesFlow(position) &&
-    isRenderedFlowDisplay(rendered) &&
+    (rendered === "flex" || rendered === "inline-flex") &&
     !renderedFlexDirection
   ) {
     return { kind: "none" };
   }
   const container: FlowContainerInfo =
     parsedContainer.kind === "none" && !escapesFlow(position)
-      ? isRenderedFlowDisplay(rendered)
-        ? {
-            ...NO_FLOW_CONTAINER,
-            kind: "flex",
-            axis: renderedFlexDirection?.startsWith("column")
-              ? "vertical"
-              : "horizontal",
-            reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
-          }
-        : // `parent` null means the node is a projection root: it has no flow to
-          // reorder within, and the bridge reports `parentDisplay: undefined`
-          // for it exactly as it does for a not-yet-measured selection.
-          isRenderedBlockDisplay(rendered) ||
-            (rendered === undefined && parent !== null)
-          ? BLOCK_FLOW_CONTAINER
-          : parsedContainer
+      ? renderedGrid.kind === "grid"
+        ? renderedGrid
+        : isRenderedFlowDisplay(rendered)
+          ? {
+              ...NO_FLOW_CONTAINER,
+              kind: "flex",
+              axis: renderedFlexDirection?.startsWith("column")
+                ? "vertical"
+                : "horizontal",
+              reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
+            }
+          : // `parent` null means the node is a projection root: it has no flow to
+            // reorder within, and the bridge reports `parentDisplay: undefined`
+            // for it exactly as it does for a not-yet-measured selection.
+            isRenderedBlockDisplay(rendered) ||
+              (rendered === undefined && parent !== null)
+            ? BLOCK_FLOW_CONTAINER
+            : parsedContainer
       : parsedContainer;
   // Flex/grid paint children by `order` and explicit grid placement, not DOM
   // position, so moving the node would write a source change that produces no
@@ -536,6 +595,12 @@ export function resolveElementNudgeIntent(
     renderedOrder !== undefined &&
     renderedOrder !== "" &&
     renderedOrder !== "0"
+  ) {
+    return { kind: "none" };
+  }
+  if (
+    container.kind === "grid" &&
+    hasRenderedGridPlacement(args.selectedElement.computedStyles)
   ) {
     return { kind: "none" };
   }

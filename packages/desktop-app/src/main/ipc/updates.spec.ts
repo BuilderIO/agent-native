@@ -120,7 +120,7 @@ describe("desktop updates", () => {
       currentVersion: "1.0.0",
     });
     expect(electronState.notification).toHaveBeenCalledWith({
-      title: "Agent Native is up to date",
+      title: "Agent-Native is up to date",
       body: "You're running the latest version (1.0.0).",
     });
     expect(focusMainWindow).not.toHaveBeenCalled();

@@ -24,15 +24,15 @@ import {
 } from "h3";
 
 import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
+import {
+  isRetryableUploadInterruption,
+  retryableUploadInterruptionReason,
+} from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
-import {
-  isRetryableUploadInterruption,
-  retryableUploadInterruptionReason,
-} from "../../../../lib/upload-interruption.js";
 import abortUpload from "./abort.post.js";
 
 export default defineEventHandler(async (event: H3Event) => {

@@ -8,11 +8,18 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import type { EmailMessage } from "@shared/types";
 import { useEffect, useState } from "react";
 
+import { beginProviderSnapshot } from "@/lib/provider-snapshot";
 import { TAB_ID } from "@/lib/tab-id";
 
 type CacheEntry = {
   messages: EmailMessage[];
   fetchedAt: number;
+  providerSnapshotId?: number;
+};
+
+type ThreadFetchResult = {
+  messages: EmailMessage[];
+  providerSnapshotId: number;
 };
 
 type WarmTarget = string | { id: string; accountEmail?: string };
@@ -28,13 +35,16 @@ const WARM_BATCH_LIMIT = 4;
 // Park state on globalThis so Vite HMR module reloads don't wipe the cache.
 type Globals = {
   __mailThreadCache?: Map<string, CacheEntry>;
-  __mailThreadInflight?: Map<string, Promise<EmailMessage[]>>;
+  __mailThreadInflight?: Map<string, Promise<ThreadFetchResult>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
   __mailThreadVersions?: Map<string, number>;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
-const inflight = (g.__mailThreadInflight ??= new Map());
+const inflight: Map<
+  string,
+  Promise<ThreadFetchResult>
+> = (g.__mailThreadInflight ??= new Map());
 // Scoped by threadId so writing one thread's cache doesn't re-render
 // components viewing a different thread.
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
@@ -46,6 +56,13 @@ let backgroundCooldownUntil = 0;
 
 function getVersion(threadId: string): number {
   return versions.get(threadId) ?? 0;
+}
+
+function clearOwnedInflight(
+  threadId: string,
+  request: Promise<ThreadFetchResult>,
+) {
+  if (inflight.get(threadId) === request) inflight.delete(threadId);
 }
 
 function notify(threadId: string) {
@@ -79,7 +96,11 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string, status?: number) {
+function noteFetchError(
+  message: string,
+  status?: number,
+  retryAfterMs?: number,
+) {
   if (status !== undefined && isAuthFailureStatus(status)) {
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
@@ -87,10 +108,19 @@ function noteFetchError(message: string, status?: number) {
     );
     return;
   }
-  if (isRateLimitMessage(message)) {
+  // The server signals a Gmail quota cooldown via 429 + Retry-After; the
+  // message is deliberately jargon-free, so status/header take priority
+  // over the message regex, which stays as a fallback.
+  if (status === 429 || isRateLimitMessage(message)) {
+    const delay =
+      typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) &&
+      retryAfterMs > 0
+        ? Math.min(Math.max(retryAfterMs, 15_000), 5 * 60_000)
+        : retryDelayFromMessage(message);
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
-      Date.now() + retryDelayFromMessage(message),
+      Date.now() + delay,
     );
   }
 }
@@ -102,7 +132,8 @@ function canRunBackgroundFetch() {
 async function fetchThread(
   threadId: string,
   accountEmail?: string,
-): Promise<EmailMessage[]> {
+): Promise<ThreadFetchResult> {
+  const providerSnapshotId = beginProviderSnapshot();
   const params = new URLSearchParams();
   if (accountEmail) params.set("accountEmail", accountEmail);
   const suffix = params.toString() ? `?${params}` : "";
@@ -113,17 +144,28 @@ async function fetchThread(
         "Content-Type": "application/json",
         "X-Request-Source": TAB_ID,
       },
+      cache: "no-store",
     },
   );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message, res.status);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    const retryAfterMs =
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+        ? retryAfter * 1000
+        : undefined;
+    noteFetchError(message, res.status, retryAfterMs);
     const error = new Error(message);
-    (error as Error & { status?: number }).status = res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).status =
+      res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).retryAfterMs =
+      retryAfterMs;
     throw error;
   }
-  return res.json();
+  return { messages: await res.json(), providerSnapshotId };
 }
 
 // ── localStorage persistence ─────────────────────────────────────────────────
@@ -144,7 +186,10 @@ function loadFromStorage() {
     const now = Date.now();
     for (const [id, entry] of Object.entries(parsed)) {
       if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
-      cache.set(id, entry);
+      // A persisted response belongs to an earlier provider-snapshot epoch.
+      // It can render immediately, but never retire a mutation until a live
+      // request in this page session refreshes it.
+      cache.set(id, { ...entry, providerSnapshotId: undefined });
     }
   } catch {
     // Corrupted entry — nuke it
@@ -192,9 +237,19 @@ export function getCachedThread(threadId: string): EmailMessage[] | undefined {
 }
 
 export function setCachedThread(threadId: string, messages: EmailMessage[]) {
-  cache.set(threadId, { messages, fetchedAt: Date.now() });
+  cache.set(threadId, {
+    messages,
+    fetchedAt: Date.now(),
+    providerSnapshotId: cache.get(threadId)?.providerSnapshotId,
+  });
   notify(threadId);
   scheduleFlush();
+}
+
+export function supersedeCachedThreadFetch(threadId: string) {
+  const superseded = inflight.delete(threadId);
+  versions.set(threadId, getVersion(threadId) + 1);
+  return superseded;
 }
 
 export function invalidateCachedThread(threadId: string) {
@@ -228,56 +283,79 @@ export function ensureThread(
     return Promise.resolve(cached.messages);
   }
   const existing = inflight.get(threadId);
-  if (existing) return existing;
+  if (existing) return existing.then(({ messages }) => messages);
   const startedVersion = getVersion(threadId);
   const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
+    .then((result) => {
       // If invalidateCachedThread ran while we were in flight, the version
       // bumped — discard the stale response rather than repopulating.
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
+        clearOwnedInflight(threadId, p);
+        return result;
       }
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      cache.set(threadId, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(threadId, p);
       notify(threadId);
       scheduleFlush();
-      return messages;
+      return result;
     })
     .catch((err) => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       throw err;
+    });
+  inflight.set(threadId, p);
+  return p.then(({ messages }) => messages);
+}
+
+// Silently refresh a cached thread. Only notifies subscribers if the content
+// actually changed, avoiding re-render churn when nothing's new.
+function backgroundRefresh(
+  threadId: string,
+  accountEmail?: string,
+): Promise<ThreadFetchResult> {
+  if (!canRunBackgroundFetch())
+    return Promise.resolve({
+      messages: cache.get(threadId)?.messages ?? [],
+      providerSnapshotId: 0,
+    });
+  const startedVersion = getVersion(threadId);
+  const p = fetchThread(threadId, accountEmail)
+    .then((result) => {
+      if (getVersion(threadId) !== startedVersion) {
+        clearOwnedInflight(threadId, p);
+        return result;
+      }
+      const prev = cache.get(threadId);
+      cache.set(threadId, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(threadId, p);
+      scheduleFlush();
+      const prevJson = prev ? JSON.stringify(prev.messages) : "";
+      const nextJson = JSON.stringify(result.messages);
+      if (
+        prevJson !== nextJson ||
+        prev?.providerSnapshotId !== result.providerSnapshotId
+      )
+        notify(threadId);
+      return result;
+    })
+    .catch(() => {
+      clearOwnedInflight(threadId, p);
+      return { messages: [], providerSnapshotId: 0 };
     });
   inflight.set(threadId, p);
   return p;
 }
 
-// Silently refresh a cached thread. Only notifies subscribers if the content
-// actually changed, avoiding re-render churn when nothing's new.
-function backgroundRefresh(threadId: string, accountEmail?: string) {
-  if (!canRunBackgroundFetch()) return Promise.resolve([]);
-  const startedVersion = getVersion(threadId);
-  const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
-      if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
-      }
-      const prev = cache.get(threadId);
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
-      scheduleFlush();
-      const prevJson = prev ? JSON.stringify(prev.messages) : "";
-      const nextJson = JSON.stringify(messages);
-      if (prevJson !== nextJson) notify(threadId);
-      return messages;
-    })
-    .catch(() => {
-      inflight.delete(threadId);
-      return [];
-    });
-  inflight.set(threadId, p);
-  return p;
+export function refreshCachedThread(threadId: string, accountEmail?: string) {
+  return backgroundRefresh(threadId, accountEmail);
 }
 
 // Bulk warm a tiny window of likely-next threads. Direct clicks still fetch
@@ -317,6 +395,7 @@ export function useThreadCache(
   accountEmail?: string,
 ): {
   messages: EmailMessage[] | undefined;
+  providerSnapshotId: number;
   isFromCache: boolean;
   isLoading: boolean;
 } {
@@ -337,11 +416,21 @@ export function useThreadCache(
   }, [threadId]);
 
   if (!threadId) {
-    return { messages: undefined, isFromCache: false, isLoading: false };
+    return {
+      messages: undefined,
+      providerSnapshotId: 0,
+      isFromCache: false,
+      isLoading: false,
+    };
   }
   const hit = cache.get(threadId);
   if (hit) {
-    return { messages: hit.messages, isFromCache: true, isLoading: false };
+    return {
+      messages: hit.messages,
+      providerSnapshotId: hit.providerSnapshotId ?? 0,
+      isFromCache: true,
+      isLoading: false,
+    };
   }
   // Kick off the fetch synchronously during render for cold opens so the
   // hook returns isLoading=true on the first paint. ensureThread dedupes.
@@ -350,6 +439,7 @@ export function useThreadCache(
   }
   return {
     messages: placeholder,
+    providerSnapshotId: 0,
     isFromCache: false,
     isLoading: inflight.has(threadId),
   };

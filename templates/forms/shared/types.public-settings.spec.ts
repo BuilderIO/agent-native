@@ -16,7 +16,13 @@
  *     node_modules/.bin/tsx templates/forms/shared/types.public-settings.spec.ts
  */
 
-import { toPublicFormSettings, type FormSettings } from "./types.js";
+import {
+  assertValidFormCompletionSettings,
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
+  toPublicFormSettings,
+  type FormSettings,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Minimal zero-dependency assertion harness
@@ -65,6 +71,8 @@ const ownerSettings: FormSettings = {
   submitText: "Send it",
   successMessage: "Thanks, we got your response!",
   redirectUrl: "https://example.com/thanks",
+  completionMode: "message_then_refresh",
+  completionRefreshSeconds: 7,
   showProgressBar: true,
   anonymous: true,
   // owner-private secrets that must NOT leak
@@ -157,27 +165,34 @@ check("keeps the legitimate public render/submit fields", () => {
     projected.redirectUrl === "https://example.com/thanks",
     "redirectUrl was dropped",
   );
+  assert(
+    projected.completionMode === "message_then_refresh",
+    "completionMode was dropped",
+  );
+  assert(
+    projected.completionRefreshSeconds === 7,
+    "completionRefreshSeconds was dropped",
+  );
   assert(projected.showProgressBar === true, "showProgressBar was dropped");
 });
 
-check(
-  "the allowlist is exactly the four public fields (no extras leak)",
-  () => {
-    const keys = Object.keys(projected).sort();
-    assert(
-      JSON.stringify(keys) ===
-        JSON.stringify(
-          [
-            "redirectUrl",
-            "showProgressBar",
-            "submitText",
-            "successMessage",
-          ].sort(),
-        ),
-      `unexpected keys in projection: ${keys.join(", ")}`,
-    );
-  },
-);
+check("the allowlist is exactly the six public fields (no extras leak)", () => {
+  const keys = Object.keys(projected).sort();
+  assert(
+    JSON.stringify(keys) ===
+      JSON.stringify(
+        [
+          "redirectUrl",
+          "completionMode",
+          "completionRefreshSeconds",
+          "showProgressBar",
+          "submitText",
+          "successMessage",
+        ].sort(),
+      ),
+    `unexpected keys in projection: ${keys.join(", ")}`,
+  );
+});
 
 check("handles null/undefined settings without throwing or leaking", () => {
   assert(
@@ -188,6 +203,45 @@ check("handles null/undefined settings without throwing or leaking", () => {
     JSON.stringify(toPublicFormSettings(undefined)) === "{}",
     "undefined settings should project to {}",
   );
+});
+
+check("preserves legacy redirect behavior when no mode is stored", () => {
+  assert(
+    getFormCompletionMode({ redirectUrl: "https://example.com" }) ===
+      "redirect",
+    "legacy redirect was not detected",
+  );
+  assert(
+    getFormCompletionMode({}) === "message",
+    "legacy message default was not preserved",
+  );
+});
+
+check("uses a safe default and clamps refresh delays", () => {
+  assert(
+    getFormCompletionRefreshSeconds(undefined) === 5,
+    "missing delay should use the default",
+  );
+  assert(
+    getFormCompletionRefreshSeconds(0) === 1,
+    "delay should not be less than one second",
+  );
+  assert(
+    getFormCompletionRefreshSeconds(3601) === 3600,
+    "delay should not exceed one hour",
+  );
+});
+
+check("rejects invalid completion settings at the action boundary", () => {
+  let threw = false;
+  try {
+    assertValidFormCompletionSettings({
+      completionMode: "unknown" as FormSettings["completionMode"],
+    });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "invalid completion mode was accepted");
 });
 
 // ---------------------------------------------------------------------------

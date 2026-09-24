@@ -14,11 +14,20 @@ import {
   createCreativeContextAgentTab,
 } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import {
+  CONTENT_CREATIVE_CONTEXT,
+  CONTENT_LABS,
+  CONTENT_SLASH_ADVANCED_CODE,
+  CONTENT_SLASH_DEVELOPER_DOCS,
+  CONTENT_SLASH_LAYOUTS,
+  CONTENT_SLASH_VISUALS,
+} from "@shared/labs";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { Switch } from "@/components/ui/switch";
 import { useContentPrefs } from "@/hooks/use-content-prefs";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -29,11 +38,52 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
+  const agentAdditionalTabFactories = useMemo(
+    () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
+    [creativeContextEnabled],
+  );
   const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+    agentAdditionalTabFactories,
   });
   useSetPageTitle(t("settings.title"));
   const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
+
+  const labs = useMemo(
+    () =>
+      CONTENT_LABS.map((lab) => ({
+        ...lab,
+        ...(lab.key === CONTENT_CREATIVE_CONTEXT.key
+          ? {
+              displayName: t("settings.labCreativeContext"),
+              description: t("settings.labCreativeContextDescription"),
+            }
+          : lab.key === CONTENT_SLASH_ADVANCED_CODE.key
+            ? {
+                displayName: t("settings.labSlashAdvancedCode"),
+                description: t("settings.labSlashAdvancedCodeDescription"),
+              }
+            : lab.key === CONTENT_SLASH_LAYOUTS.key
+              ? {
+                  displayName: t("settings.labSlashLayouts"),
+                  description: t("settings.labSlashLayoutsDescription"),
+                }
+              : lab.key === CONTENT_SLASH_VISUALS.key
+                ? {
+                    displayName: t("settings.labSlashVisuals"),
+                    description: t("settings.labSlashVisualsDescription"),
+                  }
+                : lab.key === CONTENT_SLASH_DEVELOPER_DOCS.key
+                  ? {
+                      displayName: t("settings.labSlashDeveloperDocs"),
+                      description: t(
+                        "settings.labSlashDeveloperDocsDescription",
+                      ),
+                    }
+                  : {}),
+      })),
+    [t],
+  );
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -59,6 +109,13 @@ export default function SettingsRoute() {
         account={<AccountSettingsCard />}
         teamLabel={t("team.pageTitle")}
         extraTabs={agentSettingsTabs}
+        labs={labs}
+        labsIntro={t("settings.labsIntro", {
+          defaultValue: "Preview experimental features before they ship.",
+        })}
+        labsLabel={t("settings.labs", {
+          defaultValue: "Labs",
+        })}
         generalSearchEntries={generalSearchEntries}
         general={
           <main className="mx-auto w-full max-w-2xl space-y-6">
@@ -66,7 +123,7 @@ export default function SettingsRoute() {
               {t("settings.description")}
             </p>
 
-            <CreativeContextSettingsLink />
+            {creativeContextEnabled ? <CreativeContextSettingsLink /> : null}
 
             <SettingsGroup>
               <SettingsRow

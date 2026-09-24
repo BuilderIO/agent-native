@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetDocumentContextPath = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
+const mockGetRequestURL = vi.hoisted(() => vi.fn());
 const { document } = vi.hoisted(() => ({
   document: {
     id: "child-page",
@@ -31,6 +32,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
+  getRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
 }));
@@ -38,6 +40,32 @@ vi.mock("h3", () => ({
 vi.mock("../../../shared/agent-readable.js", () => ({
   DOCUMENT_AGENT_RESOURCE_KIND: "document",
   buildContentPublicDocumentUrl: (id: string) => `/p/${id}`,
+  buildContentDocumentMcpGuidance: (
+    id: string,
+    options: { basePath?: string; origin?: string },
+  ) => ({
+    preferredTransport: "mcp",
+    mcpUrl: `${options.origin}${options.basePath}/mcp`,
+    mcpConnectUrl: `${options.origin}${options.basePath}/mcp/connect`,
+    readAction: { name: "get-document", arguments: { id } },
+    access: {
+      state: "authentication-required",
+      summary: "Private Content document",
+      sharePageAuthenticationRequired: true,
+      sharePageHttpAccess: "denied",
+      sharePageAuthorization: "none",
+      mcpActionAuthenticationRequired: true,
+      mcpConnectionRequiredForPageAccess: true,
+      mcpAccountPermission: "not-evaluated",
+      mcpAuthorization: "connected-account-existing-permissions",
+      setupDocumentationUrl:
+        "https://www.agent-native.com/docs/external-agents/#private-content-links",
+      connectionUrl: `${options.origin}${options.basePath}/mcp/connect`,
+      missingMcpConnectionPath:
+        "add-remote-server-authenticate-enable-and-retry",
+    },
+    instructions: "Use authenticated Content MCP.",
+  }),
 }));
 
 vi.mock("../../db/index.js", () => {
@@ -68,7 +96,11 @@ import handler from "./document-agent-context.json.get";
 describe("GET /api/document-agent-context.json", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    document.visibility = "public";
     mockGetQuery.mockReturnValue({ id: document.id });
+    mockGetRequestURL.mockReturnValue(
+      new URL("https://content.example.test/api/document-agent-context.json"),
+    );
     mockGetDocumentContextPath.mockResolvedValue([
       {
         id: "parent-page",
@@ -93,5 +125,55 @@ describe("GET /api/document-agent-context.json", () => {
         },
       ],
     });
+  });
+
+  it("directs anonymous private reads to authenticated Content MCP", async () => {
+    document.visibility = "private";
+
+    const result = await handler({} as never);
+
+    expect(result).toMatchObject({
+      error: "This private document is not readable through anonymous HTTP",
+      resourceType: "document",
+      resourceId: document.id,
+      preferredTransport: "mcp",
+      mcpUrl: "https://content.example.test/content/mcp",
+      mcpConnectUrl: "https://content.example.test/content/mcp/connect",
+      readAction: { name: "get-document", arguments: { id: document.id } },
+      access: {
+        state: "authentication-required",
+        sharePageAuthenticationRequired: true,
+        sharePageHttpAccess: "denied",
+        sharePageAuthorization: "none",
+        mcpActionAuthenticationRequired: true,
+        mcpConnectionRequiredForPageAccess: true,
+        mcpAccountPermission: "not-evaluated",
+        mcpAuthorization: "connected-account-existing-permissions",
+        setupDocumentationUrl:
+          "https://www.agent-native.com/docs/external-agents/#private-content-links",
+        connectionUrl: "https://content.example.test/content/mcp/connect",
+        missingMcpConnectionPath:
+          "add-remote-server-authenticate-enable-and-retry",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(document.title);
+    expect(JSON.stringify(result)).not.toContain(document.content);
+  });
+
+  it("distinguishes a rejected agent token without echoing it", async () => {
+    document.visibility = "private";
+    mockGetQuery.mockReturnValue({
+      id: document.id,
+      agent_access: "rejected-token",
+    });
+
+    const result = await handler({} as never);
+
+    expect(result).toMatchObject({
+      error: "The agent access token is invalid or expired",
+      resourceId: document.id,
+      preferredTransport: "mcp",
+    });
+    expect(JSON.stringify(result)).not.toContain("rejected-token");
   });
 });

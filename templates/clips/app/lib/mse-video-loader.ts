@@ -15,18 +15,42 @@
  * ranges under memory pressure. Any unrecoverable failure calls `onFatal` so
  * the caller can drop back to the plain `<video src>` path.
  *
+ * Seeking reads each probed fragment's real `tfdt` timestamp rather than
+ * trusting a byte-fraction estimate. These recordings are variable-bitrate, so
+ * byte position and presentation time drift apart by tens of seconds over a
+ * long clip; appending a fragment that starts *after* `currentTime` leaves the
+ * element permanently unplayable, because MSE never jumps a forward gap on its
+ * own. See `seekToTime`.
+ *
  * The player component only ever sees a normal `HTMLVideoElement`; this class
  * drives it entirely through `video.src = objectUrl` + range fetches.
  */
 
-import { findMoofOffset, parseInitSegment } from "./fmp4";
+import {
+  type Mp4Track,
+  findMoofOffset,
+  fragmentPtsSeconds,
+  parseInitSegment,
+} from "./fmp4";
+import { ByteTimeMap, resolveSeekFragment } from "./fmp4-seek";
 
 const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB sequential range reads
 const INIT_PROBE_SIZE = 512 * 1024; // enough to always contain ftyp+moov
-const SEEK_PROBE_SIZE = 4 * 1024 * 1024; // window scanned for a moof after seek
+const SEEK_PROBE_SIZE = 1024 * 1024; // window scanned for a moof + its tfdt
 const BUFFER_AHEAD_SECONDS = 30; // download target ahead of currentTime
 const BUFFER_BEHIND_SECONDS = 10; // played media kept before evicting on quota
-const SEEK_BACKOFF_BYTES = 512 * 1024; // land a little early so we don't overshoot
+/** Probe budget per seek. Bracketed interpolation converges in 2-3 in practice. */
+const MAX_SEEK_PROBES = 6;
+/**
+ * How far before the seek target we accept landing. The gap is downloaded and
+ * decoded before playback can resume, so a small number keeps seeks responsive;
+ * landing even slightly *past* the target is never acceptable.
+ */
+const SEEK_ACCEPT_UNDERSHOOT_SECONDS = 4;
+/** Realign retries before nudging `currentTime` into the buffer we do have. */
+const MAX_REALIGN_ATTEMPTS = 3;
+/** Overlap between probe steps, so a `moof` on a window boundary is not skipped. */
+const PROBE_STEP_OVERLAP_BYTES = 4096;
 
 export interface MseVideoLoaderOptions {
   /** Asset URL. Range requests go straight here (external/proxied media). */
@@ -59,6 +83,18 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+/**
+ * True when a ranged request came back as a whole-file `200` for a nonzero
+ * start, meaning the origin ignored `Range`. A `200` to a request starting at
+ * byte 0 is just the whole asset, which lines up fine.
+ */
+export function rangeWasIgnored(
+  status: number,
+  requestedStart: number,
+): boolean {
+  return status === 200 && requestedStart > 0;
+}
+
 export class MseVideoLoader {
   readonly objectUrl: string;
 
@@ -79,17 +115,26 @@ export class MseVideoLoader {
   private initLength = 0;
   private nextOffset = 0;
   private initAppended = false;
-  private needsRealign = false;
   /** Duration (seconds) waiting to be written once the source buffer is idle. */
   private pendingDurationSec: number | null = null;
+  /** Track ids and timescales from the init segment, for reading `tfdt`. */
+  private tracks: Mp4Track[] = [];
+  /** Observed byte<->time anchors, built as the asset is read. */
+  private anchors: ByteTimeMap | null = null;
+  /** Seek target waiting to be resolved by the pump, in seconds. */
+  private pendingSeek: number | null = null;
   /**
-   * Byte offset the current realign probe started from (the seek estimate,
-   * then walked backward by `backUpRealignProbe`). Used to recover when a seek
-   * estimate overshoots past the target fragment's `moof` into its `mdat`.
+   * Bumped on every `seeking` event, including one whose target is already
+   * buffered. A resolve in flight for an older target must not be allowed to
+   * finish and repoint the download cursor: the playhead has moved on, so the
+   * cursor would end up filling a region the playhead never reaches.
    */
-  private realignProbeStart = 0;
-  /** Media bytes appended so far (excludes the init segment). */
-  private mediaBytesAppended = 0;
+  private seekGeneration = 0;
+  /** Target of the realigns counted by `realignAttempts`. */
+  private realignTarget: number | null = null;
+  private realignAttempts = 0;
+  /** Start time of the most recently appended fragment, for stall detection. */
+  private lastAppendSec: number | null = null;
 
   private destroyed = false;
   private pumping = false;
@@ -184,8 +229,8 @@ export class MseVideoLoader {
     // Reopened after `endOfStream()`: a seek into an evicted/unbuffered range
     // transitions the "ended" source back to "open". The pipeline is already
     // built, so just clear the EOF latch and resume fetching for the seek
-    // (`onSeeking` has set `needsRealign`/`nextOffset`) instead of re-running
-    // init (which would try to add a second source buffer).
+    // (`onSeeking` has set `pendingSeek`) instead of re-running init (which
+    // would try to add a second source buffer).
     if (this.initAppended) {
       this.eofReached = false;
       this.schedulePump();
@@ -205,6 +250,14 @@ export class MseVideoLoader {
       const parsed = parseInitSegment(first.bytes);
       if (!parsed) throw new Error("Could not parse fMP4 init segment");
       this.initLength = parsed.initLength;
+      this.tracks = parsed.tracks;
+      this.anchors = new ByteTimeMap(parsed.initLength);
+      if (this.tracks.length === 0) {
+        // Without timescales a fragment's tfdt cannot be converted to seconds,
+        // so seeking would be back to blind byte-fraction guessing. Fall back to
+        // the native pipeline rather than ship a player that cannot seek.
+        throw new Error("fMP4 init segment declares no readable tracks");
+      }
 
       const mime = `video/mp4; codecs="${parsed.codecs}"`;
       if (!window.MediaSource.isTypeSupported(mime)) {
@@ -229,8 +282,9 @@ export class MseVideoLoader {
       const fetchedEnd = first.bytes.byteLength;
       if (fetchedEnd > this.initLength) {
         const media = first.bytes.subarray(this.initLength);
+        const firstSec = this.recordAnchorAt(first.bytes, 0, this.initLength);
         await this.appendWithQuota(media);
-        this.mediaBytesAppended += media.byteLength;
+        if (firstSec !== null) this.lastAppendSec = firstSec;
       }
       this.nextOffset = fetchedEnd;
       if (first.eof) this.eofReached = true;
@@ -250,39 +304,54 @@ export class MseVideoLoader {
   private onSeeking = (): void => {
     if (this.destroyed || !this.initAppended) return;
     const target = this.video.currentTime;
-    if (this.isBuffered(target)) return; // already have this position
+    // Invalidate first, and for every seek: a target that is already buffered
+    // needs no resolve of its own, but it still has to cancel one in flight.
+    this.seekGeneration++;
+    if (this.isBuffered(target)) {
+      this.pendingSeek = null;
+      // Let the pump re-check whether its download cursor still feeds this
+      // playhead; the buffered range it landed in may not be the one growing.
+      this.schedulePump();
+      return;
+    }
 
     // Abort any in-flight sequential fetch so we can jump.
     this.currentFetch?.abort();
     this.eofReached = false;
 
-    this.nextOffset = Math.max(
-      this.initLength,
-      this.estimateByteOffset(target),
-    );
-    this.realignProbeStart = this.nextOffset;
-    this.needsRealign = true;
+    if (
+      this.realignTarget === null ||
+      Math.abs(this.realignTarget - target) > 1
+    ) {
+      this.realignTarget = target;
+      this.realignAttempts = 0;
+    }
+    this.pendingSeek = target;
     this.schedulePump();
   };
 
   /**
-   * Recover a seek whose estimate overshot past the target fragment's `moof`
-   * into its `mdat`. That can only happen inside the FINAL fragment (every
-   * earlier one is followed by another `moof`), so a forward scan reaches EOF
-   * with no boundary. Back the probe window up by one `SEEK_PROBE_SIZE`
-   * (floored at the init segment) and re-scan, instead of treating EOF as a
-   * completed seek and stalling. Returns false when there is nothing earlier
-   * left to probe.
+   * Record a (byte -> fragment start time) anchor for the first `moof` at or
+   * after `searchFrom` within `bytes`, which was fetched from absolute offset
+   * `fetchStart`. Both offsets are required: defaulting either one silently
+   * files the anchor under the wrong byte position, which corrupts every later
+   * seek estimate rather than failing visibly.
+   *
+   * Returns that fragment's start time, or null when the chunk carries no
+   * readable fragment header.
    */
-  private backUpRealignProbe(): boolean {
-    if (this.realignProbeStart <= this.initLength) return false;
-    this.realignProbeStart = Math.max(
-      this.initLength,
-      this.realignProbeStart - SEEK_PROBE_SIZE,
-    );
-    this.nextOffset = this.realignProbeStart;
-    this.eofReached = false;
-    return true;
+  private recordAnchorAt(
+    bytes: Uint8Array,
+    fetchStart: number,
+    searchFrom: number,
+  ): number | null {
+    const moof = findMoofOffset(bytes.subarray(searchFrom));
+    if (moof < 0) return null;
+    const at = searchFrom + moof;
+    const sec = fragmentPtsSeconds(bytes, at, this.tracks);
+    if (sec === null) return null;
+    this.anchors?.add(fetchStart + at, sec);
+    return sec;
   }
 
   private schedulePump(): void {
@@ -302,33 +371,38 @@ export class MseVideoLoader {
         this.sourceBuffer &&
         this.mediaSource.readyState === "open"
       ) {
+        if (this.pendingSeek !== null) {
+          const target = this.pendingSeek;
+          this.pendingSeek = null;
+          const resolved = await this.seekToTime(target);
+          if (this.destroyed) break;
+          if (!resolved) break;
+          continue;
+        }
+
         if (
           this.eofReached ||
           (this.totalKnown && this.nextOffset >= this.totalBytes)
         ) {
-          // A realign that reached EOF without finding its boundary overshot
-          // into the final fragment — back up and keep looking before ending.
-          if (this.needsRealign && this.backUpRealignProbe()) {
-            continue;
-          }
-          this.needsRealign = false;
           this.tryEndOfStream();
           break;
         }
-        // Stop downloading once we're comfortably ahead — unless we still need
-        // to realign to a fragment boundary after a seek.
-        if (
-          !this.needsRealign &&
-          this.bufferedAhead() >= BUFFER_AHEAD_SECONDS
-        ) {
+
+        // We are filling media the playhead cannot reach. Downloading further
+        // only widens the gap, so realign to the playhead instead of quietly
+        // streaming to EOF behind a spinner.
+        if (this.downloadIsDisjoint()) {
+          if (this.requestRealign(this.video.currentTime)) continue;
           break;
         }
 
+        // Stop downloading once we're comfortably ahead.
+        if (this.bufferedAhead() >= BUFFER_AHEAD_SECONDS) break;
+
         const chunkStart = this.nextOffset;
-        const windowSize = this.needsRealign ? SEEK_PROBE_SIZE : CHUNK_SIZE;
         const chunkEnd = this.totalKnown
-          ? Math.min(chunkStart + windowSize, this.totalBytes) - 1
-          : chunkStart + windowSize - 1;
+          ? Math.min(chunkStart + CHUNK_SIZE, this.totalBytes) - 1
+          : chunkStart + CHUNK_SIZE - 1;
 
         let res: { bytes: Uint8Array; eof: boolean };
         try {
@@ -339,46 +413,14 @@ export class MseVideoLoader {
         }
         if (this.destroyed) break;
         if (res.bytes.byteLength === 0) {
-          if (this.needsRealign && this.backUpRealignProbe()) {
-            continue;
-          }
           this.eofReached = true;
           this.tryEndOfStream();
           break;
         }
 
-        let bytes = res.bytes;
-        if (this.needsRealign) {
-          const moof = findMoofOffset(bytes);
-          if (moof < 0) {
-            if (res.eof) {
-              // Reached EOF with no boundary — the estimate overshot into the
-              // final fragment's mdat. Back up and re-probe rather than
-              // stalling the seek; give up only once nothing earlier remains.
-              if (this.backUpRealignProbe()) {
-                continue;
-              }
-              this.needsRealign = false;
-              this.eofReached = true;
-              this.tryEndOfStream();
-              break;
-            }
-            // No fragment boundary in this window — advance and keep scanning.
-            this.nextOffset = chunkStart + bytes.byteLength;
-            continue;
-          }
-          bytes = bytes.subarray(moof);
-          this.nextOffset = chunkStart + moof;
-          this.needsRealign = false;
-          // Reset the segment parser so it drops any partial fragment left over
-          // from the aborted sequential append and treats these bytes as a
-          // fresh media segment. Without this, appending a fragment from a new
-          // byte position fails with CHUNK_DEMUXER_ERROR_APPEND_FAILED.
-          this.abortParser();
-        }
-
-        await this.appendWithQuota(bytes);
-        this.mediaBytesAppended += bytes.byteLength;
+        const chunkSec = this.recordAnchorAt(res.bytes, chunkStart, 0);
+        await this.appendWithQuota(res.bytes);
+        if (chunkSec !== null) this.lastAppendSec = chunkSec;
         this.nextOffset = chunkStart + res.bytes.byteLength;
         if (res.eof) this.eofReached = true;
       }
@@ -426,34 +468,225 @@ export class MseVideoLoader {
     return 0;
   }
 
-  /** Highest buffered presentation time — how far into the media we've decoded. */
-  private bufferedSeconds(): number {
-    const buffered = this.sourceBuffer?.buffered;
-    if (!buffered || buffered.length === 0) return 0;
-    return buffered.end(buffered.length - 1);
+  private estimateByteOffset(targetSec: number): number {
+    if (!this.anchors) return this.initLength;
+    return this.anchors.estimate(targetSec, {
+      totalBytes: this.totalKnown ? this.totalBytes : null,
+      durationSec: this.opts.durationMs / 1000,
+    });
+  }
+
+  private clampProbeStart(byte: number): number {
+    const floor = Math.max(this.initLength, Math.floor(byte));
+    if (!this.totalKnown) return floor;
+    return Math.min(
+      floor,
+      Math.max(this.initLength, this.totalBytes - SEEK_PROBE_SIZE),
+    );
   }
 
   /**
-   * Estimate the byte offset for a seek target. Uses the known total when we
-   * have it, otherwise the observed average bitrate (bytes of media appended per
-   * second buffered). Lands `SEEK_BACKOFF_BYTES` early so we don't overshoot the
-   * target fragment; the caller realigns forward to the next `moof`.
+   * Fetch a window at `startByte` and return the first fragment in it whose
+   * timestamp is readable, walking forward a couple of windows when a fragment
+   * is larger than one probe. Records the (byte -> time) pair as an anchor.
    */
-  private estimateByteOffset(targetSec: number): number {
-    const durationSec = this.opts.durationMs / 1000;
-    if (this.totalKnown && durationSec > 0) {
-      const frac = Math.min(Math.max(targetSec / durationSec, 0), 1);
-      return Math.floor(this.totalBytes * frac) - SEEK_BACKOFF_BYTES;
+  private async probeFragmentAt(startByte: number): Promise<{
+    fetchStart: number;
+    bytes: Uint8Array;
+    moof: number;
+    byte: number;
+    sec: number;
+  } | null> {
+    let start = this.clampProbeStart(startByte);
+    for (let step = 0; step < 3; step++) {
+      const end = this.totalKnown
+        ? Math.min(start + SEEK_PROBE_SIZE, this.totalBytes) - 1
+        : start + SEEK_PROBE_SIZE - 1;
+      const res = await this.fetchRange(start, end);
+      if (this.destroyed || res.bytes.byteLength === 0) return null;
+
+      const moof = findMoofOffset(res.bytes);
+      if (moof >= 0) {
+        const sec = fragmentPtsSeconds(res.bytes, moof, this.tracks);
+        if (sec !== null) {
+          this.anchors?.add(start + moof, sec);
+          return {
+            fetchStart: start,
+            bytes: res.bytes,
+            moof,
+            byte: start + moof,
+            sec,
+          };
+        }
+      }
+      if (res.eof) return null;
+      // Overlap the step: a `moof` header straddling the window boundary is
+      // unreadable in this window, and stepping the full width would skip past
+      // that fragment entirely.
+      start += Math.max(1, res.bytes.byteLength - PROBE_STEP_OVERLAP_BYTES);
     }
-    const bufferedSec = this.bufferedSeconds();
-    if (bufferedSec > 0 && this.mediaBytesAppended > 0) {
-      const bytesPerSec = this.mediaBytesAppended / bufferedSec;
-      return (
-        Math.floor(this.initLength + targetSec * bytesPerSec) -
-        SEEK_BACKOFF_BYTES
+    return null;
+  }
+
+  /**
+   * Resolve a seek by reading real fragment timestamps (see `fmp4-seek`),
+   * append from the fragment it picks, and leave the sequential pump to fill
+   * forward from there.
+   *
+   * Returns false when the pump should stop (destroyed, or reported fatal).
+   */
+  private async seekToTime(target: number): Promise<boolean> {
+    const generation = this.seekGeneration;
+    let resolution;
+    try {
+      resolution = await resolveSeekFragment({
+        target,
+        initLength: this.initLength,
+        probeSize: SEEK_PROBE_SIZE,
+        maxProbes: MAX_SEEK_PROBES,
+        acceptUndershootSeconds: SEEK_ACCEPT_UNDERSHOOT_SECONDS,
+        estimate: () => this.estimateByteOffset(target),
+        probe: (startByte) => this.probeFragmentAt(startByte),
+        superseded: () =>
+          this.destroyed ||
+          this.pendingSeek !== null ||
+          this.seekGeneration !== generation,
+      });
+    } catch (err) {
+      if (isAbortError(err)) return !this.destroyed; // superseded by a new seek
+      throw err;
+    }
+    if (this.destroyed) return false;
+    // A newer seek arrived; the pump loop picks it up on the next iteration.
+    // Checked again here because the resolve may have completed in the same
+    // tick the new seek arrived — appending now would aim the download cursor
+    // at a target the viewer has already left.
+    if (resolution.superseded || this.seekGeneration !== generation)
+      return true;
+
+    const chosen = resolution.chosen;
+    if (!chosen) {
+      this.fail(
+        new Error(`No fMP4 fragment found for a seek to ${target.toFixed(2)}s`),
       );
+      return false;
     }
-    return this.initLength;
+
+    this.eofReached = false;
+    // Reset the segment parser so it drops any partial fragment left over from
+    // the aborted sequential append and treats these bytes as a fresh media
+    // segment. Without this, appending a fragment from a new byte position
+    // fails with CHUNK_DEMUXER_ERROR_APPEND_FAILED.
+    this.abortParser();
+    await this.appendWithQuota(chosen.bytes.subarray(chosen.moof));
+    this.lastAppendSec = chosen.sec;
+    this.nextOffset = chosen.fetchStart + chosen.bytes.byteLength;
+
+    if (resolution.overshot) {
+      // Every probe landed past the target — a target beyond the last fragment,
+      // or a tail we cannot parse. Move the playhead onto media we actually
+      // hold instead of leaving it on a position that will never arrive.
+      this.nudgeCurrentTimeTo(chosen.sec);
+      return true;
+    }
+
+    // A resolved seek clears the realign budget: the next stall, if any, is a
+    // new problem and deserves its own retries.
+    this.realignTarget = null;
+    this.realignAttempts = 0;
+    return true;
+  }
+
+  /**
+   * True when the download cursor is filling media the playhead cannot reach:
+   * either the playhead has nothing buffered at all, or it sits in a range that
+   * we are not extending, so that range will run out with nothing behind it.
+   *
+   * Checking only "playhead unbuffered" is not enough. After a seek back into
+   * an already-buffered stretch, the playhead is buffered while the cursor is
+   * still filling somewhere else entirely — playback then runs to the end of
+   * its own range and stops, which looks exactly like the stall this loader
+   * exists to prevent.
+   */
+  private downloadIsDisjoint(): boolean {
+    if (this.lastAppendSec === null) return false;
+    const t = this.video.currentTime;
+    const end = this.bufferedEndAt(t);
+    if (end === null) return true; // nothing buffered at the playhead
+    return this.lastAppendSec > end + 1;
+  }
+
+  /** End of the buffered range containing `time`, or null when unbuffered. */
+  private bufferedEndAt(time: number): number | null {
+    const buffered = this.sourceBuffer?.buffered;
+    if (!buffered) return null;
+    for (let i = 0; i < buffered.length; i++) {
+      if (time >= buffered.start(i) - 0.25 && time <= buffered.end(i)) {
+        return buffered.end(i);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Queue another seek resolution for `target`. Returns false once the retry
+   * budget is spent, having either moved the playhead onto media we hold or
+   * reported a fatal — never leaving the pump stopped with the playhead parked
+   * on an unreachable position and no pending work to fix it.
+   */
+  private requestRealign(target: number): boolean {
+    if (
+      this.realignTarget === null ||
+      Math.abs(this.realignTarget - target) > 1
+    ) {
+      this.realignTarget = target;
+      this.realignAttempts = 0;
+    }
+    if (this.realignAttempts >= MAX_REALIGN_ATTEMPTS) {
+      const start = this.firstBufferedStartAfter(target);
+      if (start === null) {
+        this.fail(
+          new Error(
+            `Playback stalled at ${target.toFixed(2)}s with no buffered media to resume from`,
+          ),
+        );
+      } else {
+        this.nudgeCurrentTimeTo(start);
+      }
+      return false;
+    }
+    this.realignAttempts++;
+    this.pendingSeek = target;
+    return true;
+  }
+
+  private firstBufferedStartAfter(time: number): number | null {
+    const buffered = this.sourceBuffer?.buffered;
+    if (!buffered) return null;
+    for (let i = 0; i < buffered.length; i++) {
+      if (buffered.start(i) > time) return buffered.start(i);
+    }
+    return null;
+  }
+
+  /**
+   * Move the playhead onto buffered media. The resulting `seeking` event finds
+   * the position already buffered and returns early, so this cannot re-enter
+   * the seek resolver.
+   */
+  private nudgeCurrentTimeTo(sec: number): void {
+    if (!Number.isFinite(sec) || sec < 0) {
+      this.fail(new Error(`Cannot nudge the playhead to ${sec}`));
+      return;
+    }
+    try {
+      this.video.currentTime = sec + 0.05;
+    } catch (err) {
+      // Terminal safety net: without the nudge the element stays parked on an
+      // unreachable time, which is the stall this path exists to prevent.
+      // Report so the caller drops back to the native `<video src>` pipeline.
+      this.fail(err);
+    }
   }
 
   private isBuffered(time: number): boolean {
@@ -569,6 +802,15 @@ export class MseVideoLoader {
     if (!res.ok) {
       throw new Error(`Range request failed: ${res.status}`);
     }
+    if (rangeWasIgnored(res.status, start)) {
+      // A 200 to a ranged request is the whole file, so its bytes start at 0 —
+      // not at `start`. Reading it as though they lined up files every anchor
+      // and the resume offset under the wrong byte position, poisoning later
+      // seeks. An origin that ignores Range also defeats the point of this
+      // loader (each 2MB window would pull the entire asset), so hand back to
+      // the native pipeline instead of trying to compensate.
+      throw new Error("Origin ignored the Range header; cannot stream windows");
+    }
     // If the backing file shrank mid-response (ERR_CONTENT_LENGTH_MISMATCH),
     // arrayBuffer() throws here, which also routes through fail() -> onFatal.
     const buffer = await res.arrayBuffer();
@@ -584,8 +826,8 @@ export class MseVideoLoader {
     }
 
     const requested = end - start + 1;
-    // A 200 (server ignored Range) or a short 206 both mean this response ran to
-    // the end of the asset.
+    // A 200 (only reachable from a start of 0, per the guard above, so it is
+    // the whole asset) or a short 206 both mean this response ran to the end.
     const eof =
       res.status === 200 ||
       bytes.byteLength < requested ||

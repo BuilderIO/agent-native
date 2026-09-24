@@ -2,7 +2,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 
 import { isMcpChatBridgeActive } from "./mcp-chat-bridge";
 
-async function readStatus(path: string): Promise<any | null> {
+async function readStatus(path: string): Promise<any> {
   return fetch(agentNativePath(path))
     .then((res) => (res.ok ? res.json() : null))
     .catch(() => null);

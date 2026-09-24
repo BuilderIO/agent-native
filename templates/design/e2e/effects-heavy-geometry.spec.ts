@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { enterDirectMode, gotoEditor } from "./helpers";
 
 /**
@@ -160,8 +161,7 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
 }, workerInfo) => {
   test.setTimeout(120_000);
   const baseURL =
-    (workerInfo.project.use.baseURL as string | undefined) ??
-    "http://127.0.0.1:9333";
+    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const { designId, fileId } = await createEffectsFixtureDesign(page, baseURL);
 
   await gotoEditor(page, designId);

@@ -52,6 +52,10 @@ const enUS = {
     agentDescription:
       "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
     openAgentSettings: "Manage agent",
+    connectApps: "Connect apps",
+    connectAppsDescription:
+      "Sign in to another Agent-Native app with one handoff.",
+    openConnectApps: "Open Connect apps",
   },
   integrations: {
     title: "Integrations",
@@ -340,8 +344,30 @@ const enUS = {
       adminConnections: "Connections",
       adminAgentPlatform: "Agent platform",
       adminWorkspaceExtensions: "Workspace extensions",
+      usageAlertDescription:
+        "Get an in-app or email notice when usage reaches an alert threshold. Alerts do not stop usage or limit charges.",
+      usageAlertEmpty:
+        "No alerts yet. Add one to get notified when usage reaches your threshold.",
+      usageAlertThreshold: "Alert threshold",
+      usageAlertReached: "Threshold reached",
+      usageAlertCurrentAndThreshold:
+        "Usage {{current}} · alert threshold {{threshold}} per {{period}}",
+      usageAlertDay: "day",
+      usageAlertMonth: "month",
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
+      appAdoption: "App adoption",
+      appAdoptionFor: "{{name}} adoption",
+      yourAppActivity: "Your app activity",
+      appAdoptionDefinition:
+        "Active means a tracked action. App opens and views are not included.",
+      ownerUnavailable: "Owner unavailable",
+      dailyActiveUsers: "Daily active",
+      weeklyActiveUsers: "Weekly active",
+      trackedActions: "Tracked actions",
+      trackedActionBreakdown: "Tracked action breakdown",
+      noTrackedActions: "No tracked actions in this window.",
+      viewAppMetrics: "View app metrics",
       tryAgain: "Try again",
       also: "Also",
       monitoring: "Monitoring",
@@ -349,8 +375,8 @@ const enUS = {
       chatAcrossApps: "Chat across your apps",
       chatAcrossAppsDescription:
         "Route work, inspect status, or create something new from one place.",
-      overviewPromptPlaceholder: "Ask Dispatch anything...",
-      chatPromptPlaceholder: "Ask Dispatch...",
+      overviewPromptPlaceholder: "What would you like to make happen?",
+      chatPromptPlaceholder: "Tell Dispatch what you’d like to make happen…",
       browserChatUnavailableTitle: "Browser chat session unavailable",
       browserChatUnavailableDescription:
         "Reconnect from the Agent-Native browser extension.",
@@ -435,6 +461,23 @@ const enUS = {
       searchAppsPlaceholder: "Search apps",
       clearAppSearch: "Clear search",
       noAppsMatch: "No apps match your search",
+      connectApps: "Connect apps",
+      availableApps: "Available apps",
+      connectApp: "Connect",
+      openApp: "Open",
+      appsLoadFailed: "Apps could not be loaded.",
+      noAppsAvailable: "No apps are available right now.",
+      connectByUrl: "Connect by URL",
+      appUrl: "App URL",
+      inspectApp: "Inspect app",
+      inspectingApp: "Checking the app card…",
+      appCardInvalid: "This app has no compatible connect card.",
+      connectAppGrant:
+        "Your account will be provisioned through the existing identity handoff.",
+      connectAppUnsupported:
+        "This app has not opted into one-click identity connect yet.",
+      connectAppsPrivacy:
+        "No shared cookie or app secret is used. The identity hub sends a signed, one-time handoff.",
       pinApp: "Pin this app",
       unpinApp: "Unpin this app",
       appPinSaveFailed: "App pins could not be saved.",
@@ -974,6 +1017,9 @@ export const messagesByLocale = {
         agentDescription:
           "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
         openAgentSettings: "管理代理",
+        connectApps: "连接应用",
+        connectAppsDescription: "通过一次交接登录另一个 Agent-Native 应用。",
+        openConnectApps: "打开连接应用",
       },
       integrations: {
         title: "集成",
@@ -1211,6 +1257,21 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["zh-CN"],
           adminDescription: "工作区控制与运营",
+          connectApps: "连接应用",
+          availableApps: "可用应用",
+          connectApp: "连接",
+          openApp: "打开",
+          appsLoadFailed: "无法加载应用。",
+          noAppsAvailable: "目前没有可用应用。",
+          connectByUrl: "通过 URL 连接",
+          appUrl: "应用 URL",
+          inspectApp: "检查应用",
+          inspectingApp: "正在检查应用卡片…",
+          appCardInvalid: "此应用没有兼容的连接卡片。",
+          connectAppGrant: "你的账户将通过现有身份交接流程配置。",
+          connectAppUnsupported: "此应用尚未加入一键身份连接。",
+          connectAppsPrivacy:
+            "不使用共享 Cookie 或应用密钥。身份中心发送签名的一次性交接。",
           simpleAgentsDescription:
             "几分钟内创建可复用的代理，或导入你已在 Claude 或其他代理工具中创建的设置。",
           adminNavigation: "管理导航",
@@ -1223,8 +1284,30 @@ export const messagesByLocale = {
           adminConnections: "连接",
           adminAgentPlatform: "代理平台",
           adminWorkspaceExtensions: "工作区扩展",
+          usageAlertDescription:
+            "使用量达到提醒阈值时，你会收到应用内或电子邮件通知。提醒不会停止使用，也不会限制费用。",
+          usageAlertEmpty:
+            "还没有使用提醒。添加提醒后，使用量达到阈值时你会收到通知。",
+          usageAlertThreshold: "提醒阈值",
+          usageAlertReached: "已达到阈值",
+          usageAlertCurrentAndThreshold:
+            "使用量 {{current}} · {{period}}提醒阈值 {{threshold}}",
+          usageAlertDay: "每天",
+          usageAlertMonth: "每月",
           dataLoadFailed: "无法加载数据",
           dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
+          appAdoption: "应用使用情况",
+          appAdoptionFor: "{{name}} 使用情况",
+          yourAppActivity: "你的应用活动",
+          appAdoptionDefinition:
+            "活跃表示有一项已跟踪的操作。不包括打开和查看应用。",
+          ownerUnavailable: "所有者不可用",
+          dailyActiveUsers: "每日活跃",
+          weeklyActiveUsers: "每周活跃",
+          trackedActions: "已跟踪操作",
+          trackedActionBreakdown: "已跟踪操作明细",
+          noTrackedActions: "此时间段内没有已跟踪的操作。",
+          viewAppMetrics: "查看应用指标",
           tryAgain: "重试",
           also: "还有",
           monitoring: "监控",
@@ -1232,8 +1315,8 @@ export const messagesByLocale = {
           chatAcrossApps: "跨应用聊天",
           chatAcrossAppsDescription:
             "在一个地方分派工作、检查状态或创建新内容。",
-          overviewPromptPlaceholder: "向 Dispatch 提问...",
-          chatPromptPlaceholder: "询问 Dispatch...",
+          overviewPromptPlaceholder: "想让 Dispatch 帮你做什么？",
+          chatPromptPlaceholder: "告诉 Dispatch 你想完成什么…",
           browserChatUnavailableTitle: "浏览器聊天会话不可用",
           browserChatUnavailableDescription:
             "请从 Agent-Native 浏览器扩展重新连接。",
@@ -1366,6 +1449,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
         openAgentSettings: "Gestionar agente",
+        connectApps: "Conectar apps",
+        connectAppsDescription:
+          "Inicia sesión en otra app de Agent-Native con una sola transferencia.",
+        openConnectApps: "Abrir Conectar apps",
       },
       integrations: {
         title: "Integraciones",
@@ -1627,6 +1714,24 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["es-ES"],
           adminDescription: "Controles y operaciones del espacio de trabajo",
+          connectApps: "Conectar apps",
+          availableApps: "Apps disponibles",
+          connectApp: "Conectar",
+          openApp: "Abrir",
+          appsLoadFailed: "No se pudieron cargar las apps.",
+          noAppsAvailable: "No hay apps disponibles ahora.",
+          connectByUrl: "Conectar por URL",
+          appUrl: "URL de la app",
+          inspectApp: "Inspeccionar app",
+          inspectingApp: "Comprobando la tarjeta de la app…",
+          appCardInvalid:
+            "Esta app no tiene una tarjeta de conexión compatible.",
+          connectAppGrant:
+            "Tu cuenta se aprovisionará mediante la transferencia de identidad existente.",
+          connectAppUnsupported:
+            "Esta app aún no admite la conexión de identidad con un clic.",
+          connectAppsPrivacy:
+            "No se usa ninguna cookie compartida ni secreto de app. El hub envía una transferencia firmada de un solo uso.",
           simpleAgentsDescription:
             "Crea agentes reutilizables en minutos o importa una configuración que ya hayas creado en Claude u otra herramienta de agentes.",
           adminNavigation: "Navegación de administración",
@@ -1641,8 +1746,30 @@ export const messagesByLocale = {
           adminConnections: "Conexiones",
           adminAgentPlatform: "Plataforma de agentes",
           adminWorkspaceExtensions: "Extensiones del espacio de trabajo",
+          usageAlertDescription:
+            "Recibe un aviso en la app o por correo cuando el uso alcance un umbral. Las alertas no detienen el uso ni limitan los cargos.",
+          usageAlertEmpty:
+            "Aún no hay alertas. Añade una para recibir avisos cuando el uso alcance el umbral.",
+          usageAlertThreshold: "Umbral de alerta",
+          usageAlertReached: "Umbral alcanzado",
+          usageAlertCurrentAndThreshold:
+            "Uso: {{current}} · umbral de alerta: {{threshold}} por {{period}}",
+          usageAlertDay: "día",
+          usageAlertMonth: "mes",
           dataLoadFailed: "No se pudieron cargar los datos",
           dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
+          appAdoption: "Adopción de apps",
+          appAdoptionFor: "Adopción de {{name}}",
+          yourAppActivity: "Actividad de tu app",
+          appAdoptionDefinition:
+            "Activo significa una acción registrada. No se incluyen las aperturas ni las vistas de apps.",
+          ownerUnavailable: "Propietario no disponible",
+          dailyActiveUsers: "Activos diarios",
+          weeklyActiveUsers: "Activos semanales",
+          trackedActions: "Acciones registradas",
+          trackedActionBreakdown: "Desglose de acciones registradas",
+          noTrackedActions: "No hay acciones registradas en este periodo.",
+          viewAppMetrics: "Ver métricas de la app",
           tryAgain: "Intentar de nuevo",
           also: "También",
           monitoring: "Monitorización",
@@ -1650,8 +1777,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Chatea con todas tus aplicaciones",
           chatAcrossAppsDescription:
             "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
-          overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
-          chatPromptPlaceholder: "Pregunta a Dispatch...",
+          overviewPromptPlaceholder: "¿Qué te gustaría hacer?",
+          chatPromptPlaceholder: "Dile a Dispatch qué quieres hacer…",
           browserChatUnavailableTitle:
             "La sesión de chat del navegador no está disponible",
           browserChatUnavailableDescription:
@@ -1794,6 +1921,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
         openAgentSettings: "Gérer l’agent",
+        connectApps: "Connecter des apps",
+        connectAppsDescription:
+          "Connectez-vous à une autre app Agent-Native via un seul transfert.",
+        openConnectApps: "Ouvrir Connecter des apps",
       },
       integrations: {
         title: "Intégrations",
@@ -2054,6 +2185,25 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["fr-FR"],
           adminDescription: "Contrôles et opérations de l’espace de travail",
+          connectApps: "Connecter des apps",
+          availableApps: "Applications disponibles",
+          connectApp: "Connecter",
+          openApp: "Ouvrir",
+          appsLoadFailed: "Impossible de charger les applications.",
+          noAppsAvailable:
+            "Aucune application n’est disponible pour le moment.",
+          connectByUrl: "Connecter par URL",
+          appUrl: "URL de l’application",
+          inspectApp: "Inspecter l’application",
+          inspectingApp: "Vérification de la carte…",
+          appCardInvalid:
+            "Cette application n’a pas de carte de connexion compatible.",
+          connectAppGrant:
+            "Votre compte sera provisionné via le transfert d’identité existant.",
+          connectAppUnsupported:
+            "Cette application n’a pas encore activé la connexion d’identité en un clic.",
+          connectAppsPrivacy:
+            "Aucun cookie partagé ni secret d’application n’est utilisé. Le hub envoie un transfert signé à usage unique.",
           simpleAgentsDescription:
             "Créez des agents réutilisables en quelques minutes ou importez une configuration déjà créée dans Claude ou un autre outil d’agents.",
           adminNavigation: "Navigation d’administration",
@@ -2068,8 +2218,30 @@ export const messagesByLocale = {
           adminConnections: "Connexions",
           adminAgentPlatform: "Plateforme d’agents",
           adminWorkspaceExtensions: "Extensions de l’espace de travail",
+          usageAlertDescription:
+            "Recevez une notification dans l’app ou par e-mail lorsque l’utilisation atteint un seuil. Les alertes n’arrêtent pas l’utilisation et ne plafonnent pas les frais.",
+          usageAlertEmpty:
+            "Aucune alerte pour le moment. Ajoutez-en une pour être averti lorsque l’utilisation atteint le seuil.",
+          usageAlertThreshold: "Seuil d’alerte",
+          usageAlertReached: "Seuil atteint",
+          usageAlertCurrentAndThreshold:
+            "Utilisation : {{current}} · seuil d’alerte : {{threshold}} par {{period}}",
+          usageAlertDay: "jour",
+          usageAlertMonth: "mois",
           dataLoadFailed: "Impossible de charger les données",
           dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
+          appAdoption: "Adoption des apps",
+          appAdoptionFor: "Adoption de {{name}}",
+          yourAppActivity: "Activité de votre app",
+          appAdoptionDefinition:
+            "Actif signifie qu’une action suivie a été effectuée. Les ouvertures et consultations d’apps ne sont pas incluses.",
+          ownerUnavailable: "Propriétaire indisponible",
+          dailyActiveUsers: "Actifs quotidiens",
+          weeklyActiveUsers: "Actifs hebdomadaires",
+          trackedActions: "Actions suivies",
+          trackedActionBreakdown: "Détail des actions suivies",
+          noTrackedActions: "Aucune action suivie sur cette période.",
+          viewAppMetrics: "Voir les métriques de l’app",
           tryAgain: "Réessayer",
           also: "Aussi",
           monitoring: "Surveillance",
@@ -2077,8 +2249,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Discutez avec toutes vos applications",
           chatAcrossAppsDescription:
             "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
-          overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
-          chatPromptPlaceholder: "Demandez à Dispatch…",
+          overviewPromptPlaceholder: "Que souhaitez-vous faire ?",
+          chatPromptPlaceholder: "Dites à Dispatch ce que vous voulez faire…",
           browserChatUnavailableTitle:
             "La session de chat du navigateur est indisponible",
           browserChatUnavailableDescription:
@@ -2222,6 +2394,10 @@ export const messagesByLocale = {
         agentDescription:
           "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
         openAgentSettings: "Agent verwalten",
+        connectApps: "Apps verbinden",
+        connectAppsDescription:
+          "Melde dich mit einer Übergabe bei einer anderen Agent-Native-App an.",
+        openConnectApps: "Apps verbinden öffnen",
       },
       integrations: {
         title: "Integrationen",
@@ -2471,6 +2647,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["de-DE"],
           adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+          connectApps: "Apps verbinden",
+          availableApps: "Verfügbare Apps",
+          connectApp: "Verbinden",
+          openApp: "Öffnen",
+          appsLoadFailed: "Apps konnten nicht geladen werden.",
+          noAppsAvailable: "Derzeit sind keine Apps verfügbar.",
+          connectByUrl: "Per URL verbinden",
+          appUrl: "App-URL",
+          inspectApp: "App prüfen",
+          inspectingApp: "App-Karte wird geprüft…",
+          appCardInvalid: "Diese App hat keine kompatible Verbindungskarte.",
+          connectAppGrant:
+            "Dein Konto wird über die bestehende Identitätsübergabe eingerichtet.",
+          connectAppUnsupported:
+            "Diese App unterstützt noch keine Identitätsverbindung mit einem Klick.",
+          connectAppsPrivacy:
+            "Es werden keine gemeinsamen Cookies oder App-Geheimnisse verwendet. Der Hub sendet eine signierte einmalige Übergabe.",
           simpleAgentsDescription:
             "Erstelle in wenigen Minuten wiederverwendbare Agents oder importiere eine Konfiguration, die du bereits in Claude oder einem anderen Agent-Tool erstellt hast.",
           adminNavigation: "Administrationsnavigation",
@@ -2485,8 +2678,30 @@ export const messagesByLocale = {
           adminConnections: "Verbindungen",
           adminAgentPlatform: "Agentenplattform",
           adminWorkspaceExtensions: "Arbeitsbereichserweiterungen",
+          usageAlertDescription:
+            "Erhalte eine In-App- oder E-Mail-Benachrichtigung, wenn die Nutzung einen Schwellenwert erreicht. Alerts stoppen die Nutzung nicht und begrenzen keine Kosten.",
+          usageAlertEmpty:
+            "Noch keine Alerts. Lege einen Schwellenwert fest, um bei Erreichen benachrichtigt zu werden.",
+          usageAlertThreshold: "Alarm-Schwellenwert",
+          usageAlertReached: "Schwellenwert erreicht",
+          usageAlertCurrentAndThreshold:
+            "Nutzung: {{current}} · Alarmschwelle: {{threshold}} pro {{period}}",
+          usageAlertDay: "Tag",
+          usageAlertMonth: "Monat",
           dataLoadFailed: "Daten konnten nicht geladen werden",
           dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
+          appAdoption: "App-Nutzung",
+          appAdoptionFor: "Nutzung von {{name}}",
+          yourAppActivity: "Aktivität deiner App",
+          appAdoptionDefinition:
+            "Aktiv bedeutet eine erfasste Aktion. Das Öffnen und Anzeigen von Apps ist nicht enthalten.",
+          ownerUnavailable: "Eigentümer nicht verfügbar",
+          dailyActiveUsers: "Täglich aktiv",
+          weeklyActiveUsers: "Wöchentlich aktiv",
+          trackedActions: "Erfasste Aktionen",
+          trackedActionBreakdown: "Aufschlüsselung der erfassten Aktionen",
+          noTrackedActions: "Keine erfassten Aktionen in diesem Zeitraum.",
+          viewAppMetrics: "App-Metriken anzeigen",
           tryAgain: "Erneut versuchen",
           also: "Außerdem",
           monitoring: "Überwachung",
@@ -2494,8 +2709,8 @@ export const messagesByLocale = {
           chatAcrossApps: "App-übergreifend chatten",
           chatAcrossAppsDescription:
             "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
-          overviewPromptPlaceholder: "Frage Dispatch alles...",
-          chatPromptPlaceholder: "Dispatch fragen...",
+          overviewPromptPlaceholder: "Was möchtest du erledigen?",
+          chatPromptPlaceholder: "Sag Dispatch, was du erledigen möchtest…",
           browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
           browserChatUnavailableDescription:
             "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
@@ -2636,6 +2851,10 @@ export const messagesByLocale = {
         agentDescription:
           "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
         openAgentSettings: "エージェントを管理",
+        connectApps: "アプリを接続",
+        connectAppsDescription:
+          "1 回のハンドオフで別の Agent-Native アプリにサインインします。",
+        openConnectApps: "アプリ接続を開く",
       },
       integrations: {
         title: "連携",
@@ -2883,6 +3102,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ja-JP"],
           adminDescription: "ワークスペースの管理と運用",
+          connectApps: "アプリを接続",
+          availableApps: "利用可能なアプリ",
+          connectApp: "接続",
+          openApp: "開く",
+          appsLoadFailed: "アプリを読み込めませんでした。",
+          noAppsAvailable: "現在利用できるアプリはありません。",
+          connectByUrl: "URL で接続",
+          appUrl: "アプリ URL",
+          inspectApp: "アプリを確認",
+          inspectingApp: "アプリカードを確認中…",
+          appCardInvalid: "このアプリには互換性のある接続カードがありません。",
+          connectAppGrant:
+            "既存の ID ハンドオフでアカウントがプロビジョニングされます。",
+          connectAppUnsupported:
+            "このアプリはまだワンクリック ID 接続に対応していません。",
+          connectAppsPrivacy:
+            "共有 Cookie やアプリシークレットは使用しません。ハブが署名付きの一回限りのハンドオフを送信します。",
           simpleAgentsDescription:
             "数分で再利用可能なエージェントを作成するか、Claude などのエージェントツールで作成済みの設定をインポートします。",
           adminNavigation: "管理ナビゲーション",
@@ -2896,9 +3132,31 @@ export const messagesByLocale = {
           adminConnections: "接続",
           adminAgentPlatform: "エージェントプラットフォーム",
           adminWorkspaceExtensions: "ワークスペース拡張機能",
+          usageAlertDescription:
+            "使用量がしきい値に達すると、アプリ内またはメールで通知します。通知は利用を停止したり請求額を制限したりしません。",
+          usageAlertEmpty:
+            "アラートはまだありません。使用量の通知を受け取るしきい値を追加してください。",
+          usageAlertThreshold: "通知しきい値",
+          usageAlertReached: "しきい値に到達",
+          usageAlertCurrentAndThreshold:
+            "使用量：{{current}}・通知しきい値：{{threshold}}／{{period}}",
+          usageAlertDay: "日",
+          usageAlertMonth: "月",
           dataLoadFailed: "データを読み込めませんでした",
           dataLoadFailedDescription:
             "Dispatch はこのデータを読み込めませんでした。",
+          appAdoption: "アプリ利用状況",
+          appAdoptionFor: "{{name}}の利用状況",
+          yourAppActivity: "アプリのアクティビティ",
+          appAdoptionDefinition:
+            "アクティブは追跡された操作を意味します。アプリの起動と表示は含まれません。",
+          ownerUnavailable: "所有者不明",
+          dailyActiveUsers: "日次アクティブ",
+          weeklyActiveUsers: "週次アクティブ",
+          trackedActions: "追跡された操作",
+          trackedActionBreakdown: "追跡された操作の内訳",
+          noTrackedActions: "この期間に追跡された操作はありません。",
+          viewAppMetrics: "アプリの指標を表示",
           tryAgain: "もう一度試す",
           also: "その他",
           monitoring: "監視",
@@ -2906,8 +3164,8 @@ export const messagesByLocale = {
           chatAcrossApps: "アプリを横断してチャット",
           chatAcrossAppsDescription:
             "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
-          overviewPromptPlaceholder: "Dispatch に何でも質問...",
-          chatPromptPlaceholder: "Dispatch に質問...",
+          overviewPromptPlaceholder: "何をしたいですか？",
+          chatPromptPlaceholder: "Dispatch にやりたいことを伝える…",
           browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
           browserChatUnavailableDescription:
             "Agent-Native ブラウザー拡張機能から再接続してください。",
@@ -3045,6 +3303,10 @@ export const messagesByLocale = {
         agentDescription:
           "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
         openAgentSettings: "에이전트 관리",
+        connectApps: "앱 연결",
+        connectAppsDescription:
+          "한 번의 핸드오프로 다른 Agent-Native 앱에 로그인합니다.",
+        openConnectApps: "앱 연결 열기",
       },
       integrations: {
         title: "통합",
@@ -3289,6 +3551,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ko-KR"],
           adminDescription: "워크스페이스 제어 및 운영",
+          connectApps: "앱 연결",
+          availableApps: "사용 가능한 앱",
+          connectApp: "연결",
+          openApp: "열기",
+          appsLoadFailed: "앱을 불러오지 못했습니다.",
+          noAppsAvailable: "현재 사용할 수 있는 앱이 없습니다.",
+          connectByUrl: "URL로 연결",
+          appUrl: "앱 URL",
+          inspectApp: "앱 검사",
+          inspectingApp: "앱 카드를 확인하는 중…",
+          appCardInvalid: "이 앱에는 호환되는 연결 카드가 없습니다.",
+          connectAppGrant: "기존 ID 핸드오프를 통해 계정이 프로비저닝됩니다.",
+          connectAppUnsupported:
+            "이 앱은 아직 원클릭 ID 연결을 지원하지 않습니다.",
+          connectAppsPrivacy:
+            "공유 쿠키나 앱 시크릿을 사용하지 않습니다. 허브가 서명된 일회성 핸드오프를 보냅니다.",
           simpleAgentsDescription:
             "몇 분 만에 재사용 가능한 에이전트를 만들거나 Claude 또는 다른 에이전트 도구에서 만든 설정을 가져오세요.",
           adminNavigation: "관리 탐색",
@@ -3302,9 +3580,31 @@ export const messagesByLocale = {
           adminConnections: "연결",
           adminAgentPlatform: "에이전트 플랫폼",
           adminWorkspaceExtensions: "워크스페이스 확장",
+          usageAlertDescription:
+            "사용량이 임계값에 도달하면 앱 내 또는 이메일 알림을 받습니다. 알림은 사용을 중단하거나 청구 금액을 제한하지 않습니다.",
+          usageAlertEmpty:
+            "아직 알림이 없습니다. 사용량 알림을 받을 임계값을 추가하세요.",
+          usageAlertThreshold: "알림 임계값",
+          usageAlertReached: "임계값 도달",
+          usageAlertCurrentAndThreshold:
+            "사용량: {{current}} · {{period}} 알림 임계값: {{threshold}}",
+          usageAlertDay: "일",
+          usageAlertMonth: "월",
           dataLoadFailed: "데이터를 불러올 수 없습니다",
           dataLoadFailedDescription:
             "Dispatch에서 이 데이터를 불러오지 못했습니다.",
+          appAdoption: "앱 도입",
+          appAdoptionFor: "{{name}} 도입",
+          yourAppActivity: "내 앱 활동",
+          appAdoptionDefinition:
+            "활성은 추적된 작업을 의미합니다. 앱 열기와 보기는 포함되지 않습니다.",
+          ownerUnavailable: "소유자 정보 없음",
+          dailyActiveUsers: "일일 활성",
+          weeklyActiveUsers: "주간 활성",
+          trackedActions: "추적된 작업",
+          trackedActionBreakdown: "추적된 작업 분석",
+          noTrackedActions: "이 기간에 추적된 작업이 없습니다.",
+          viewAppMetrics: "앱 지표 보기",
           tryAgain: "다시 시도",
           also: "또한",
           monitoring: "모니터링",
@@ -3312,8 +3612,8 @@ export const messagesByLocale = {
           chatAcrossApps: "앱 전체에서 채팅",
           chatAcrossAppsDescription:
             "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
-          overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
-          chatPromptPlaceholder: "Dispatch에 질문...",
+          overviewPromptPlaceholder: "무엇을 하고 싶으신가요?",
+          chatPromptPlaceholder: "Dispatch에 원하는 작업을 알려주세요…",
           browserChatUnavailableTitle: "브라우저 채팅 세션을 사용할 수 없음",
           browserChatUnavailableDescription:
             "Agent-Native 브라우저 확장 프로그램에서 다시 연결하세요.",
@@ -3449,6 +3749,10 @@ export const messagesByLocale = {
         agentDescription:
           "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
         openAgentSettings: "Gerenciar agente",
+        connectApps: "Conectar apps",
+        connectAppsDescription:
+          "Entre em outro app Agent-Native com uma única transferência.",
+        openConnectApps: "Abrir Conectar apps",
       },
       integrations: {
         title: "Integrações",
@@ -3705,6 +4009,23 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["pt-BR"],
           adminDescription: "Controles e operações do espaço de trabalho",
+          connectApps: "Conectar apps",
+          availableApps: "Apps disponíveis",
+          connectApp: "Conectar",
+          openApp: "Abrir",
+          appsLoadFailed: "Não foi possível carregar os apps.",
+          noAppsAvailable: "Nenhum app está disponível agora.",
+          connectByUrl: "Conectar por URL",
+          appUrl: "URL do app",
+          inspectApp: "Inspecionar app",
+          inspectingApp: "Verificando o cartão do app…",
+          appCardInvalid: "Este app não tem um cartão de conexão compatível.",
+          connectAppGrant:
+            "Sua conta será provisionada pelo handoff de identidade existente.",
+          connectAppUnsupported:
+            "Este app ainda não ativou a conexão de identidade com um clique.",
+          connectAppsPrivacy:
+            "Nenhum cookie compartilhado ou segredo de app é usado. O hub envia um handoff assinado de uso único.",
           simpleAgentsDescription:
             "Crie agentes reutilizáveis em minutos ou importe uma configuração que você já criou no Claude ou em outra ferramenta de agentes.",
           adminNavigation: "Navegação de administração",
@@ -3719,9 +4040,31 @@ export const messagesByLocale = {
           adminConnections: "Conexões",
           adminAgentPlatform: "Plataforma de agentes",
           adminWorkspaceExtensions: "Extensões do espaço de trabalho",
+          usageAlertDescription:
+            "Receba um aviso no app ou por e-mail quando o uso atingir um limite. Os alertas não interrompem o uso nem limitam cobranças.",
+          usageAlertEmpty:
+            "Ainda não há alertas. Adicione um para receber avisos quando o uso atingir o limite.",
+          usageAlertThreshold: "Limite do alerta",
+          usageAlertReached: "Limite atingido",
+          usageAlertCurrentAndThreshold:
+            "Uso: {{current}} · limite do alerta: {{threshold}} por {{period}}",
+          usageAlertDay: "dia",
+          usageAlertMonth: "mês",
           dataLoadFailed: "Não foi possível carregar os dados",
           dataLoadFailedDescription:
             "O Dispatch não conseguiu carregar estes dados.",
+          appAdoption: "Adoção de apps",
+          appAdoptionFor: "Adoção de {{name}}",
+          yourAppActivity: "Atividade do seu app",
+          appAdoptionDefinition:
+            "Ativo significa uma ação rastreada. A abertura e a visualização de apps não estão incluídas.",
+          ownerUnavailable: "Proprietário indisponível",
+          dailyActiveUsers: "Ativos diários",
+          weeklyActiveUsers: "Ativos semanais",
+          trackedActions: "Ações rastreadas",
+          trackedActionBreakdown: "Detalhamento das ações rastreadas",
+          noTrackedActions: "Nenhuma ação rastreada neste período.",
+          viewAppMetrics: "Ver métricas do app",
           tryAgain: "Tentar novamente",
           also: "Também",
           monitoring: "Monitoramento",
@@ -3729,8 +4072,8 @@ export const messagesByLocale = {
           chatAcrossApps: "Converse entre seus apps",
           chatAcrossAppsDescription:
             "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
-          overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
-          chatPromptPlaceholder: "Pergunte ao Dispatch...",
+          overviewPromptPlaceholder: "O que você gostaria de fazer?",
+          chatPromptPlaceholder: "Diga ao Dispatch o que você quer fazer…",
           browserChatUnavailableTitle:
             "Sessão de chat do navegador indisponível",
           browserChatUnavailableDescription:
@@ -3870,6 +4213,9 @@ export const messagesByLocale = {
         agentDescription:
           "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
         openAgentSettings: "एजेंट प्रबंधित करें",
+        connectApps: "ऐप कनेक्ट करें",
+        connectAppsDescription: "एक हैंडऑफ से दूसरे Agent-Native ऐप में साइन इन करें।",
+        openConnectApps: "कनेक्ट ऐप्स खोलें",
       },
       integrations: {
         title: "इंटीग्रेशन",
@@ -4112,6 +4458,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["hi-IN"],
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+          connectApps: "ऐप कनेक्ट करें",
+          availableApps: "उपलब्ध ऐप्स",
+          connectApp: "कनेक्ट करें",
+          openApp: "खोलें",
+          appsLoadFailed: "ऐप्स लोड नहीं हो सके।",
+          noAppsAvailable: "अभी कोई ऐप उपलब्ध नहीं है।",
+          connectByUrl: "URL से कनेक्ट करें",
+          appUrl: "ऐप URL",
+          inspectApp: "ऐप जांचें",
+          inspectingApp: "ऐप कार्ड जांचा जा रहा है…",
+          appCardInvalid: "इस ऐप में संगत कनेक्ट कार्ड नहीं है।",
+          connectAppGrant: "आपका खाता मौजूदा पहचान हैंडऑफ से प्रोविज़न होगा।",
+          connectAppUnsupported:
+            "इस ऐप ने अभी वन-क्लिक पहचान कनेक्ट सक्षम नहीं किया है।",
+          connectAppsPrivacy:
+            "साझा कुकी या ऐप सीक्रेट का उपयोग नहीं होता। हब हस्ताक्षरित वन-टाइम हैंडऑफ भेजता है।",
           simpleAgentsDescription:
             "कुछ ही मिनटों में दोबारा इस्तेमाल किए जा सकने वाले एजेंट बनाएं, या Claude या किसी अन्य एजेंट टूल में पहले से बनाई गई सेटअप इंपोर्ट करें।",
           adminNavigation: "व्यवस्थापक नेविगेशन",
@@ -4125,8 +4487,30 @@ export const messagesByLocale = {
           adminConnections: "कनेक्शन",
           adminAgentPlatform: "एजेंट प्लेटफ़ॉर्म",
           adminWorkspaceExtensions: "वर्कस्पेस एक्सटेंशन",
+          usageAlertDescription:
+            "उपयोग सीमा तक पहुँचने पर ऐप में या ईमेल से सूचना पाएं। अलर्ट उपयोग को रोकते या शुल्क को सीमित नहीं करते।",
+          usageAlertEmpty:
+            "अभी कोई अलर्ट नहीं है। उपयोग की सूचना पाने के लिए एक सीमा जोड़ें।",
+          usageAlertThreshold: "अलर्ट सीमा",
+          usageAlertReached: "सीमा तक पहुँचे",
+          usageAlertCurrentAndThreshold:
+            "उपयोग: {{current}} · {{period}} की अलर्ट सीमा: {{threshold}}",
+          usageAlertDay: "दिन",
+          usageAlertMonth: "महीना",
           dataLoadFailed: "डेटा लोड नहीं हो सका",
           dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
+          appAdoption: "ऐप अपनाना",
+          appAdoptionFor: "{{name}} का अपनाना",
+          yourAppActivity: "आपके ऐप की गतिविधि",
+          appAdoptionDefinition:
+            "सक्रिय का अर्थ ट्रैक की गई कार्रवाई है। ऐप खोलना और देखना शामिल नहीं है।",
+          ownerUnavailable: "मालिक उपलब्ध नहीं",
+          dailyActiveUsers: "दैनिक सक्रिय",
+          weeklyActiveUsers: "साप्ताहिक सक्रिय",
+          trackedActions: "ट्रैक की गई कार्रवाइयाँ",
+          trackedActionBreakdown: "ट्रैक की गई कार्रवाइयों का विवरण",
+          noTrackedActions: "इस अवधि में कोई ट्रैक की गई कार्रवाई नहीं है।",
+          viewAppMetrics: "ऐप मेट्रिक्स देखें",
           tryAgain: "फिर से कोशिश करें",
           also: "और भी",
           monitoring: "निगरानी",
@@ -4134,8 +4518,8 @@ export const messagesByLocale = {
           chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
           chatAcrossAppsDescription:
             "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
-          overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
-          chatPromptPlaceholder: "Dispatch से पूछें...",
+          overviewPromptPlaceholder: "आप क्या करना चाहते हैं?",
+          chatPromptPlaceholder: "Dispatch को बताएं कि आप क्या करना चाहते हैं…",
           browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
           browserChatUnavailableDescription:
             "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
@@ -4267,6 +4651,10 @@ export const messagesByLocale = {
         agentDescription:
           "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
         openAgentSettings: "إدارة الوكيل",
+        connectApps: "توصيل التطبيقات",
+        connectAppsDescription:
+          "سجّل الدخول إلى تطبيق Agent-Native آخر عبر عملية تسليم واحدة.",
+        openConnectApps: "فتح توصيل التطبيقات",
       },
       integrations: {
         title: "عمليات التكامل",
@@ -4547,6 +4935,22 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ar-SA"],
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+          connectApps: "توصيل التطبيقات",
+          availableApps: "التطبيقات المتاحة",
+          connectApp: "توصيل",
+          openApp: "فتح",
+          appsLoadFailed: "تعذر تحميل التطبيقات.",
+          noAppsAvailable: "لا توجد تطبيقات متاحة الآن.",
+          connectByUrl: "التوصيل عبر عنوان URL",
+          appUrl: "عنوان URL للتطبيق",
+          inspectApp: "فحص التطبيق",
+          inspectingApp: "جارٍ فحص بطاقة التطبيق…",
+          appCardInvalid: "لا تحتوي هذه التطبيق على بطاقة توصيل متوافقة.",
+          connectAppGrant: "سيتم توفير حسابك عبر تسليم الهوية الحالي.",
+          connectAppUnsupported:
+            "لم يفعّل هذا التطبيق توصيل الهوية بنقرة واحدة بعد.",
+          connectAppsPrivacy:
+            "لا تُستخدم ملفات تعريف ارتباط مشتركة أو أسرار تطبيق. يرسل المركز عملية تسليم موقعة لمرة واحدة.",
           simpleAgentsDescription:
             "أنشئ وكلاء قابلين لإعادة الاستخدام خلال دقائق، أو استورد إعدادًا أنشأته بالفعل في Claude أو أداة وكلاء أخرى.",
           adminNavigation: "تنقل الإدارة",
@@ -4560,8 +4964,30 @@ export const messagesByLocale = {
           adminConnections: "الاتصالات",
           adminAgentPlatform: "منصة الوكلاء",
           adminWorkspaceExtensions: "امتدادات مساحة العمل",
+          usageAlertDescription:
+            "تلقَّ إشعارًا داخل التطبيق أو عبر البريد الإلكتروني عند بلوغ الاستخدام العتبة. لا توقف التنبيهات الاستخدام ولا تحدّ من الرسوم.",
+          usageAlertEmpty:
+            "لا توجد تنبيهات بعد. أضف تنبيهًا لتلقي إشعار عند بلوغ الاستخدام العتبة.",
+          usageAlertThreshold: "عتبة التنبيه",
+          usageAlertReached: "تم بلوغ العتبة",
+          usageAlertCurrentAndThreshold:
+            "الاستخدام: {{current}} · عتبة التنبيه: {{threshold}} لكل {{period}}",
+          usageAlertDay: "يوم",
+          usageAlertMonth: "شهر",
           dataLoadFailed: "تعذر تحميل البيانات",
           dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
+          appAdoption: "اعتماد التطبيقات",
+          appAdoptionFor: "اعتماد {{name}}",
+          yourAppActivity: "نشاط تطبيقك",
+          appAdoptionDefinition:
+            "تعني الحالة النشطة تنفيذ إجراء متعقب. لا تشمل فتح التطبيقات أو عرضها.",
+          ownerUnavailable: "المالك غير متاح",
+          dailyActiveUsers: "نشط يوميًا",
+          weeklyActiveUsers: "نشط أسبوعيًا",
+          trackedActions: "الإجراءات المتعقبة",
+          trackedActionBreakdown: "تفصيل الإجراءات المتعقبة",
+          noTrackedActions: "لا توجد إجراءات متعقبة في هذه الفترة.",
+          viewAppMetrics: "عرض مقاييس التطبيق",
           tryAgain: "حاول مرة أخرى",
           also: "أيضًا",
           monitoring: "المراقبة",
@@ -4569,8 +4995,8 @@ export const messagesByLocale = {
           chatAcrossApps: "تحدث عبر تطبيقاتك",
           chatAcrossAppsDescription:
             "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
-          overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
-          chatPromptPlaceholder: "اسأل Dispatch...",
+          overviewPromptPlaceholder: "ماذا تريد أن تفعل؟",
+          chatPromptPlaceholder: "أخبر Dispatch بما تريد إنجازه…",
           browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
           browserChatUnavailableDescription:
             "أعد الاتصال من إضافة Agent-Native للمتصفح.",

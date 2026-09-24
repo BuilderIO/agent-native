@@ -27,6 +27,7 @@ interface PendingRequest {
 }
 
 type SpawnHelper = (executablePath: string) => ChildProcessWithoutNullStreams;
+const HELPER_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * A deliberately narrow client for the bundled Swift helper. It launches one fixed
@@ -108,20 +109,35 @@ export class SwiftDesktopHelperClient implements DesktopHelper {
           signal?.reason ?? new Error("Desktop helper request aborted."),
         );
       };
+      let settled = false;
+      const timeout = setTimeout(() => {
+        this.terminateProcess(
+          new Error("Desktop helper request timed out after 30 seconds."),
+        );
+      }, HELPER_REQUEST_TIMEOUT_MS);
+      timeout.unref?.();
+      const cleanup = () => {
+        if (settled) return false;
+        settled = true;
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abort);
+        return true;
+      };
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
         resolve: (value) => {
-          signal?.removeEventListener("abort", abort);
+          cleanup();
           resolve(value as T);
         },
         reject: (error) => {
-          signal?.removeEventListener("abort", abort);
+          cleanup();
           reject(error);
         },
       });
       child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`, (error) => {
         if (!error) return;
         this.pending.delete(id);
+        cleanup();
         reject(error);
       });
     });
@@ -137,9 +153,23 @@ export class SwiftDesktopHelperClient implements DesktopHelper {
     try {
       response = JSON.parse(line) as typeof response;
     } catch {
+      this.terminateProcess(
+        new Error("Desktop helper returned malformed JSON."),
+      );
       return;
     }
-    if (typeof response.id !== "number") return;
+    if (!response || typeof response !== "object") {
+      this.terminateProcess(
+        new Error("Desktop helper returned an invalid response."),
+      );
+      return;
+    }
+    if (typeof response.id !== "number") {
+      this.terminateProcess(
+        new Error("Desktop helper response omitted its id."),
+      );
+      return;
+    }
     const pending = this.pending.get(response.id);
     if (!pending) return;
     this.pending.delete(response.id);

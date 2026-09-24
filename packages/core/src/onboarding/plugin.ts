@@ -3,10 +3,13 @@
  *
  * Routes:
  *   GET  /_agent-native/onboarding/steps              — list steps + completion
+ *   GET  /_agent-native/onboarding/summary            — composed steps + dismissed + profile
  *   POST /_agent-native/onboarding/steps/:id/complete — manual override (marks complete)
  *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
  *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
+ *   GET  /_agent-native/onboarding/profile            — app profile
  *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
+ *   POST /_agent-native/onboarding/first-run/role     — save role preference
  *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
  */
 
@@ -15,14 +18,18 @@ import {
   defineEventHandler,
   getCookie,
   getMethod,
+  setCookie,
   getQuery,
+  readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
+import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -34,9 +41,25 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
+import { classifyTrackingFailure, track } from "../tracking/index.js";
+import {
+  getOnboardingRoleCategory,
+  onboardingRoleSchema,
+} from "../user-profile/shared.js";
+import {
+  getUserProfile,
+  updateUserOnboardingRole,
+} from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
+import {
+  SHARED_ONBOARDING_COOKIE,
+  SHARED_ONBOARDING_COOKIE_MAX_AGE,
+  decodeSharedOnboardingCookie,
+  encodeSharedOnboardingCookie,
+  hashOnboardingEmail,
+} from "./shared-cookie.js";
 import type {
   OnboardingResolveContext,
   OnboardingStepStatus,
@@ -59,6 +82,7 @@ export interface OnboardingPluginOptions {
 async function resolveOnboardingContext(
   event: H3Event,
 ): Promise<OnboardingResolveContext> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session) return { sessionId: "local" };
   return {
@@ -98,8 +122,11 @@ async function serializeSteps(
   // chain of credential/settings reads — walking them one at a time made this
   // route cost the SUM of every step's round trips against a remote database
   // instead of the slowest one. `Promise.all` preserves `steps` order.
-  return Promise.all(
+  const serialized = await Promise.all(
     steps.map(async (step) => {
+      if (!options.preview && step.isAvailable) {
+        if (!(await step.isAvailable(context))) return null;
+      }
       let complete = false;
       if (!options.preview) {
         try {
@@ -122,6 +149,9 @@ async function serializeSteps(
       };
     }),
   );
+  return serialized.filter(
+    (step): step is OnboardingStepStatus => step !== null,
+  );
 }
 
 function withOnboardingRequestContext<T>(
@@ -141,6 +171,36 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
 
+async function readDismissedFlag(sessionId: string): Promise<boolean> {
+  // The dismissed flag is optional UX state; a transient DB failure reading it
+  // must not take down a read whose steps and profile are still usable (the
+  // pre-summary client already assumed "not dismissed" when this read
+  // failed). A credential-store outage is not transient, so it still throws.
+  try {
+    const value = await appStateGet(sessionId, DISMISSED_KEY);
+    return !!(value && (value as { dismissed?: boolean }).dismissed);
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) throw error;
+    return false;
+  }
+}
+
+/**
+ * Without a parent cookie domain the shared cookie would be host-only, so no
+ * sibling app could read it. Warn and stay off rather than write a cookie that
+ * silently does nothing.
+ */
+async function resolveSharedCompletionEnabled(): Promise<boolean> {
+  if (!getAppConfig().onboarding.sharedCompletion.enabled) return false;
+  const { sharedFirstPartyCookieDomainAttrs } =
+    await import("../server/auth.js");
+  if (sharedFirstPartyCookieDomainAttrs().domain) return true;
+  console.warn(
+    "[onboarding] ONBOARDING_SHARED_COMPLETION is on but COOKIE_DOMAIN is not set, so sibling apps cannot read the shared cookie. Shared onboarding is disabled.",
+  );
+  return false;
+}
+
 export function createOnboardingPlugin(
   options: OnboardingPluginOptions = {},
 ): NitroPluginDef {
@@ -149,6 +209,7 @@ export function createOnboardingPlugin(
     await awaitBootstrap(nitroApp);
 
     const appProfile = getOnboardingAppProfile(options.appId);
+    const sharedCompletionEnabled = await resolveSharedCompletionEnabled();
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -271,7 +332,8 @@ export function createOnboardingPlugin(
               allComplete: allRequiredComplete(statuses),
             };
           });
-        } catch {
+        } catch (error) {
+          if (error instanceof CredentialStoreUnavailableError) throw error;
           return { dismissed: false, allComplete: false };
         }
       }),
@@ -289,6 +351,34 @@ export function createOnboardingPlugin(
       }),
     );
 
+    // GET /_agent-native/onboarding/summary — one composed read for the
+    // onboarding dialog: steps + dismissed flag + app profile. Reuses the
+    // steps serialization and the dismissed-state key instead of making the
+    // client pay for three round trips on every mount.
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/summary`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        const query = getQuery(event) as Record<string, unknown>;
+        const preview = query.preview === "1" || query.preview === 1;
+        return withOnboardingRequestContext(context, async () => {
+          const [steps, dismissed] = await Promise.all([
+            serializeSteps(context, { preview }),
+            readDismissedFlag(context.sessionId),
+          ]);
+          return {
+            steps,
+            dismissed,
+            profile: appProfile,
+          };
+        });
+      }),
+    );
+
     // GET /_agent-native/onboarding/first-run/status
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/first-run/status`,
@@ -302,6 +392,9 @@ export function createOnboardingPlugin(
         }
         const context = await resolveOnboardingContext(event);
         if (!context.userEmail) return { firstRun: false };
+        const userEmail = context.userEmail;
+        const { cookieDomainAttrs, crossSiteCookieAttrs } =
+          await import("../server/auth.js");
 
         return withOnboardingRequestContext(context, async () => {
           const completed = await appStateGet(
@@ -309,7 +402,11 @@ export function createOnboardingPlugin(
             FIRST_RUN_ONBOARDING_COMPLETED_KEY,
           );
           if (completed?.completed === true) {
-            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+              ...crossSiteCookieAttrs(event),
+              ...cookieDomainAttrs(),
+              path: "/",
+            });
             return { firstRun: false };
           }
 
@@ -325,11 +422,122 @@ export function createOnboardingPlugin(
           const firstRun =
             orgContext.orgId !== null && eligible?.orgId === orgContext.orgId;
           if (!firstRun) {
-            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+              ...crossSiteCookieAttrs(event),
+              ...cookieDomainAttrs(),
+              path: "/",
+            });
+            return { firstRun };
           }
-          return {
-            firstRun,
+
+          if (sharedCompletionEnabled) {
+            const decoded = decodeSharedOnboardingCookie(
+              getCookie(event, SHARED_ONBOARDING_COOKIE),
+            );
+            if (
+              decoded &&
+              decoded.emailHash === hashOnboardingEmail(userEmail)
+            ) {
+              // The completion marker is written last: once it exists this
+              // route returns early, so anything after it would never retry.
+              if (decoded.role) {
+                const profile = await getUserProfile(userEmail);
+                if (!profile.onboardingRole) {
+                  await updateUserOnboardingRole(userEmail, decoded.role);
+                }
+              }
+              await appStatePut(
+                context.sessionId,
+                FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+                {
+                  completed: true,
+                  at: new Date().toISOString(),
+                  source: "shared-cookie",
+                },
+                { requestSource: "agent" },
+              );
+              track(
+                "onboarding_first_run_adopted",
+                {
+                  flow: "first_run",
+                  source: "shared_cookie",
+                  role: decoded.role,
+                },
+                { userId: userEmail },
+              );
+              deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+                ...crossSiteCookieAttrs(event),
+                ...cookieDomainAttrs(),
+                path: "/",
+              });
+              return { firstRun: false };
+            }
+          }
+
+          return { firstRun };
+        });
+      }),
+    );
+
+    // POST /_agent-native/onboarding/first-run/role
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/first-run/role`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        if (!context.userEmail) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+        const body = (await readBody(event)) as { role?: unknown } | null;
+        const parsed = onboardingRoleSchema.safeParse(body?.role);
+        if (!parsed.success) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid onboarding role" };
+        }
+        const roleCategory = getOnboardingRoleCategory(parsed.data);
+
+        return withOnboardingRequestContext(context, async () => {
+          const sessionId = readBrowserSessionIdHeader(event);
+          const trackingSource = {
+            userId: context.userEmail!,
+            ...(sessionId ? { sessionId } : {}),
           };
+          try {
+            const savedRole = await updateUserOnboardingRole(
+              context.userEmail!,
+              parsed.data,
+            );
+            track(
+              // Keep the established success event name so existing funnels
+              // remain comparable; the explicit outcome marks this as the
+              // server-confirmed save rather than a client intent.
+              "onboarding.role_selected",
+              {
+                flow: "first_run",
+                step_id: "role",
+                role: roleCategory,
+                outcome: "success",
+              },
+              trackingSource,
+            );
+            return { ok: true, role: savedRole };
+          } catch (error) {
+            track(
+              "onboarding_role_save_failed",
+              {
+                flow: "first_run",
+                step_id: "role",
+                role: roleCategory,
+                failure_type: classifyTrackingFailure(error),
+              },
+              trackingSource,
+            );
+            throw error;
+          }
         });
       }),
     );
@@ -347,13 +555,45 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+        const {
+          cookieDomainAttrs,
+          crossSiteCookieAttrs,
+          isHttpsRequest,
+          sharedFirstPartyCookieDomainAttrs,
+        } = await import("../server/auth.js");
         await appStatePut(
           context.sessionId,
           FIRST_RUN_ONBOARDING_COMPLETED_KEY,
           { completed: true, at: new Date().toISOString() },
           { requestSource: "agent" },
         );
-        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+          ...crossSiteCookieAttrs(event),
+          ...cookieDomainAttrs(),
+          path: "/",
+        });
+        if (sharedCompletionEnabled) {
+          const role = await getUserProfile(context.userEmail).then(
+            (profile) => profile.onboardingRole ?? null,
+            // coercion-ok: the shared cookie is best-effort. A failed profile
+            // read still shares the completion and only drops the role; the
+            // sibling app then leaves its own role unset.
+            () => null,
+          );
+          setCookie(
+            event,
+            SHARED_ONBOARDING_COOKIE,
+            encodeSharedOnboardingCookie({ role, email: context.userEmail }),
+            {
+              ...sharedFirstPartyCookieDomainAttrs(),
+              path: "/",
+              httpOnly: true,
+              sameSite: "lax",
+              secure: isHttpsRequest(event),
+              maxAge: SHARED_ONBOARDING_COOKIE_MAX_AGE,
+            },
+          );
+        }
         return { ok: true };
       }),
     );

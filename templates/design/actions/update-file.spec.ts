@@ -9,8 +9,8 @@
  * the action reports `skippedStaleMirror: true` — while filename/fileType
  * updates in the same call still apply. A caller whose hash matches the
  * current mirror is the mirror column's own lineage (mirror-lineage rescue):
- * it writes the mirror normally AND diff-merges its content into the live
- * collab doc.
+ * it writes the mirror normally while the client retains ownership of its
+ * CRDT operations, even when their transport is delayed.
  *
  * Uses the same harness shape as apply-source-edit.interleave.spec.ts (which
  * already exercises update-file.js directly): a fake Drizzle app-DB backing
@@ -63,6 +63,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
@@ -75,6 +76,42 @@ vi.mock("@agent-native/core/collab", () => ({
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
   },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -86,10 +123,22 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
-// update-file.ts imports isPostgres via the public "@agent-native/core/db"
-// specifier: force the SQLite branch (no LOCK TABLE path) for these tests.
-vi.mock("@agent-native/core/db", () => ({
-  isPostgres: () => false,
+// Real snapshotDesignBeforeAgentEdit needs its own full design-versions DB
+// harness (covered by design-versions.spec.ts); here it's a controllable
+// stub so checkpoint.spec-style tests below can drive its return value
+// without duplicating that harness. checkpointSkippedResultField is real
+// production logic (trivial, and the thing update-file.ts actually depends
+// on), so it's re-exported unmocked. Default resolves to `null` — the exact
+// value the real function returns for every existing test in this file,
+// which calls `.run({...})` with no `context` and so never reaches it.
+const snapshotDesignBeforeAgentEditMock = vi.hoisted(() =>
+  vi.fn(async () => null as unknown),
+);
+vi.mock("../server/lib/design-versions.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/design-versions.js")
+  >()),
+  snapshotDesignBeforeAgentEdit: snapshotDesignBeforeAgentEditMock,
 }));
 
 // ---------------------------------------------------------------------------
@@ -164,6 +213,9 @@ vi.mock("../server/db/index.js", () => {
     });
   };
   const db = {
+    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    transaction: async (callback: (tx: typeof db) => Promise<unknown>) =>
+      callback(db),
     select: (_projection: unknown) => ({
       from: (table: unknown) => ({
         where: (predicate: Predicate) => {
@@ -226,6 +278,8 @@ beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
   designsStore.updatedAt.clear();
+  snapshotDesignBeforeAgentEditMock.mockReset();
+  snapshotDesignBeforeAgentEditMock.mockResolvedValue(null);
   seedFile(buildDoc());
 });
 
@@ -519,20 +573,16 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
   });
 
-  // Regression for the sequential-edit data-loss bug (mirror-lineage rescue,
-  // verified live): the client's Yjs pipe can lag or silently die, leaving
-  // the live collab doc frozen at an old state while the guarded HTTP saves
-  // keep advancing the SQL mirror. Each later save's expectedVersionHash then
-  // matches the MIRROR it was actually computed from but not the frozen live
-  // text — the old live-only comparison mis-classified that as a divergent
-  // writer and silently dropped every save after the first.
-  it("9. dead transport: live collab doc frozen at base while sequential HTTP saves advance the mirror — second save (hash == mirror tip) writes normally AND diff-merges into the live doc", async () => {
-    // Live collab doc exists but stays frozen at the base document (dead
-    // client Yjs pipe: no further updates ever arrive on that transport).
-    await applyText(FILE_ID, buildDoc(), "content", "agent");
+  it("9. delayed client updates converge after two mirror-only SQL saves", async () => {
+    const server = getOrCreateDoc(FILE_ID);
+    server.getText("content").insert(0, buildDoc());
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    const delayed: Uint8Array[] = [];
+    client.on("update", (update: Uint8Array) => delayed.push(update));
 
-    // Edit one: hash matches the live text (== base), proceeds normally.
     const editOne = buildDoc(" edit-one-");
+    applyTextDiff(client, editOne);
     await updateFileAction.run({
       id: FILE_ID,
       content: editOne,
@@ -540,30 +590,24 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: sourceContentHash(buildDoc()),
     } as never);
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editOne);
-    // The dead pipe never delivered edit one to the live doc.
-    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
-      buildDoc(),
-    );
+    expect(server.getText("content").toString()).toBe(buildDoc());
 
-    // Edit two: computed from the mirror tip (edit one). Its hash matches
-    // NEITHER the frozen live text NOR the content being written, but DOES
-    // match the current mirror — the mirror-lineage rescue must write it.
     const editTwo = buildDoc(" edit-one-and-two-");
+    applyTextDiff(client, editTwo);
     const result = await updateFileAction.run({
       id: FILE_ID,
       content: editTwo,
       syncCollab: false,
       expectedVersionHash: sourceContentHash(editOne),
     } as never);
-
     expect(result).toEqual({ id: FILE_ID, updated: true });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
-    // Mirror-lineage collab sync: the rescue also pushes the caller's content
-    // through the collab layer (exactly like syncCollab:true), so the live
-    // doc receives the second edit instead of staying silently frozen.
-    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toContain(
-      "edit-one-and-two-",
-    );
+
+    for (const update of delayed) Y.applyUpdate(server, update, "remote");
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server), "remote");
+    expect(server.getText("content").toString()).toBe(editTwo);
+    expect(client.getText("content").toString()).toBe(editTwo);
+    client.destroy();
   });
 
   it("10. caller matching NEITHER the mirror NOR the live text (genuinely stale writer): still skipped", async () => {
@@ -593,7 +637,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(liveText).not.toContain("genuinely-stale-caller-");
   });
 
-  it("11. mirror-tip caller with a DIVERGENT live doc (concurrent live-only editor): mirror advances and the caller's change is diff-merged into the live doc", async () => {
+  it("11. mirror-tip caller preserves a divergent live document while advancing SQL", async () => {
     // A live-only editor's edit sits in the collab doc...
     await applyText(
       FILE_ID,
@@ -617,17 +661,9 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(result).toEqual({ id: FILE_ID, updated: true });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 
-    // The caller's change is pushed through the collab layer as a char-diff
-    // merge. NOTE: with this fixture shape both editors' markers occupy the
-    // SAME single interpolation slot in buildDoc — the one divergent region
-    // of the document — so the prefix/suffix-trim char-diff resolves them as
-    // one replacement rather than keeping both. A real keep-both CRDT outcome
-    // requires edits in DISJOINT regions, which buildDoc cannot express, so
-    // assert that the merge ran (live doc received the caller's marker)
-    // instead of a vanity keep-both assertion this fixture can't honestly
-    // make.
-    const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
-    expect(liveText).toContain("mirror-state-plus-mine-");
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      buildDoc(" other-editors-live-only-edit-"),
+    );
   });
 
   it("12. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {
@@ -654,5 +690,67 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     // 404, not a bare 500 — otherwise the save-outbox retries the gone file
     // forever (the orphan-storm this fix prevents).
     expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
+  });
+});
+
+describe("update-file: editor-surface checkpoint skip surfaces in the result", () => {
+  it("includes checkpoint: {skipped, reason} when the auxiliary version checkpoint failed, and the write still lands", async () => {
+    snapshotDesignBeforeAgentEditMock.mockResolvedValue({
+      skipped: true,
+      reason: "blob-storage-unavailable",
+    });
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: buildDoc(" checkpoint-skip-"),
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never,
+      { caller: "frontend", actionName: "update-file" } as never,
+    );
+
+    expect(result).toMatchObject({
+      id: FILE_ID,
+      updated: true,
+      // A fixed code, never the raw Error message — see
+      // DesignVersionCheckpointSkipReason's doc comment in design-versions.ts.
+      checkpoint: {
+        skipped: true,
+        reason: "blob-storage-unavailable",
+      },
+    });
+    // A skipped checkpoint is auxiliary — the real save must not be lost.
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
+      buildDoc(" checkpoint-skip-"),
+    );
+    // update-file is one of the few callers that surfaces a skipped
+    // checkpoint to the user, so it must opt in — see
+    // snapshotDesignBeforeAgentEdit's fail-open contract in design-versions.ts.
+    expect(snapshotDesignBeforeAgentEditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { allowCheckpointFailureSkip: true },
+    );
+  });
+
+  it("omits checkpoint entirely when the version was captured normally", async () => {
+    snapshotDesignBeforeAgentEditMock.mockResolvedValue({
+      id: "design-version-1",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      label: "Before editor edit",
+    });
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: buildDoc(" checkpoint-ok-"),
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(buildDoc()),
+      } as never,
+      { caller: "frontend", actionName: "update-file" } as never,
+    );
+
+    expect(result).not.toHaveProperty("checkpoint");
   });
 });

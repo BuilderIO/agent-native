@@ -47,5 +47,7 @@ describe("CommentComposer", () => {
     const textarea = render(false);
 
     expect(textarea.disabled).toBe(false);
+    expect(textarea.className).toContain("[field-sizing:content]");
+    expect(textarea.className).toContain("max-h-48");
   });
 });

@@ -34,7 +34,7 @@ import {
   signInJourney,
 } from "../shared/sign-in-journey.js";
 import { appBasePath, appPath } from "./api-path.js";
-import { DefaultSpinner } from "./DefaultSpinner.js";
+import { AppShellSkeleton } from "./AppShellSkeleton.js";
 import { useSession } from "./use-session.js";
 
 /**
@@ -51,6 +51,7 @@ function currentJourney(returnTo?: string) {
     continuation: new URLSearchParams(search).get("c"),
     legacyReturn: new URLSearchParams(search).get("return"),
     basePath: appBasePath(),
+    homePath: window.__AGENT_NATIVE_CONFIG__?.appHomePath,
   });
 }
 
@@ -58,7 +59,7 @@ export interface RequireSessionProps {
   children: React.ReactNode;
   /**
    * Rendered while the session is being resolved and while a redirect is in
-   * flight. Defaults to the framework `<DefaultSpinner />`.
+   * flight. Defaults to the framework `<AppShellSkeleton />`.
    */
   fallback?: React.ReactNode;
   /**
@@ -147,7 +148,7 @@ function ResolvedSessionGate({
 
   // Still resolving, or redirect already in flight: show the loading fallback
   // rather than flashing app chrome the visitor can't use.
-  if (status === "loading") return <>{fallback ?? <DefaultSpinner />}</>;
+  if (status === "loading") return <>{fallback ?? <AppShellSkeleton />}</>;
   // Unreadable is not signed-out. Redirecting here would bounce a signed-in
   // user to the sign-in page over a transient 5xx, and rendering the spinner
   // would strand them on a screen that never resolves.
@@ -155,7 +156,7 @@ function ResolvedSessionGate({
     return <SessionUnavailableNotice retry={retry} />;
   }
   if (!session) {
-    if (redirect) return <>{fallback ?? <DefaultSpinner />}</>;
+    if (redirect) return <>{fallback ?? <AppShellSkeleton />}</>;
     return <>{signedOut ?? null}</>;
   }
   return <>{children}</>;

@@ -329,7 +329,7 @@ export function ShaderFillsPanel({
           >
             <IconArrowLeft className="size-3.5" />
           </button>
-          <span className="flex-1 truncate !text-[11px] font-semibold text-foreground">
+          <span className="design-sidebar-section-title flex-1 truncate text-foreground">
             {preset?.label ?? active.preset}
           </span>
           <button
@@ -349,6 +349,9 @@ export function ShaderFillsPanel({
         <div
           className="border-t border-border/70 p-2"
           onPointerUp={commitLastPreview}
+          onPointerCancel={() => {
+            dirtyRef.current = false;
+          }}
           onBlur={commitLastPreview}
         >
           <ShaderControls
@@ -365,7 +368,7 @@ export function ShaderFillsPanel({
     <div className="flex flex-col">
       {/* Header: "Shader fills" title + + button + × button */}
       <div className="flex h-6 items-center gap-1 px-3">
-        <span className="flex-1 truncate !text-[11px] font-semibold text-foreground">
+        <span className="design-sidebar-section-title flex-1 truncate text-foreground">
           {"Shader fills" /* i18n-ignore design panel title */}
         </span>
         <Tooltip>

@@ -4,24 +4,35 @@
  * Extract a JPEG frame from a public clip for external agents.
  */
 
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
 import {
+  ensureRecordingThumbnail,
+  RECORDING_THUMBNAIL_AT_MS,
+} from "../../lib/ensure-recording-thumbnail.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
+import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
-  loadRecordingMediaBytes,
+  loadRecordingMediaFile,
   queryString,
   RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
-  extractJpegFrame,
+  extractJpegFrameFromFile,
+  probeMediaDurationMsFromFile,
   VideoFrameExtractionError,
 } from "../../lib/video-frame.js";
 
@@ -78,17 +89,117 @@ function isPubliclyCacheableFrame(access: PublicAgentAccess): boolean {
   );
 }
 
-function cacheControlForAccess(access: PublicAgentAccess): string {
-  return isPubliclyCacheableFrame(access)
-    ? "public, max-age=300"
-    : "private, max-age=0, no-store";
+function cacheControlForAccess(): string {
+  return "private, max-age=0, no-store";
 }
 
-function applyFrameHeaders(event: H3Event, access: PublicAgentAccess) {
+function applyFrameHeaders(event: H3Event) {
   setResponseHeader(event, "Content-Type", "image/jpeg");
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "Cache-Control", cacheControlForAccess(access));
+  setResponseHeader(event, "Cache-Control", cacheControlForAccess());
+}
+
+async function persistDefaultThumbnailIfMissing(
+  access: PublicAgentAccess,
+  frame: Uint8Array,
+  mimeType: string,
+): Promise<void> {
+  if (access.recording.thumbnailUrl) return;
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: access.recording.ownerEmail,
+        orgId: access.recording.orgId ?? undefined,
+      },
+      () =>
+        ensureRecordingThumbnail({
+          recordingId: access.recording.id,
+          ownerEmail: access.recording.ownerEmail,
+          thumbnailBytes: frame,
+          mimeType,
+        }),
+    );
+  } catch (err: unknown) {
+    console.warn("[agent-frame] thumbnail persistence skipped", {
+      recordingId: access.recording.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function redirectToResolvedFrame(
+  event: H3Event,
+  access: PublicAgentAccess,
+  atMs: number,
+): Response {
+  const location = getRequestURL(event);
+  location.search = "";
+  location.searchParams.set("id", access.recording.id);
+  location.searchParams.set("atMs", String(atMs));
+  if (access.apiToken) {
+    location.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, access.apiToken);
+  }
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Cache-Control": cacheControlForAccess(),
+      Location: location.href,
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+async function extractFrameWithStaleDurationRecovery({
+  mediaPath,
+  atMs,
+}: {
+  mediaPath: string;
+  atMs: number;
+}): Promise<{ frame: Uint8Array; atMs: number }> {
+  try {
+    return {
+      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
+      atMs,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof VideoFrameExtractionError) ||
+      error.code !== "NO_VIDEO" ||
+      atMs <= 0
+    ) {
+      throw error;
+    }
+
+    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    if (actualDurationMs === null || actualDurationMs > atMs + 1) {
+      throw error;
+    }
+
+    const candidates = [
+      Math.max(0, actualDurationMs - 1),
+      Math.max(0, actualDurationMs - 1000),
+      0,
+    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+    for (const candidate of candidates) {
+      if (candidate === atMs) continue;
+      try {
+        return {
+          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
+          atMs: candidate,
+        };
+      } catch (candidateError) {
+        if (
+          !(candidateError instanceof VideoFrameExtractionError) ||
+          candidateError.code !== "NO_VIDEO"
+        ) {
+          throw candidateError;
+        }
+      }
+    }
+    throw error;
+  }
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -96,7 +207,7 @@ export default defineEventHandler(async (event: H3Event) => {
   const id = queryString(query.id);
   const accessResult = await loadPublicAgentAccess(event, id, {
     password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]) || queryString(query.t),
+    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
   });
 
   if (!accessResult.ok) {
@@ -107,6 +218,24 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+
+  // Held while redactions are drawn but not burned in. This route reads the
+  // stored file directly rather than going through /api/video, so that hold
+  // does not cover it: without this, anyone who can reach a public recording
+  // can ask for the exact frame a box is sitting on and get it unredacted.
+  // Only the owner is exempt — this access object knows owner-or-not, not the
+  // full role, and the safe side of that is to hold.
+  if (
+    isHeldForRedaction(
+      recording.editsJson,
+      accessResult.access.viewerIsOwner ? "owner" : null,
+    )
+  ) {
+    setResponseStatus(event, 409);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
+  }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const requestedMs = parseTimestampMs(
@@ -127,22 +256,44 @@ export default defineEventHandler(async (event: H3Event) => {
   const cacheable = isPubliclyCacheableFrame(access);
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    applyFrameHeaders(event, access);
+    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+      await persistDefaultThumbnailIfMissing(
+        access,
+        new Uint8Array(cached),
+        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
+      );
+    }
+    applyFrameHeaders(event);
     return cached;
   }
 
   try {
-    const media = await loadRecordingMediaBytes(recording);
-    const frame = await extractJpegFrame({
-      mediaBytes: media.bytes,
-      mimeType: media.mimeType,
-      atMs,
-    });
+    const media = await loadRecordingMediaFile(recording);
+    try {
+      const resolved = await extractFrameWithStaleDurationRecovery({
+        mediaPath: media.path,
+        atMs,
+      });
 
-    applyFrameHeaders(event, access);
-    const buffer = Buffer.from(frame);
-    if (cacheable) setCachedFrame(key, buffer);
-    return buffer;
+      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+        await persistDefaultThumbnailIfMissing(
+          access,
+          resolved.frame,
+          media.mimeType,
+        );
+      }
+
+      if (resolved.atMs !== atMs) {
+        return redirectToResolvedFrame(event, access, resolved.atMs);
+      }
+
+      applyFrameHeaders(event);
+      const buffer = Buffer.from(resolved.frame);
+      if (cacheable) setCachedFrame(key, buffer);
+      return buffer;
+    } finally {
+      await media.cleanup().catch(() => {});
+    }
   } catch (err) {
     const isFrameError = err instanceof VideoFrameExtractionError;
     setResponseStatus(

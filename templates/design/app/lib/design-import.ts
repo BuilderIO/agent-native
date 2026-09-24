@@ -1,9 +1,16 @@
+import { actionErrorMessage } from "@agent-native/core/client/hooks";
+import { parseFigmaFileKey } from "@shared/figma-url";
+
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
 import {
   isValidDesignClipboardManagedStyleSnapshot,
   type DesignClipboardManagedStyleSnapshot,
 } from "./design-clipboard-managed-styles";
+
+/** Match FIGMA_IMPORT_ERROR_CODES.rateLimited / .providerQuotaCooldown. */
+const FIGMA_RATE_LIMITED_ERROR_CODE = "figma_rate_limited";
+const FIGMA_PROVIDER_QUOTA_ERROR_CODE = "figma_provider_quota_cooldown";
 
 export interface FigmaFidelityReport {
   exactCount: number;
@@ -34,12 +41,20 @@ export interface ImportResult {
   unresolvedImages?: number;
   /** Set by .fig file upload: number of IMAGE fills not in the embedded blobs (need Figma API to resolve). */
   unresolvedImageRefCount?: number;
+  /** Set by the browser .fig importer when transport-sized embedded images are skipped. */
+  skippedEmbeddedImageCount?: number;
   /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;
   rateLimitType?: string;
   rateLimitUpgradeUrl?: string;
+  /**
+   * Who is throttling. Figma's own limit gets Figma copy and a plan link;
+   * `design` is our provider-API quota governor cooling down, which no Figma
+   * plan affects.
+   */
+  quotaSource?: "figma" | "design";
   fidelityReport?: FigmaFidelityReport;
   guidance?: string;
 }
@@ -50,14 +65,73 @@ export interface ImportResultNotification {
   description?: string;
 }
 
-export function isFigmaRateLimitImportError(
-  result: ImportResult | undefined,
-): boolean {
-  return (
-    (typeof result?.rateLimitRetryAfter === "number" &&
-      result.rateLimitRetryAfter > 0) ||
-    result?.rateLimitType === "low"
-  );
+/**
+ * Read a failed Figma import off an action error.
+ *
+ * `errorCode` and `details` are the only fields the action transport carries
+ * back from a `fail()`, so they are the only place these facts can be read.
+ * The panel used to read `rateLimitRetryAfter` and friends off the error
+ * object itself, which the transport had never put there: the retry countdown
+ * and upgrade link could not render, and rate limiting was recognized only by
+ * matching words in the message.
+ */
+export function readFigmaImportFailure(
+  error: unknown,
+  fallbackMessage: string,
+): { result: ImportResult & { error: string }; isRateLimited: boolean } {
+  const source = error as
+    | { errorCode?: unknown; details?: Record<string, unknown> }
+    | undefined;
+  const details = source?.details ?? {};
+  const numeric = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) && value > 0
+      ? value
+      : undefined;
+  const text = (value: unknown) =>
+    typeof value === "string" && value ? value : undefined;
+
+  return {
+    result: {
+      error:
+        actionErrorMessage(error) ??
+        (error instanceof Error ? error.message : undefined) ??
+        fallbackMessage,
+      rateLimitRetryAfter: numeric(details.retryAfterSeconds),
+      rateLimitPlanTier: text(details.planTier),
+      rateLimitType: text(details.rateLimitType),
+      rateLimitUpgradeUrl: text(details.upgradeUrl),
+      quotaSource:
+        source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE
+          ? "design"
+          : "figma",
+    },
+    isRateLimited:
+      source?.errorCode === FIGMA_RATE_LIMITED_ERROR_CODE ||
+      source?.errorCode === FIGMA_PROVIDER_QUOTA_ERROR_CODE,
+  };
+}
+
+export function figmaHydrationErrorMessage(
+  error: unknown,
+  fallbackMessage: string,
+  forbiddenMessage: string,
+): string {
+  const { result } = readFigmaImportFailure(error, fallbackMessage);
+  const source = error as
+    | {
+        errorCode?: unknown;
+        statusCode?: unknown;
+        details?: Record<string, unknown>;
+      }
+    | undefined;
+  const isFigmaForbidden =
+    source?.errorCode === "figma_request_failed" &&
+    (source.statusCode === 403 || source.details?.figmaStatus === 403);
+
+  if (isFigmaForbidden) return forbiddenMessage;
+  return /internal server error/i.test(result.error)
+    ? fallbackMessage
+    : result.error;
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =
@@ -90,6 +164,26 @@ export function getFigmaClipboardContent(
   const text = clipboardData.getData("text/plain");
   if (text && hasFigmaClipboardPayload(text)) return text;
   return null;
+}
+
+/**
+ * True when the clipboard plainly came from Figma but carries nothing
+ * `getFigmaClipboardContent` can import — a "Copy link to selection" URL, or a
+ * marker pair that arrived truncated. Callers need this apart from a null
+ * payload: a null payload is an ordinary paste and must stay silent, while
+ * this one is a paste the user expected to become a screen and must not.
+ */
+export function isAttemptedFigmaPaste(
+  clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
+): boolean {
+  if (!clipboardData) return false;
+  if (getFigmaClipboardContent(clipboardData)) return false;
+  const text = (clipboardData.getData("text/plain") ?? "").trim();
+  // "figmeta" is written by nothing but a Figma clipboard copy, so it proves
+  // the intent even when the closing marker never made it across.
+  if (/figmeta/i.test(clipboardData.getData("text/html") ?? "")) return true;
+  if (/figmeta/i.test(text)) return true;
+  return /^https?:\/\/\S+$/i.test(text) && parseFigmaFileKey(text) !== null;
 }
 
 export function importResultSummary(
@@ -223,8 +317,10 @@ function truncateForToast(value: string): string {
 export interface DesignClipboardLayerEntry {
   html: string;
   rootNodeId?: string;
+  sourceParentNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
@@ -318,6 +414,10 @@ function validateDesignClipboardPayload(
       !clipboardString(entry.html, MAX_CLIPBOARD_CONTENT_CHARS) ||
       !clipboardString(entry.sourceFileId) ||
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
+      (entry.sourceParentNodeId !== undefined &&
+        !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.styleSnapshotCaptureFailed !== undefined &&
+        typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
         !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
       (entry.managedStyleSnapshot !== undefined &&

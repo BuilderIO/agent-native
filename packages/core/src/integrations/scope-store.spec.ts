@@ -1,28 +1,27 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const db = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const statement = sqlite.prepare(input.sql);
     const args = input.args ?? [];
-    if (statement.reader) {
-      return { rows: statement.all(...args), rowsAffected: 0 };
-    }
-    const result = statement.run(...args);
-    return { rows: [], rowsAffected: result.changes };
+    const result = await pglite.query(input.sql, args);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
   }),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -40,14 +39,14 @@ const key = {
   conversationId: "channel-example",
 };
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   db.execute.mockClear();
   _resetIntegrationScopeStoreForTests();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 describe("integration scope authorization", () => {

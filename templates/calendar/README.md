@@ -26,7 +26,7 @@ the agent can do through the same actions.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-calendar --standalone --template calendar
+npx --yes @agent-native/core@latest create my-calendar --standalone --template calendar
 cd my-calendar
 pnpm install
 pnpm dev

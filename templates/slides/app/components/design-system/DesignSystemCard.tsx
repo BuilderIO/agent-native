@@ -82,83 +82,90 @@ export function DesignSystemCard({
         className="relative aspect-video p-5 flex flex-col justify-between"
         style={{ background: data.colors.background }}
       >
-        {/* Color swatches */}
-        <div className="flex items-center gap-2">
-          {swatchColors.map((s) => (
-            <div
-              key={s.label}
-              className="w-6 h-6 rounded-full border border-border shrink-0"
-              style={{ background: s.color }}
-              title={s.label}
-            />
-          ))}
-        </div>
+        {/* Swatches and action buttons share one flex row so the swatch
+            group wraps or yields space instead of rendering underneath a
+            fixed action cluster, regardless of how many swatches render. */}
+        <div className="flex items-start justify-between gap-2">
+          <div
+            className="flex flex-wrap items-center gap-2 min-w-0"
+            data-testid="design-system-swatches"
+          >
+            {swatchColors.map((s) => (
+              <div
+                key={s.label}
+                className="w-6 h-6 rounded-full border border-border shrink-0"
+                style={{ background: s.color }}
+                title={s.label}
+              />
+            ))}
+          </div>
 
-        {/* Action overlay (top-right of preview) */}
-        <div
-          className="absolute top-3 right-3 z-10 flex items-center gap-1.5"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {accessRole === "owner" && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onSetDefault}
-                  className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
-                >
-                  {isDefault ? (
-                    <IconStarFilled className="w-4 h-4 text-primary" />
-                  ) : (
-                    <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+          <div
+            className="z-10 flex shrink-0 items-center gap-1.5"
+            data-testid="design-system-actions"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {accessRole === "owner" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onSetDefault}
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                  >
+                    {isDefault ? (
+                      <IconStarFilled className="w-4 h-4 text-primary" />
+                    ) : (
+                      <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isDefault ? "Default design system" : "Set as default"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <ShareButton
+              resourceType="design-system"
+              resourceId={id}
+              allowedRoles={["viewer", "editor", "admin"]}
+              resourceTitle={title}
+            />
+            {(canManage || canSetWorkspaceDefault) && (
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("designSystems.moreActions")}
+                    className="h-9 w-9 rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                  >
+                    <IconDots className="w-4 h-4 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {canSetWorkspaceDefault && onSetWorkspaceDefault && (
+                    <DropdownMenuItem
+                      onClick={() => onSetWorkspaceDefault(!isWorkspaceDefault)}
+                    >
+                      <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                      {isWorkspaceDefault
+                        ? t("home.clearWorkspaceDefault")
+                        : t("home.setWorkspaceDefault")}
+                    </DropdownMenuItem>
                   )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isDefault ? "Default design system" : "Set as default"}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <ShareButton
-            resourceType="design-system"
-            resourceId={id}
-            allowedRoles={["viewer", "editor", "admin"]}
-            resourceTitle={title}
-          />
-          {(canManage || canSetWorkspaceDefault) && (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("designSystems.moreActions")}
-                  className="h-9 w-9 rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
-                >
-                  <IconDots className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {canSetWorkspaceDefault && onSetWorkspaceDefault && (
-                  <DropdownMenuItem
-                    onClick={() => onSetWorkspaceDefault(!isWorkspaceDefault)}
-                  >
-                    <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
-                    {isWorkspaceDefault
-                      ? t("home.clearWorkspaceDefault")
-                      : t("home.setWorkspaceDefault")}
-                  </DropdownMenuItem>
-                )}
-                {canManage && (
-                  <DropdownMenuItem
-                    onClick={onDelete}
-                    className="text-red-400 focus:text-red-400"
-                  >
-                    <IconTrash className="w-3.5 h-3.5 me-2" />
-                    {t("designSystems.delete")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                  {canManage && (
+                    <DropdownMenuItem
+                      onClick={onDelete}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <IconTrash className="w-3.5 h-3.5 me-2" />
+                      {t("designSystems.delete")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
 
         {/* Typography preview */}

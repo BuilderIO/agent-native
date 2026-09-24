@@ -18,6 +18,14 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+// The initial readiness probe is deferred past first paint; the fallback
+// timer bounds that wait at 250ms, so settling past it is deterministic.
+async function flushAfterPaint() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 function Probe({ enabled = true }: { enabled?: boolean }) {
   const status = useAgentEngineConfigured(enabled);
   return <output>{status.state}</output>;
@@ -73,6 +81,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
 
@@ -85,7 +94,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
-  it("starts the readiness check on mount without blocking the initial state", async () => {
+  it("defers the readiness check past first paint and starts it on mount", async () => {
     const responses: Array<(response: Response) => void> = [];
     vi.stubGlobal(
       "fetch",
@@ -102,7 +111,13 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("unknown");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledTimes(1);
+      });
+    });
 
     await act(async () => {
       for (const resolve of responses) {
@@ -113,6 +128,114 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+  });
+
+  it("an event inside the deferral window consumes the scheduled probe instead of duplicating it", async () => {
+    // A failed probe is the case the shared client-status cache cannot
+    // dedupe (only successful results are cached), so it is the case where
+    // the stacked scheduled probe would hit the endpoint again.
+    let engineFetchCount = 0;
+    let resolvers: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve) => {
+            if (String(input).includes("/_agent-native/agent-engine/status")) {
+              engineFetchCount += 1;
+            }
+            resolvers.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // The event-driven probe stays immediate and the scheduled initial probe
+    // is consumed, not stacked behind it.
+    expect(engineFetchCount).toBe(1);
+    // Fail the canonical probe; the legacy fallback probes it spawns fail
+    // too, so the check settles on "unavailable" (and schedules a retry the
+    // unmount below cancels).
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Settling past the paint window (fallback timer bounds it at 250ms)
+    // must not start the duplicate scheduled probe.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    expect(container.textContent).toBe("unavailable");
+  });
+
+  it("a missing-key event inside the deferral window behaves the same", async () => {
+    let engineFetchCount = 0;
+    let resolvers: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve) => {
+            if (String(input).includes("/_agent-native/agent-engine/status")) {
+              engineFetchCount += 1;
+            }
+            resolvers.push(resolve);
+          }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (const resolve of resolvers.splice(0)) {
+        resolve(new Response("unavailable", { status: 500 }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(engineFetchCount).toBe(1);
+    expect(container.textContent).toBe("unavailable");
   });
 
   it("uses missing-key events when no current engine is configured", async () => {
@@ -135,6 +258,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("missing");
 
@@ -155,6 +279,7 @@ describe("useAgentEngineConfigured", () => {
       root.render(<Probe enabled={false} />);
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
 
@@ -316,7 +441,7 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("unknown");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(300);
     });
     // Never "missing": an unanswered probe is not evidence of no provider.
     expect(container.textContent).toBe("unavailable");
@@ -391,6 +516,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
     initialCheck = false;

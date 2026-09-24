@@ -11,6 +11,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+} from "@/components/ui/empty";
+import { Kbd } from "@/components/ui/kbd";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -180,9 +187,9 @@ export function QuickAskSidebar({
             {t("quickAsk.title")}
           </SheetTitle>
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <kbd className="inline-flex items-center gap-0.5 rounded border border-border bg-muted/50 px-1 py-px font-mono">
+            <Kbd className="h-auto min-w-0 gap-0.5 rounded border border-border bg-muted/50 px-1 py-px font-mono">
               <IconCommand className="h-3 w-3" />J
-            </kbd>
+            </Kbd>
             <span>{t("quickAsk.toggleHint")}</span>
           </div>
         </SheetHeader>
@@ -230,10 +237,16 @@ export function QuickAskSidebar({
           )}
 
           {history.length === 0 && (
-            <div className="flex flex-col items-center justify-center text-center gap-2 py-6 text-muted-foreground">
-              <IconNotes className="h-5 w-5" />
-              <p className="text-xs">{t("quickAsk.emptyDescription")}</p>
-            </div>
+            <Empty className="flex-none gap-2 rounded-none py-6 md:p-6">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <IconNotes />
+                </EmptyMedia>
+                <EmptyDescription className="text-xs">
+                  {t("quickAsk.emptyDescription")}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </div>
 

@@ -5,6 +5,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+import { boolean } from "drizzle-orm/pg-core";
 
 import {
   PLAN_AUTHORS,
@@ -163,6 +164,7 @@ export const planVersions = table("plan_versions", {
     .notNull()
     .default("agent"),
   createdAt: text("created_at").notNull(),
+  chatContext: text("chat_context"),
   // Denormalized copies of summarizePlanVersion's derived fields, populated at
   // snapshot-write time so list-plan-versions can project just these small
   // columns instead of fetching + JSON.parsing every row's full snapshot_json
@@ -172,8 +174,8 @@ export const planVersions = table("plan_versions", {
   source: text("summary_source", { enum: PLAN_SOURCES }),
   blockCount: integer("block_count"),
   sectionCount: integer("section_count"),
-  hasCanvas: integer("has_canvas", { mode: "boolean" }),
-  hasPrototype: integer("has_prototype", { mode: "boolean" }),
+  hasCanvas: boolean("has_canvas"),
+  hasPrototype: boolean("has_prototype"),
   previewText: text("preview_text"),
 });
 

@@ -54,12 +54,13 @@ interface CreateFileResponse {
 export interface CreateInlineProviderOptions {
   designId: string;
   canEdit: boolean;
+  onDeleteFile?: (fileId: string) => void | Promise<void>;
 }
 
 export function createInlineProvider(
   options: CreateInlineProviderOptions,
 ): WorkspaceProvider {
-  const { designId, canEdit } = options;
+  const { designId, canEdit, onDeleteFile } = options;
   const key = `inline:${designId}`;
   // path -> fileId, populated by listFiles and refreshed on demand so
   // renameFile/deleteFile can resolve a file's id without re-listing when
@@ -177,7 +178,8 @@ export function createInlineProvider(
 
   async function deleteFile(path: string): Promise<void> {
     const id = await resolveFileId(path);
-    await callAction("delete-file", { id });
+    if (onDeleteFile) await onDeleteFile(id);
+    else await callAction("delete-file", { id });
     fileIdByPath.delete(path);
   }
 

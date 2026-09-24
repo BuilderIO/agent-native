@@ -43,7 +43,7 @@ A teammate enters an organization space, opens its Files view, reorders a person
 
 - Personal and organization-backed spaces organize Content navigation and memberships; shared access remains the resource/access model's responsibility.
 - Files, Workspaces, and sidebar sections are projections over Content objects and source-backed items, not a rival Source architecture.
-- Scope selection and saved personal navigation state are explicit. Personal ordering does not silently mutate shared Database membership or reparent a Page.
+- Scope selection and saved personal navigation state are explicit. Personal ordering does not silently mutate shared Collection membership or reparent a Page.
 - Source-backed entries retain source-adapter boundaries and unavailable states rather than pretending all files are native Content.
 
 ## Boundaries and non-goals

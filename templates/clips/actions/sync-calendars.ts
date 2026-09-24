@@ -14,7 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { accessFilter } from "@agent-native/core/sharing";

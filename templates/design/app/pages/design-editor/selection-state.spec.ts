@@ -1,14 +1,102 @@
+import type { CodeLayerNode } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import type { ElementInfo } from "@/components/design/types";
+
+import type { GeometryHistorySelection } from "./history";
 import {
+  getOverviewScreenExportGeometryById,
+  elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
+  isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
+  resolveMarqueeAdditive,
+  resolveOverviewScreenFrameGeometry,
+  resolveEffectiveSelectedLayerIds,
+  selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
+
+describe("overview screen export geometry", () => {
+  it("uses the live natural height only for explicit Hug screens", () => {
+    const persisted = {
+      hug: { x: 20, y: 40, width: 300, height: 400 },
+      fixed: { x: 360, y: 40, width: 300, height: 400 },
+    };
+    const result = getOverviewScreenExportGeometryById({
+      overviewScreens: [
+        { id: "hug", width: 300, height: 400, heightMode: "hug" },
+        { id: "fixed", width: 300, height: 400, heightMode: "fixed" },
+      ],
+      canvasFrameGeometryById: persisted,
+      naturalHeightsById: { hug: 84, fixed: 96 },
+    });
+
+    expect(result.hug).toEqual({ ...persisted.hug, height: 84 });
+    expect(result.fixed).toEqual(persisted.fixed);
+    expect(persisted.hug.height).toBe(400);
+    expect(persisted.fixed.height).toBe(400);
+  });
+
+  it("keeps persisted height until Hug content has a valid measurement", () => {
+    expect(
+      resolveOverviewScreenFrameGeometry({
+        screen: { id: "hug", width: 300, height: 400, heightMode: "hug" },
+        screenIndex: 0,
+        canvasFrameGeometryById: { hug: { width: 300, height: 400 } },
+        naturalHeight: Number.NaN,
+      }).height,
+    ).toBe(400);
+  });
+});
+
+function makeSelection(
+  overrides: Partial<GeometryHistorySelection> = {},
+): GeometryHistorySelection {
+  return {
+    overviewSelectedScreenIds: [],
+    selectedLayerIds: [],
+    activeFileId: null,
+    ...overrides,
+  };
+}
+
+function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
+  const selector = overrides.selector ?? "div";
+  return {
+    id: overrides.id ?? "node-1",
+    tag: overrides.tag ?? "div",
+    layerName: overrides.layerName ?? "Div",
+    layerNameSource: overrides.layerNameSource ?? "tag",
+    paintsOwnText: overrides.paintsOwnText ?? false,
+    repeatXFor: overrides.repeatXFor ?? null,
+    selector,
+    selectors: overrides.selectors ?? [selector],
+    path: overrides.path ?? selector,
+    attributes: overrides.attributes ?? {},
+    dataAttributes: overrides.dataAttributes ?? {},
+    classes: overrides.classes ?? [],
+    textSnippet: overrides.textSnippet ?? null,
+    style: overrides.style ?? {},
+    styleTokens: overrides.styleTokens ?? [],
+    parentId: overrides.parentId,
+    children: overrides.children ?? [],
+    layout: overrides.layout ?? {
+      siblingIndex: 0,
+      nthOfType: 1,
+      isFlexContainer: false,
+      isGridContainer: false,
+    },
+    capabilities: overrides.capabilities ?? [],
+    confidence: overrides.confidence ?? 1,
+    source: overrides.source ?? null,
+    componentInstance: overrides.componentInstance,
+  };
+}
 
 describe("getOverviewScreenContentKey", () => {
   it("keeps inline overview identity stable across active switch, content edits, and revision bumps", () => {
@@ -75,6 +163,23 @@ describe("shouldClearSelectionForReviewThreadTarget", () => {
       shouldClearSelectionForReviewThreadTarget({
         activeFileId: "screen-a",
         targetId: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears screen selection when a board thread becomes the focus", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: null,
+        boardFileId: "board",
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "board",
+        targetId: null,
+        boardFileId: "board",
       }),
     ).toBe(false);
   });
@@ -294,5 +399,152 @@ describe("overviewSelectionTargetsElement", () => {
         fileIds: ["screen-1"],
       }),
     ).toBe(false);
+  });
+});
+
+// Figma parity (figma-ground-truth.md Round 4): selection-only undo/redo —
+// see SelectionHistoryEntry's doc comment (history.ts).
+describe("isUserOriginatedSelectionIntent", () => {
+  it("is false for a gesture/echo reselect with no intent (duplicate clone, catch-up echo, reparent commit)", () => {
+    expect(isUserOriginatedSelectionIntent(undefined)).toBe(false);
+  });
+
+  it("is true for a real pointer click", () => {
+    expect(
+      isUserOriginatedSelectionIntent({ source: "pointer", additive: false }),
+    ).toBe(true);
+  });
+
+  it("is true for a keyboard or marquee pick", () => {
+    expect(isUserOriginatedSelectionIntent({ source: "keyboard" })).toBe(true);
+    expect(isUserOriginatedSelectionIntent({ source: "marquee" })).toBe(true);
+  });
+});
+
+describe("resolveMarqueeAdditive", () => {
+  it("preserves Shift additive semantics for pointer picks", () => {
+    expect(resolveMarqueeAdditive({ shiftKey: true, source: "pointer" })).toBe(
+      true,
+    );
+  });
+});
+
+describe("selectionHistorySnapshotsEqual", () => {
+  it("treats two snapshots with the same fields as equal", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"], activeFileId: "screen-1" }),
+        makeSelection({ selectedLayerIds: ["a"], activeFileId: "screen-1" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is false when the selected layer ids differ (click A, click B)", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"] }),
+        makeSelection({ selectedLayerIds: ["b"] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when one side deselected to nothing", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ selectedLayerIds: ["a"] }),
+        makeSelection({ selectedLayerIds: [] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when only the active file differs", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ activeFileId: "screen-1" }),
+        makeSelection({ activeFileId: "screen-2" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when only the overview screen selection differs", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({ overviewSelectedScreenIds: ["screen-1"] }),
+        makeSelection({ overviewSelectedScreenIds: ["screen-2"] }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("elementInfoForSelectionSnapshot", () => {
+  it("derives the canvas selection overlay's element from a single restored layer id", () => {
+    const node = makeNode({ id: "box-a", tag: "div" });
+    const owners = new Map([["box-a", { node }]]);
+
+    const info = elementInfoForSelectionSnapshot(
+      makeSelection({ selectedLayerIds: ["box-a"] }),
+      owners,
+    );
+
+    expect(info?.tagName).toBe("div");
+  });
+
+  it("returns null for a multi-layer selection (no single overlay to restore)", () => {
+    const owners = new Map([
+      ["box-a", { node: makeNode({ id: "box-a" }) }],
+      ["box-b", { node: makeNode({ id: "box-b" }) }],
+    ]);
+
+    expect(
+      elementInfoForSelectionSnapshot(
+        makeSelection({ selectedLayerIds: ["box-a", "box-b"] }),
+        owners,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for an empty selection (deselected)", () => {
+    expect(
+      elementInfoForSelectionSnapshot(makeSelection(), new Map()),
+    ).toBeNull();
+  });
+
+  it("returns null when the layer id has no owner (e.g. a selected screen id)", () => {
+    expect(
+      elementInfoForSelectionSnapshot(
+        makeSelection({ selectedLayerIds: ["screen-1"] }),
+        new Map(),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("resolveEffectiveSelectedLayerIds", () => {
+  it("does not resurrect a member a Shift+click toggle-off just removed, once the primary follows the remaining member", () => {
+    // A+B selected, Shift+click A -> stored ids [B]; runScreenElementSelect's
+    // toggle-off branch must have already moved selectedElement (and so
+    // selectedElementLayerId) to B for this not to re-add A.
+    expect(resolveEffectiveSelectedLayerIds(["node-b"], "node-b")).toEqual([
+      "node-b",
+    ]);
+  });
+
+  it("re-adds the primary when a stale re-anchoring echo dropped it from an otherwise multi-item selection", () => {
+    expect(
+      resolveEffectiveSelectedLayerIds(["node-a", "node-b"], "node-c"),
+    ).toEqual(["node-a", "node-b", "node-c"]);
+  });
+
+  it("replaces a single-item (or empty) filtered selection with just the primary when it fell out", () => {
+    expect(resolveEffectiveSelectedLayerIds(["node-a"], "node-b")).toEqual([
+      "node-b",
+    ]);
+    expect(resolveEffectiveSelectedLayerIds([], "node-b")).toEqual(["node-b"]);
+  });
+
+  it("passes the filtered selection through unchanged when there is no primary", () => {
+    expect(resolveEffectiveSelectedLayerIds(["node-a"], null)).toEqual([
+      "node-a",
+    ]);
   });
 });

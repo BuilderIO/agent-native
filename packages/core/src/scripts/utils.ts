@@ -3,6 +3,10 @@ import path from "path";
 
 import dotenv from "dotenv";
 
+// `fail()` lives next to the ActionContractError it raises so the `/action`
+// subpath can export it too. Re-exported here for existing script imports.
+export { fail, type FailOptions } from "../action.js";
+
 // Re-export pure arg-parsing utilities (no Node.js deps, browser-safe)
 export { parseArgs, camelCaseArgs } from "./parse-args.js";
 
@@ -117,14 +121,4 @@ export function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-}
-
-/**
- * Throw an error to abort a script. When running as a CLI (`pnpm script`),
- * the runner catches this and exits with code 1. When running in-server
- * (agent tools, A2A handlers), the error is caught by the wrapper and
- * returned as a tool result — no process.exit needed.
- */
-export function fail(message: string): never {
-  throw new Error(message);
 }

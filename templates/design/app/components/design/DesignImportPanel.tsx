@@ -3,6 +3,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { docsUrl } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
+  IconAlertTriangle,
   IconBrandFigma,
   IconBrandGithub,
   IconChevronRight,
@@ -13,32 +14,44 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import {
   importResultNotification,
-  isFigmaRateLimitImportError,
   looksLikeStandaloneHtml,
+  readFigmaImportFailure,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
 } from "@/lib/design-import";
+import type {
+  FigClientImportProgress,
+  PreparedFigImport,
+} from "@/lib/fig-client-import";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
-import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -55,13 +68,18 @@ type ImportMode =
   | "html"
   | "local-app";
 
+type FigImportPreview = PreparedFigImport["summary"] & {
+  fileName: string;
+};
+
 export function DesignImportPanel(p: DesignImportPanelProps) {
   const context = p.context;
   const onImport = p.onImport;
   const onImportRef = useRef(onImport);
   onImportRef.current = onImport;
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
@@ -91,7 +109,39 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const [figUploadProgress, setFigUploadProgress] = useState<number | null>(
     null,
   );
+  const [figUploadPhase, setFigUploadPhase] = useState<
+    FigClientImportProgress["phase"] | "uploading"
+  >("uploading");
+  const [figSaveCount, setFigSaveCount] = useState<{
+    saved: number;
+    total: number;
+  } | null>(null);
   const [figUploadBusy, setFigUploadBusy] = useState(false);
+  const [figImportPreview, setFigImportPreview] =
+    useState<FigImportPreview | null>(null);
+  const [figImportSelection, setFigImportSelection] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
+  const unmountedRef = useRef(false);
+
+  // A prepared import holds a Worker with the decoded document in it.
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      pendingFigImportRef.current?.dispose();
+    };
+  }, []);
+
+  const clearFigUploadState = useCallback(() => {
+    setFigUploadBusy(false);
+    setFigUploadName(null);
+    setFigUploadProgress(null);
+    setFigUploadPhase("uploading");
+    setFigSaveCount(null);
+    if (figFileInputRef.current) figFileInputRef.current.value = "";
+  }, []);
 
   const finishImport = useCallback(
     async (result: ImportResult | undefined, fallback: string) => {
@@ -119,6 +169,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           }),
         );
       }
+      const skippedEmbeddedImageCount = result?.skippedEmbeddedImageCount;
+      if (skippedEmbeddedImageCount) {
+        fidelityWarnings.push(
+          t("designEditor.import.figUploadImagesSkippedWarning", {
+            count: formatNumber(skippedEmbeddedImageCount),
+          }),
+        );
+      }
       const notification = importResultNotification(result, fallback, {
         fidelityWarnings,
       });
@@ -129,7 +187,9 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       } else {
         toast.success(notification.title);
       }
-      navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
+      void navigate(
+        `/design/${result?.designId ?? context.designId}?editorView=overview`,
+      );
     },
     [context.designId, formatNumber, navigate, queryClient, t],
   );
@@ -234,40 +294,16 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     } catch (error) {
       // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
-      const rateLimitDetails = error as Error & {
-        rateLimitRetryAfter?: number;
-        rateLimitPlanTier?: string;
-        figmaPlanTier?: string;
-        rateLimitType?: string;
-        figmaRateLimitType?: string;
-        rateLimitUpgradeUrl?: string;
-        figmaUpgradeUrl?: string;
-      };
-      const rateLimitResult: ImportResult = {
-        error:
-          typeof rateLimitDetails.message === "string"
-            ? rateLimitDetails.message
-            : t("common.genericError"),
-        rateLimitRetryAfter: rateLimitDetails.rateLimitRetryAfter,
-        rateLimitPlanTier:
-          rateLimitDetails.rateLimitPlanTier ?? rateLimitDetails.figmaPlanTier,
-        rateLimitType:
-          rateLimitDetails.rateLimitType ?? rateLimitDetails.figmaRateLimitType,
-        rateLimitUpgradeUrl:
-          rateLimitDetails.rateLimitUpgradeUrl ??
-          rateLimitDetails.figmaUpgradeUrl,
-      };
-      const isRateLimitError =
-        (error instanceof Error &&
-          /rate limit|429|quota/i.test(error.message)) ||
-        isFigmaRateLimitImportError(rateLimitResult);
-      if (isRateLimitError) {
-        setFigmaRateLimitError(rateLimitResult);
+      const { result, isRateLimited } = readFigmaImportFailure(
+        error,
+        t("common.genericError"),
+      );
+      if (isRateLimited) {
+        setFigmaRateLimitError(result);
         setActiveMode("fig-upload");
       }
       toast.error(t("designEditor.import.errors.figmaImportFailed"), {
-        description:
-          error instanceof Error ? error.message : t("common.genericError"),
+        description: result.error,
       });
     } finally {
       setFigmaConnectionBusy(false);
@@ -295,23 +331,70 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     [importHtmlString],
   );
 
+  const runPreparedFigImport = useCallback(
+    async (prepared: PreparedFigImport, selection?: ReadonlySet<string>) => {
+      setFigUploadName(prepared.file.name);
+      setFigUploadProgress(0);
+      setFigUploadPhase("rendering");
+      setFigUploadBusy(true);
+      try {
+        let result: ImportResult;
+        try {
+          const { importFigInBrowser } =
+            await import("@/lib/fig-client-import");
+          result = await importFigInBrowser({
+            designId: context.designId,
+            file: prepared.file,
+            prepared,
+            selection,
+            onProgress: ({ phase, ratio, saved, total }) => {
+              setFigUploadPhase(phase);
+              setFigUploadProgress(Math.round((ratio ?? 0) * 90) + 5);
+              setFigSaveCount(
+                saved === undefined || total === undefined
+                  ? null
+                  : { saved, total },
+              );
+            },
+          });
+        } catch (localError) {
+          if (
+            selection ||
+            prepared.file.size > MAX_FIG_UPLOAD_BYTES ||
+            (localError as { remoteMutationStarted?: unknown })
+              .remoteMutationStarted === true
+          ) {
+            throw localError;
+          }
+          console.warn(
+            "[fig-import] in-browser conversion failed; falling back to the upload route.",
+            localError,
+          );
+          setFigUploadPhase("uploading");
+          result = await uploadDesignFile({
+            designId: context.designId,
+            file: prepared.file,
+            fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+            onProgress: ({ percent }) => setFigUploadProgress(percent),
+          });
+        }
+        await finishImport(result, t("designEditor.import.uploadSuccess"));
+        setFigmaRateLimitError(null);
+      } finally {
+        clearFigUploadState();
+      }
+    },
+    [clearFigUploadState, context.designId, finishImport, t],
+  );
+
   const handleFigFileChange = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
       setActiveMode("fig-upload");
-      const validationError = validateFigUploadFile(file);
+      const validationError = validateFigUploadFile(file, { maxBytes: null });
       if (validationError === "invalid-extension") {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description: t("designEditor.import.errors.invalidFigFile"),
-        });
-        if (figFileInputRef.current) figFileInputRef.current.value = "";
-        return;
-      }
-      if (validationError === "too-large") {
-        toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description: t("designEditor.import.errors.figFileTooLarge", {
-            max: MAX_UPLOAD_MB,
-          }),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
         return;
@@ -321,28 +404,106 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       setFigUploadProgress(0);
       setFigUploadBusy(true);
       try {
-        const result = await uploadDesignFile({
-          designId: context.designId,
-          file,
-          fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
-          onProgress: ({ percent }) => setFigUploadProgress(percent),
-        });
-        await finishImport(result, t("designEditor.import.uploadSuccess"));
-        setFigmaRateLimitError(null);
+        let prepared: PreparedFigImport;
+        try {
+          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
+          // plus three codec packages, and an editor that never opens a `.fig`
+          // should not pay for them on first paint.
+          const { prepareFigImport, shouldWarnForFigImport } =
+            await import("@/lib/fig-client-import");
+          prepared = await prepareFigImport(file, ({ phase }) => {
+            setFigUploadPhase(phase);
+            setFigUploadProgress(phase === "decoding" ? 5 : 0);
+          });
+          if (unmountedRef.current) {
+            prepared.dispose();
+            return;
+          }
+          if (shouldWarnForFigImport(file.size, prepared.summary)) {
+            pendingFigImportRef.current = prepared;
+            setFigImportSelection(
+              new Set(prepared.summary.frames.map((frame) => frame.id)),
+            );
+            setFigImportPreview({
+              ...prepared.summary,
+              fileName: file.name,
+            });
+            return;
+          }
+        } catch (localError) {
+          if (
+            file.size > MAX_FIG_UPLOAD_BYTES ||
+            (localError as { remoteMutationStarted?: unknown })
+              .remoteMutationStarted === true
+          ) {
+            throw localError;
+          }
+          console.warn(
+            "[fig-import] in-browser decode failed; falling back to the upload route.",
+            localError,
+          );
+          setFigUploadPhase("uploading");
+          const result = await uploadDesignFile({
+            designId: context.designId,
+            file,
+            fallbackErrorMessage: t("designEditor.import.errors.uploadFailed"),
+            onProgress: ({ percent }) => setFigUploadProgress(percent),
+          });
+          await finishImport(result, t("designEditor.import.uploadSuccess"));
+          setFigmaRateLimitError(null);
+          return;
+        }
+        await runPreparedFigImport(prepared);
       } catch (error) {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description:
             error instanceof Error ? error.message : t("common.genericError"),
         });
       } finally {
-        setFigUploadBusy(false);
-        setFigUploadName(null);
-        setFigUploadProgress(null);
-        if (figFileInputRef.current) figFileInputRef.current.value = "";
+        clearFigUploadState();
       }
     },
-    [context.designId, finishImport, t],
+    [
+      clearFigUploadState,
+      context.designId,
+      finishImport,
+      runPreparedFigImport,
+      t,
+    ],
   );
+
+  const toggleFigImportFrame = useCallback((id: string, checked: boolean) => {
+    setFigImportSelection((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const cancelFigImportPreview = useCallback(() => {
+    pendingFigImportRef.current?.dispose();
+    pendingFigImportRef.current = null;
+    setFigImportPreview(null);
+    setFigImportSelection(new Set());
+    clearFigUploadState();
+  }, [clearFigUploadState]);
+
+  const confirmFigImport = useCallback(async () => {
+    const prepared = pendingFigImportRef.current;
+    if (!prepared || figImportSelection.size === 0) return;
+    const selection = new Set(figImportSelection);
+    pendingFigImportRef.current = null;
+    setFigImportPreview(null);
+    try {
+      await runPreparedFigImport(prepared, selection);
+    } catch (error) {
+      toast.error(t("designEditor.import.errors.uploadFailed"), {
+        description:
+          error instanceof Error ? error.message : t("common.genericError"),
+      });
+    }
+  }, [figImportSelection, runPreparedFigImport, t]);
 
   const copyVisualEditCommand = useCallback(
     async (command: string) => {
@@ -360,6 +521,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     importSource.isPending ||
     importFigmaFrame.isPending ||
     figUploadBusy ||
+    Boolean(figImportPreview) ||
     figmaConnectionBusy;
 
   return (
@@ -375,12 +537,16 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           {figmaRateLimitError ? (
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-snug">
               <p className="font-medium text-destructive">
-                {t("designEditor.import.rateLimitTitle")}
+                {figmaRateLimitError.quotaSource === "design"
+                  ? t("designEditor.import.quotaCooldownTitle")
+                  : t("designEditor.import.rateLimitTitle")}
               </p>
               <p className="text-muted-foreground">
-                {figmaRateLimitError.rateLimitType === "low"
-                  ? t("designEditor.import.rateLimitLowSeat")
-                  : t("designEditor.import.rateLimitGeneric")}
+                {figmaRateLimitError.quotaSource === "design"
+                  ? t("designEditor.import.quotaCooldownBody")
+                  : figmaRateLimitError.rateLimitType === "low"
+                    ? t("designEditor.import.rateLimitLowSeat")
+                    : t("designEditor.import.rateLimitGeneric")}
               </p>
               {figmaRateLimitError.rateLimitRetryAfter ? (
                 <p className="text-muted-foreground">
@@ -570,10 +736,103 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
           >
             <div className="space-y-2 p-2">
               <p className="text-[11px] leading-snug text-muted-foreground">
-                {t("designEditor.import.figUploadDescription", {
-                  max: MAX_UPLOAD_MB,
-                })}
+                {t("designEditor.import.figUploadDescriptionShort")}
               </p>
+              {figImportPreview ? (
+                <div
+                  className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs"
+                  role="alert"
+                >
+                  <div className="flex items-start gap-2">
+                    <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="font-medium text-foreground">
+                        {t("designEditor.import.figImportWarningTitle")}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {figImportPreview.fileName}
+                      </p>
+                      <p className="leading-snug text-muted-foreground">
+                        {t("designEditor.import.figImportWarningDescription", {
+                          frames: formatNumber(figImportPreview.frameCount),
+                          nodes: formatNumber(figImportPreview.nodeCount),
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  {figImportPreview.frames.length > 1 ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          {t("designEditor.import.figImportFrameCount", {
+                            selected: formatNumber(figImportSelection.size),
+                            total: formatNumber(figImportPreview.frames.length),
+                          })}
+                        </span>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setFigImportSelection(
+                                new Set(
+                                  figImportPreview.frames.map(
+                                    (frame) => frame.id,
+                                  ),
+                                ),
+                              )
+                            }
+                          >
+                            {t("designEditor.import.figImportSelectAll")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setFigImportSelection(new Set())}
+                          >
+                            {t("designEditor.import.figImportClearAll")}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="max-h-40 space-y-0.5 overflow-y-auto rounded border border-border/60 bg-background/60 p-1">
+                        {figImportPreview.frames.map((frame) => (
+                          <FigImportFrameRow
+                            key={frame.id}
+                            frame={frame}
+                            checked={figImportSelection.has(frame.id)}
+                            onCheckedChange={toggleFigImportFrame}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={cancelFigImportPreview}
+                    >
+                      {t("designEditor.import.figImportCancel")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={figImportSelection.size === 0}
+                      onClick={() => void confirmFigImport()}
+                    >
+                      {figImportSelection.size ===
+                      figImportPreview.frames.length
+                        ? t("designEditor.import.figImportAll")
+                        : t("designEditor.import.figImportSelected", {
+                            count: formatNumber(figImportSelection.size),
+                          })}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               <input
                 ref={figFileInputRef}
                 type="file"
@@ -605,11 +864,19 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                       {figUploadName}
                     </span>
                     <span className="tabular-nums">
-                      {figUploadProgress === 100
-                        ? t("designEditor.import.figUploadProcessing")
-                        : t("designEditor.import.figUploadUploading", {
-                            progress: figUploadProgress ?? 0,
-                          })}
+                      {figUploadPhase === "decoding"
+                        ? t("designEditor.import.figImportAnalyzing")
+                        : figUploadPhase === "rendering" ||
+                            figUploadProgress === 100
+                          ? t("designEditor.import.figUploadProcessing")
+                          : figSaveCount
+                            ? t("designEditor.import.figImportSaving", {
+                                saved: formatNumber(figSaveCount.saved),
+                                total: formatNumber(figSaveCount.total),
+                              })
+                            : t("designEditor.import.figUploadUploading", {
+                                progress: figUploadProgress ?? 0,
+                              })}
                     </span>
                   </div>
                   <div
@@ -757,6 +1024,39 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     </div>
   );
 }
+
+/** Memoized: toggling one of a few hundred frames re-renders only its row. */
+const FigImportFrameRow = memo(function FigImportFrameRow({
+  frame,
+  checked,
+  onCheckedChange,
+}: {
+  frame: FigImportPreview["frames"][number];
+  checked: boolean;
+  onCheckedChange: (id: string, checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-muted/60">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(next) => onCheckedChange(frame.id, next === true)}
+        className="mt-0.5"
+        aria-label={frame.frameName}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-foreground">
+          {frame.frameName}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {frame.pageName}
+          {frame.width && frame.height
+            ? ` · ${Math.round(frame.width)} × ${Math.round(frame.height)}`
+            : ""}
+        </span>
+      </span>
+    </label>
+  );
+});
 
 function VisualEditCommandRow({
   command,

@@ -48,7 +48,7 @@ export function UpdateIndicator() {
       className="code-agents-nav-link update-indicator update-indicator--ready"
       onClick={() => updater.install()}
       title={`Update ${status.version} ready - click to restart`}
-      aria-label={`Restart to update Agent Native to version ${status.version}`}
+      aria-label={`Restart to update Agent-Native to version ${status.version}`}
       data-update-indicator
     >
       <IconRefresh size={15} strokeWidth={1.75} />

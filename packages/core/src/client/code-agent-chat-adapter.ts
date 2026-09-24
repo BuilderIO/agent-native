@@ -112,6 +112,7 @@ export function createCodeAgentChatAdapter(
       const runId = options.runIdRef.current;
       if (!runId) {
         yield errorResult("Select an Agent-Native Code session first.");
+        await Promise.resolve();
         return;
       }
 
@@ -138,9 +139,7 @@ export function createCodeAgentChatAdapter(
         return;
       }
 
-      let stoppedFromAbort = false;
       const stopForAbort = () => {
-        stoppedFromAbort = true;
         if (stopOnAbort) {
           void options.controller.control({ runId, command: "stop" });
         }
@@ -240,9 +239,6 @@ export function createCodeAgentChatAdapter(
         }
       } finally {
         abortSignal.removeEventListener("abort", stopForAbort);
-        if (stoppedFromAbort) {
-          return;
-        }
       }
     },
   };

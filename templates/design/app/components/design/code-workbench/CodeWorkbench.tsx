@@ -69,6 +69,7 @@ export interface CodeWorkbenchProps {
   selectedNodeId?: string | null;
   selectedSelector?: string | null;
   localhostConnections?: CodeWorkbenchLocalhostConnection[];
+  onDeleteInlineFile?: (fileId: string) => void | Promise<void>;
   onActiveFileChange?: (file: CodeWorkbenchActiveFile | null) => void;
   onRequestLocalWriteConsent?: (
     connectionId: string,
@@ -84,9 +85,15 @@ export function CodeWorkbench(props: CodeWorkbenchProps) {
       createWorkspaceProviders({
         designId: props.designId,
         canEdit: props.canEdit,
+        onDeleteInlineFile: props.onDeleteInlineFile,
         localhostConnections: props.localhostConnections ?? [],
       }),
-    [props.designId, props.canEdit, props.localhostConnections],
+    [
+      props.designId,
+      props.canEdit,
+      props.localhostConnections,
+      props.onDeleteInlineFile,
+    ],
   );
   return (
     <WorkbenchProvider key={props.designId} providers={providers}>
@@ -332,6 +339,7 @@ function CodeWorkbenchInner({
     });
   }, [
     state.activeUri,
+    activeBuffer,
     activeBuffer?.fileId,
     activeBuffer?.dirty,
     activeBuffer?.savedVersionHash,

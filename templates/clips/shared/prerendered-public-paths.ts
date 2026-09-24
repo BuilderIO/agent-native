@@ -12,10 +12,11 @@
  *
  * Before adding a path, check all three:
  * - its loader can never `throw redirect()` (prerender freezes a 301 as a 200
- *   HTML page, so `/`, which redirects to `/library`, stays on the function);
+ *   HTML page, so the private `/home` redirect stays on the function);
  * - it renders nothing derived from the URL's query string (`/bug-report` and
  *   `/bug-report/done` prefill from search params, so they stay dynamic);
- * - it reads no per-viewer data on the server (`/share/:id`, `/r/:id`,
- *   `/embed/:id` are public but database-backed).
+ * - it reads no per-viewer data on the server (`/share/:id` and `/embed/:id`
+ *   are public but database-backed; `/r/:id` is auth-aware and therefore
+ *   remains dynamic).
  */
 export const PRERENDERED_PUBLIC_PAGE_PATHS = ["/download"] as const;

@@ -26,9 +26,12 @@ const clientState = vi.hoisted(() => ({
     onEffortChange: vi.fn(),
     refreshEngines: vi.fn(),
   })),
+  activeOrgId: "org-a" as string | null,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (namespace: string) =>
+    `agent-native:chat-models:selection:${namespace}`,
   navigateWithAgentChatViewTransition: (
     navigate: unknown,
     path: string,
@@ -41,6 +44,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  PromptBar: ({ children }: { children?: React.ReactNode }) => (
+    <div data-prompt-bar="inline">{children}</div>
+  ),
   PromptComposer: (props: Record<string, unknown>) => {
     clientState.promptComposerProps = props;
     const onSubmit = props.onSubmit as (value: string) => void;
@@ -78,7 +84,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrgRole: () => ({
+    org: clientState.activeOrgId
+      ? { orgId: clientState.activeOrgId }
+      : undefined,
+  }),
+}));
+
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => "web",
   isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
@@ -102,6 +117,21 @@ describe("DispatchControlPlane", () => {
   let root: Root;
   let queryClient: QueryClient;
 
+  async function searchApps(query: string) {
+    const input = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Search apps"]',
+    );
+    expect(input).not.toBeNull();
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      valueSetter?.call(input, query);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.inBuilderFrame = false;
@@ -110,6 +140,7 @@ describe("DispatchControlPlane", () => {
     clientState.workspaceApps = [];
     clientState.connectedApps = [];
     clientState.curatedTemplates = [];
+    clientState.activeOrgId = "org-a";
     clientState.useChatModels.mockClear();
     queryClient = new QueryClient({
       defaultOptions: {
@@ -160,11 +191,15 @@ describe("DispatchControlPlane", () => {
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('[data-prompt-bar="inline"]'),
+    ).not.toBeNull();
     expect(clientState.useChatModels).toHaveBeenCalledWith({
-      storageKey: "dispatch",
+      storageKey: "agent-native:chat-models:selection:dispatch",
     });
     expect(clientState.promptComposerProps).toMatchObject({
       availableModels: [],
+      draftScope: "dispatch:overview:org-a",
       modelListLoading: false,
       selectedEffort: "medium",
       selectedEngine: "",
@@ -224,6 +259,40 @@ describe("DispatchControlPlane", () => {
     );
   });
 
+  it("keeps overview drafts isolated by active organization", async () => {
+    const renderOverview = async () => {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/overview"]}>
+            <TooltipProvider>
+              <QueryClientProvider client={queryClient}>
+                <DispatchControlPlane />
+              </QueryClientProvider>
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview:org-a",
+    });
+
+    clientState.activeOrgId = "org-b";
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview:org-b",
+    });
+
+    clientState.activeOrgId = null;
+    await renderOverview();
+    expect(clientState.promptComposerProps).toMatchObject({
+      draftScope: "dispatch:overview",
+    });
+  });
+
   it("shows mounted and connected apps together without duplicates", async () => {
     clientState.workspaceApps = [
       {
@@ -255,6 +324,7 @@ describe("DispatchControlPlane", () => {
         name: "Mail",
         description: "Email client",
         url: "https://mail.agent-native.com",
+        source: "builtin",
       },
       {
         id: "clips",
@@ -268,6 +338,14 @@ describe("DispatchControlPlane", () => {
         id: "onboarding",
         name: "Duplicate onboarding",
         url: "https://duplicate.example.com",
+        source: "custom",
+      },
+      {
+        id: "custom-app",
+        name: "Custom app",
+        description: "A workspace-connected app",
+        url: "https://custom.agent-native.com",
+        source: "custom",
       },
     ];
     clientState.curatedTemplates = [
@@ -301,7 +379,8 @@ describe("DispatchControlPlane", () => {
 
     expect(container.textContent).toContain("Onboarding");
     expect(container.textContent).toContain("Mail");
-    expect(container.textContent).toContain("Clips");
+    expect(container.textContent).toContain("Custom app");
+    expect(container.textContent).not.toContain("Clips");
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
@@ -318,6 +397,12 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
     expect(
+      Array.from(container.querySelectorAll("a")).some(
+        (anchor) =>
+          anchor.getAttribute("href") === "https://custom.agent-native.com",
+      ),
+    ).toBe(true);
+    expect(
       container.querySelectorAll(
         'button[aria-label="Open options for Onboarding"]',
       ),
@@ -332,13 +417,61 @@ describe("DispatchControlPlane", () => {
         );
     });
     const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
-      'a[href="/onboarding"][target="_blank"]',
+      'a[href="/onboarding/home"][target="_blank"]',
     );
     expect(onboardingNewTabLink).not.toBeNull();
-    const clipsHref = Array.from(container.querySelectorAll("a"))
-      .map((anchor) => anchor.getAttribute("href"))
-      .find((href) => href?.includes("clips.agent-native.com"));
-    expect(clipsHref).toContain("https://clips.agent-native.com");
-    expect(clipsHref).not.toContain("/share/");
+  });
+
+  it("searches available apps case-insensitively before showing the empty state", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "analytics",
+        name: "Analytics",
+        path: "/analytics",
+        status: "ready",
+        isDispatch: false,
+      },
+    ];
+    clientState.curatedTemplates = [
+      {
+        id: "brain",
+        name: "Brain",
+        description: "Search cited company knowledge",
+        liveUrl: "https://brain.agent-native.com",
+        installed: false,
+      },
+      {
+        id: "assets",
+        name: "Assets",
+        description: "Manage brand assets",
+        liveUrl: "https://assets.agent-native.com",
+        installed: false,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await searchApps("Brain");
+    expect(container.textContent).toContain("Brain");
+    expect(container.textContent).not.toContain("Assets");
+    expect(container.textContent).not.toContain("No apps match your search");
+
+    await searchApps("brain");
+    expect(container.textContent).toContain("Brain");
+    expect(container.textContent).not.toContain("Assets");
+
+    await searchApps("missing app");
+    expect(container.textContent).toContain("No apps match your search");
+    expect(container.textContent).not.toContain("Brain");
   });
 });

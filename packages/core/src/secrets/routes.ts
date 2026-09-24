@@ -13,9 +13,9 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
+import type { ResolvedSecretDetail } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 /**
  * Workspace-scoped secret writes/deletes are deployment-wide for every
@@ -37,6 +37,7 @@ async function canMutateWorkspaceScope(
 ): Promise<boolean> {
   // Solo / dev fallback scope — single user, no privilege gradient.
   if (scopeId.startsWith("solo:")) return true;
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
   // No active org — single-tenant flow, allow.
   if (!ctx?.orgId) return true;
@@ -53,6 +54,7 @@ async function canMutateOrgScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
   if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
@@ -67,11 +69,55 @@ import {
 import {
   writeAppSecret,
   deleteAppSecret,
-  getAppSecretMeta,
-  readAppSecret,
+  last4,
   listAppSecretsForScope,
+  readAppSecretMeta,
+  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
+
+/**
+ * Where a stored value came from, as shown in Settings. `personal` and
+ * `workspace` rows were saved from an app's Keys section; `vault` rows were
+ * synced from the Dispatch workspace Vault and are managed there.
+ */
+export type SecretSource = "personal" | "workspace" | "vault" | "env";
+
+function secretSource(
+  scope: SecretScope,
+  description: string | null | undefined,
+): Exclude<SecretSource, "env"> {
+  if (scope === "user") return "personal";
+  return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
+    ? "vault"
+    : "workspace";
+}
+
+const NOT_RESOLVED: ResolvedSecretDetail = { value: null, lookupFailed: false };
+
+/**
+ * Run `fn` as the signed-in caller so `resolveSecret`'s precedence applies —
+ * then Settings never reports a Vault- or env-provided key as "unset" and
+ * invites a duplicate. Anonymous requests get nothing: the resolver's
+ * env fallback would otherwise leak deployment-key suffixes to the public.
+ */
+async function asRequestUser<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+  anonymous: T,
+): Promise<T> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
+  const session = await getSession(event);
+  if (!session?.email) return anonymous;
+  const ctx = await getOrgContext(event);
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: ctx?.orgId ?? undefined },
+    fn,
+  );
+}
 
 export interface SecretStatusPayload {
   key: string;
@@ -81,8 +127,25 @@ export interface SecretStatusPayload {
   scope: SecretScope;
   kind: "api-key" | "oauth";
   required: boolean;
-  /** "set" = value present; "unset" = not configured; "invalid" = validator failed. */
-  status: "set" | "unset" | "invalid";
+  /**
+   * "set" = value present; "unset" = not configured; "invalid" = validator
+   * failed; "unknown" = the credential store could not be read.
+   */
+  status: "set" | "unset" | "invalid" | "unknown";
+  /** Exact storage scope supplying the runtime value, without exposing its id. */
+  effectiveScope?: SecretScope | "env";
+  /** Where the effective value comes from — only when status === "set". */
+  source?: SecretSource;
+  /**
+   * True when the effective value is the row this UI writes for the
+   * registered scope, so it can be rotated or removed here. False when a
+   * Vault, workspace, or env value is in use instead.
+   */
+  managedHere?: boolean;
+  /** A shared value this row overrides; removing the row falls back to it. */
+  overrides?: Exclude<SecretSource, "personal" | "env">;
+  /** Scope of a shared value hidden by this user's personal row. */
+  overriddenScope?: Exclude<SecretScope, "user">;
   /** Last 4 chars — only populated when status === "set" for api-key kind. */
   last4?: string;
   /** Timestamp (ms) of the last write — only populated when status === "set". */
@@ -105,6 +168,7 @@ async function hasOAuthSecretForEvent(
   secret: RegisteredSecret,
 ): Promise<boolean> {
   if (!secret.oauthProvider) return false;
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return false;
   const accounts = await listOAuthAccountsByOwner(
@@ -119,6 +183,10 @@ async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
 ): Promise<{ scopeId: string | null; reason?: string }> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
   if (scope === "user") {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -146,12 +214,33 @@ async function resolveScopeId(
 /** GET /_agent-native/secrets — list registered secrets with status. */
 export function createListSecretsHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { prefetchSecrets, resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
     }
 
     const secrets = listRequiredSecrets();
+    const apiKeys = secrets
+      .filter((secret) => secret.kind !== "oauth")
+      .map((secret) => secret.key);
+    // One batched read per scope primes the request cache, so resolving
+    // every registered key below costs a handful of queries, not N×scopes.
+    const resolved = await asRequestUser(
+      event,
+      async () => {
+        await prefetchSecrets(apiKeys);
+        return new Map(
+          await Promise.all(
+            apiKeys.map(
+              async (key) => [key, await resolveSecretDetailed(key)] as const,
+            ),
+          ),
+        );
+      },
+      new Map<string, ResolvedSecretDetail>(),
+    );
     const payload: SecretStatusPayload[] = [];
 
     for (const secret of secrets) {
@@ -181,21 +270,69 @@ export function createListSecretsHandler() {
         continue;
       }
 
-      // api-key: look up the stored row in app_secrets.
+      // api-key: report the value the runtime resolves, not only the row this
+      // UI writes. A key synced from the Dispatch Vault or supplied by the
+      // deployment environment is "set" even though no registered-scope row
+      // exists; reporting it as unset is what made people re-enter it.
       const { scopeId } = await resolveScopeId(event, secret.scope);
-      if (!scopeId) {
+      const effective = resolved.get(secret.key) ?? NOT_RESOLVED;
+      if (!effective.value) {
+        if (effective.lookupFailed) {
+          base.status = "unknown";
+          base.error = "Could not read the credential store";
+        }
         payload.push(base);
         continue;
       }
-      const meta = await getAppSecretMeta({
+      base.status = "set";
+      if (
+        !effective.source ||
+        effective.source === "env" ||
+        !effective.scopeId
+      ) {
+        base.source = "env";
+        base.effectiveScope = "env";
+        base.managedHere = false;
+        base.last4 = last4(effective.value);
+        payload.push(base);
+        continue;
+      }
+      const hit = {
         key: secret.key,
-        scope: secret.scope,
-        scopeId,
-      }).catch(() => null);
-      if (meta) {
-        base.status = "set";
-        base.last4 = meta.last4;
-        base.updatedAt = meta.updatedAt;
+        scope: effective.source,
+        scopeId: effective.scopeId,
+      };
+      base.effectiveScope = hit.scope;
+      const meta = await readAppSecretMeta(hit);
+      base.last4 = meta?.last4 || last4(effective.value);
+      base.updatedAt = meta?.updatedAt;
+      base.source = secretSource(hit.scope, meta?.description);
+      base.managedHere = hit.scope === secret.scope && hit.scopeId === scopeId;
+      // A personal key hides the shared one; say so, so the fix is "remove
+      // this" rather than "edit the Vault and wonder why nothing changed".
+      if (base.managedHere && secret.scope === "user") {
+        const shared = await asRequestUser(
+          event,
+          () => resolveSecretDetailed(secret.key, { skipUserScope: true }),
+          NOT_RESOLVED,
+        );
+        if (shared.value && shared.source && shared.source !== "env") {
+          if (shared.source === "org" || shared.source === "workspace") {
+            base.overriddenScope = shared.source;
+          }
+          const sharedMeta = shared.scopeId
+            ? await readAppSecretMeta({
+                key: secret.key,
+                scope: shared.source,
+                scopeId: shared.scopeId,
+              })
+            : null;
+          const sharedSource = secretSource(
+            shared.source,
+            sharedMeta?.description,
+          );
+          base.overrides = sharedSource === "vault" ? "vault" : "workspace";
+        }
       }
       payload.push(base);
     }
@@ -362,6 +499,8 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
  */
 export function createTestSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -424,12 +563,14 @@ export function createTestSecretHandler() {
 
     let value = candidateValue;
     if (!value) {
-      const stored = await readAppSecret({
-        key: secret.key,
-        scope: secret.scope,
-        scopeId,
-      });
-      if (!stored) {
+      // Test what the runtime uses, which may be a Vault or env value rather
+      // than a row saved from this UI.
+      const stored = await asRequestUser(
+        event,
+        () => resolveSecretDetailed(secret.key),
+        NOT_RESOLVED,
+      );
+      if (!stored.value) {
         setResponseStatus(event, 404);
         return { error: "No value stored" };
       }
@@ -471,6 +612,7 @@ export interface AdHocSecretPayload {
   name: string;
   scope: SecretScope;
   scopeId: string;
+  source: Exclude<SecretSource, "env">;
   description: string | null;
   last4: string;
   urlAllowlist: string[] | null;
@@ -485,6 +627,7 @@ function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
     name: meta.key,
     scope: meta.scope,
     scopeId: meta.scopeId,
+    source: secretSource(meta.scope, meta.description),
     description: meta.description,
     last4: meta.last4,
     urlAllowlist: meta.urlAllowlist,
@@ -538,9 +681,15 @@ async function handleAdHocList(event: H3Event) {
   const workspaceRows = workspaceContext.scopeId
     ? await listAppSecretsForScope("workspace", workspaceContext.scopeId)
     : [];
+  // Org rows are the Dispatch Vault's sync target. `${keys.NAME}` resolves
+  // them, so list them here or people cannot see which keys they already have.
+  const orgContext = await resolveScopeId(event, "org");
+  const orgRows = orgContext.scopeId
+    ? await listAppSecretsForScope("org", orgContext.scopeId)
+    : [];
 
   const payload: AdHocSecretPayload[] = [];
-  for (const row of [...userRows, ...workspaceRows]) {
+  for (const row of [...userRows, ...workspaceRows, ...orgRows]) {
     if (registered.has(row.key)) continue;
     payload.push(metaToPayload(row));
   }

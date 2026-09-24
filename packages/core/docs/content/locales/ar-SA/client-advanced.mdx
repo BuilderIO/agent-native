@@ -98,6 +98,35 @@ const { values, missing } = await readClientAppStateMany([
 
 يُضبَط `requestSource` بشكل شائع على `TAB_ID`، وهو ثابت عادي يُصدِّره كل قالب من `app/lib/tab-id.ts`: سلسلة عشوائية قصيرة تبقى نفسها طوال عمر علامة تبويب وتختلف بين علامات التبويب. إقران `requestSource: TAB_ID` على كتابة مع `useDbSync({ ignoreSource: TAB_ID })` على جانب القراءة هو كيف تتجنب علامة التبويب إعادة جلب كتابتها الخاصة بينما تظل تتفاعل مع كل الآخرين. راجع [الوعي بالسياق](/docs/context-awareness#jitter-prevention) للحصول على الشرح الكامل.
 
+## جلسات الوكيل الخلفية المعزولة {#isolated-background-agent-sessions}
+
+استخدم `startBackgroundAgentSession()` عندما يحتاج كل استدعاء إلى سلسلة محادثة
+جديدة وثابتة من دون إضافة علامة تبويب ظاهرة أو مخفية، أو حالة للشريط الجانبي، أو
+إدخال في لوحة التشغيل. تستخدم الدالة مسار محادثة الوكيل المعتاد والمصادق عليه،
+لذلك يظل مدير التشغيل المشترك مسؤولًا عن الاستمرارية والأدوات وإعادة المحاولة
+والتنفيذ الدائم المستضاف.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+يوفر المقبض `operationId` و`threadId` و`turnId` فورًا. ينتظر `accepted` قبول
+التشغيل، ويتابع `completion` تدفق الاستجابة، بينما يقرأ `status()` حالة التشغيل
+الدائمة بصورة مستقلة. يوقف `cancel()` الدور. عند إعادة المحاولة بعد فقدان الإقرار،
+مرّر قيمتي `operationId` و`threadId` الأصليتين.
+
 ## sendToAgentChat: الإرسال في الخلفية {#background-send}
 
 استخدم `background: true` عندما ينبغي لإجراء واجهة مستخدم أن يبدأ عمل وكيل حقيقي دون

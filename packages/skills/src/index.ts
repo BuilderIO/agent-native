@@ -27,6 +27,7 @@ export interface SkillEntry {
   name: string;
   dir: string;
   description?: string;
+  installerGroup?: string;
 }
 
 export interface InstallSkillsOptions {
@@ -121,7 +122,9 @@ interface PromptOption<T extends string> {
 }
 
 export interface SkillsPromptContext {
+  message?: string;
   initialSkills: string[];
+  required?: boolean;
   options: Array<PromptOption<string>>;
 }
 
@@ -458,7 +461,7 @@ export async function runSkillsCli(
       return;
     }
     if (shouldShowDelegatedStartupProgress(parsed, options)) {
-      process.stderr.write("Preparing Agent Native skills...\n");
+      process.stderr.write("Preparing Agent-Native skills...\n");
     }
     const loadedSource = shouldLoadPublicCatalog(parsed)
       ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)
@@ -474,6 +477,7 @@ export async function runSkillsCli(
         ? discoverSkills(loadedSource.root).map((entry) => ({
             name: entry.name,
             description: entry.description,
+            installerGroup: entry.installerGroup,
           }))
         : [];
       await runSkills(toCoreSkillsArgv(parsed), {
@@ -488,7 +492,9 @@ export async function runSkillsCli(
         promptSkills: options.promptSkills
           ? async (context: any) =>
               options.promptSkills?.({
+                message: context.message,
                 initialSkills: context.initialTargets,
+                required: context.required,
                 options: context.options,
               }) ?? null
           : undefined,
@@ -705,7 +711,7 @@ export async function installSkills(
     const skillFileClients = clients.filter(supportsSkillFiles);
     if (skillFileClients.length === 0 && mcpApps.length === 0) {
       throw new Error(
-        "Claude Cowork is MCP-only for Agent Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
+        "Claude Cowork is MCP-only for Agent-Native skills. Choose Codex, Claude Code, Pi, Cursor, OpenCode, or GitHub Copilot for local skill files, or install an app-backed skill with MCP enabled.",
       );
     }
 
@@ -1330,7 +1336,13 @@ function skillEntry(dir: string): SkillEntry | null {
   const frontmatter = body.match(/^---\n([\s\S]*?)\n---/);
   const name = frontmatterField(frontmatter?.[1], "name") ?? path.basename(dir);
   const description = frontmatterField(frontmatter?.[1], "description");
-  return { name: normalizeSkillName(name), dir, description };
+  const installerGroup = frontmatterField(frontmatter?.[1], "installer-group");
+  return {
+    name: normalizeSkillName(name),
+    dir,
+    description,
+    installerGroup,
+  };
 }
 
 function frontmatterField(

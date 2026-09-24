@@ -1,36 +1,34 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
 import type { Message } from "./types.js";
 
-// Real in-memory SQLite DbExec adapter (mirrors the better-sqlite3 branch of
+// Real in-memory PGlite DbExec adapter (mirrors the PGlite branch of
 // db/client.ts). Using a real engine — instead of a hand-rolled mock that
 // ignores WHERE clauses — is what makes the state-gated transitions
 // (claim / touch / reset-stuck / fail-stuck) and owner scoping meaningful to
 // test: the conditional UPDATEs actually have to match rows.
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const dbExec: DbExec = {
   async execute(sql) {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : sql.args || [];
-    // libsql/our wrapper convert undefined -> null; mimic that so INSERTs of
+    // Postgres/our wrapper convert undefined -> null; mimic that so INSERTs of
     // optional columns (owner_email, context_id, metadata) behave like prod.
     const bound = args.map((a) => (a === undefined ? null : a));
-    const stmt = sqlite.prepare(rawSql);
-    if (stmt.reader) {
-      return { rows: stmt.all(...bound), rowsAffected: 0 };
-    }
-    const result = stmt.run(...bound);
-    return { rows: [], rowsAffected: result.changes ?? 0 };
+    const result = await pglite.query(rawSql, bound);
+    return {
+      rows: Array.from(result.rows ?? []),
+      rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+    };
   },
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => dbExec,
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 function makeMessage(text: string, role: "user" | "agent" = "user"): Message {
@@ -45,14 +43,14 @@ async function loadStore(): Promise<Store> {
   return import("./task-store.js");
 }
 
-describe("task-store lifecycle (real sqlite)", () => {
-  beforeEach(() => {
-    sqlite = new Database(":memory:");
+describe("task-store lifecycle (real pglite)", () => {
+  beforeEach(async () => {
+    pglite = await createTestPglite();
     vi.resetModules();
   });
 
-  afterEach(() => {
-    sqlite.close();
+  afterEach(async () => {
+    await pglite.close();
   });
 
   describe("createTask owner scoping", () => {

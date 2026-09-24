@@ -1,6 +1,16 @@
+export interface SelectionOverlayFrame {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  transform: string;
+  transformOrigin: { x: number; y: number };
+}
+
 export interface SelectionOverlayMeasurement {
   key: string;
   rect: DOMRect;
+  frame?: SelectionOverlayFrame | null;
 }
 
 export interface SelectionOverlayMeasurementIdentity {
@@ -50,6 +60,13 @@ export function currentSelectionOverlayRect(
   currentKey: string,
 ): DOMRect | null {
   return measurement?.key === currentKey ? measurement.rect : null;
+}
+
+export function currentSelectionOverlayFrame(
+  measurement: SelectionOverlayMeasurement | null,
+  currentKey: string,
+): SelectionOverlayFrame | null {
+  return measurement?.key === currentKey ? (measurement.frame ?? null) : null;
 }
 
 export function isSelectionOverlayAutofitSettled(

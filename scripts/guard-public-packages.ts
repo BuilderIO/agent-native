@@ -2,21 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 
-const npmPublishAllowlist = new Set([
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-]);
+const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 // Packages that are NOT published to npm and therefore exempt from the
 // publish-readiness checks below. Apps are private. Workspace-only libraries are

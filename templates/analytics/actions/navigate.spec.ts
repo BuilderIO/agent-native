@@ -26,17 +26,17 @@ describe("navigate action", () => {
     listDashboardSummaries.mockResolvedValue([]);
   });
 
-  it('resolves "Take me to my Agent Native dashboard" by accessible name', async () => {
+  it('resolves "Take me to my Agent-Native dashboard" by accessible name', async () => {
     listDashboardSummaries.mockResolvedValue([
       {
         id: "dashboard-agent-native",
-        name: "Agent Native",
+        name: "Agent-Native",
         ownerEmail: "person@example.com",
       },
     ]);
 
     await navigateAction.run({
-      dashboardName: "Agent Native dashboard",
+      dashboardName: "Agent-Native dashboard",
     } as never);
 
     expect(listDashboardSummaries).toHaveBeenCalledWith(

@@ -1,12 +1,16 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "activity.reasoning": "Raciocínio",
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",
+  "approval.alwaysAllowAction": "Sempre permitir esta ação",
+  "approval.alwaysAllowActionHint": "Aprovar e sempre permitir esta ação",
   "approval.approve": "Aprovar",
   "approval.approved": "Aprovado. Executando {{tool}} novamente...",
   "approval.denied": "Negado. {{tool}} não foi executado.",
   "approval.deny": "Negar",
+  "approval.moreOptions": "Mais opções de aprovação",
   "approval.question": "Aprovar a execução de {{tool}}?",
   "auth.expiredDescription":
     "Sua sessão pode ter expirado. Saia e entre novamente para restabelecer a conexão.",
@@ -28,13 +32,131 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
-  "aboutAgentNative.title": "Sobre o Agent Native",
+  "onboarding.back": "Voltar",
+  "onboarding.chooseRole": "Escolha sua função",
+  "onboarding.customizeRole": "Vamos personalizar isso para você.",
+  "onboarding.roleQuestion": "O que melhor descreve sua função?",
+  "onboarding.roleHelperText": "Isso nos ajuda a personalizar sua experiência",
+  "onboarding.roleProduct": "Gerente de produto",
+  "onboarding.roleDesign": "Designer",
+  "onboarding.roleDeveloper": "Desenvolvimento",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Vendas",
+  "onboarding.roleOps": "Operações",
+  "onboarding.roleIndividual": "Individual",
+  "onboarding.roleOther": "Outro",
+  "onboarding.roleOtherInputLabel": "Descreva sua função",
+  "onboarding.skipForNow": "Pular por enquanto",
+  "onboarding.saveRoleError": "Não foi possível salvar sua função.",
+  "onboarding.builderCreateAccount": "Criar conta do Builder.io",
+  "onboarding.builderSignInWithAccount": "Entrar com uma conta do Builder.io",
+  "onboarding.builderActivateDescription":
+    "Crie ou reutilize sua conta do Builder.io e ative os créditos gratuitos com um clique.",
+  "onboarding.builderActiveCredits":
+    "Incluído nos créditos gratuitos ativos do Builder.io",
+  "onboarding.builderCredits": "Incluído nos créditos gratuitos do Builder.io",
+  "onboarding.builderActivateTitle": "Ativar créditos gratuitos",
+  "onboarding.builderAccountExistsTitle": "Você já tem uma conta do Builder.io",
+  "onboarding.builderAccountExistsDescription": "Faça login para conectá-la.",
+  "onboarding.builderActivationDescription":
+    "Criaremos automaticamente sua conta do Builder.io com um clique.",
+  "onboarding.builderCreateAndActivate": "Criar e ativar",
+  "onboarding.builderConsentPrefix":
+    "Ao criar uma conta Builder.io, você concorda com nossos",
+  "onboarding.builderTerms": "Termos de Serviço",
+  "onboarding.builderPrivacy": "Política de Privacidade",
+  "onboarding.builderConsentAnd": "e",
+  "onboarding.builderExistingAccount": "Tenho uma conta do Builder.io",
+  "onboarding.builderActivating":
+    "Ativando os créditos gratuitos do Builder.io",
+  "onboarding.builderConnecting":
+    "Conectando os créditos gratuitos do Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Criando ou reutilizando sua conta do Builder.io. Isso geralmente leva alguns segundos.",
+  "onboarding.builderConnectionDescription":
+    "Conclua a conexão com um clique na nova janela.",
+  "onboarding.builderReadyWithCodeChanges":
+    "Os créditos de IA e as alterações de código na nuvem estão prontos para uso.",
+  "onboarding.builderReadyCreditsOnly":
+    "Os créditos de IA estão prontos para uso. As edições de código na nuvem exigem um projeto Builder nas configurações do agente em segundo plano.",
+  "onboarding.openBackgroundAgentSettings":
+    "Abrir configurações do agente em segundo plano",
+  "onboarding.capability.llm.keySummary": "Conecte seu próprio modelo de IA",
+  "onboarding.capability.fileStorage.keySummary":
+    "Upload e armazenamento de arquivos",
+  "onboarding.fileStorage.title": "Escolha o armazenamento de arquivos",
+  "onboarding.fileStorage.description":
+    "Escolha o armazenamento gerenciado do Builder ou suas próprias chaves para um bucket compatível com S3.",
+  "onboarding.fileStorage.custom":
+    "Usar chaves de armazenamento personalizadas",
+  "onboarding.fileStorage.customDescription":
+    "Configure um bucket compatível com S3 com uma URL pública estável.",
+  "onboarding.capability.voiceInput.label": "Entrada de voz",
+  "onboarding.capability.voiceInput.keySummary": "Entrada de voz",
+  "onboarding.capability.voiceInput.why":
+    "A entrada de voz transforma solicitações faladas em texto; digitar sempre funciona.",
+  "onboarding.capability.embeddings.label": "Vetores semânticos",
+  "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
+  "onboarding.capability.embeddings.why":
+    "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
+  "onboarding.capability.assetsImageGeneration.keySummary":
+    "Créditos Builder ou chave de provedor de imagens",
+  "onboarding.capability.assetsImageGeneration.why":
+    "A geração de imagens é o fluxo principal para criar assets alinhados à marca.",
+  "onboarding.capability.assetsVideoGeneration.label": "Geração de vídeo",
+  "onboarding.capability.assetsVideoGeneration.keySummary":
+    "Chave de API do Gemini",
+  "onboarding.capability.assetsVideoGeneration.why":
+    "A geração de vídeo é opcional; o fluxo principal do Assets é a geração de imagens.",
+  "onboarding.capability.clipsObjectStorage.label": "Armazenamento de objetos",
+  "onboarding.capability.clipsObjectStorage.keySummary":
+    "Armazenamento Builder ou bucket compatível com S3",
+  "onboarding.capability.clipsObjectStorage.why":
+    "Vídeos gravados precisam de armazenamento de objetos durável antes de serem reproduzidos ou compartilhados.",
+  "onboarding.capability.clipsTranscription.keySummary":
+    "Chave de provedor de conversão de fala em texto",
+  "onboarding.capability.about": "Sobre {{label}}",
+  "onboarding.capability.why": "Por que {{label}} é necessário",
+  "onboarding.openAiKeySettings": "Abrir configurações de chaves de IA",
+  "aboutAgentNative.title": "Sobre o Agent-Native",
   "aboutAgentNative.version": "Versão",
   "aboutAgentNative.environment": "Ambiente",
   "aboutAgentNative.build": "Build",
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
   "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
+  "agentPanel.mode": "Modo",
+  "agentPanel.uiMode": "Interface",
+  "agentPanel.keyScope": "Escopo da chave",
+  "agentPanel.personalKeyScope": "Pessoal",
+  "agentPanel.organizationKeyScope": "Organização",
+  "agentPanel.personalKeyInEffect": "Sua chave pessoal está em uso.",
+  "agentPanel.organizationKeyInEffect": "A chave da organização está em uso.",
+  "agentPanel.sharedKeyInEffect": "Uma chave compartilhada está em uso.",
+  "agentPanel.useOrganizationKey": "Usar chave da organização",
+  "agentPanel.keyStatusUnavailable":
+    "Não foi possível consultar o status da chave.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Permita pop-ups para este site e tente novamente.",
+  "agentPanel.chatgptSubscriptionTitle": "Assinatura do ChatGPT",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Acesso experimental ao Codex por meio da sua assinatura do ChatGPT.",
+  "agentPanel.chatgptSubscriptionInUse": "Em uso",
+  "agentPanel.chatgptSubscriptionConnected": "Conectado",
+  "agentPanel.chatgptSubscriptionConnecting": "Conectando…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconectar",
+  "agentPanel.chatgptSubscriptionConnect": "Conectar ao ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Usar no chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Desconectar",
+  "agentHostNudge.sidebarTitle": "Usar o chat do {{agent}}",
+  "agentHostNudge.sidebarDescription":
+    "Você já está conversando com {{agent}}. Peça para ele trabalhar diretamente com este app.",
+  "agentHostNudge.promptTitle": "Perguntar ao {{agent}} em vez disso",
+  "agentHostNudge.promptDescription":
+    "Você pode pedir ao {{agent}} para criar ou alterar isto aqui.",
+  "agentHostNudge.useThisChat": "Usar este chat",
+  "agentHostNudge.useThisPrompt": "Usar este prompt",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
   "common.connect": "Conectar",
@@ -48,7 +170,62 @@ const messages: AgentChatTranslation = {
   "common.loading": "Carregando...",
   "common.no": "Não",
   "common.retry": "Tentar novamente",
+  "common.chunkLoadFailed": "Não foi possível carregar. Tente novamente.",
   "common.save": "Salvar",
+  "agents.hostedAgent": "Agente hospedado",
+  "agents.provider": "Provedor",
+  "agents.providerA2A": "Agente A2A (Foundry, Gemini ou personalizado)",
+  "agents.providerAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.agentId": "ID do agente",
+  "agents.agentIdPlaceholder": "agent_...",
+  "agents.environmentId": "ID do ambiente",
+  "agents.environmentIdPlaceholder": "env_...",
+  "agents.apiBaseUrl": "URL base da API (opcional)",
+  "agents.apiBaseUrlPlaceholder": "https://api.anthropic.com",
+  "agents.managedAgentIncomplete":
+    "Preencha os campos do Anthropic Managed Agents.",
+  "agents.managedAgentCheck":
+    "A conexão é verificada quando você delega pelo chat.",
+  "agents.managedAgentSaved":
+    "Anthropic Managed Agent salvo. Delegue para ele pelo chat.",
+  "agents.cardUrl": "URL do cartão do agente",
+  "agents.cardUrlPlaceholder": "https://host.example/agent-card.json",
+  "agents.authType": "Autenticação",
+  "agents.authNone": "Sem autenticação",
+  "agents.authBearer": "Token Bearer",
+  "agents.authClientCredentials": "Credenciais de cliente OAuth",
+  "agents.chooseCredential": "Escolher credencial",
+  "agents.vault": "Cofre",
+  "agents.tokenUrl": "URL do token",
+  "agents.clientId": "ID do cliente",
+  "agents.scope": "Escopo",
+  "agents.authIncomplete":
+    "Preencha os campos de autenticação do agente hospedado.",
+  "agents.invalidUrl":
+    "As URLs do agente devem usar HTTPS, exceto URLs de desenvolvimento localhost ou loopback.",
+  "agents.statusReachable": "Acessível",
+  "agents.statusAuthRejected": "Autenticação rejeitada",
+  "agents.statusNoJsonRpc": "Sem JSON-RPC",
+  "agents.directoryTab": "Diretório de agentes",
+  "agents.directoryPageHint":
+    "Encontre um backend de agente e conecte-o ao seu workspace.",
+  "agents.directorySearch": "Pesquisar provedores",
+  "agents.directoryProviders": "Provedores",
+  "agents.directoryManual": "Adicionar por URL",
+  "agents.directoryA2A": "A2A",
+  "agents.directoryManaged": "API gerenciada",
+  "agents.directoryFoundry": "Microsoft Foundry",
+  "agents.directoryFoundryHint": "Conecte um agente do Foundry via A2A.",
+  "agents.directoryGemini": "Gemini Enterprise",
+  "agents.directoryGeminiHint":
+    "Conecte um agente do Gemini Enterprise via A2A.",
+  "agents.directoryAnthropic": "Agentes gerenciados da Anthropic",
+  "agents.directoryAnthropicHint": "Conecte sessões e aprovações da Anthropic.",
+  "agents.directoryNoMatches": "Nenhum provedor corresponde à sua pesquisa.",
+  "agents.directoryRegistry": "Registro global de A2A",
+  "agents.directoryRegistryHint":
+    "Explore Agent Cards públicas e verifique-as antes de conectar.",
+  "agents.directoryBrowse": "Explorar registro",
   "common.saveFailed": "Falha ao salvar",
   "common.saveFailedStatus": "Falha ao salvar ({{status}})",
   "common.saving": "Salvando...",
@@ -62,6 +239,7 @@ const messages: AgentChatTranslation = {
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
   "composer.scrollToBottom": "Rolar até o final",
+  "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",
   "composer.subAgentReadOnly":
     "Envie mensagens ao chat do orquestrador — este subagente é executado automaticamente",
@@ -81,6 +259,15 @@ const messages: AgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "integrations.availableSection": "Integrações disponíveis",
+  "integrations.connectedSection": "Conectado",
+  "integrations.goToApiKeys": "Ir para chaves de API",
+  "integrations.goToIntegrations": "Ir para integrações",
+  "integrations.lookingForApiKeys": "Procurando uma chave de API em vez disso?",
+  "integrations.lookingForProviders": "Procurando provedores OAuth ou MCP?",
+  "integrations.manage": "Gerenciar",
+  "integrations.recommended": "Recomendado",
+  "integrations.subtitle": "Conecte as ferramentas que seu agente pode usar.",
   "limit.account": "sua conta",
   "limit.descriptionAll":
     "O agente usou todas as etapas disponíveis. Continue em uma nova interação ou aumente primeiro o limite de {{scope}}.",
@@ -128,6 +315,10 @@ const messages: AgentChatTranslation = {
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
   "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
+  "queue.steer": "Orientar",
+  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.moreActions": "Mais ações",
+  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
@@ -150,6 +341,32 @@ const messages: AgentChatTranslation = {
   "recovery.streamEnded":
     "O fluxo anterior do agente terminou durante a recuperação. Continue ou tente novamente para se reconectar à execução.",
   "recovery.reconnectBuilder": "Reconectar o Builder.io",
+  "secrets.addCustomKeyNamed": 'Adicionar "{{name}}" como chave personalizada',
+  "secrets.chooseKey": "Escolha uma chave",
+  "secrets.customKey": "Chave personalizada",
+  "secrets.customKeyHint": "Adicione qualquer chave pelo nome",
+  "secrets.emptyHint": "Adicione uma chave para usar suas próprias contas.",
+  "secrets.emptyMore":
+    "e mais {{count}} em Novo, ou adicione qualquer chave personalizada",
+  "secrets.emptyTitle": "Nenhuma chave ainda.",
+  "secrets.fromEnvironment": "Fornecido pelo ambiente de implantação.",
+  "secrets.managedInVault":
+    "Gerenciado no Vault do espaço de trabalho. Todos os apps deste espaço de trabalho usam este valor.",
+  "secrets.openVault": "Abrir Vault",
+  "secrets.newKey": "Novo",
+  "secrets.noKeysFound": "Nenhuma chave encontrada.",
+  "secrets.overridesVault":
+    "Esta chave pessoal substitui o valor do Vault do espaço de trabalho. Remova-a para usar a chave do Vault.",
+  "secrets.overridesWorkspace":
+    "Esta chave pessoal substitui o valor do espaço de trabalho. Remova-a para usar a chave compartilhada.",
+  "secrets.setForWorkspace": "Definido para todos neste espaço de trabalho.",
+  "secrets.sourceEnvironment": "Ambiente",
+  "secrets.sourceVault": "Vault",
+  "secrets.sourceWorkspace": "Espaço de trabalho",
+  "secrets.statusUnavailable": "Indisponível",
+  "secrets.required": "Obrigatório",
+  "secrets.searchKeys": "Pesquisar chaves...",
+  "secrets.usePersonalKey": "Usar uma chave pessoal",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addOwnKeys": "Adicionar suas próprias chaves",
@@ -183,6 +400,7 @@ const messages: AgentChatTranslation = {
   "status.preparing": "Preparando {{activity}}...",
   "status.writing": "Escrevendo {{activity}}...",
   "status.stillGenerating": "Ainda gerando {{activity}}",
+  "status.runningTool": "Executando {{activity}}",
   "tabs.allChats": "Todos os chats",
   "tabs.closeTab": "Fechar aba",
   "tabs.main": "Principal",
@@ -203,6 +421,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "Repetido {{count}} vezes",
   "tool.result": "Resultado",
   "tool.subAgentTask": "Tarefa do subagente",
+  "thinking.collapsed": "Recolhido",
+  "thinking.display": "Raciocínio",
+  "thinking.expanded": "Expandido",
+  "thinking.hidden": "Oculto",
   "tool.thought": "Raciocínio",
   "tool.thoughtFor": "Raciocinou por {{duration}}",
   "tool.viewOutput": "Ver saída de {{tool}}",
@@ -213,6 +435,7 @@ const messages: AgentChatTranslation = {
   "widget.dataInsights": "Insights de dados",
   "widget.dataTable": "Tabela de dados",
   "widget.downloadCsv": "Baixar CSV",
+  "widget.connectProvider": "Conectar o {{provider}}",
   "widget.loadingToolResult": "Carregando resultado da ferramenta",
   "widget.noRows": "Nenhuma linha",
   "widget.points": "{{formattedCount}} pontos",
@@ -245,6 +468,7 @@ const messages: AgentChatTranslation = {
     "Configurar Anthropic, OpenAI ou outro provedor",
   "composer.connectAbove": "Conecte um provedor de IA acima para continuar...",
   "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectKeys": "Conectar chaves",
   "composer.connectingBuilder": "Conectando Builder.io…",
   "composer.costHigher": "Custo mais alto",
   "composer.costLower": "Menor custo",
@@ -300,7 +524,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "Plano",
   "composer.planDescription": "Pesquisa somente leitura e aprovação primeiro",
   "composer.planDesktopRequired":
-    "Abra Agent Native Desktop para usar o modo Plano.",
+    "Abra Agent-Native Desktop para usar o modo Plano.",
   "composer.previewAttachment": "Visualização {{name}}",
   "composer.reasoning": "Raciocínio",
   "composer.reasoningEffort.auto": "Auto",
@@ -381,7 +605,7 @@ const messages: AgentChatTranslation = {
   "voiceMode.errors.unsupported":
     "Este navegador não oferece suporte a conversas de voz em tempo real.",
   "voiceMode.hideChat": "Ocultar bate-papo",
-  "voiceMode.keepDictating": "Ditar",
+  "voiceMode.keepDictating": "Ditar uma mensagem",
   "voiceMode.promptDescription":
     "O modo de voz continua ouvindo enquanto o agente navega e executa ações.",
   "voiceMode.promptTitle": "Use sua voz",
@@ -423,7 +647,7 @@ const messages: AgentChatTranslation = {
     "Conecte Builder.io para usar voz gerenciada com créditos gratuitos ou adicione suas próprias chaves.",
   "voiceMode.setupTitle": "Configurar o modo de voz",
   "voiceMode.showChat": "Mostrar bate-papo",
-  "voiceMode.start": "Voz em tempo real",
+  "voiceMode.start": "Iniciar conversa por voz",
   "voiceMode.startWithOpenAiKey": "Iniciar com uma chave da OpenAI",
   "voiceMode.status.connecting": "Conectando",
   "voiceMode.status.ending": "Encerrando o modo de voz",
@@ -458,6 +682,8 @@ const messages: AgentChatTranslation = {
   "widget.rows_other": "{{formattedCount}} linhas",
   "errorMessages.agentConnection":
     "A conexão do agente foi interrompida. Verifique sua conexão e tente novamente.",
+  "errorMessages.attachmentPasswordProtected":
+    "Este PDF está protegido por senha e não pode ser lido. Remova a proteção por senha ou cole o texto relevante e tente novamente.",
   "errorMessages.builderAuthentication":
     "O Builder rejeitou as credenciais conectadas. Reconecte Builder.io em Configurações e tente novamente.",
   "errorMessages.builderModelUnauthorized":
@@ -467,10 +693,16 @@ const messages: AgentChatTranslation = {
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
+  "errorMessages.creditsLimitReached":
+    "Você atingiu o limite de créditos de IA.",
   "errorMessages.inactivityTimeout":
     "A conexão com o agente expirou antes da conclusão. Você pode continuar a partir do trabalho parcial ou tentar novamente.",
   "errorMessages.invalidToolSchema":
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
+  "errorMessages.malformedRequest":
+    "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.malformedRequestAttachment":
+    "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
   "errorMessages.noProviderConnected":
     "Nenhum provedor de LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io (nível gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
@@ -484,13 +716,16 @@ const messages: AgentChatTranslation = {
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
+  "errorMessages.providerTransientRejection":
+    "O provedor de IA recusou temporariamente esta solicitação. Isso costuma se resolver em menos de um minuto — tente novamente.",
   "errorMessages.startNewChat": "Iniciar novo chat",
-  "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
+  "errorMessages.addCreditsInBuilder": "Adicionar créditos no Builder",
   "feedback.inaccurate": "Impreciso",
   "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Pouco útil",
   "feedback.placeholder": "Conte-nos o que deu errado...",
   "feedback.submit": "Enviar",
+  "feedback.submitted": "Feedback enviado",
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",
@@ -582,6 +817,8 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "Pessoas com o link ainda podem abrir isto.",
   "share.loading": "Carregando...",
   "share.loadMore": "Ver mais",
+  "share.loadFailed":
+    "Não foi possível carregar as configurações de compartilhamento.",
   "share.loadPeopleFailed": "Não foi possível carregar pessoas.",
   "share.noAccess": "Ninguém tem acesso ainda.",
   "share.noMatches": "Nenhuma correspondência.",
@@ -613,6 +850,25 @@ const messages: AgentChatTranslation = {
   "share.viewer": "Visualizador",
   "share.viewerDescription": "Pode visualizar",
   "share.userGroup": "Grupo de usuários",
+  "settings.emailTitle": "E-mail",
+  "settings.emailChange": "Alterar e-mail",
+  "settings.emailChanging": "Enviando...",
+  "settings.emailChangeSent":
+    "Verifique seu e-mail para confirmar esta alteração.",
+  "settings.emailChangeError": "Não foi possível enviar a confirmação.",
+  "settings.emailNewLabel": "Novo e-mail",
+  "settings.emailNewPlaceholder": "Digite o novo e-mail",
+  "usage.builderCredits": "Créditos do Builder",
+  "usage.estimatedBuilderCredits": "~{{amount}} créditos estimados",
+  "usage.otherUsdSpend": "{{amount}} USD adicional",
+  "usage.noBuilderCredits": "0 créditos do Builder",
+  "usage.otherUnclassifiedSpend":
+    "Gastos em USD adicionais ou não classificados",
+  "usage.providerSpendDetail":
+    "Uso do provedor ou chamadas antigas fora da cobrança do Builder",
+  "usage.providerSpendToday":
+    "Uso adicional ou não classificado hoje: {{amount}}",
+  "usage.driverCreditsAndUsd": "Créditos do Builder / USD",
 };
 
 export default messages;

@@ -8,7 +8,7 @@
  *   pnpm action finalize-recording --id=<recordingId>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   deleteAppState,
@@ -18,6 +18,7 @@ import {
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull } from "drizzle-orm";
@@ -36,6 +37,7 @@ import {
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -138,6 +140,23 @@ function stateString(
 ): string | undefined {
   const raw = value?.[key];
   return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
+async function uploadWasAborted(id: string): Promise<boolean | undefined> {
+  try {
+    const state = await readAppState(`recording-upload-${id}`);
+    return (
+      !!state &&
+      typeof state === "object" &&
+      (state as Record<string, unknown>).aborted === true
+    );
+  } catch (error) {
+    console.warn("[finalize] upload abort marker could not be read", {
+      id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 const cliBoolean = z.preprocess((value) => {
@@ -304,8 +323,35 @@ async function failStoredButUnservableRecording(params: {
         eq(schema.recordings.status, "processing"),
       ),
     )
-    .returning({ id: schema.recordings.id });
+    .returning({
+      id: schema.recordings.id,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+    });
   if (failed.length !== 1) return false;
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "media_verification",
+        stage: "media_verification",
+        outcome: "failed",
+        failure_type: "media_verification",
+        failure_code: "media_verification_failed",
+        output_id: id,
+        output_type: "clip",
+        recording_id: id,
+        recording_attempt_id: id,
+        ...(failed[0]?.uploadAttemptId
+          ? { upload_attempt_id: failed[0].uploadAttemptId }
+          : {}),
+      },
+      { userId: ownerEmail },
+    );
+  } catch {
+    // coercion-ok: analytics is best-effort and must not change media recovery behavior.
+  }
   const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
     () => null,
   );
@@ -519,9 +565,11 @@ async function leaveRecordingProcessingForMediaVerification(params: {
 }) {
   const persisted = await persistPendingMediaVerification(params);
   if (!persisted) {
+    const aborted = await uploadWasAborted(params.id);
     return {
       id: params.id,
       status: "failed" as const,
+      ...(aborted ? { aborted: true } : {}),
       videoUrl: params.media.videoUrl,
       videoSizeBytes: params.media.videoSizeBytes,
       sourceSizeBytes: params.media.sourceSizeBytes,
@@ -540,6 +588,36 @@ async function leaveRecordingProcessingForMediaVerification(params: {
   };
 }
 
+async function queueReadyRecordingThumbnail(
+  recordingId: string,
+): Promise<void> {
+  // Best-effort: gives a never-attempted row a 'pending' marker the thumbnail
+  // sweeper can find later if this dispatch never lands (cold start, DNS,
+  // throttling — see post-finalize-dispatch.ts). Never overwrites a terminal
+  // status from a prior attempt.
+  try {
+    await getDb()
+      .update(schema.recordings)
+      .set({ thumbnailStatus: "pending" })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          isNull(schema.recordings.thumbnailStatus),
+        ),
+      );
+  } catch (err: unknown) {
+    console.warn("[finalize] failed to mark thumbnail pending", {
+      id: recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "thumbnail",
+    requireAccepted: true,
+  });
+}
+
 // Flip recording to 'ready', seed transcript row, fire background transcript,
 // emit clip.created. Used by both the resumable and buffered upload paths.
 async function markRecordingReady(params: {
@@ -554,6 +632,7 @@ async function markRecordingReady(params: {
   finalHeight: number;
   finalHasAudio: boolean;
   finalHasCamera: boolean;
+  recordingAttemptId?: string | null;
   existingTitle: string;
   // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
   // applied to the uploaded bytes. When false, a best-effort background repair
@@ -572,6 +651,7 @@ async function markRecordingReady(params: {
     finalHeight,
     finalHasAudio,
     finalHasCamera,
+    recordingAttemptId,
     existingTitle,
     seekableApplied,
   } = params;
@@ -628,12 +708,28 @@ async function markRecordingReady(params: {
       id,
       status: postUpdate?.status,
     });
+    if (postUpdate?.status === "ready") {
+      await queueReadyRecordingThumbnail(id);
+      await reconcileMeetingOnRecordingReady({
+        recordingId: id,
+        ownerEmail,
+        endedAtIso: now,
+      }).catch((err: unknown) => {
+        console.error("[finalize] meeting reconcile failed", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    const aborted =
+      postUpdate?.status === "failed" && (await uploadWasAborted(id));
     return {
       id,
       status:
         postUpdate?.status === "ready"
           ? ("ready" as const)
           : ("failed" as const),
+      ...(aborted ? { aborted: true } : {}),
       transitionedToReady: false,
       videoUrl,
       videoSizeBytes,
@@ -641,6 +737,37 @@ async function markRecordingReady(params: {
       durationMs: finalDurationMs,
     };
   }
+
+  track(
+    "recording_ready",
+    {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: id,
+      output_type: "clip",
+      recording_attempt_id: id,
+      ...(recordingAttemptId ? { upload_attempt_id: recordingAttemptId } : {}),
+      duration_s: Math.round(finalDurationMs / 1000),
+      video_format: videoFormat,
+      has_audio: finalHasAudio,
+      has_camera: finalHasCamera,
+      width: finalWidth,
+      height: finalHeight,
+    },
+    { userId: ownerEmail },
+  );
+
+  await queueReadyRecordingThumbnail(id);
+  await reconcileMeetingOnRecordingReady({
+    recordingId: id,
+    ownerEmail,
+    endedAtIso: now,
+  }).catch((err: unknown) => {
+    console.error("[finalize] meeting reconcile failed", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   const [existingTranscript] = await db
     .select({ recordingId: schema.recordingTranscripts.recordingId })
@@ -768,6 +895,7 @@ async function retryPendingMediaVerification(params: {
   const db = getDb();
   const [recording] = await db
     .select({
+      uploadAttemptId: schema.recordings.uploadAttemptId,
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       editsJson: schema.recordings.editsJson,
@@ -780,12 +908,15 @@ async function retryPendingMediaVerification(params: {
       ),
     );
   if (!recording || recording.status !== "processing") {
+    const aborted =
+      recording?.status === "failed" && (await uploadWasAborted(id));
     return {
       id,
       status:
         recording?.status === "ready"
           ? ("ready" as const)
           : ("failed" as const),
+      ...(aborted ? { aborted: true } : {}),
       videoUrl: recording?.videoUrl ?? media.videoUrl,
       videoSizeBytes: media.videoSizeBytes,
       sourceSizeBytes: media.sourceSizeBytes,
@@ -820,6 +951,7 @@ async function retryPendingMediaVerification(params: {
       finalHeight: candidate.finalHeight,
       finalHasAudio: candidate.finalHasAudio,
       finalHasCamera: candidate.finalHasCamera,
+      recordingAttemptId: recording.uploadAttemptId,
       seekableApplied: candidate.seekableApplied,
     });
     if (result.status === "ready" && result.transitionedToReady) {
@@ -857,12 +989,15 @@ async function retryPendingMediaVerification(params: {
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             ),
           );
+        const aborted =
+          resolved?.status === "failed" && (await uploadWasAborted(id));
         return {
           id,
           status:
             resolved?.status === "ready"
               ? ("ready" as const)
               : ("failed" as const),
+          ...(aborted ? { aborted: true } : {}),
           videoUrl: resolved?.videoUrl ?? candidate.videoUrl,
           videoSizeBytes: candidate.videoSizeBytes,
           sourceSizeBytes: candidate.sourceSizeBytes,
@@ -900,12 +1035,15 @@ async function retryPendingMediaVerification(params: {
             ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           ),
         );
+      const aborted =
+        resolved?.status === "failed" && (await uploadWasAborted(id));
       return {
         id,
         status:
           resolved?.status === "ready"
             ? ("ready" as const)
             : ("failed" as const),
+        ...(aborted ? { aborted: true } : {}),
         videoUrl: resolved?.videoUrl ?? candidate.videoUrl,
         videoSizeBytes: candidate.videoSizeBytes,
         sourceSizeBytes: candidate.sourceSizeBytes,
@@ -1028,6 +1166,7 @@ export default defineAction({
       // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
+        await queueReadyRecordingThumbnail(id);
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
@@ -1090,6 +1229,7 @@ export default defineAction({
         finalHeight,
         finalHasAudio,
         finalHasCamera,
+        recordingAttemptId: existing.uploadAttemptId,
         existingTitle: existing.title,
       };
 

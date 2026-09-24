@@ -9,7 +9,7 @@
  *   pnpm action update-member-role --email=alice@example.com --role=admin
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgMembers } from "@agent-native/core/org";
 import { and, eq, sql } from "drizzle-orm";

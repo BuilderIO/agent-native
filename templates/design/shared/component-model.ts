@@ -21,15 +21,37 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 for context.
  */
 
-import type { CodeLayerNode } from "./code-layer";
+import type { CodeLayerNode, CodeLayerProjection } from "./code-layer";
 
 // ─── Component detection attributes ───────────────────────────────────────────
 
 /** The HTML attribute that marks a DOM node as a component root. */
 export const COMPONENT_NAME_ATTR = "data-agent-native-component";
 
+/** Opaque identity stored on one canonical component root. */
+export const COMPONENT_ID_ATTR = "data-agent-native-component-id";
+
+/** Opaque identity reference stored on an explicitly linked instance root. */
+export const COMPONENT_REF_ATTR = "data-agent-native-component-ref";
+
+/** Canonical descendant identity carried by a materialized linked instance. */
+export const COMPONENT_SOURCE_NODE_ID_ATTR =
+  "data-agent-native-component-source-node-id";
+
+/** Canonical-descendant/property keys overridden on a linked instance. */
+export const COMPONENT_OVERRIDES_ATTR = "data-agent-native-component-overrides";
+
 /** Prefix for simple prop attributes stamped next to the component root. */
 export const COMPONENT_PROP_PREFIX = "data-agent-native-prop-";
+
+/** Return the identity that survives projection rebuilds and reloads. */
+export function stableComponentNodeId(node: CodeLayerNode): string {
+  return node.dataAttributes["data-agent-native-node-id"]?.trim() || node.id;
+}
+
+export function componentIndexId(designId: string, name: string): string {
+  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+}
 
 // ─── Extracted prop value ─────────────────────────────────────────────────────
 
@@ -111,6 +133,12 @@ export interface ComponentInstance {
    * by `get-component-details` to load prop types and variants.
    */
   componentIndexId?: string;
+
+  /** Canonical component identity. Names remain presentation metadata. */
+  componentId?: string;
+
+  /** Canonical component identity referenced by this materialized instance. */
+  componentRef?: string;
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
@@ -122,6 +150,23 @@ export interface ComponentInstance {
  */
 export function isComponentInstance(node: CodeLayerNode): boolean {
   return typeof node.dataAttributes[COMPONENT_NAME_ATTR] === "string";
+}
+
+/**
+ * Return `true` for a component root that instance-only operations may edit.
+ * Canonical mains carry a component id and are the source of truth for every
+ * linked reference, so they must not be detached or used as swap markup.
+ * Legacy roots without an identity remain eligible because detaching them has
+ * no linked identity to orphan.
+ */
+export function isComponentInstanceForInstanceActions(
+  node: CodeLayerNode,
+): boolean {
+  if (!isComponentInstance(node)) return false;
+  return !Object.prototype.hasOwnProperty.call(
+    node.dataAttributes,
+    COMPONENT_ID_ATTR,
+  );
 }
 
 /**
@@ -192,15 +237,18 @@ export function instanceFromNode(
   const alpineDataRaw = node.attributes["x-data"];
   const alpineData =
     typeof alpineDataRaw === "string" ? alpineDataRaw : undefined;
+  const stableNodeId = stableComponentNodeId(node);
 
   return {
-    instanceId: node.id,
+    instanceId: stableNodeId,
     name,
     props: extractProps(node),
     alpineData,
     selector: node.selector,
-    nodeId: node.id,
+    nodeId: stableNodeId,
     componentIndexId,
+    componentId: node.dataAttributes[COMPONENT_ID_ATTR]?.trim() || undefined,
+    componentRef: node.dataAttributes[COMPONENT_REF_ATTR]?.trim() || undefined,
   };
 }
 
@@ -271,4 +319,28 @@ export function buildDefinitions(
     instanceNodeIds: entry.instanceNodeIds,
     observedPropNames: Array.from(entry.propNames),
   }));
+}
+
+/** Nearest explicitly linked main or instance ancestor, including the node itself. */
+export function linkedComponentRootForNode(
+  node: CodeLayerNode,
+  projection: CodeLayerProjection,
+): CodeLayerNode | null {
+  const nodesById = new Map(projection.nodes.map((entry) => [entry.id, entry]));
+  let current: CodeLayerNode | undefined = node;
+  while (current) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        current.dataAttributes,
+        COMPONENT_ID_ATTR,
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        current.dataAttributes,
+        COMPONENT_REF_ATTR,
+      )
+    )
+      return current;
+    current = current.parentId ? nodesById.get(current.parentId) : undefined;
+  }
+  return null;
 }

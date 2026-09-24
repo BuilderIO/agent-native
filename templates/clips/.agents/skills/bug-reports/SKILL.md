@@ -23,11 +23,18 @@ top-level user gesture.
 4. The recording remains the canonical resource and defaults to workspace
    (organization) visibility.
 
-## Intake limit
+## Hosted anonymous intake
 
-Do not present this as anonymous customer intake until a signed intake/upload
-token flow exists — the current upload endpoints are owner-scoped, so an
-anonymous reporter cannot upload.
+For an unauthenticated reporter, the host backend must first call
+`create-recording-intake-link` with an organization service token. Pass only the
+returned short-lived URL to the iframe. The signed intake capability permits one
+private recording and its upload transport, but it cannot read the Clips
+library or mint agent access.
+
+The service token is organization-scoped. The normal recording pipeline resolves
+that organization's configured Builder.io Connect or S3-compatible storage, so
+storage credentials never enter the iframe. Keep the service token on the host
+backend and validate both `event.origin` and `event.source` on completion.
 
 ## Related skills
 

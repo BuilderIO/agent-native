@@ -1,24 +1,40 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowUpRight,
+  IconArtboard,
   IconChevronDown,
   IconChevronRight,
+  IconCircle,
   IconClipboard,
+  IconCode,
+  IconComponents,
   IconCopy,
   IconEye,
   IconEyeOff,
+  IconFile,
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconLayoutColumns,
   IconLayersSubtract,
   IconLayersUnion,
   IconLayoutGrid,
+  IconLayoutRows,
+  IconLine,
+  IconListTree,
   IconLock,
   IconLockOpen,
   IconPencil,
+  IconPhoto,
   IconPlus,
   IconSearch,
+  IconSquare,
   IconStackBack,
   IconStackFront,
+  IconStar,
+  IconTriangle,
+  IconTypography,
+  IconVectorBezier2,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -33,11 +49,13 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
   type RefObject,
 } from "react";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -54,6 +72,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 export type LayersPanelNodeType =
@@ -83,6 +102,8 @@ export interface LayersPanelNode {
   id: string;
   name: string;
   type?: LayersPanelNodeType;
+  /** Identity, not shape: a button is a frame that is *also* a component. */
+  isComponent?: boolean;
   tagName?: string;
   layout?: {
     display?: string;
@@ -132,15 +153,20 @@ export interface LayersPanelSelectionIntent {
   source: "keyboard" | "pointer";
 }
 
-export interface LayersPanelMoveIntent {
+interface LayersPanelMoveIntent {
   draggedIds: string[];
   targetId: string;
   placement: "before" | "after" | "inside";
+  /** Alt/Option was held for this drop — duplicate the dragged layer(s) at
+   * the drop position instead of moving the originals, mirroring the
+   * canvas's own alt-drag-duplicate gesture (Figma parity). */
+  duplicate?: boolean;
 }
 
 export interface LayersPanelLabels {
   title: string;
   screens: string;
+  resizeScreens: string;
   allScreens: string;
   screenOverview: string;
   addScreen: string;
@@ -293,21 +319,74 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
 
-const ROW_BASE_INDENT = 4;
-const ROW_INDENT_STEP = 28;
+function canUseActiveDragStateForDrop(
+  dragState: { sourceId: string; draggedIds: string[] } | null,
+  dropIntent: LayersPanelMoveIntent | null,
+  targetId: string,
+): boolean {
+  return Boolean(
+    dragState &&
+    dragState.sourceId !== targetId &&
+    dragState.draggedIds.includes(dragState.sourceId) &&
+    dropIntent?.targetId === targetId,
+  );
+}
 
-// No indent cap: deeply nested trees (Figma-style component instances easily
-// exceed 4 levels) must stay visually distinguishable by depth. A previous
-// 96px cap made every row at depth >= 4 render at the same indent, making
-// nested structure ambiguous in the panel.
-function rowIndent(depth: number): number {
-  return ROW_BASE_INDENT + depth * ROW_INDENT_STEP;
+export { canUseActiveDragStateForDrop };
+export type { LayersPanelMoveIntent };
+
+// Module-level continuous-toggle-drag state for the eye/lock icon
+// "click-drag across a run of rows" gesture (Figma parity, unique-paths.md
+// #13): a plain mousedown/up, not HTML5 DnD, so per-row React state can't
+// carry it across rows the way activeDragState does above for drag-and-drop.
+// `value` is the state every icon under the drag is set TO, decided once by
+// the first icon's own toggle so a run always ends up uniform.
+let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
+  null;
+
+// Arms the drag above and clears it on whichever end signal fires first. A
+// plain mouseup only fires when the button releases over this window — if
+// the pointer leaves the window first (dragged out past the edge, or the
+// window loses focus mid-gesture) neither the row nor the window ever sees
+// it, so blur and pointercancel are armed alongside it; otherwise the state
+// stays "on" and the next hover over an unrelated icon applies a stale
+// toggle.
+function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
+  activeIconToggleDrag = { kind, value };
+  const clear = () => {
+    activeIconToggleDrag = null;
+    window.removeEventListener("mouseup", clear);
+    window.removeEventListener("blur", clear);
+    window.removeEventListener("pointercancel", clear);
+  };
+  window.addEventListener("mouseup", clear, { once: true });
+  window.addEventListener("blur", clear, { once: true });
+  window.addEventListener("pointercancel", clear, { once: true });
+}
+
+// Every level is represented by a real flex child instead of arithmetic
+// padding. Keeping the hierarchy in the DOM makes the icon-width indent and
+// baseline-unit inter-indent gap inspectable and prevents node variants from
+// drifting. The panel root overrides those tokens for Figma-like density.
+export function layerRowIndentCount(depth: number): number {
+  return Math.max(1, depth + 1);
+}
+
+export function layerSelectionBlockId(
+  row: Pick<FlatLayerRow, "node" | "ancestorIds">, // i18n-ignore -- TypeScript generic, not visible copy.
+  selectedIds: ReadonlySet<string>,
+): string | null {
+  if (selectedIds.has(row.node.id)) return row.node.id;
+  return (
+    [...row.ancestorIds].reverse().find((id) => selectedIds.has(id)) ?? null
+  );
 }
 
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
+    resizeScreens: t("layersPanel.resizeScreens"),
     allScreens: t("layersPanel.allScreens"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
@@ -909,6 +988,12 @@ function layerCanShowBadge(node: LayersPanelNode) {
   );
 }
 
+function clampScreenSectionHeight(nextHeight: number, panelHeight: number) {
+  const maxHeight = panelHeight > 0 ? panelHeight * 0.3 : nextHeight;
+  const minHeight = Math.min(96, maxHeight);
+  return Math.min(maxHeight, Math.max(minHeight, nextHeight));
+}
+
 // PF8: DesignEditor re-renders on many state changes unrelated to the layers
 // tree (drag gestures, zoom, canvas hover, etc). All of LayersPanel's call-site
 // props are already stabilized (useMemo/useCallback/plain state — see
@@ -988,7 +1073,23 @@ function LayersPanelImpl(
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const lastSelectionAnchorRef = useRef<string | null>(selectedIds[0] ?? null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const layersPanelRef = useRef<HTMLElement>(null);
+  const screenSectionRef = useRef<HTMLDivElement>(null);
+  const screenResizeRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startHeight: number;
+  } | null>(null);
+  const [screenSectionHeight, setScreenSectionHeight] = useState<number | null>(
+    null,
+  );
   const rowElementRefs = useRef(new Map<string, HTMLDivElement>());
+  const screenRowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [screenResizeMetrics, setScreenResizeMetrics] = useState({
+    min: 0,
+    max: 0,
+    now: 0,
+  });
   // L20: edge auto-scroll during a row drag. scrollContainerRef is the
   // scrollable rows list; autoScrollFrameRef holds the active rAF handle (or
   // null when idle); autoScrollDirectionRef holds the current scroll
@@ -1028,6 +1129,11 @@ function LayersPanelImpl(
   const selectedAncestorIds = useMemo(
     () => collectAncestorIds(roots, selectedIdSet),
     [roots, selectedIdSet],
+  );
+
+  const selectionBlockIds = useMemo(
+    () => visibleRows.map((row) => layerSelectionBlockId(row, selectedIdSet)),
+    [selectedIdSet, visibleRows],
   );
 
   const selectableVisibleIds = useMemo(
@@ -1104,6 +1210,7 @@ function LayersPanelImpl(
     const frame = window.requestAnimationFrame(() => {
       rowElementRefs.current.get(selectedScrollRowKey)?.scrollIntoView({
         block: "nearest",
+        inline: "nearest",
       });
     });
     return () => window.cancelAnimationFrame(frame);
@@ -1237,7 +1344,7 @@ function LayersPanelImpl(
     if (!rowKey) return;
     const frame = window.requestAnimationFrame(() => {
       const rowElement = rowElementRefs.current.get(rowKey);
-      rowElement?.scrollIntoView({ block: "nearest" });
+      rowElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
       rowElement
         ?.querySelector<HTMLInputElement>("input")
         ?.focus({ preventScroll: true });
@@ -1277,25 +1384,54 @@ function LayersPanelImpl(
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
-  const collapseTargetId = useMemo(() => {
-    for (let index = selectedIds.length - 1; index >= 0; index -= 1) {
-      const selectedRow = visibleRows.find(
-        (row) => row.node.id === selectedIds[index],
-      );
-      if (!selectedRow) continue;
-      if (selectedRow.hasChildren && expandedIdSet.has(selectedRow.node.id)) {
-        return selectedRow.node.id;
-      }
-    }
-    return null;
-  }, [expandedIdSet, selectedIds, visibleRows]);
+  const collapsedIds = useMemo(
+    () => expandedIds.filter((id) => selectedAncestorIds.includes(id)),
+    [expandedIds, selectedAncestorIds],
+  );
 
-  const collapseSelectedLayer = useCallback(() => {
-    if (!collapseTargetId) return;
-    onExpandedIdsChange(
-      expandedIds.filter((expandedId) => expandedId !== collapseTargetId),
+  const refreshScreenResizeMetrics = useCallback(() => {
+    const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
+    const sectionHeight =
+      screenSectionRef.current?.getBoundingClientRect().height;
+    if (!panelHeight || !sectionHeight) return;
+    const max = panelHeight * 0.3;
+    const min = Math.min(96, max);
+    const next = {
+      min: Math.round(min),
+      max: Math.round(max),
+      now: Math.round(Math.min(max, Math.max(min, sectionHeight))),
+    };
+    setScreenResizeMetrics((current) =>
+      current.min === next.min &&
+      current.max === next.max &&
+      current.now === next.now
+        ? current
+        : next,
     );
-  }, [collapseTargetId, expandedIds, onExpandedIdsChange]);
+  }, []);
+
+  useLayoutEffect(() => {
+    refreshScreenResizeMetrics();
+    const panel = layersPanelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(refreshScreenResizeMetrics);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [refreshScreenResizeMetrics, screenRows.length, screenSectionHeight]);
+
+  useEffect(() => {
+    if (!activeScreenId || screenOverviewActive) return;
+    const frame = window.requestAnimationFrame(() => {
+      screenRowRefs.current.get(activeScreenId)?.scrollIntoView({
+        block: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeScreenId, screenOverviewActive, screenRows]);
+
+  const collapseLayers = useCallback(() => {
+    onExpandedIdsChange(collapsedIds);
+  }, [collapsedIds, onExpandedIdsChange]);
 
   // L20: auto-scroll the rows list while dragging near the top/bottom edge.
   // Runs a rAF loop so the scroll speed stays smooth and independent of the
@@ -1356,42 +1492,126 @@ function LayersPanelImpl(
 
   useEffect(() => stopAutoScroll, [stopAutoScroll]);
 
+  const updateScreenSectionHeight = useCallback((nextHeight: number) => {
+    const panelHeight = layersPanelRef.current?.getBoundingClientRect().height;
+    if (!panelHeight) return;
+    setScreenSectionHeight(clampScreenSectionHeight(nextHeight, panelHeight));
+  }, []);
+
+  const handleScreenResizePointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const section = screenSectionRef.current;
+      if (!section) return;
+      screenResizeRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startHeight: section.getBoundingClientRect().height,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const handleScreenResizePointerMove = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const resize = screenResizeRef.current;
+      if (!resize || resize.pointerId !== event.pointerId) return;
+      updateScreenSectionHeight(
+        resize.startHeight + event.clientY - resize.startY,
+      );
+    },
+    [updateScreenSectionHeight],
+  );
+
+  const stopScreenResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (screenResizeRef.current?.pointerId !== event.pointerId) return;
+      screenResizeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [],
+  );
+
+  const handleScreenResizeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (
+        event.key !== "ArrowUp" &&
+        event.key !== "ArrowDown" &&
+        event.key !== "Home" &&
+        event.key !== "End"
+      ) {
+        return;
+      }
+      const section = screenSectionRef.current;
+      const panel = layersPanelRef.current;
+      if (!section || !panel) return;
+      const panelHeight = panel.getBoundingClientRect().height;
+      const maxHeight = panelHeight * 0.3;
+      const minHeight = Math.min(96, maxHeight);
+      const currentHeight = section.getBoundingClientRect().height;
+      const nextHeight =
+        event.key === "Home"
+          ? minHeight
+          : event.key === "End"
+            ? maxHeight
+            : currentHeight + (event.key === "ArrowDown" ? 24 : -24);
+      event.preventDefault();
+      updateScreenSectionHeight(nextHeight);
+    },
+    [updateScreenSectionHeight],
+  );
+
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
       <aside
+        ref={layersPanelRef}
+        data-layers-panel
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[12px] text-foreground",
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}
         aria-label={labels.title}
       >
         {screenRows.length > 0 ? (
-          <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
-            <div className="flex h-10 items-center justify-between px-3">
-              <h2 className="truncate text-[12px] font-semibold text-foreground">
+          <div
+            ref={screenSectionRef}
+            data-screen-section
+            className="flex min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
+            style={{
+              maxHeight: "30%",
+              ...(screenSectionHeight === null
+                ? {}
+                : { height: `${screenSectionHeight}px` }),
+            }}
+          >
+            <div
+              data-layers-panel-header="screens"
+              className="flex h-[var(--design-section-height)] items-center justify-between px-2"
+            >
+              <h2 className="truncate text-[11px] font-semibold text-foreground">
                 {labels.screens}
               </h2>
               <div className="flex items-center gap-0.5 text-muted-foreground">
                 <IconTooltipButton
-                  label={labels.searchPlaceholder}
-                  onClick={focusSearch}
-                >
-                  <IconSearch className="size-4" />
-                </IconTooltipButton>
-                <IconTooltipButton
                   label={labels.addScreen}
+                  dataAction="add-screen"
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
                 >
-                  <IconPlus className="size-4" />
+                  <IconPlus className="!size-[var(--design-icon-size)]" />
                 </IconTooltipButton>
               </div>
             </div>
-            <div className="px-2">
+            <div className="px-1.5">
               <button
                 type="button"
                 className={cn(
-                  "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                   screenOverviewActive
                     ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                     : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -1400,70 +1620,116 @@ function LayersPanelImpl(
                 onClick={() => onScreenOverview?.()}
                 title={labels.allScreens}
               >
-                <IconLayoutGrid className="size-4 shrink-0" />
+                <IconLayoutGrid className="size-[var(--design-icon-size)] shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">
                   {labels.allScreens}
                 </span>
               </button>
             </div>
-            <div className="mx-3 my-2 border-t border-[var(--design-editor-panel-divider-color)]" />
-            <div className="space-y-0.5 px-2">
-              {screenRows.map((screen) => {
-                const isActive =
-                  !screenOverviewActive && screen.id === activeScreenId;
-                return (
-                  <button
-                    key={screen.id}
-                    type="button"
-                    className={cn(
-                      "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      isActive
-                        ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                        : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
-                    )}
-                    aria-current={isActive ? "page" : undefined}
-                    onClick={() => onScreenSelect?.(screen.id)}
-                    title={screen.filename ?? screen.name}
-                  >
-                    <LayerGlyph node={{ ...screen, type: "file" }} />
-                    <span className="min-w-0 flex-1 truncate">
-                      {screen.name}
-                    </span>
-                    {screen.badge ? (
-                      <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
-                        {screen.badge}
+            <div className="mx-2 my-1 border-t border-[var(--design-editor-panel-divider-color)]" />
+            <div className="min-h-0 flex-1 overflow-auto px-1.5">
+              <div className="space-y-0">
+                {screenRows.map((screen) => {
+                  const isActive =
+                    !screenOverviewActive && screen.id === activeScreenId;
+                  return (
+                    <button
+                      key={screen.id}
+                      type="button"
+                      data-screen-row
+                      ref={(element) => {
+                        if (element)
+                          screenRowRefs.current.set(screen.id, element);
+                        else screenRowRefs.current.delete(screen.id);
+                      }}
+                      className={cn(
+                        "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[4px] px-[var(--design-baseline-unit)] text-left text-[11px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        isActive
+                          ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+                          : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+                      )}
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={() => onScreenSelect?.(screen.id)}
+                      title={screen.filename ?? screen.name}
+                    >
+                      <LayerGlyph node={{ ...screen, type: "file" }} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {screen.name}
                       </span>
-                    ) : null}
-                  </button>
-                );
-              })}
+                      {screen.badge ? (
+                        <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
+                          {screen.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ) : null}
 
-        <div className="flex h-10 shrink-0 items-center justify-between px-3">
+        {screenRows.length > 0 ? (
+          <div
+            data-screen-section-resizer
+            role="separator"
+            aria-label={labels.resizeScreens}
+            aria-orientation="horizontal"
+            aria-valuemin={screenResizeMetrics.min}
+            aria-valuemax={screenResizeMetrics.max}
+            aria-valuenow={screenResizeMetrics.now}
+            tabIndex={0}
+            className="group relative z-10 h-2 shrink-0 cursor-row-resize touch-none bg-transparent outline-none focus-visible:bg-[var(--design-editor-selection-color)]"
+            onKeyDown={handleScreenResizeKeyDown}
+            onPointerCancel={stopScreenResize}
+            onPointerDown={handleScreenResizePointerDown}
+            onPointerMove={handleScreenResizePointerMove}
+            onPointerUp={stopScreenResize}
+          >
+            <span className="absolute inset-x-2 top-1/2 h-px -translate-y-1/2 bg-[var(--design-editor-panel-divider-color)] transition-colors group-hover:bg-[var(--design-editor-selection-color)]" />
+          </div>
+        ) : null}
+
+        <div
+          data-layers-panel-header="layers"
+          className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-2"
+        >
           <div className="min-w-0">
-            <h2 className="truncate text-[12px] font-semibold text-foreground">
+            <h2 className="truncate text-[11px] font-semibold text-foreground">
               {labels.title}
             </h2>
           </div>
           <div className="flex items-center gap-0.5 text-muted-foreground">
+            <IconTooltipButton
+              label={labels.searchPlaceholder}
+              dataAction="search"
+              onClick={focusSearch}
+            >
+              <IconSearch
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.8}
+              />
+            </IconTooltipButton>
             <button
               type="button"
-              className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+              data-layers-panel-action="collapse"
+              className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
               aria-label={labels.collapse}
-              disabled={!collapseTargetId}
-              onClick={collapseSelectedLayer}
+              disabled={collapsedIds.length === expandedIds.length}
+              onClick={collapseLayers}
             >
-              <LayerOptionsGlyph className="size-4" />
+              <IconListTree
+                className="!size-[var(--design-icon-size)]"
+                strokeWidth={1.5}
+              />
             </button>
           </div>
         </div>
 
         {shouldShowSearch ? (
-          <div className="shrink-0 p-2">
+          <div className="shrink-0 p-1.5">
             <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
                 value={searchQuery}
@@ -1474,7 +1740,7 @@ function LayersPanelImpl(
                   }
                 }}
                 placeholder={labels.searchPlaceholder}
-                className="h-7 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-7 text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                className="h-6 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-6 text-[11px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
               />
             </div>
           </div>
@@ -1482,18 +1748,18 @@ function LayersPanelImpl(
 
         <div
           ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
+          className="min-h-0 flex-1 overflow-auto overscroll-contain py-1"
           onDragOver={handleRowsDragOver}
           onDrop={stopAutoScroll}
           onDragEnd={stopAutoScroll}
         >
           {visibleRows.length ? (
             <div
-              className="w-max min-w-full px-2"
+              className="w-max min-w-full px-1.5"
               role="tree"
               aria-label={labels.title}
             >
-              {visibleRows.map((row) => {
+              {visibleRows.map((row, index) => {
                 // Per-row primitives computed here (not inside LayerRow) so the
                 // row only receives booleans/strings it needs — no whole-tree
                 // arrays that would force a re-render every time any other
@@ -1501,6 +1767,15 @@ function LayersPanelImpl(
                 const isSelected = selectedIdSet.has(row.node.id);
                 const isInSelectedSubtree = row.ancestorIds.some((id) =>
                   selectedIdSet.has(id),
+                );
+                const selectionBlockId = selectionBlockIds[index];
+                const isSelectionBlockStart = Boolean(
+                  selectionBlockId &&
+                  selectionBlockIds[index - 1] !== selectionBlockId,
+                );
+                const isSelectionBlockEnd = Boolean(
+                  selectionBlockId &&
+                  selectionBlockIds[index + 1] !== selectionBlockId,
                 );
                 const isHovered =
                   hoveredLayerId != null && row.node.id === hoveredLayerId;
@@ -1522,6 +1797,8 @@ function LayersPanelImpl(
                     isExpanded={expandedIdSet.has(row.node.id)}
                     isSelected={isSelected}
                     isInSelectedSubtree={isInSelectedSubtree}
+                    isSelectionBlockStart={isSelectionBlockStart}
+                    isSelectionBlockEnd={isSelectionBlockEnd}
                     isActiveScreen={isActiveScreen}
                     isHovered={isHovered}
                     isRenaming={isRenaming}
@@ -1584,6 +1861,8 @@ interface LayerRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isInSelectedSubtree: boolean;
+  isSelectionBlockStart: boolean;
+  isSelectionBlockEnd: boolean;
   isActiveScreen: boolean;
   // Display-only hover highlight (e.g. mirroring canvas hover), distinct from
   // selection. Never drives scroll-into-view or focus — see hoveredLayerId on
@@ -1652,12 +1931,64 @@ interface LayerRowProps {
   onFlipVertical?: (ids: string[]) => void;
 }
 
+function LayerRowIndentSlots({
+  count,
+  control,
+}: {
+  count: number;
+  control?: ReactNode;
+}) {
+  return (
+    <span
+      data-layer-row-indents
+      className="flex h-full shrink-0"
+      aria-hidden={control ? undefined : true}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <span
+          key={index}
+          data-layer-row-indent
+          className={cn(
+            "flex h-full w-5 shrink-0 items-center justify-center",
+            index > 0 && "mr-[var(--design-baseline-unit)]",
+          )}
+        >
+          {index === count - 1 ? control : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function LayerDropIndicator({
+  depth,
+  placement,
+}: {
+  depth: number;
+  placement: "before" | "after";
+}) {
+  return (
+    <span
+      data-layer-drop-indicator={placement}
+      className={cn(
+        "pointer-events-none absolute left-0 right-2 z-10 flex h-px",
+        placement === "before" ? "top-0" : "bottom-0",
+      )}
+    >
+      <LayerRowIndentSlots count={depth} />
+      <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
+    </span>
+  );
+}
+
 const LayerRow = memo(function LayerRow({
   row,
   labels,
   isExpanded,
   isSelected,
   isInSelectedSubtree,
+  isSelectionBlockStart,
+  isSelectionBlockEnd,
   isActiveScreen,
   isHovered,
   isRenaming,
@@ -1691,6 +2022,9 @@ const LayerRow = memo(function LayerRow({
   onFlipVertical,
 }: LayerRowProps) {
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
@@ -1922,6 +2256,7 @@ const LayerRow = memo(function LayerRow({
         canDropInside,
         isExpandedWithChildren,
       ),
+      duplicate: event.altKey,
     } satisfies LayersPanelMoveIntent;
     const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
     if (canMoveLayer && !canMoveLayer(moveIntent)) {
@@ -1978,6 +2313,12 @@ const LayerRow = memo(function LayerRow({
     } catch {
       // Ignore malformed drag payloads and fall back to the primary id.
     }
+    if (
+      !draggedIds.some(Boolean) &&
+      canUseActiveDragStateForDrop(activeDragState, activeDropIntent, node.id)
+    ) {
+      draggedIds = activeDragState!.draggedIds;
+    }
     const cleanedIds = draggedIds.filter(
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
@@ -1991,9 +2332,12 @@ const LayerRow = memo(function LayerRow({
               ),
             }
           : null;
-      const panelIntent =
+      const panelIntent: LayersPanelMoveIntent =
         storedIntent && storedIntent.draggedIds.length > 0
-          ? storedIntent
+          ? // The drop event's own altKey is authoritative for "was Alt held
+            // at the moment of the drop" — a dragover captured earlier in the
+            // gesture can go stale if the key is pressed/released mid-drag.
+            { ...storedIntent, duplicate: event.altKey }
           : ({
               draggedIds: cleanedIds,
               targetId: node.id,
@@ -2002,6 +2346,7 @@ const LayerRow = memo(function LayerRow({
                 canDropInside,
                 isExpandedWithChildren,
               ),
+              duplicate: event.altKey,
             } satisfies LayersPanelMoveIntent);
       const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
       if (!canMoveLayer || canMoveLayer(moveIntent)) {
@@ -2088,25 +2433,34 @@ const LayerRow = memo(function LayerRow({
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
-            <span
-              data-layer-drop-indicator="before"
-              className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
-              style={{ left: rowIndent(depth) }}
-            />
+            <LayerDropIndicator depth={depth} placement="before" />
           ) : null}
           {activeDrop === "after" ? (
-            <span
-              data-layer-drop-indicator="after"
-              className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
-              style={{ left: rowIndent(depth) }}
-            />
+            <LayerDropIndicator depth={depth} placement="after" />
           ) : null}
           <div
+            data-layer-row-content
+            data-layer-depth={depth}
+            data-layer-selection={
+              isSelected
+                ? "primary"
+                : isInSelectedSubtree
+                  ? "descendant"
+                  : undefined
+            }
             data-layer-drop-indicator={
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
+              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[11px] bg-[var(--design-editor-panel-bg)]",
+              !isSelected && !isInSelectedSubtree && "rounded-[4px]",
+              isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
+              isSelectionBlockStart &&
+                !isSelectionBlockEnd &&
+                "rounded-t-[4px]",
+              !isSelectionBlockStart &&
+                isSelectionBlockEnd &&
+                "rounded-b-[4px]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2136,35 +2490,46 @@ const LayerRow = memo(function LayerRow({
                 "bg-[var(--design-editor-layer-hover-color)] text-foreground",
               node.hidden && "text-muted-foreground",
             )}
-            style={{ paddingLeft: rowIndent(depth) }}
           >
-            {hasChildren ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                aria-label={isExpanded ? labels.collapse : labels.expand}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  // Alt-click (Figma behavior): expand/collapse this node AND
-                  // all of its descendants in one batched update.
-                  onToggleExpanded(
-                    node.id,
-                    !isExpanded,
-                    event.altKey ? node : undefined,
-                  );
-                }}
-              >
-                {isExpanded ? (
-                  <IconChevronDown className="size-4" />
-                ) : (
-                  <IconChevronRight className="size-4 rtl:-scale-x-100" />
-                )}
-              </Button>
-            ) : (
-              <span className="size-4 shrink-0" />
-            )}
+            <LayerRowIndentSlots
+              count={layerRowIndentCount(depth)}
+              control={
+                hasChildren ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    data-layer-row-chevron={
+                      isExpanded ? "expanded" : "collapsed"
+                    }
+                    className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    aria-label={isExpanded ? labels.collapse : labels.expand}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      // Alt-click (Figma behavior): expand/collapse this node AND
+                      // all of its descendants in one batched update.
+                      onToggleExpanded(
+                        node.id,
+                        !isExpanded,
+                        event.altKey ? node : undefined,
+                      );
+                    }}
+                  >
+                    {isExpanded ? (
+                      <IconChevronDown
+                        className="!size-2.5"
+                        strokeWidth={1.8}
+                      />
+                    ) : (
+                      <IconChevronRight
+                        className="!size-2.5 rtl:-scale-x-100"
+                        strokeWidth={1.8}
+                      />
+                    )}
+                  </Button>
+                ) : undefined
+              }
+            />
 
             <button
               type="button"
@@ -2172,7 +2537,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-0 flex-1 items-center gap-[var(--design-baseline-unit)] rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -2180,11 +2545,12 @@ const LayerRow = memo(function LayerRow({
               onKeyDown={handleKeyDown}
             >
               <span
+                data-layer-row-icon
                 className={cn(
-                  "shrink-0 text-muted-foreground",
+                  "flex size-[var(--design-icon-size)] shrink-0 items-center justify-center text-muted-foreground",
                   isComponentLayer
                     ? "text-[var(--design-editor-component-color)]"
-                    : (isSelected || isInSelectedSubtree) && "text-foreground",
+                    : undefined,
                 )}
               >
                 {node.icon ?? <LayerGlyph node={node} />}
@@ -2224,15 +2590,14 @@ const LayerRow = memo(function LayerRow({
                       onCancelRename(node.id);
                     }
                   }}
-                  className="h-6 min-w-0 flex-1 rounded-[4px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1.5 text-[12px] text-foreground outline-none"
+                  className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
                   aria-label={labels.rename}
                 />
               ) : (
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate font-medium leading-none",
-                    isComponentLayer &&
-                      "text-[var(--design-editor-component-color)]",
+                    "min-w-0 flex-1 truncate font-normal leading-4",
+                    node.hidden ? "text-muted-foreground" : "text-foreground",
                   )}
                   title={node.name}
                 >
@@ -2252,10 +2617,10 @@ const LayerRow = memo(function LayerRow({
             {(lockable || hideable) && (
               <div
                 className={cn(
-                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
+                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center bg-inherit",
                   node.locked || node.hidden
-                    ? "w-auto overflow-visible pl-2 pr-1"
-                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
+                    ? "w-auto overflow-visible"
+                    : "w-0 overflow-hidden group-hover:w-auto group-hover:overflow-visible focus-within:w-auto focus-within:overflow-visible",
                 )}
               >
                 <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
@@ -2268,14 +2633,50 @@ const LayerRow = memo(function LayerRow({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                           node.locked && "opacity-100",
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.locked ? labels.unlock : labels.lock}
+                        // The row itself is draggable="true" (drag-reorder);
+                        // without this override, a mousedown-then-move on
+                        // this child (the click-drag-across-a-run gesture)
+                        // reads as the START of that native HTML5 row drag
+                        // instead of a plain button press, hijacking every
+                        // mouseenter this gesture depends on.
+                        draggable={false}
+                        onMouseDown={(event) => {
+                          // The real toggle trigger: a click-drag onto a
+                          // DIFFERENT row's icon (see onMouseEnter below)
+                          // ends the gesture with mouseup over that other
+                          // row, so the browser never fires "click" on THIS
+                          // one at all — mousedown is the only event this
+                          // icon is guaranteed to receive either way.
+                          event.stopPropagation();
+                          const nextLocked = !node.locked;
+                          onToggleLocked?.(node.id, nextLocked);
+                          beginIconToggleDrag("locked", nextLocked);
+                        }}
                         onClick={(event) => {
+                          // detail === 0 is a keyboard/synthetic activation
+                          // (Enter/Space) — those fire no mousedown, so this
+                          // is the only handler that runs for them. A real
+                          // pointer click already toggled onMouseDown above;
+                          // handling it again here would flip it right back.
+                          if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleLocked?.(node.id, !node.locked);
+                        }}
+                        onMouseEnter={() => {
+                          if (
+                            activeIconToggleDrag?.kind === "locked" &&
+                            node.locked !== activeIconToggleDrag.value
+                          ) {
+                            onToggleLocked?.(
+                              node.id,
+                              activeIconToggleDrag.value,
+                            );
+                          }
                         }}
                       >
                         {node.locked ? (
@@ -2299,14 +2700,50 @@ const LayerRow = memo(function LayerRow({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                           node.hidden && "opacity-100",
                           isSelected && "text-foreground",
                         )}
                         aria-label={node.hidden ? labels.show : labels.hide}
+                        // The row itself is draggable="true" (drag-reorder);
+                        // without this override, a mousedown-then-move on
+                        // this child (the click-drag-across-a-run gesture)
+                        // reads as the START of that native HTML5 row drag
+                        // instead of a plain button press, hijacking every
+                        // mouseenter this gesture depends on.
+                        draggable={false}
+                        onMouseDown={(event) => {
+                          // The real toggle trigger: a click-drag onto a
+                          // DIFFERENT row's icon (see onMouseEnter below)
+                          // ends the gesture with mouseup over that other
+                          // row, so the browser never fires "click" on THIS
+                          // one at all — mousedown is the only event this
+                          // icon is guaranteed to receive either way.
+                          event.stopPropagation();
+                          const nextHidden = !node.hidden;
+                          onToggleHidden?.(node.id, nextHidden);
+                          beginIconToggleDrag("hidden", nextHidden);
+                        }}
                         onClick={(event) => {
+                          // detail === 0 is a keyboard/synthetic activation
+                          // (Enter/Space) — those fire no mousedown, so this
+                          // is the only handler that runs for them. A real
+                          // pointer click already toggled onMouseDown above;
+                          // handling it again here would flip it right back.
+                          if (event.detail !== 0) return;
                           event.stopPropagation();
                           onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                        onMouseEnter={() => {
+                          if (
+                            activeIconToggleDrag?.kind === "hidden" &&
+                            node.hidden !== activeIconToggleDrag.value
+                          ) {
+                            onToggleHidden?.(
+                              node.id,
+                              activeIconToggleDrag.value,
+                            );
+                          }
                         }}
                       >
                         {node.hidden ? (
@@ -2351,7 +2788,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconCopy className="size-3.5 text-muted-foreground" />
               {labels.copy}
-              <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+c")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onPasteToReplace ? (
@@ -2362,7 +2799,7 @@ const LayerRow = memo(function LayerRow({
               <IconClipboard className="size-3.5 text-muted-foreground" />
               {labels.pasteToReplace}
               <ContextMenuShortcut>
-                {"⇧⌘R" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+r")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2381,7 +2818,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackFront className="size-3.5 text-muted-foreground" />
                 {labels.bringToFront}
-                <ContextMenuShortcut>]</ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("]")}</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem
                 className="gap-2 text-[12px]"
@@ -2391,7 +2828,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackBack className="size-3.5 text-muted-foreground" />
                 {labels.sendToBack}
-                <ContextMenuShortcut>[</ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("[")}</ContextMenuShortcut>
               </ContextMenuItem>
             </>
           ) : null}
@@ -2411,7 +2848,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconLayersUnion className="size-3.5 text-muted-foreground" />
               {labels.group}
-              <ContextMenuShortcut>⌘G</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+g")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onFrameSelection ? (
@@ -2422,7 +2859,7 @@ const LayerRow = memo(function LayerRow({
               <IconFrame className="size-3.5 text-muted-foreground" />
               {labels.frameSelection}
               <ContextMenuShortcut>
-                {"⌥⌘G" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+alt+g")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2436,7 +2873,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}
-              <ContextMenuShortcut>⌘R</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("$mod+r")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
 
@@ -2452,7 +2889,7 @@ const LayerRow = memo(function LayerRow({
               <IconLayersSubtract className="size-3.5 text-muted-foreground" />
               {labels.ungroup}
               <ContextMenuShortcut>
-                {"⇧⌘G" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+g")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2476,7 +2913,7 @@ const LayerRow = memo(function LayerRow({
               )}
               {node.hidden ? labels.show : labels.hide}
               <ContextMenuShortcut>
-                {"⇧⌘H" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+h")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2492,7 +2929,7 @@ const LayerRow = memo(function LayerRow({
               )}
               {node.locked ? labels.unlock : labels.lock}
               <ContextMenuShortcut>
-                {"⇧⌘L" /* i18n-ignore keyboard shortcut glyph */}
+                {shortcut("$mod+shift+l")}
               </ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
@@ -2508,7 +2945,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
               {labels.flipHorizontal}
-              <ContextMenuShortcut>⇧H</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("shift+h")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
           {onFlipVertical ? (
@@ -2518,7 +2955,7 @@ const LayerRow = memo(function LayerRow({
             >
               <IconFlipVertical className="size-3.5 text-muted-foreground" />
               {labels.flipVertical}
-              <ContextMenuShortcut>⇧V</ContextMenuShortcut>
+              <ContextMenuShortcut>{shortcut("shift+v")}</ContextMenuShortcut>
             </ContextMenuItem>
           ) : null}
         </ContextMenuContent>
@@ -2529,11 +2966,13 @@ const LayerRow = memo(function LayerRow({
 
 function IconTooltipButton({
   label,
+  dataAction,
   onClick,
   disabled,
   children,
 }: {
   label: string;
+  dataAction?: string;
   onClick?: () => void;
   disabled?: boolean;
   children: ReactNode;
@@ -2546,7 +2985,8 @@ function IconTooltipButton({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-6 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
+            data-layers-panel-action={dataAction}
+            className="size-5 rounded-sm p-0 text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
@@ -2563,17 +3003,25 @@ function IconTooltipButton({
 function LayerGlyph({
   node,
 }: {
-  node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
+  node: Pick<
+    LayersPanelNode,
+    "type" | "layout" | "tagName" | "detail" | "isComponent"
+  >;
 }) {
-  const common = "size-4";
   const componentColor = "text-[var(--design-editor-component-color)]";
+  // Component-ness tints the shape glyph rather than replacing it, so a button
+  // still reads as the frame it is.
+  const common = cn(
+    "size-[var(--design-icon-size)]",
+    node.isComponent && componentColor,
+  );
   if (layerNodeUsesImageGlyph(node)) {
-    return <ImageLayerGlyph className={common} />;
+    return <IconPhoto className={common} />;
   }
   switch (node.type) {
     case "file":
     case "screen":
-      return <PageLayerGlyph className={common} />;
+      return <IconFile className={common} />;
     case "frame":
       return <LayoutLayerGlyph node={node} className={common} />;
     case "group":
@@ -2581,40 +3029,40 @@ function LayerGlyph({
       return <LayoutLayerGlyph node={node} className={common} />;
     case "component":
     case "instance":
-      return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+      return <IconComponents className={cn(common, componentColor)} />;
     case "ellipse":
-      return <EllipseLayerGlyph className={common} />;
+      return <IconCircle className={common} />;
     case "board-element":
     case "shape":
     case "rectangle":
       return shapeLayerUsesLayoutGlyph(node) ? (
         <LayoutLayerGlyph node={node} className={common} />
       ) : (
-        <RectangleLayerGlyph className={common} />
+        <IconSquare className={common} />
       );
     case "vector":
-      return <VectorLayerGlyph className={common} />;
+      return <IconVectorBezier2 className={common} />;
     case "line":
-      return <LineLayerGlyph className={common} />;
+      return <IconLine className={common} />;
     case "arrow":
-      return <ArrowLayerGlyph className={common} />;
+      return <IconArrowUpRight className={common} />;
     case "polygon":
-      return <PolygonLayerGlyph className={common} />;
+      return <IconTriangle className={common} />;
     case "star":
-      return <StarLayerGlyph className={common} />;
+      return <IconStar className={common} />;
     case "text":
-      return <TextLayerGlyph className={common} />;
+      return <IconTypography className={common} />;
     case "image":
-      return <ImageLayerGlyph className={common} />;
+      return <IconPhoto className={common} />;
     case "code":
     case "element":
       return node.layout?.isFlexContainer || node.layout?.isGridContainer ? (
         <LayoutLayerGlyph node={node} className={common} />
       ) : (
-        <ElementLayerGlyph className={common} />
+        <IconCode className={common} />
       );
     default:
-      return <FrameLayerGlyph className={common} />;
+      return <IconArtboard className={common} />;
   }
 }
 
@@ -2649,66 +3097,13 @@ function layerNodeUsesImageGlyph(
   return node.type === "image" || tag === "img" || tag === "picture";
 }
 
-function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
-  return node.type === "component" || node.type === "instance";
-}
-
-function LayerOptionsGlyph({ className }: { className?: string }) {
+function layerNodeIsComponent(
+  node: Pick<LayersPanelNode, "type" | "isComponent">,
+): boolean {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3 4h6" />
-      <path d="M3 8h8" />
-      <path d="M3 12h5" />
-      <path d="M12.5 4.5l1 1 1-1" />
-      <path d="M12.5 11.5l1-1 1 1" />
-    </svg>
-  );
-}
-
-function PageLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4.5 2.5h5.1l2 2V13a.8.8 0 0 1-.8.8H4.5a.8.8 0 0 1-.8-.8V3.3a.8.8 0 0 1 .8-.8Z" />
-      <path d="M9.6 2.6v2.1h2.1" />
-    </svg>
-  );
-}
-
-function FrameLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.5 4.5h9" />
-      <path d="M3.5 11.5h9" />
-      <path d="M5.5 6.5h5" />
-      <path d="M5.5 9.5h5" />
-    </svg>
+    node.isComponent === true ||
+    node.type === "component" ||
+    node.type === "instance"
   );
 }
 
@@ -2720,322 +3115,17 @@ function LayoutLayerGlyph({
   className?: string;
 }) {
   if (node.layout?.isGridContainer) {
-    return (
-      <svg
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        className={className}
-        aria-hidden="true"
-      >
-        <rect x="3" y="3" width="3.2" height="3.2" rx=".5" />
-        <rect x="9.8" y="3" width="3.2" height="3.2" rx=".5" />
-        <rect x="3" y="9.8" width="3.2" height="3.2" rx=".5" />
-        <rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5" />
-      </svg>
-    );
+    return <IconLayoutGrid className={className} />;
   }
   if (node.layout?.isFlexContainer) {
-    const isRow = node.layout.flexDirection?.startsWith("row");
-    const align = node.layout.alignItems ?? "stretch";
-    const justify = node.layout.justifyContent ?? "flex-start";
-    return isRow ? (
-      <HorizontalAutoLayoutGlyph
-        align={align}
-        justify={justify}
-        className={className}
-      />
+    return node.layout.flexDirection?.startsWith("row") ? (
+      <IconLayoutColumns className={className} />
     ) : (
-      <VerticalAutoLayoutGlyph
-        align={align}
-        justify={justify}
-        className={className}
-      />
+      <IconLayoutRows className={className} />
     );
   }
-  return <FrameLayerGlyph className={className} />;
+  return <IconArtboard className={className} />;
 }
-
-function normalizedAlignment(value: string | undefined) {
-  if (!value) return "start";
-  if (value === "center") return "center";
-  if (value === "flex-end" || value === "end") return "end";
-  if (value === "space-between") return "space-between";
-  if (value === "space-around" || value === "space-evenly")
-    return "space-around";
-  if (value === "stretch") return "stretch";
-  return "start";
-}
-
-function crossAxisOffset(align: string | undefined, axis: "x" | "y") {
-  const normalized = normalizedAlignment(align);
-  if (normalized === "center") return axis === "x" ? 5 : 5.5;
-  if (normalized === "end") return axis === "x" ? 7 : 8;
-  return axis === "x" ? 3 : 3;
-}
-
-function mainAxisPositions(justify: string | undefined, axis: "x" | "y") {
-  const normalized = normalizedAlignment(justify);
-  if (axis === "x") {
-    if (normalized === "center") return [3.6, 7.1, 10.6];
-    if (normalized === "end") return [4.4, 7.8, 11.2];
-    if (normalized === "space-between") return [2.6, 7.1, 11.6];
-    if (normalized === "space-around") return [3.1, 7.1, 11.1];
-    return [3, 6.6, 10.2];
-  }
-  if (normalized === "center") return [3.5, 7.1, 10.7];
-  if (normalized === "end") return [4.2, 7.8, 11.4];
-  if (normalized === "space-between") return [2.8, 7.1, 11.4];
-  if (normalized === "space-around") return [3.2, 7.1, 11];
-  return [3, 6.6, 10.2];
-}
-
-function VerticalAutoLayoutGlyph({
-  align,
-  justify,
-  className,
-}: {
-  align?: string;
-  justify?: string;
-  className?: string;
-}) {
-  const x = crossAxisOffset(align, "x");
-  const yPositions = mainAxisPositions(justify, "y");
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x={x} y={yPositions[0]} width="6" height="1.55" rx=".45" />
-      <rect x={x} y={yPositions[1]} width="6" height="1.55" rx=".45" />
-      <rect x={x} y={yPositions[2]} width="6" height="1.55" rx=".45" />
-    </svg>
-  );
-}
-
-function HorizontalAutoLayoutGlyph({
-  align,
-  justify,
-  className,
-}: {
-  align?: string;
-  justify?: string;
-  className?: string;
-}) {
-  const y = crossAxisOffset(align, "y");
-  const xPositions = mainAxisPositions(justify, "x");
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x={xPositions[0]} y={y} width="1.55" height="5" rx=".45" />
-      <rect x={xPositions[1]} y={y} width="1.55" height="5" rx=".45" />
-      <rect x={xPositions[2]} y={y} width="1.55" height="5" rx=".45" />
-    </svg>
-  );
-}
-
-function ComponentLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="m8 2.6 5.4 5.4L8 13.4 2.6 8 8 2.6Z" />
-    </svg>
-  );
-}
-
-function EllipseLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      className={className}
-      aria-hidden="true"
-    >
-      <ellipse cx="8" cy="8" rx="4.8" ry="4" />
-    </svg>
-  );
-}
-
-function RectangleLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3.2" y="4" width="9.6" height="8" rx="1" />
-    </svg>
-  );
-}
-
-function VectorLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4 11.5C5.5 6.5 9 5 12 4.5" />
-      <rect x="2.6" y="10.1" width="2.8" height="2.8" rx=".5" />
-      <rect x="10.6" y="3.1" width="2.8" height="2.8" rx=".5" />
-    </svg>
-  );
-}
-
-function LineLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4.6 11.4 11.4 4.6" />
-      <circle cx="3.6" cy="12.4" r="1.1" fill="currentColor" stroke="none" />
-      <circle cx="12.4" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function ArrowLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.6 12.4 11.6 4.4" />
-      <path d="M7.4 4.2h4.4v4.4" />
-    </svg>
-  );
-}
-
-function PolygonLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M8 2.8 13.2 12.2H2.8L8 2.8Z" />
-    </svg>
-  );
-}
-
-function StarLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M8 2.6 9.65 6.1l3.85.5-2.8 2.7.68 3.8L8 11.9l-3.38 1.9.68-3.8-2.8-2.7 3.85-.5L8 2.6Z" />
-    </svg>
-  );
-}
-
-function TextLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.2 4h9.6" />
-      <path d="M8 4v8.4" />
-    </svg>
-  );
-}
-
-function ImageLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.35"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="10" height="10" rx="1.2" />
-      <circle cx="6" cy="6" r="1" />
-      <path d="m4.2 12 3.2-3.3 1.8 1.8 1.3-1.4 1.3 1.4" />
-    </svg>
-  );
-}
-
-function ElementLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="m6.4 4.2-3.2 3.8 3.2 3.8" />
-      <path d="m9.6 4.2 3.2 3.8-3.2 3.8" />
-    </svg>
-  );
-}
-
 function layerCanDropInside(
   node: LayersPanelNode,
   hasChildren: boolean,

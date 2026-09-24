@@ -34,6 +34,7 @@ a module breaks those — re-point the spec in the same commit.
 | `paste-to-replace.ts`                   | Replace the selected layer with the clipboard payload                    |
 | `editor-paste.ts`                       | Top-level paste router: image files vs Figma payload vs design clipboard |
 | `pasted-image-files.ts`                 | Upload pasted or dropped image files and insert them as layers           |
+| `system-clipboard-paste.ts`             | Canvas-menu Paste / Paste to replace with OS images and SVG code         |
 | `import-figma-clipboard-into-design.ts` | Convert a Figma clipboard payload into design layers                     |
 | `get-selected-layer-snapshots.ts`       | Snapshot selected layers (HTML + geometry) for copy/duplicate            |
 | `duplicate-selection.ts`                | Duplicate selected layers with offset cascade                            |
@@ -102,6 +103,7 @@ a module breaks those — re-point the spec in the same commit.
 | Module                     | Does                                                                          |
 | -------------------------- | ----------------------------------------------------------------------------- |
 | `screen-element-select.ts` | Select an element on a screen from the canvas                                 |
+| `select-all.ts`            | Cmd+A: the selected layer's siblings, else all screens or the screen's roots  |
 | `iframe-context-menu.ts`   | Build the canvas context menu for a right-click inside the iframe             |
 | `enter-hotkey.ts`          | Enter key: start text edit, enter a group, or enter vector edit               |
 | `escape-hotkey.ts`         | Escape key: exit text edit, vector edit, tool, or selection in priority order |
@@ -119,6 +121,7 @@ a module breaks those — re-point the spec in the same commit.
 | `geometry-commit.ts`               | Commit a canvas frame move/resize                           |
 | `write-frame-geometry-snapshot.ts` | Write a frame-geometry snapshot into design data            |
 | `persist-frame-geometry-save.ts`   | Flush the debounced frame-geometry save to the server       |
+| `set-layout-grid.ts`               | Set, hide, or clear one frame's layout grid                 |
 
 ## Screens and view
 

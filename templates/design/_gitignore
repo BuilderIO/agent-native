@@ -29,8 +29,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.tmp/
 
 # Data
+**/data/
 data/uploads/
 data/settings.json
 data/.sessions.json
@@ -44,6 +46,5 @@ learnings.md
 /test-results/
 /playwright-report/
 /e2e/.auth/
-data/e2e.db
-data/e2e.db-*
+data/pglite/
 .agent-native/

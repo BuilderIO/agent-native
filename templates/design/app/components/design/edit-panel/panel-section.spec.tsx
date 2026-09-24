@@ -27,15 +27,15 @@ describe("PanelSection", () => {
     expect(container.textContent).toContain("Add");
   });
 
-  it("is collapsible once it has content", async () => {
+  it("keeps populated section headings static", async () => {
     const container = await mount(
       <PanelSection title="Fill">
         <div>FFFFFF</div>
       </PanelSection>,
     );
-    const toggle = container.querySelector("[aria-expanded]");
-    expect(toggle).not.toBeNull();
-    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Fill");
+    expect(container.textContent).toContain("FFFFFF");
+    expect(container.querySelector("[aria-expanded]")).toBeNull();
   });
 
   it("treats an all-empty children array as nothing to disclose", async () => {

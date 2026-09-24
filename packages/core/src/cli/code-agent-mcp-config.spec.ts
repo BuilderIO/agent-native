@@ -134,7 +134,7 @@ describe("code-agent MCP config", () => {
         url: "http://127.0.0.1:43123/mcp",
         headers: { Authorization: `Bearer ${token}` },
         description:
-          "Authenticated computer control for this Agent Native desktop task",
+          "Authenticated computer control for this Agent-Native desktop task",
       },
     });
     expect(codexMcpConfigArgs(null, environment)).toContain(

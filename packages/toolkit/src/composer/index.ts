@@ -6,6 +6,14 @@ export {
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
 export {
+  AgentSuggestionBar,
+  agentSuggestionPrompt,
+  normalizeAgentSuggestion,
+  type AgentSuggestionBarProps,
+  type AgentSuggestionInput,
+  type AgentSuggestionItem,
+} from "./AgentSuggestionBar.js";
+export {
   TiptapComposer,
   canSubmitComposerContent,
   displayableComposerModeMessage,
@@ -29,6 +37,20 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
+export {
+  PromptBar,
+  type PromptBarProps,
+  type PromptBarSection,
+} from "./PromptBar.js";
+export {
+  MessageQueueDrawer,
+  type MessageQueueDrawerProps,
+  type MessageQueueDrawerLabels,
+  type MessageQueueDrawerVariant,
+  type MessageQueueItem,
+  type MessageQueueItemAction,
+} from "./MessageQueueDrawer.js";
+export { useEagerFileUploads } from "./use-eager-file-uploads.js";
 export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
   RealtimeVoiceModeDock,
@@ -81,6 +103,8 @@ export type {
   FileResult,
   SkillResult,
   MentionItem,
+  MentionItemMedia,
+  MentionReferenceInsert,
   Reference,
   SlashCommand,
 } from "./types.js";

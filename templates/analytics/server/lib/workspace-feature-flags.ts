@@ -1,15 +1,33 @@
 import { randomUUID } from "node:crypto";
 
 import { signA2AToken } from "@agent-native/core/a2a";
+import {
+  ActionContractError,
+  AgentActionStopError,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
-import { fetchOrgApps, type OrgApp } from "@agent-native/core/mcp";
+import listLocalFeatureFlagsAction from "@agent-native/core/feature-flags/actions/list-feature-flags";
+import setLocalFeatureFlagAction from "@agent-native/core/feature-flags/actions/set-feature-flag";
+import {
+  fetchOrgApps,
+  fetchOrgAppsResult,
+  type OrgApp,
+} from "@agent-native/core/mcp";
 import { getOrgDomain } from "@agent-native/core/org";
+import { getAppConfig } from "@agent-native/core/server";
 
-import { VERIFIED_FLEET_FLAG_MUTATIONS } from "../../shared/feature-flags.js";
+import {
+  RESILIENT_FLEET_FLAG_DIRECTORY,
+  VERIFIED_FLEET_FLAG_MUTATIONS,
+} from "../../shared/feature-flags.js";
 import type { AnalyticsAdminContext } from "./db-admin-connections.js";
 
 const TARGET_TIMEOUT_MS = 3_000;
+const DIRECTORY_ATTEMPTS = 2;
+const VERIFICATION_ATTEMPTS = 2;
 const CONCURRENCY = 4;
+const ANALYTICS_APP_ID = "analytics";
 
 export type FleetFlagState =
   | "ready"
@@ -76,6 +94,37 @@ export function workspaceFeatureFlagTargetInput(
         },
       }
     : rawTargetInput;
+}
+
+function mutationValidationExpectation(
+  admin: AnalyticsAdminContext,
+  input: WorkspaceFeatureFlagMutationInput,
+  orgDomain: string,
+) {
+  return {
+    key: input.key,
+    orgDomain,
+    allowExplicitNoOrgTarget: true,
+    ...(input.operation === "replace-rules" && input.rules
+      ? {
+          rules: {
+            mode: input.rules.mode,
+            emails: input.rules.emails ?? [],
+            orgIds: input.rules.orgIds ?? [],
+            percentage: input.rules.percentage ?? 0,
+          },
+        }
+      : input.operation === "off"
+        ? {
+            rules: {
+              mode: "off",
+              emails: [],
+              orgIds: [],
+              percentage: 0,
+            },
+          }
+        : { enabledForEmail: admin.userEmail }),
+  };
 }
 
 export function validateWorkspaceFeatureFlagMutation(
@@ -166,6 +215,54 @@ function targetOrigin(app: OrgApp): string {
   return new URL(app.url).origin;
 }
 
+function localAnalyticsApp(): OrgApp {
+  const configuredUrl = getAppConfig().app.url;
+  const url = configuredUrl ?? "http://analytics.local";
+  return {
+    id: ANALYTICS_APP_ID,
+    name: "Analytics",
+    url,
+    a2aUrl: url,
+  };
+}
+
+function localActionContext(
+  admin: AnalyticsAdminContext,
+  actionName: "list-feature-flags" | "set-feature-flag",
+  sourceContext?: ActionRunContext,
+) {
+  return {
+    ...sourceContext,
+    caller: sourceContext?.caller ?? ("http" as const),
+    userEmail: admin.userEmail,
+    orgId: admin.orgId,
+    appId: ANALYTICS_APP_ID,
+    actionName,
+  };
+}
+
+async function listLocalAnalyticsFeatureFlags(admin: AnalyticsAdminContext) {
+  return classifyWorkspaceFeatureFlagList(localAnalyticsApp(), {
+    status: 200,
+    body: await listLocalFeatureFlagsAction.run(
+      {},
+      localActionContext(admin, "list-feature-flags"),
+    ),
+  });
+}
+
+function unreachableLocalAnalyticsEntry(): FleetFlagApp {
+  const app = localAnalyticsApp();
+  return {
+    appId: app.id,
+    appName: app.name,
+    appOrigin: targetOrigin(app),
+    state: "unreachable",
+    flags: [],
+    reason: "target-execution",
+  };
+}
+
 async function delegatedToken(
   admin: AnalyticsAdminContext,
   origin: string,
@@ -197,6 +294,8 @@ export type WorkspaceFeatureFlagFailurePhase =
   | "unsupported-target"
   | "target-action"
   | "persistence"
+  | "verification-timeout"
+  | "verification-network"
   | "verification";
 
 const FAILURE_MESSAGES: Record<WorkspaceFeatureFlagFailurePhase, string> = {
@@ -211,13 +310,39 @@ const FAILURE_MESSAGES: Record<WorkspaceFeatureFlagFailurePhase, string> = {
   "target-action": "The target app could not complete the feature flag action.",
   persistence:
     "The target app did not persist the requested feature flag rules.",
+  "verification-timeout":
+    "The feature flag change persisted, but the target app timed out during verification.",
+  "verification-network":
+    "The feature flag change persisted, but Analytics could not reach the target app during verification.",
   verification: "Analytics could not verify the persisted feature flag change.",
 };
 
-export class WorkspaceFeatureFlagFailure extends Error {
+export class WorkspaceFeatureFlagFailure extends AgentActionStopError {
   constructor(readonly phase: WorkspaceFeatureFlagFailurePhase) {
-    super(`[${phase}] ${FAILURE_MESSAGES[phase]}`);
+    const message = `[${phase}] ${FAILURE_MESSAGES[phase]}`;
+    const errorCode = `workspace_feature_flag_${phase.replace("-", "_")}`;
+    super(message, {
+      errorCode,
+      details: { phase },
+      toolResult: JSON.stringify({ error: errorCode, phase, message }),
+    });
     this.name = "WorkspaceFeatureFlagFailure";
+  }
+}
+
+class WorkspaceFeatureFlagSetupFailure extends ActionContractError {
+  readonly phase: "directory" | "token-generation";
+
+  constructor(phase: "directory" | "token-generation") {
+    const message = `[${phase}] ${FAILURE_MESSAGES[phase]}`;
+    const errorCode = `workspace_feature_flag_${phase.replace("-", "_")}`;
+    super(message, {
+      errorCode,
+      details: { phase },
+      statusCode: 503,
+    });
+    this.name = "WorkspaceFeatureFlagSetupFailure";
+    this.phase = phase;
   }
 }
 
@@ -242,28 +367,73 @@ export function classifyWorkspaceFeatureFlagTargetFailure(
   return "network";
 }
 
+function isSyntaxError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError ||
+    (!!error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "SyntaxError")
+  );
+}
+
 function targetFailure(error: unknown): WorkspaceFeatureFlagFailure {
   const reason = classifyWorkspaceFeatureFlagTargetFailure(error);
   return new WorkspaceFeatureFlagFailure(reason);
+}
+
+function localMutationFailure(error: unknown): WorkspaceFeatureFlagFailure {
+  const statusCode =
+    error && typeof error === "object" && "statusCode" in error
+      ? (error as { statusCode?: unknown }).statusCode
+      : undefined;
+  return new WorkspaceFeatureFlagFailure(
+    statusCode === 401 || statusCode === 403
+      ? "authorization"
+      : "target-action",
+  );
 }
 
 async function resolveTargetApp(
   admin: AnalyticsAdminContext,
   appId: string,
 ): Promise<OrgApp> {
-  let apps: OrgApp[];
-  try {
-    apps = await fetchOrgApps({
+  const flagContext = {
+    userEmail: admin.userEmail,
+    userKey: admin.userEmail,
+    orgId: admin.orgId,
+  };
+  if (
+    !(await isFeatureFlagEnabled(RESILIENT_FLEET_FLAG_DIRECTORY, flagContext))
+  ) {
+    const apps = await fetchOrgApps({
       selfId: "analytics",
       includeDirectoryApp: true,
       serviceOrgId: admin.orgId,
     });
-  } catch {
-    throw new WorkspaceFeatureFlagFailure("directory");
+    const app = apps.find((candidate) => candidate.id === appId);
+    if (app) return app;
+    throw new WorkspaceFeatureFlagSetupFailure("directory");
   }
-  const app = apps.find((candidate) => candidate.id === appId);
-  if (!app) throw new WorkspaceFeatureFlagFailure("directory");
-  return app;
+  for (let attempt = 0; attempt < DIRECTORY_ATTEMPTS; attempt++) {
+    const result = await fetchOrgAppsResult({
+      selfId: "analytics",
+      includeDirectoryApp: true,
+      serviceOrgId: admin.orgId,
+    });
+    if (result.status === "available") {
+      const app = result.apps.find((candidate) => candidate.id === appId);
+      if (app) return app;
+      throw new WorkspaceFeatureFlagSetupFailure("directory");
+    }
+    if (
+      result.reason !== "timeout" &&
+      result.reason !== "network" &&
+      result.reason !== "server-error"
+    )
+      break;
+  }
+  throw new WorkspaceFeatureFlagSetupFailure("directory");
 }
 
 async function callTarget(
@@ -302,10 +472,39 @@ async function callTarget(
   let parsed: unknown = null;
   try {
     parsed = await response.json();
-  } catch {
-    // A legacy/non-action endpoint is classified below without reflecting body.
+  } catch (error) {
+    const successfulResponse = response.status >= 200 && response.status < 300;
+    if (successfulResponse && !isSyntaxError(error))
+      throw new TargetCallFailure(
+        classifyWorkspaceFeatureFlagTargetFailure(error),
+      );
+    // Invalid legacy payloads and non-success statuses are classified below.
   }
   return { status: response.status, body: parsed };
+}
+
+async function readBackTarget(
+  app: OrgApp,
+  admin: AnalyticsAdminContext,
+  orgDomain: string,
+): Promise<{ status: number; body: unknown }> {
+  for (let attempt = 1; attempt <= VERIFICATION_ATTEMPTS; attempt += 1) {
+    try {
+      return await callTarget(app, admin, "list-feature-flags", {}, orgDomain);
+    } catch (error) {
+      const reason = classifyWorkspaceFeatureFlagTargetFailure(error);
+      const retryable = reason === "timeout" || reason === "network";
+      if (retryable && attempt < VERIFICATION_ATTEMPTS) continue;
+      throw new WorkspaceFeatureFlagFailure(
+        reason === "timeout"
+          ? "verification-timeout"
+          : reason === "network"
+            ? "verification-network"
+            : reason,
+      );
+    }
+  }
+  throw new WorkspaceFeatureFlagFailure("verification");
 }
 
 export function classifyWorkspaceFeatureFlagList(
@@ -368,13 +567,20 @@ async function mapBounded<T, R>(
 export async function listWorkspaceFeatureFlags(
   admin: AnalyticsAdminContext,
 ): Promise<WorkspaceFeatureFlagsResult> {
-  const apps = await fetchOrgApps({
-    selfId: "analytics",
-    includeDirectoryApp: true,
-    serviceOrgId: admin.orgId,
-  });
-  if (apps.length === 0) return { directoryStatus: "unavailable", apps: [] };
-  const entries = await mapBounded(apps, async (app) => {
+  const [localEntry, directoryResult] = await Promise.all([
+    listLocalAnalyticsFeatureFlags(admin).catch(() =>
+      unreachableLocalAnalyticsEntry(),
+    ),
+    fetchOrgAppsResult({
+      selfId: ANALYTICS_APP_ID,
+      includeDirectoryApp: true,
+      serviceOrgId: admin.orgId,
+    }),
+  ]);
+  if (directoryResult.status === "unavailable")
+    return { directoryStatus: "unavailable", apps: [localEntry] };
+  const directoryApps = directoryResult.apps;
+  const entries = await mapBounded(directoryApps, async (app) => {
     try {
       return classifyWorkspaceFeatureFlagList(
         app,
@@ -391,22 +597,111 @@ export async function listWorkspaceFeatureFlags(
       };
     }
   });
-  return { directoryStatus: "available", apps: entries };
+  return { directoryStatus: "available", apps: [localEntry, ...entries] };
 }
 
 export async function setWorkspaceFeatureFlag(
   admin: AnalyticsAdminContext,
   input: WorkspaceFeatureFlagMutationInput,
+  sourceContext?: ActionRunContext,
 ): Promise<WorkspaceFeatureFlagMutationResult> {
+  if (input.appId === ANALYTICS_APP_ID) {
+    if (input.operation === "replace-rules" && !input.rules)
+      throw new WorkspaceFeatureFlagFailure("target-action");
+    const localRules = input.rules as
+      | {
+          mode: "off" | "on" | "rules";
+          emails?: string[];
+          orgIds?: string[];
+          percentage?: number;
+        }
+      | undefined;
+    const targetInput =
+      input.operation === "replace-rules"
+        ? {
+            operation: input.operation,
+            key: input.key,
+            rules: localRules!,
+          }
+        : { operation: input.operation, key: input.key };
+    let result;
+    try {
+      result = await setLocalFeatureFlagAction.run(
+        targetInput,
+        localActionContext(admin, "set-feature-flag", sourceContext),
+      );
+    } catch (error) {
+      throw localMutationFailure(error);
+    }
+    const orgDomain = result.scope.orgDomain ?? "";
+    let mutation: TargetFeatureFlagMutationResult;
+    try {
+      mutation = validateWorkspaceFeatureFlagMutation(
+        result,
+        mutationValidationExpectation(admin, input, orgDomain),
+      );
+    } catch {
+      throw new WorkspaceFeatureFlagFailure("persistence");
+    }
+    let verifiedApp: FleetFlagApp;
+    try {
+      verifiedApp = await listLocalAnalyticsFeatureFlags(admin);
+    } catch {
+      throw new WorkspaceFeatureFlagFailure("verification");
+    }
+    if (verifiedApp.state === "forbidden")
+      throw new WorkspaceFeatureFlagFailure("authorization");
+    const verifiedFlag = verifiedApp.flags.find(
+      (flag) => flag.key === input.key,
+    );
+    if (
+      verifiedApp.state !== "ready" ||
+      !verifiedFlag ||
+      typeof verifiedFlag.enabledForCurrentUser !== "boolean" ||
+      (input.operation === "enable-for-current-user" &&
+        !verifiedFlag.enabledForCurrentUser) ||
+      (input.operation === "off" && verifiedFlag.enabledForCurrentUser)
+    ) {
+      throw new WorkspaceFeatureFlagFailure("verification");
+    }
+    try {
+      validateWorkspaceFeatureFlagMutation(
+        {
+          contractVersion: 2,
+          status: "ready",
+          key: input.key,
+          rules: verifiedFlag.rules,
+          scope: mutation.scope,
+        },
+        {
+          key: input.key,
+          orgDomain,
+          allowExplicitNoOrgTarget: true,
+          rules: mutation.rules,
+        },
+      );
+    } catch {
+      throw new WorkspaceFeatureFlagFailure("verification");
+    }
+    return {
+      contractVersion: 3,
+      status: "verified",
+      key: mutation.key,
+      rules: verifiedFlag.rules as Record<string, unknown>,
+      scope: mutation.scope,
+      enabledForCurrentUser: verifiedFlag.enabledForCurrentUser,
+    };
+  }
   const app = await resolveTargetApp(admin, input.appId);
   const targetInput = workspaceFeatureFlagTargetInput(input);
   let orgDomain: string | undefined;
   try {
     orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
   } catch {
-    throw new WorkspaceFeatureFlagFailure("token-generation");
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   }
-  if (!orgDomain) throw new WorkspaceFeatureFlagFailure("token-generation");
+  if (!orgDomain)
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   let result: Awaited<ReturnType<typeof callTarget>>;
   try {
     result = await callTarget(
@@ -417,6 +712,8 @@ export async function setWorkspaceFeatureFlag(
       orgDomain,
     );
   } catch (error) {
+    if (classifyWorkspaceFeatureFlagTargetFailure(error) === "token-generation")
+      throw new WorkspaceFeatureFlagSetupFailure("token-generation");
     throw targetFailure(error);
   }
   if (result.status === 401 || result.status === 403)
@@ -427,30 +724,10 @@ export async function setWorkspaceFeatureFlag(
     throw new WorkspaceFeatureFlagFailure("target-action");
   let mutation: TargetFeatureFlagMutationResult;
   try {
-    mutation = validateWorkspaceFeatureFlagMutation(result.body, {
-      key: input.key,
-      orgDomain,
-      allowExplicitNoOrgTarget: true,
-      ...(input.operation === "replace-rules" && input.rules
-        ? {
-            rules: {
-              mode: input.rules.mode,
-              emails: input.rules.emails ?? [],
-              orgIds: input.rules.orgIds ?? [],
-              percentage: input.rules.percentage ?? 0,
-            },
-          }
-        : input.operation === "off"
-          ? {
-              rules: {
-                mode: "off",
-                emails: [],
-                orgIds: [],
-                percentage: 0,
-              },
-            }
-          : { enabledForEmail: admin.userEmail }),
-    });
+    mutation = validateWorkspaceFeatureFlagMutation(
+      result.body,
+      mutationValidationExpectation(admin, input, orgDomain),
+    );
   } catch {
     throw new WorkspaceFeatureFlagFailure("persistence");
   }
@@ -465,18 +742,7 @@ export async function setWorkspaceFeatureFlag(
     return mutation;
   }
 
-  let readBack: Awaited<ReturnType<typeof callTarget>>;
-  try {
-    readBack = await callTarget(
-      app,
-      admin,
-      "list-feature-flags",
-      {},
-      orgDomain,
-    );
-  } catch (error) {
-    throw targetFailure(error);
-  }
+  const readBack = await readBackTarget(app, admin, orgDomain);
   if (readBack.status === 401 || readBack.status === 403)
     throw new WorkspaceFeatureFlagFailure("authorization");
   if (readBack.status === 404 || readBack.status === 405)
@@ -537,6 +803,7 @@ export async function getWorkspaceFlagTarget(
   admin: AnalyticsAdminContext,
   appId: string,
 ): Promise<FleetFlagApp> {
+  if (appId === ANALYTICS_APP_ID) return listLocalAnalyticsFeatureFlags(admin);
   const apps = await fetchOrgApps({
     selfId: "analytics",
     includeDirectoryApp: true,

@@ -30,6 +30,7 @@ import {
   getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -88,6 +89,39 @@ describe("first-party BigQuery backend", () => {
     );
     expect(sql).toContain("'owner''o@example.com'");
     expect(sql).toContain("'2026-08-05'");
+  });
+
+  it("does not bind markers inside SQL string literals", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT '$1' AS marker FROM analytics_events WHERE owner_email = $1",
+      ["owner@example.com"],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain("SELECT '$1' AS marker");
+    expect(sql).toContain("owner_email = 'owner@example.com'");
+  });
+
+  it("keeps regular PostgreSQL backslashes from hiding later binds", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT 'ends with \\' AS marker FROM analytics_events WHERE owner_email = $1",
+      ["owner@example.com"],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain("owner_email = 'owner@example.com'");
   });
 
   it("keeps union branches separated after source deduplication", () => {
@@ -348,7 +382,7 @@ describe("first-party BigQuery backend", () => {
       expect(query.sql).toContain(
         "event_name IS DISTINCT FROM 'http.response'",
       );
-      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT $3");
       expect(query.sql).not.toContain("SELECT *");
       expect(query.sql).not.toContain("UNION ALL");
     }
@@ -383,8 +417,8 @@ describe("first-party BigQuery backend", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
-    expect(personalQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) > ($3, $4)");
+    expect(personalQuery.sql).toContain("(received_at, id) > ($3, $4)");
     expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-06-09T00:00:00.000Z",
@@ -429,8 +463,8 @@ describe("first-party BigQuery backend", () => {
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
     const [orgQuery] = execute.mock.calls[0] ?? [];
-    expect(orgQuery.sql).toContain("(received_at, id) < (?, ?)");
-    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) < ($3, $4)");
+    expect(orgQuery.sql).toContain("(received_at, id) > ($5, $6)");
     expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-06-09T00:00:00.000Z",
@@ -474,11 +508,60 @@ describe("first-party BigQuery backend", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });
+    expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).rows,
     ).toHaveLength(200);
     expect(
       JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
     ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers only rows BigQuery did not reject", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        insertErrors: [{ index: 1, errors: [{ message: "invalid event" }] }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "BigQuery rejected 1 event row(s): invalid event",
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("reconciles rows after an ambiguous insert response", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("socket closed"));
+    vi.stubGlobal("fetch", fetchMock);
+    runQuery.mockResolvedValue({
+      rows: [{ id: "event-1" }],
+      schema: [{ name: "id", type: "STRING" }],
+    });
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "socket closed",
+    });
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("SELECT id FROM"),
+    );
     vi.unstubAllGlobals();
   });
 
@@ -557,12 +640,12 @@ describe("first-party BigQuery backend", () => {
     expect(execute).toHaveBeenCalledTimes(3);
     const [hydrateQuery] = execute.mock.calls[2] ?? [];
     expect(hydrateQuery.sql).toContain("SELECT id, public_key_id, event_name");
-    expect(hydrateQuery.sql).toContain("WHERE id IN (?)");
+    expect(hydrateQuery.sql).toContain("WHERE id IN ($1)");
     expect(hydrateQuery.args).toEqual(["org-event"]);
     vi.unstubAllGlobals();
   });
 
-  it("chunks SQLite hydration keys without changing selected event order", async () => {
+  it("chunks hydration keys without changing selected event order", async () => {
     const indexedRows = Array.from({ length: 901 }, (_, index) => ({
       id: `event-${index}`,
       received_at: new Date(Date.UTC(2026, 6, 25, 0, 0, index)).toISOString(),
@@ -582,7 +665,7 @@ describe("first-party BigQuery backend", () => {
       async (query: { sql: string; args: string[] }) => {
         if (query.sql.includes("SELECT id, received_at")) {
           return {
-            rows: query.sql.includes("org_id = ?") ? indexedRows : [],
+            rows: query.sql.includes("org_id = $1") ? indexedRows : [],
           };
         }
         return {

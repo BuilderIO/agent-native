@@ -4,8 +4,23 @@ export {
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./agent-chat.js";
+export {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+  type AgentChatMessageParts,
+} from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
-export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  APP_STATUS,
+  DEFAULT_APP_STATUS,
+  getAppStatus,
+  type AppStatus,
+} from "./app-status.js";
+export {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
@@ -22,17 +37,75 @@ export {
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
 export {
+  MAX_USER_REGEX_INPUT_LENGTH,
+  MAX_USER_REGEX_LENGTH,
+  analyzeRegexSource,
+  compileUserRegex,
+  testUserRegex,
+  type RegexSafetyVerdict,
+  type UserRegexCompileResult,
+  type UserRegexTestResult,
+} from "./bounded-regex.js";
+export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "./document-title.js";
+export {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  getReasoningEffortOptionsForModel,
+  isReasoningEffort,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
+  type ReasoningEffort,
+} from "./reasoning-effort.js";
 export { injectDocumentMarkup } from "./html-document.js";
+export {
+  formatAgentDesignSystemContext,
+  loadAgentDesignSystemContext,
+  type AgentDesignSystemContext,
+  type AgentDesignSystemContextAvailable,
+  type AgentDesignSystemContextUnavailable,
+} from "./design-system-agent-context.js";
+export {
+  formatHtmlStyleSummary,
+  summarizeHtmlStyles,
+  type HtmlStyleFragment,
+  type HtmlStyleSummary,
+  type HtmlStyleValue,
+} from "./html-style-summary.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
+export {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_LANE_REDIRECT_QUERY_PARAM,
+  BETA_LANE_RETURN_STORAGE_KEY,
+  BETA_LANE_RETURNED_STORAGE_KEY,
+  BETA_REDIRECT_DURATION_MS,
+  BETA_REDIRECT_STORAGE_KEY,
+  BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+  buildAutomaticBetaRedirectUrl,
+  ENVIRONMENT_BETA_HOSTS,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
+} from "./environment-lanes.js";
 export {
   SSR_HTML_CONTENT_TYPE,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,
 } from "./cache-control.js";
+export {
+  SURFACE_HIDDEN_FLAG,
+  SURFACE_VISIBILITY_EVENT,
+  addSurfaceVisibilityListener,
+  buildSurfaceVisibilityScript,
+  isHostSurfaceHidden,
+  isSurfaceHidden,
+} from "./surface-visibility.js";
 export {
   AGENT_NATIVE_DOCS_ORIGIN,
   docsUrl,
@@ -58,6 +131,24 @@ export {
   type LlmConnectionStatus,
 } from "./llm-connection.js";
 export {
+  AGENT_NATIVE_ACTION_EVENTS,
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  LEGACY_TRACKING_EVENT_NAME_ALIASES,
+  canonicalTrackingEvent,
+  normalizeTrackingDimension,
+  withCanonicalTrackingProperties,
+  type AgentNativeActionEventName,
+  type AgentNativeLifecycleEventName,
+} from "./analytics-events.js";
+export {
+  BUILDER_CONNECT_PROVIDER,
+  BUILDER_CONNECT_PROVIDER_LABEL,
+  connectRequiredResult,
+  normalizeConnectRequiredResult,
+  type ConnectRequiredCard,
+  type ConnectRequiredResult,
+} from "./connect-required.js";
+export {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   RESERVED_WORKSPACE_APP_IDS,
   assertValidWorkspaceAppId,
@@ -67,8 +158,10 @@ export {
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  DEFAULT_WORKSPACE_APP_HOME_PATH,
   WORKSPACE_APP_AUDIENCES,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromEnv,
   workspaceAppAudienceFromPackageJson,
@@ -82,6 +175,7 @@ export {
   AGENT_NATIVE_OPEN_PATH,
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
@@ -92,6 +186,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
+export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "./test-traffic.js";
 export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,
@@ -104,6 +204,7 @@ export {
 } from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -144,3 +245,20 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "./agent-readable-resource.js";
+export {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatch,
+  type TargetedMatchFailure,
+  type TargetedMatchesResult,
+  type TargetedReplaceResult,
+  type TargetedTextEditOptions,
+} from "./targeted-text-edit.js";
+export {
+  DIAGNOSTIC_SNIPPET_CLOSE,
+  DIAGNOSTIC_SNIPPET_OPEN,
+  stripDiagnosticSnippets,
+  wrapDiagnosticSnippet,
+} from "./diagnostic-snippet.js";

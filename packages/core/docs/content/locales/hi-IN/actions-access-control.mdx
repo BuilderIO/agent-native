@@ -1,25 +1,26 @@
 ---
 title: "Access और Authorization"
-description: "कौन किसी action को कॉल कर सकता है: exposure flags (agentTool, toolCallable), ctx-आधारित scoping, accessFilter/assertAccess, और authorize गार्ड।"
+description: "कौन किसी action को कॉल कर सकता है: exposure flags (agentTool, mcpTool, toolCallable), ctx-आधारित scoping, accessFilter/assertAccess, और authorize गार्ड।"
 ---
 
 # Access और Authorization
 
-पांच सेटिंग्स तय करती हैं कि किसी action को कौन कॉल कर सकता है: एजेंट, फ्रंटएंड, कोई extension, कोई बाहरी API कॉलर, या पहले किसी मानव के अनुमोदन के बिना कोई नहीं। अधिकतर actions को इनमें से किसी को छूने की कभी ज़रूरत नहीं पड़ती, क्योंकि defaults पहले से सामान्य UI-और-एजेंट उपयोग के अनुकूल हैं।
+छह सेटिंग्स तय करती हैं कि किसी action को कौन कॉल कर सकता है: एजेंट, फ्रंटएंड, कोई extension, कोई बाहरी API कॉलर, या पहले किसी मानव के अनुमोदन के बिना कोई नहीं। अधिकतर actions को इनमें से किसी को छूने की कभी ज़रूरत नहीं पड़ती, क्योंकि defaults पहले से सामान्य UI-और-एजेंट उपयोग के अनुकूल हैं।
 
 ### Exposure flags {#exposure-flags}
 
-सभी पांच flags डिफ़ॉल्ट रूप से permissive वैल्यू पर होते हैं, इसलिए आप किसी एक को तभी सेट करते हैं जब आपको किसी विशिष्ट सतह को टाइट करने की आवश्यकता हो। नीचे दी गई तालिका एक त्वरित सारांश है। इसके बाद के सेक्शन हर flag की एक ज़रूरी जानकारी जोड़ते हैं।
+सभी छह flags डिफ़ॉल्ट रूप से permissive वैल्यू पर होते हैं — `mcpTool` `agentTool` से विरासत में लेकर — इसलिए आप किसी एक को तभी सेट करते हैं जब आपको किसी विशिष्ट सतह को टाइट करने की आवश्यकता हो। नीचे दी गई तालिका एक त्वरित सारांश है। इसके बाद के सेक्शन हर flag की एक ज़रूरी जानकारी जोड़ते हैं।
 
 | Flag            | डिफ़ॉल्ट      | प्रतिबंधात्मक वैल्यू → कौन अभी भी कॉल कर सकता है                                     | सामान्य उपयोग                                                          |
 | --------------- | ------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | `agentTool`     | `true`        | `false` → केवल UI, HTTP, और CLI (मॉडल, MCP, और A2A से छिपा हुआ)                      | UI-only या प्रोग्रामेटिक actions जिन्हें टूल स्लॉट नहीं लेना चाहिए     |
+| `mcpTool`       | `agentTool`   | `false` → केवल आपकी अपनी app का एजेंट (MCP और A2A से छिपा हुआ)                       | ऐसे actions जिन्हें दूसरी ओर app की स्क्रीन या सेशन चाहिए              |
 | `toolCallable`  | `true`        | `false` → sandboxed extension iframe ब्रिज **को छोड़कर** सब कुछ (403)                | संवेदनशील account या org बदलाव (account delete करना, membership बदलना) |
 | `publicAgent`   | off (private) | `{ expose: true }` → action को **public** MCP/A2A/OpenAPI सतहों में जोड़ता है        | सुरक्षित read या ingest टूल जिन्हें authentication की आवश्यकता नहीं    |
 | `needsApproval` | `false`       | `true` → एजेंट **रुक जाता है**, और किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होगा | परिणामी side effects (email भेजना, कार्ड चार्ज करना, delete करना)      |
 | `authorize`     | none          | एक गार्ड फ़ंक्शन → **हर** सतह पर केवल वे कॉलर्स जिन्हें यह स्वीकार करता है           | किसी भूमिका तक प्रतिबंधित ऑपरेशंस (per-app RBAC, admin-only ऑप्स)      |
 
-ये flags स्वतंत्र हैं, इसलिए एक को सेट करने से बाकी नहीं बदलते। `agentTool` नियंत्रित करता है कि मॉडल क्या देखता है, नीचे [मॉडल से छिपाएं](#agent-tool) देखें। `toolCallable` केवल extension iframe को नियंत्रित करता है, नीचे [Extension iframes को ब्लॉक करें](#tool-callable) देखें। `publicAgent` एक opt-in public सतह जोड़ता है, और कोई public web route कभी public tool exposure का संकेत नहीं देता, नीचे [Public एजेंट्स के लिए एक्सपोज़ करें](#public-agent) देखें। `needsApproval` कॉल पहले से किए जाने के बाद execution को गेट करता है, नीचे [मानव अनुमोदन की आवश्यकता](#needs-approval) देखें। `authorize` तय करता है कि क्या यह कॉलर बिल्कुल भी action चला सकता है, हर dispatch पथ पर, `run()` में प्रवेश करने से पहले, नीचे [भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें](#authorize) देखें।
+ये flags स्वतंत्र हैं, एक अपवाद के साथ: बिना घोषित किया गया `mcpTool` `agentTool` से विरासत में लेता है। `agentTool` नियंत्रित करता है कि मॉडल क्या देखता है, नीचे [मॉडल से छिपाएं](#agent-tool) देखें। `mcpTool` इसे केवल बाहरी एजेंट्स तक सीमित करता है, नीचे [बाहरी एजेंट्स से छिपाएं](#mcp-tool) देखें। `toolCallable` केवल extension iframe को नियंत्रित करता है, नीचे [Extension iframes को ब्लॉक करें](#tool-callable) देखें। `publicAgent` एक opt-in public सतह जोड़ता है, और कोई public web route कभी public tool exposure का संकेत नहीं देता, नीचे [Public एजेंट्स के लिए एक्सपोज़ करें](#public-agent) देखें। `needsApproval` कॉल पहले से किए जाने के बाद execution को गेट करता है, नीचे [मानव अनुमोदन की आवश्यकता](#needs-approval) देखें। `authorize` तय करता है कि क्या यह कॉलर बिल्कुल भी action चला सकता है, हर dispatch पथ पर, `run()` में प्रवेश करने से पहले, नीचे [भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें](#authorize) देखें।
 
 ## मॉडल से छिपाएं {#agent-tool}
 
@@ -38,6 +39,44 @@ export default defineAction({
 ```
 
 इसका उपयोग तब करें जब आप कोई UI-only या पूरी तरह प्रोग्रामेटिक action जोड़ते हैं, या जब UI किसी ऐसे action का उपयोग करना बंद कर देता है जो अन्यथा मॉडल के सामने एक्सपोज़्ड रहता।
+
+## बाहरी एजेंट्स से छिपाएं {#mcp-tool}
+
+`agentTool` सब-कुछ-या-कुछ-नहीं है: कोई action या तो हर एजेंट के लिए टूल है, या किसी के लिए नहीं। `mcpTool` इसे दो हिस्सों में बाँट देता है, ताकि कोई action आपकी अपनी app के एजेंट के लिए सामान्य टूल बना रहे और फिर भी MCP तथा A2A के ज़रिए Claude, Cursor या किसी सहोदर app तक कभी न पहुँचे:
+
+```ts
+export default defineAction({
+  description: "Open the record inspector beside the current selection.",
+  mcpTool: false, // needs a live screen on the other end
+  schema: z.object({ recordId: z.string() }),
+  run: async ({ recordId }) => {
+    /* ... */
+  },
+});
+```
+
+ऐसे actions के लिए इसका उपयोग करें जिनका परिणाम केवल आपकी app की UI, किसी खुले सेशन, या कॉलर के सामने मौजूद वर्तमान चयन के साथ ही अर्थ रखता है। `mcpTool` केवल `agentTool` को संकीर्ण कर सकता है, चौड़ा कभी नहीं: `agentTool: false` वाला action हर जगह छिपा रहता है। यह बाहरी टूल सतह को ही नियंत्रित करता है, यह नहीं कि किसी `ask_app` सवाल का जवाब देते समय आपकी अपनी app का एजेंट क्या कर सकता है — वह रन आपके एजेंट का है, और उसकी पूरी टूल सूची बनी रहती है।
+
+घोषित न करने पर `mcpTool` एक तयशुदा `true` के बजाय `agentTool` का अनुसरण करता है, इसलिए किसी action को एजेंट से छिपाना उसे बाहरी एजेंट्स से भी छिपा देता है और एक flag एक ही निर्णय बना रहता है।
+
+इसका उल्टा मान एक दूसरा काम करता है। बाहरी एजेंट्स को डिफ़ॉल्ट रूप से आपकी पूरी action रजिस्ट्री नहीं, बल्कि एक छोटी, चुनी हुई सूची दी जाती है, और `mcpTool: true` वह तरीका है जिससे कोई action खुद को उसका हिस्सा घोषित करता है:
+
+```ts
+export default defineAction({
+  description: "List the databases connected to this workspace.",
+  mcpTool: true, // served to external agents, not just discoverable
+  http: { method: "GET" },
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+यह प्लगइन की `mcp: { connectorCatalog: [...] }` सूची वाली वही सूची है, बस इसे एक अलग array के बजाय action पर ही घोषित किया जाता है — उस array को actions के नाम बदलने पर हर बार सिंक में रखना पड़ता है। दोनों तरीके काम करते हैं, और कोई app एक-एक action करके माइग्रेट कर सकती है। जो छूट जाता है वह `tool-search` से खोजा जा सकता रहता है।
+
+दोनों flags को उल्टा जोड़ें — `agentTool: false` के साथ `mcpTool: true` — तो action **केवल-MCP** बन जाता है: बाहरी एजेंट्स को यह मिलता है, आपकी अपनी app का एजेंट इसे कभी नहीं देखता। ऐसे export, sync या handoff के लिए इसका उपयोग करें जिसकी ज़रूरत किसी बाहरी टूल को है और जिसे कॉल करने का आपके अपने एजेंट के पास कोई कारण नहीं।
+
+सूची में होना अनुमति नहीं है। बाहरी कॉलर को अब भी OAuth scope जाँच और `externalAgents` नीति से गुज़रना होता है, और मॉडल-रहित सीधे A2A पथ के लिए नीचे दिए गए `publicAgent` opt-in से भी।
 
 ## Extension iframes को ब्लॉक करें {#tool-callable}
 

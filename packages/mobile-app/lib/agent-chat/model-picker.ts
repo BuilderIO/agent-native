@@ -5,7 +5,7 @@ export const MOBILE_AGENT_OPTIONS = [
   {
     id: "default",
     label: "Default",
-    description: "Agent Native hosted chat",
+    description: "Agent-Native hosted chat",
   },
   {
     id: "codex",

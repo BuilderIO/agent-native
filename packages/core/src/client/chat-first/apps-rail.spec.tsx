@@ -91,7 +91,10 @@ describe("ChatFirstAppsRail", () => {
 
     expect(selectedIcon?.className).not.toContain("grayscale");
     expect(
-      selectedIcon?.closest("[data-chat-first-app]")?.className,
+      selectedIcon?.closest("[data-chat-first-app]")?.className.split(" "),
+    ).toContain("bg-sidebar-accent");
+    expect(
+      inactiveIcon?.closest("[data-chat-first-app]")?.className.split(" "),
     ).not.toContain("bg-sidebar-accent");
     expect(
       selectedIcon
@@ -106,7 +109,7 @@ describe("ChatFirstAppsRail", () => {
     ).toBe("true");
   });
 
-  it("keeps app icons in color when no app is selected", () => {
+  it("keeps app icons in color before any surface resolves", () => {
     act(() => {
       root.render(
         <ChatFirstAppsRail
@@ -129,6 +132,100 @@ describe("ChatFirstAppsRail", () => {
         ?.querySelector("[data-icon-inactive]")
         ?.getAttribute("data-icon-inactive"),
     ).toBe("false");
+  });
+
+  it("grays every app icon while a nav surface owns the rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeTab="search"
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const icons = [
+      ...container.querySelectorAll<HTMLElement>("[data-chat-first-app-icon]"),
+    ];
+    expect(icons).toHaveLength(2);
+    for (const icon of icons) {
+      expect(icon.className).toContain("grayscale");
+      expect(
+        icon
+          .querySelector("[data-icon-inactive]")
+          ?.getAttribute("data-icon-inactive"),
+      ).toBe("true");
+      expect(
+        icon.closest("[data-chat-first-app]")?.className.split(" "),
+      ).not.toContain("bg-sidebar-accent");
+    }
+  });
+
+  it("grays every expanded app row while a nav surface owns the rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeTab="new-chat"
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const rows = [
+      ...container.querySelectorAll<HTMLElement>("[data-chat-first-app]"),
+    ];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.className.split(" ")).not.toContain("bg-sidebar-accent");
+      expect(
+        row.querySelector("[data-chat-first-app-icon]")?.className,
+      ).toContain("grayscale");
+    }
+  });
+
+  it("keeps the selected app active when a nav tab is not resolved", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
+          activeAppId="analytics"
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-app-id="analytics"] [data-chat-first-app-icon]',
+      )?.className,
+    ).not.toContain("grayscale");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-app-id="content"] [data-chat-first-app-icon]',
+      )?.className,
+    ).toContain("grayscale");
   });
 
   it("shows a collapsed app name immediately on hover", async () => {
@@ -229,11 +326,14 @@ describe("ChatFirstAppsRail", () => {
     ).not.toBeNull();
   });
 
-  it("does not add an outer selection background in the expanded rail", () => {
+  it("adds an accent background to the active app row in the expanded rail", () => {
     act(() => {
       root.render(
         <ChatFirstAppsRail
-          apps={[{ id: "content", name: "Content" }]}
+          apps={[
+            { id: "content", name: "Content" },
+            { id: "analytics", name: "Analytics" },
+          ]}
           activeAppId="content"
           onOpenApp={vi.fn()}
           renderIcon={(app, options) => (
@@ -243,10 +343,16 @@ describe("ChatFirstAppsRail", () => {
       );
     });
 
-    const appRow = container.querySelector<HTMLElement>(
+    const activeRow = container.querySelector<HTMLElement>(
       '[data-chat-first-app][data-app-id="content"]',
     );
-    expect(appRow?.className).not.toContain("bg-sidebar-accent");
+    const inactiveRow = container.querySelector<HTMLElement>(
+      '[data-chat-first-app][data-app-id="analytics"]',
+    );
+    expect(activeRow?.className.split(" ")).toContain("bg-sidebar-accent");
+    expect(inactiveRow?.className.split(" ")).not.toContain(
+      "bg-sidebar-accent",
+    );
   });
 
   it("keeps a selected app outside the default slice visible", () => {
@@ -308,6 +414,53 @@ describe("ChatFirstAppsRail", () => {
         (app) => app.dataset.appId,
       ),
     ).toEqual(defaultAppIds);
+  });
+
+  it("opens collapsed app actions and reloads the selected app", async () => {
+    const onReloadApp = vi.fn();
+    const app = { id: "calendar", name: "Calendar" };
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[app]}
+          collapsed
+          onOpenApp={vi.fn()}
+          onReloadApp={onReloadApp}
+          renderIcon={(item) => <span>{item.name}</span>}
+        />,
+      );
+    });
+
+    const appButton = container.querySelector<HTMLButtonElement>(
+      '[data-app-id="calendar"]',
+    );
+    expect(appButton).not.toBeNull();
+
+    await act(async () => {
+      appButton?.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          button: 2,
+          clientX: 40,
+          clientY: 40,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const reloadItem = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent?.trim() === "Reload app");
+    expect(reloadItem).not.toBeUndefined();
+
+    act(() => {
+      reloadItem?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      reloadItem?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onReloadApp).toHaveBeenCalledWith(app);
   });
 
   it("persists the expanded rail state across remounts", () => {

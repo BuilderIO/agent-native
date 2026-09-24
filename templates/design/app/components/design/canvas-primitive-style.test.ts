@@ -4,8 +4,10 @@ import {
   canvasPrimitiveReactStyle,
   canvasPrimitiveStyleString,
   canvasPrimitiveVisual,
+  canvasVectorPaint,
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_SHAPE_FILL,
 } from "./canvas-primitive-style";
 
 describe("canvas text primitive style", () => {
@@ -56,21 +58,39 @@ describe("canvas text primitive style", () => {
   });
 });
 
-describe("canvas rect/ellipse default tokens (CV24 doc accuracy)", () => {
-  it("uses plain neutral-gray defaults, not theme CSS variables", () => {
+describe("canvas rect/ellipse default tokens", () => {
+  it("uses plain neutral-gray fills without a persistent authored border", () => {
     const rect = canvasPrimitiveVisual("rect");
-    expect(rect.background).toBe("rgb(218 218 218)");
-    expect(rect.border).toBe("1px solid rgb(168 168 168)");
+    expect(rect.background).toBe("rgb(217 217 217)");
+    expect(rect.border).toBe("0 solid transparent");
+    expect(canvasPrimitiveReactStyle("rect")).toMatchObject({
+      borderWidth: 0,
+      borderStyle: "solid",
+    });
 
     const ellipse = canvasPrimitiveVisual("ellipse");
-    expect(ellipse.background).toBe("rgb(218 218 218)");
+    expect(ellipse.background).toBe("rgb(217 217 217)");
+    expect(ellipse.border).toBe("0 solid transparent");
+  });
+
+  it("restores a visible border only when a stroke is explicitly chosen", () => {
+    expect(
+      canvasPrimitiveReactStyle("rect", { stroke: "#111111" }),
+    ).toMatchObject({
+      borderColor: "#111111",
+      borderWidth: 1,
+      borderStyle: "solid",
+    });
+    expect(
+      canvasPrimitiveStyleString("ellipse", { stroke: "#111111" }),
+    ).toContain("border:1px solid #111111");
   });
 
   it("frame fill is the one default that is theme-adaptive via a CSS custom property", () => {
     const frame = canvasPrimitiveVisual("frame");
     expect(frame.background).toContain("var(--primary)");
-    // The frame's border, like rect/ellipse, is still a plain gray — only
-    // its (very faint) fill reads the editor's --primary custom property.
+    // Frames intentionally retain a dashed structural border; only their
+    // (very faint) fill reads the editor's --primary custom property.
     expect(frame.border).toContain("rgb(168 168 168)");
   });
 });
@@ -84,5 +104,26 @@ describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
     // appendCanvasPrimitiveToHtml) must agree on.
     expect(DEFAULT_LINE_STROKE).toBe("#000000");
     expect(DEFAULT_LINE_STROKE_WIDTH_PX).toBe(1);
+  });
+
+  it("never fills an open path", () => {
+    expect(
+      canvasVectorPaint({ outline: "open-path", fill: "#ff0000" }).fill,
+    ).toBe("none");
+  });
+
+  it("keeps a closed pen path stroke-only, like Figma", () => {
+    expect(canvasVectorPaint({ outline: "closed-path" })).toEqual({
+      fill: "none",
+      stroke: DEFAULT_LINE_STROKE,
+      strokeWidth: DEFAULT_LINE_STROKE_WIDTH_PX,
+    });
+  });
+
+  it("fills polygons and stars without a stroke", () => {
+    expect(canvasVectorPaint({ outline: "shape" })).toMatchObject({
+      fill: DEFAULT_SHAPE_FILL,
+      stroke: "none",
+    });
   });
 });

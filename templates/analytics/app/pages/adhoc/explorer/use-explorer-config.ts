@@ -52,7 +52,7 @@ export function useExplorerConfig() {
 
   // On mount, try to restore from autosave
   useEffect(() => {
-    fetchConfig(AUTOSAVE_ID)
+    void fetchConfig(AUTOSAVE_ID)
       .catch(() => null)
       .then((saved) => {
         if (saved) {
@@ -110,7 +110,7 @@ export function useExplorerConfig() {
         });
         setCurrentId(id);
         setConfig(toSave);
-        savedConfigsQuery.refetch();
+        void savedConfigsQuery.refetch();
       } finally {
         setIsSaving(false);
       }
@@ -125,7 +125,7 @@ export function useExplorerConfig() {
         setConfig(createDefaultConfig(defaultConfigName));
         setCurrentId(null);
       }
-      savedConfigsQuery.refetch();
+      void savedConfigsQuery.refetch();
     },
     [currentId, defaultConfigName, savedConfigsQuery],
   );

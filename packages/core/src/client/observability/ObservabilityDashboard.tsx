@@ -10,15 +10,30 @@ import {
   IconChartBar,
   IconAB2,
   IconMessageReport,
+  IconMessageCircle,
+  IconPencil,
   IconChevronRight,
   IconArrowLeft,
   IconLoader2,
   IconAlertTriangle,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { OutputPreview } from "./OutputPreview.js";
 import {
   useObservabilityOverview,
   useTraces,
@@ -30,6 +45,10 @@ import {
   useExperiments,
   useExperimentDetail,
   useExperimentResults,
+  useOutputReviews,
+  useOutputReviewApp,
+  useSaveInstructionUpdate,
+  useSubmitFeedback,
   type TraceSummary,
   type Experiment,
 } from "./useObservability.js";
@@ -690,6 +709,459 @@ function ExperimentDetailView({
   );
 }
 
+// ─── Tab: Human review ─────────────────────────────────────────────────
+
+function ReviewTab({ days }: { days: number }) {
+  const t = useT();
+  const { data: reviews, isLoading } = useOutputReviews(days);
+  const feedbackMutation = useSubmitFeedback();
+  const instructionMutation = useSaveInstructionUpdate();
+  const queryClient = useQueryClient();
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [openPopover, setOpenPopover] = useState<{
+    runId: string;
+    kind: "feedback" | "instruction";
+  } | null>(null);
+  const [feedbackNote, setFeedbackNote] = useState<{
+    runId: string;
+    value: string;
+  } | null>(null);
+  const [instructionDraft, setInstructionDraft] = useState<{
+    runId: string;
+    value: string;
+    target: "agent" | "developer" | "skill";
+  } | null>(null);
+  const selectedReview = reviews?.find(
+    (review) => review.runId === selectedRunId,
+  );
+  const reviewAppQuery = useOutputReviewApp(
+    selectedReview?.hasInlineApp ? selectedReview.runId : null,
+  );
+
+  if (isLoading) return <LoadingState />;
+  if (!reviews || reviews.length === 0) {
+    return <EmptyState message={t("observability.noReviews")} />;
+  }
+
+  const saveFeedback = (
+    runId: string,
+    threadId: string | null,
+    feedbackType: "thumbs_up" | "thumbs_down",
+  ) => {
+    feedbackMutation.mutate(
+      {
+        runId,
+        threadId: threadId ?? undefined,
+        feedbackType,
+      },
+      {
+        onSuccess: () =>
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-observability-reviews"],
+          }),
+      },
+    );
+  };
+
+  const saveNote = (runId: string, threadId: string | null) => {
+    const note = feedbackNote?.runId === runId ? feedbackNote.value.trim() : "";
+    if (!note) return;
+    feedbackMutation.mutate(
+      {
+        runId,
+        threadId: threadId ?? undefined,
+        feedbackType: "text",
+        value: note,
+      },
+      {
+        onSuccess: () => {
+          setFeedbackNote((current) =>
+            current?.runId === runId && current.value.trim() === note
+              ? null
+              : current,
+          );
+          setOpenPopover((current) =>
+            current?.runId === runId && current.kind === "feedback"
+              ? null
+              : current,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-observability-reviews"],
+          });
+        },
+      },
+    );
+  };
+
+  const saveInstruction = (runId: string, threadId: string | null) => {
+    const draft =
+      instructionDraft?.runId === runId ? instructionDraft : undefined;
+    if (!draft) return;
+    const savedInstruction = draft.value.trim();
+    if (!savedInstruction) return;
+    instructionMutation.mutate(
+      {
+        runId,
+        threadId,
+        target: draft.target,
+        instruction: savedInstruction,
+      },
+      {
+        onSuccess: () => {
+          setInstructionDraft((current) =>
+            current?.runId === runId &&
+            current.value.trim() === savedInstruction &&
+            current.target === draft.target
+              ? null
+              : current,
+          );
+          setOpenPopover((current) =>
+            current?.runId === runId && current.kind === "instruction"
+              ? null
+              : current,
+          );
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-observability-reviews"],
+          });
+        },
+      },
+    );
+  };
+
+  const selectedVote = selectedReview?.feedback.find(
+    (entry) =>
+      entry.feedbackType === "thumbs_up" ||
+      entry.feedbackType === "thumbs_down",
+  );
+  const selectedNote = selectedReview?.feedback.find(
+    (entry) => entry.feedbackType === "text",
+  );
+  const feedbackOpen =
+    selectedReview !== undefined &&
+    openPopover?.runId === selectedReview.runId &&
+    openPopover.kind === "feedback";
+  const instructionOpen =
+    selectedReview !== undefined &&
+    openPopover?.runId === selectedReview.runId &&
+    openPopover.kind === "instruction";
+  const activeInstructionDraft =
+    selectedReview && instructionDraft?.runId === selectedReview.runId
+      ? instructionDraft
+      : {
+          runId: selectedReview?.runId ?? "",
+          value: "",
+          target: "agent" as const,
+        };
+
+  return (
+    <>
+      <div className="divide-y divide-border">
+        {reviews.map((review) => (
+          <button
+            key={review.runId}
+            type="button"
+            data-review-run-id={review.runId}
+            onClick={() => setSelectedRunId(review.runId)}
+            className="group flex w-full min-w-0 items-center gap-3 py-3 text-left first:pt-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
+              <OutputPreview
+                answer={review.answer}
+                inlineAppTitle={review.inlineAppTitle}
+                previewLabel={t("observability.reviewPreview")}
+                compact
+              />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="line-clamp-2 break-words text-sm font-medium text-foreground">
+                {review.ask || "-"}
+              </span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {review.model} · {timeAgo(review.createdAt)}
+              </span>
+            </span>
+            <IconChevronRight
+              size={16}
+              className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+            />
+          </button>
+        ))}
+      </div>
+
+      <Dialog
+        open={Boolean(selectedReview)}
+        onOpenChange={(open) => {
+          if (open) return;
+          const closingRunId = selectedRunId;
+          setSelectedRunId(null);
+          setOpenPopover((current) =>
+            current?.runId === closingRunId ? null : current,
+          );
+          setInstructionDraft((current) =>
+            current?.runId === closingRunId ? null : current,
+          );
+        }}
+      >
+        {selectedReview && (
+          <DialogContent
+            aria-describedby={undefined}
+            className="flex max-h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0"
+          >
+            <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
+              <DialogTitle className="line-clamp-2 break-words text-left">
+                {selectedReview.ask || t("observability.reviewPreview")}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+              <div className="mb-3 truncate text-xs text-muted-foreground">
+                {selectedReview.model} · {timeAgo(selectedReview.createdAt)}
+              </div>
+              <div className="min-w-0 max-w-full overflow-hidden">
+                <OutputPreview
+                  answer={selectedReview.answer}
+                  inlineApp={reviewAppQuery.data ?? undefined}
+                  maxAppHeight={420}
+                  previewLabel={t("observability.reviewPreview")}
+                />
+              </div>
+              {selectedNote?.value && (
+                <p className="mt-4 flex items-start gap-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  <IconMessageCircle size={14} className="mt-0.5 shrink-0" />
+                  {selectedNote.value}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-1 border-t border-border px-4 py-3 sm:px-5">
+              <div
+                role="group"
+                aria-label={t("observability.reviewFeedback")}
+                className="flex items-center gap-1"
+              >
+                <button
+                  type="button"
+                  aria-label={t("observability.thumbsUp")}
+                  aria-pressed={selectedVote?.feedbackType === "thumbs_up"}
+                  title={t("observability.thumbsUp")}
+                  disabled={feedbackMutation.isPending}
+                  onClick={() =>
+                    saveFeedback(
+                      selectedReview.runId,
+                      selectedReview.threadId,
+                      "thumbs_up",
+                    )
+                  }
+                  className={cn(
+                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                    selectedVote?.feedbackType === "thumbs_up" &&
+                      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                  )}
+                >
+                  <IconThumbUp size={16} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t("observability.thumbsDown")}
+                  aria-pressed={selectedVote?.feedbackType === "thumbs_down"}
+                  title={t("observability.thumbsDown")}
+                  disabled={feedbackMutation.isPending}
+                  onClick={() =>
+                    saveFeedback(
+                      selectedReview.runId,
+                      selectedReview.threadId,
+                      "thumbs_down",
+                    )
+                  }
+                  className={cn(
+                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                    selectedVote?.feedbackType === "thumbs_down" &&
+                      "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+                  )}
+                >
+                  <IconThumbDown size={16} />
+                </button>
+              </div>
+              <Popover
+                open={feedbackOpen}
+                onOpenChange={(open) => {
+                  if (open) {
+                    setFeedbackNote((current) =>
+                      current?.runId === selectedReview.runId
+                        ? current
+                        : { runId: selectedReview.runId, value: "" },
+                    );
+                  }
+                  setOpenPopover((current) => {
+                    if (open) {
+                      return { runId: selectedReview.runId, kind: "feedback" };
+                    }
+                    return current?.runId === selectedReview.runId &&
+                      current.kind === "feedback"
+                      ? null
+                      : current;
+                  });
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("observability.addFeedback")}
+                    title={t("observability.addFeedback")}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <IconMessageCircle size={16} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[min(22rem,calc(100vw-2rem))] p-3"
+                >
+                  <label className="block">
+                    <span className="sr-only">
+                      {t("observability.feedbackNote")}
+                    </span>
+                    <textarea
+                      value={
+                        feedbackNote?.runId === selectedReview.runId
+                          ? feedbackNote.value
+                          : ""
+                      }
+                      onChange={(event) =>
+                        setFeedbackNote({
+                          runId: selectedReview.runId,
+                          value: event.target.value,
+                        })
+                      }
+                      rows={3}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={t("observability.feedbackPlaceholder")}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      saveNote(selectedReview.runId, selectedReview.threadId)
+                    }
+                    disabled={
+                      !(feedbackNote?.runId === selectedReview.runId
+                        ? feedbackNote.value.trim()
+                        : "") || feedbackMutation.isPending
+                    }
+                    className="mt-2 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {t("observability.saveFeedback")}
+                  </button>
+                </PopoverContent>
+              </Popover>
+              <Popover
+                open={instructionOpen}
+                onOpenChange={(open) => {
+                  if (open) {
+                    setInstructionDraft((current) =>
+                      current?.runId === selectedReview.runId
+                        ? current
+                        : {
+                            runId: selectedReview.runId,
+                            value: "",
+                            target: "agent",
+                          },
+                    );
+                  }
+                  setOpenPopover((current) => {
+                    if (open) {
+                      return {
+                        runId: selectedReview.runId,
+                        kind: "instruction",
+                      };
+                    }
+                    return current?.runId === selectedReview.runId &&
+                      current.kind === "instruction"
+                      ? null
+                      : current;
+                  });
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("observability.draftInstruction")}
+                    title={t("observability.draftInstruction")}
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <IconPencil size={16} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-[min(26rem,calc(100vw-2rem))] p-3"
+                >
+                  <div className="mb-2 text-xs font-medium text-foreground">
+                    {t("observability.updateInstructions")}
+                  </div>
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    {t("observability.draftNotice")}
+                  </p>
+                  <select
+                    value={activeInstructionDraft.target}
+                    onChange={(event) =>
+                      setInstructionDraft({
+                        ...activeInstructionDraft,
+                        target: event.target
+                          .value as typeof activeInstructionDraft.target,
+                      })
+                    }
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+                    aria-label={t("observability.instructionTarget")}
+                  >
+                    <option value="agent">
+                      {t("observability.agentTarget")}
+                    </option>
+                    <option value="developer">
+                      {t("observability.developerTarget")}
+                    </option>
+                    <option value="skill">
+                      {t("observability.skillTarget")}
+                    </option>
+                  </select>
+                  <textarea
+                    value={activeInstructionDraft.value}
+                    onChange={(event) =>
+                      setInstructionDraft({
+                        ...activeInstructionDraft,
+                        value: event.target.value,
+                      })
+                    }
+                    rows={4}
+                    className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                    placeholder={t("observability.instructionPlaceholder")}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      saveInstruction(
+                        selectedReview.runId,
+                        selectedReview.threadId,
+                      )
+                    }
+                    disabled={
+                      !activeInstructionDraft.value.trim() ||
+                      instructionMutation.isPending
+                    }
+                    className="mt-2 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                  >
+                    {t("observability.saveUpdate")}
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
+  );
+}
+
 // ─── Tab: Feedback ──────────────────────────────────────────────────────
 
 function FeedbackTab({ days }: { days: number }) {
@@ -837,6 +1309,11 @@ const TABS = [
     labelKey: "observability.feedback",
     icon: IconMessageReport,
   },
+  {
+    id: "review",
+    labelKey: "observability.review",
+    icon: IconMessageReport,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -885,6 +1362,7 @@ export function ObservabilityDashboard({
       {activeTab === "evals" && <EvalsTab days={days} />}
       {activeTab === "experiments" && <ExperimentsTab />}
       {activeTab === "feedback" && <FeedbackTab days={days} />}
+      {activeTab === "review" && <ReviewTab days={days} />}
     </div>
   );
 }

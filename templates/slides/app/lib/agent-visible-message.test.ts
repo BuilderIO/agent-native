@@ -12,25 +12,30 @@ const longMultilinePrompt = [
 ].join("\n");
 
 describe("visible Slides agent messages", () => {
-  it("preserves the full trimmed new-deck prompt beyond 180 characters", () => {
+  it("preserves the exact new-deck prompt", () => {
     expect(longMultilinePrompt.length).toBeGreaterThan(180);
-    expect(createDeckAgentMessage(`  ${longMultilinePrompt}\n`)).toBe(
-      `Create deck: ${longMultilinePrompt}`,
-    );
+    const prompt = `  ${longMultilinePrompt}\n`;
+    expect(createDeckAgentMessage(prompt)).toBe(prompt);
   });
 
-  it("preserves the full trimmed multiline add-slide prompt", () => {
-    expect(addSlideAgentMessage(`\n${longMultilinePrompt}  `)).toBe(
-      `Add slide: ${longMultilinePrompt}`,
-    );
+  it("preserves the exact multiline add-slide prompt", () => {
+    const prompt = `\n${longMultilinePrompt}  `;
+    expect(addSlideAgentMessage(prompt)).toBe(prompt);
   });
 
-  it("bounds oversized prompts while keeping a truncation marker", () => {
+  it("uses a fallback only when no prompt was entered", () => {
+    expect(createDeckAgentMessage("")).toBe("new deck");
+    expect(addSlideAgentMessage("")).toBe("a new slide");
+    expect(createDeckAgentMessage(" \n\t ")).toBe("new deck");
+    expect(addSlideAgentMessage(" \n\t ")).toBe("a new slide");
+  });
+
+  it("bounds oversized prompts without adding an action prefix", () => {
     const prompt = "x".repeat(MAX_AGENT_VISIBLE_MESSAGE_CHARS + 1_000);
     const message = createDeckAgentMessage(prompt);
 
     expect(message).toHaveLength(MAX_AGENT_VISIBLE_MESSAGE_CHARS);
     expect(message).toContain("[Prompt truncated for reliability]");
-    expect(message).toMatch(/^Create deck: x+/);
+    expect(message).toMatch(/^x+/);
   });
 });

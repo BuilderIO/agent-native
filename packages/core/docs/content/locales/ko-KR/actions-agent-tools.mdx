@@ -95,12 +95,10 @@ export default createAgentChatPlugin({
 사용 가능한 모드는 다음과 같습니다:
 
 - `off`. 기본값입니다. 프로덕션에는 코드 실행 도구가 등록되지 않습니다.
-- `sandboxed`. `run-code`를 등록합니다. 이는 정제된 환경, 새로운 임시
-  디렉터리, 출력/시간 제한, 그리고 `provider-api-request`,
-  `provider-api-docs`, `provider-api-catalog`, `web-request`,
-  `workspaceRead` / `workspaceWrite`가 사용하는 Resources 기반 작업 공간
-  파일 브리지 같은 허용 목록에 등록된 도구로의 localhost 브리지를 갖춘
-  격리된 Node.js JavaScript 러너입니다.
+- `sandboxed`. `run-code`를 등록합니다. 메모리, 스택, 소스, 결과 및 출력
+  제한을 적용하고 허용 목록 도구에 호스트 함수로 연결하는 강화된 QuickJS
+  evaluator입니다. 게스트 코드에서는 Node 모듈, 파일 시스템, 환경 변수,
+  네트워크, 타이머 또는 imports를 사용할 수 없습니다.
 - `trusted`. `run-code`와 전체 코딩 도구 레지스트리(`bash`, `read`,
   `edit`, `write`)를 등록합니다. 호스트에 대한 전체 셸 접근이 의도된,
   단일 테넌트 또는 운영자가 제어하는 배포에만 사용하세요.
@@ -111,10 +109,10 @@ export default createAgentChatPlugin({
 `AGENT_PROD_CODE_EXECUTION=off`는 플러그인 옵션이 이를 활성화하더라도
 코드 실행을 강제로 끕니다.
 
-`run-code` 샌드박스는 OS 컨테이너가 아니라 프로세스 수준의 격리입니다.
-자식 프로세스 환경에서 앱 시크릿을 제거하고 가능한 경우 Node 권한 모델을
-사용하지만, 아웃바운드 네트워크는 Node 자체에 의해 차단되지 않습니다.
-인증된 호출은 이 도구가 노출하는 브리지 헬퍼를 거쳐야 합니다.
+프로덕션 `run-code` evaluator는 Node 자식 프로세스 대신 강화된 QuickJS를
+사용합니다. OS 컨테이너는 아니며, 호스트 함수는 신뢰된 capability로서
+인증과 권한 부여를 적용하고 evaluator는 게스트 리소스와 브리지 호출을
+제한합니다.
 
 ## 다음 단계
 

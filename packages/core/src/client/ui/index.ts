@@ -35,6 +35,7 @@ export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export { ErrorBoundary } from "../ErrorBoundary.js";
 export { ClientOnly } from "../ClientOnly.js";
 export { DefaultSpinner } from "../DefaultSpinner.js";
+export { Spinner } from "@agent-native/toolkit/ui/spinner";
 export { RuntimeConfigNotice } from "../RuntimeConfigNotice.js";
 export {
   EnvironmentBadge,
@@ -42,6 +43,7 @@ export {
   isBuilderIoEmployee,
   resolveEnvironmentChannel,
   resolveEnvironmentTargets,
+  type EnvironmentBadgePlacement,
   type EnvironmentBadgeTargets,
 } from "../EnvironmentBadge.js";
 export {
@@ -74,3 +76,22 @@ export {
   type AppearancePickerProps,
 } from "../AppearancePicker.js";
 export { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
+export {
+  AppSidebar,
+  AppSidebarHeader,
+  AppSidebarNavItem,
+  AppSidebarNavGroup,
+  AppSidebarSection,
+  AppSidebarFeedbackButton,
+  AppSidebarFooter,
+  useAppSidebar,
+  type AppSidebarProps,
+  type AppSidebarHeaderProps,
+  type AppSidebarNavItemProps,
+  type AppSidebarNavGroupProps,
+  type AppSidebarSectionProps,
+  type AppSidebarFeedbackButtonProps,
+  type AppSidebarFooterProps,
+  type AppSidebarItemDefinition,
+  type AppSidebarContextValue,
+} from "./AppSidebar.js";

@@ -62,7 +62,7 @@ const messages = {
   settings: {
     title: "Configurações do CRM",
     description:
-      "O SQL nativo mantém os registros do CRM locais e portáveis. HubSpot e Salesforce usam conexões do espaço de trabalho; seus espelhos guardam apenas campos permitidos, metadados com escopo e referências limitadas de evidência.",
+      "O SQL nativo mantém os registros do CRM no Postgres. HubSpot e Salesforce usam conexões do espaço de trabalho; seus espelhos guardam apenas campos permitidos, metadados com escopo e referências limitadas de evidência.",
     languageTitle: "Idioma",
     languageDescription:
       "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
@@ -611,6 +611,20 @@ const messages = {
     evaluatedThroughAsk: "Avaliado pelo Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Revisar duplicatas",
+    duplicateReviewTitle: "Possíveis registros duplicados",
+    duplicateReviewDescription:
+      "Compara este registro com candidatos acessíveis. O Jev envia à TypeSafe nomes, tipos de registro e sinais de até cinco candidatos. A probabilidade é apenas uma sugestão; a mesclagem exige revisão separada.",
+    duplicateReviewRun: "Verificar duplicatas",
+    duplicateReviewLoading: "Verificando…",
+    duplicateReviewFailed: "Não foi possível concluir a revisão de duplicatas.",
+    duplicateReviewUnavailable:
+      "O Jev não pôde revisar esses registros. Os candidatos encontrados por regras continuam visíveis.",
+    duplicateReviewEmpty: "Nenhuma duplicata provável encontrada.",
+    duplicateRuleConfidence: "Correspondência por regras: {{percent}}%",
+    duplicateJevProbability:
+      "Probabilidade Jev de mesma entidade: {{percent}}%",
+    duplicateMatchedOn: "Sinais em comum: {{values}}",
     evidenceAttached: "Evidência de chamada anexada.",
     evidenceAttachFailed: "Não foi possível anexar a evidência.",
     addEvidence: "Adicionar evidência",

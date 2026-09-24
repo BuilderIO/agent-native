@@ -9,7 +9,7 @@
  *   pnpm action remove-vocabulary-term --id=<id>
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
@@ -26,7 +26,7 @@ export default defineAction({
   }),
   http: { method: "DELETE" },
   run: async (args) => {
-    const ownerEmail = await getRequestUserEmail();
+    const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       throw createError({
         statusCode: 401,
