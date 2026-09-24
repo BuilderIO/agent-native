@@ -89,6 +89,17 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("unread: tab.unread");
   });
 
+  it("highlights the route-selected inbox tab before its rows finish loading", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "const activeInboxTabId = resolvedInboxTab ?? inboxThreads.data?.activeTabId;",
+    );
+    expect(source).toContain(
+      'isActive: view === "inbox" && activeInboxTabId === tab.id,',
+    );
+  });
+
   it("keeps the search restoration path", () => {
     const source = appLayoutSource();
 

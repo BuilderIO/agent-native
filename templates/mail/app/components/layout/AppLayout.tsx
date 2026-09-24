@@ -568,6 +568,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     limit: INBOX_PAGE_SIZE,
     offset: 0,
   });
+  const activeInboxTabId = resolvedInboxTab ?? inboxThreads.data?.activeTabId;
   const inboxIsFetching = inboxThreads.isFetching;
   const inboxSyncing = inboxThreads.data?.syncing === true;
   const needsReauthAccount = inboxThreads.data?.accounts.find(
@@ -731,7 +732,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label: tab.name,
         fullLabel: label?.name,
         href: inboxTabHref(tab.id),
-        isActive: view === "inbox" && inboxThreads.data?.activeTabId === tab.id,
+        isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,
         tooltip: tab.query,
         total: tab.total,
@@ -739,7 +740,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxThreads.data?.tabs, inboxThreads.data?.activeTabId, labels, view]);
+  }, [inboxThreads.data?.tabs, activeInboxTabId, labels, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
