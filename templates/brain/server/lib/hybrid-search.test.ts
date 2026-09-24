@@ -290,6 +290,7 @@ import {
   burstText,
   burstRows,
   canIndexCapture,
+  captureAudienceIndexingFailureReason,
   captureEmbeddingCoverageFromTargets,
   deterministicArtifact,
   embedSearchTexts,
@@ -355,6 +356,19 @@ describe("Brain search index primitives", () => {
         burst.content,
       );
     }
+  });
+
+  it("fails closed unless a capture has exactly one audience assignment", () => {
+    expect(captureAudienceIndexingFailureReason([])).toBe("no-active-audience");
+    expect(
+      captureAudienceIndexingFailureReason([
+        { audienceId: "audience-a" },
+        { audienceId: "audience-b" },
+      ]),
+    ).toBe("multiple-audience-assignments");
+    expect(
+      captureAudienceIndexingFailureReason([{ audienceId: "audience-a" }]),
+    ).toBeNull();
   });
 
   it("requires artifact and every indexed burst embedding", () => {

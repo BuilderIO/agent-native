@@ -190,11 +190,16 @@ async function runDeterministicOperation(
         ? payload.requiredEmbeddingSetId
         : null;
     if (requiredEmbeddingSetId) {
+      if (!result.indexed) {
+        throw new Error(
+          `Embedding backfill indexing failed: ${result.reason ?? "unknown"}.`,
+        );
+      }
       const coverage = await readCaptureEmbeddingCoverage(
         context.capture.id,
         requiredEmbeddingSetId,
       );
-      if (!result.indexed || !coverage.complete) {
+      if (!coverage.complete) {
         throw new Error(
           `Embedding backfill incomplete: artifact=${coverage.artifactEmbedded}, bursts=${coverage.embeddedBursts}/${coverage.expectedBursts}.`,
         );

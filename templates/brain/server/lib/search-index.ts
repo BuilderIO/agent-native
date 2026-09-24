@@ -338,6 +338,13 @@ export interface CaptureEmbeddingCoverage {
   embeddedBursts: number;
 }
 
+export function captureAudienceIndexingFailureReason(
+  assignments: readonly unknown[],
+): "no-active-audience" | "multiple-audience-assignments" | null {
+  if (!assignments.length) return "no-active-audience";
+  return assignments.length === 1 ? null : "multiple-audience-assignments";
+}
+
 export function captureEmbeddingCoverageFromTargets(input: {
   artifactId: string;
   burstIds: string[];
@@ -363,6 +370,22 @@ export async function readCaptureEmbeddingCoverage(
   embeddingSetId: string,
 ): Promise<CaptureEmbeddingCoverage> {
   const db = getDb();
+  const assignments = await db
+    .select({
+      audienceId: schema.brainCaptureAudiences.audienceId,
+      aclHash: schema.brainCaptureAudiences.aclHash,
+    })
+    .from(schema.brainCaptureAudiences)
+    .where(eq(schema.brainCaptureAudiences.captureId, captureId));
+  if (captureAudienceIndexingFailureReason(assignments)) {
+    return {
+      complete: false,
+      artifactEmbedded: false,
+      expectedBursts: 0,
+      embeddedBursts: 0,
+    };
+  }
+  const assignment = assignments[0]!;
   const [artifact] = await db
     .select({
       id: schema.brainSearchArtifacts.id,
@@ -382,6 +405,8 @@ export async function readCaptureEmbeddingCoverage(
         eq(schema.brainRawCaptures.id, captureId),
         eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
         eq(schema.brainSearchArtifacts.status, "active"),
+        eq(schema.brainSearchArtifacts.audienceId, assignment.audienceId),
+        eq(schema.brainSearchArtifacts.aclHash, assignment.aclHash),
         eq(
           schema.brainSearchArtifacts.contentHash,
           schema.brainRawCaptures.contentHash,
@@ -842,20 +867,20 @@ export async function indexBrainCapture(captureId: string): Promise<{
     })
     .from(schema.brainCaptureAudiences)
     .where(eq(schema.brainCaptureAudiences.captureId, captureId));
-  let indexed = 0;
-  for (const audience of audiences) {
-    const result = await indexCaptureForSearch({
-      capture: {
-        ...capture,
-        sensitivityDisposition: capture.sensitivityDisposition,
-      },
-      audience,
-      id: nanoid(),
-      now: nowIso(),
-    });
-    if (result.indexed) indexed += 1;
-  }
-  return indexed ? { indexed } : { indexed: 0, reason: "no-active-audience" };
+  const audienceFailure = captureAudienceIndexingFailureReason(audiences);
+  if (audienceFailure) return { indexed: 0, reason: audienceFailure };
+  const result = await indexCaptureForSearch({
+    capture: {
+      ...capture,
+      sensitivityDisposition: capture.sensitivityDisposition,
+    },
+    audience: audiences[0]!,
+    id: nanoid(),
+    now: nowIso(),
+  });
+  return result.indexed
+    ? { indexed: 1 }
+    : { indexed: 0, reason: result.reason ?? "search-index-failed" };
 }
 
 export async function unindexBrainCapture(captureId: string): Promise<void> {
