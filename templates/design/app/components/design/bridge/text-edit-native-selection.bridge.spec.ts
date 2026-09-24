@@ -189,6 +189,55 @@ describe("text edit mode native pointer selection", () => {
   );
 
   it(
+    "uses caretPositionFromPoint when caretRangeFromPoint is unavailable",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await openTextEdit(page);
+        await page.evaluate(() => {
+          const text = document.querySelector(
+            '[data-agent-native-node-id="tx"]',
+          )!.firstChild!;
+          Object.defineProperty(document, "caretPositionFromPoint", {
+            configurable: true,
+            value: () => ({ offsetNode: text, offset: 3 }),
+          });
+          Object.defineProperty(document, "caretRangeFromPoint", {
+            configurable: true,
+            value: undefined,
+          });
+        });
+
+        const point = await charX(page, 5);
+        await page
+          .locator('[data-agent-native-node-id="tx"]')
+          .evaluate((element, coordinates) => {
+            element.dispatchEvent(
+              new MouseEvent("mousedown", {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                detail: 1,
+                clientX: coordinates.x,
+                clientY: coordinates.y,
+              }),
+            );
+          }, point);
+        expect(
+          await page.evaluate(() => ({
+            collapsed: window.getSelection()!.isCollapsed,
+            offset: window.getSelection()!.anchorOffset,
+          })),
+        ).toEqual({ collapsed: true, offset: 3 });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "starts a new selection when dragging inside already-selected text",
     { timeout: 30_000 },
     async () => {

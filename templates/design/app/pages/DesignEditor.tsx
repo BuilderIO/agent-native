@@ -14528,15 +14528,15 @@ function DesignEditor() {
   const refreshClipboardFromSystemClipboard = useCallback(async () => {
     const result = await readDesignClipboardPayloadFromSystem();
     if (
-      !result ||
-      result.markerText === lastWrittenClipboardMarkerRef.current
+      result.status !== "found" ||
+      result.value.markerText === lastWrittenClipboardMarkerRef.current
     ) {
       return;
     }
     adoptDesignClipboardPayload(
-      result.payload,
-      result.markerText,
-      result.plainText,
+      result.value.payload,
+      result.value.markerText,
+      result.value.plainText,
     );
   }, [adoptDesignClipboardPayload]);
 
@@ -15437,9 +15437,16 @@ function DesignEditor() {
           },
           externalLayerHtml,
         );
+      let clipboardFiles: File[] | null;
+      if (menuClipboardFiles !== undefined) {
+        clipboardFiles = menuClipboardFiles;
+      } else {
+        const clipboardContents = await readSystemClipboard();
+        clipboardFiles =
+          clipboardContents === null ? null : clipboardContents.files;
+      }
       await runSystemPasteToReplace({
-        clipboardFiles:
-          menuClipboardFiles ?? (await readSystemClipboard())?.files ?? null,
+        clipboardFiles,
         replaceWithLayerCopy: () => replace(),
         replaceWithHtml: replace,
         t,

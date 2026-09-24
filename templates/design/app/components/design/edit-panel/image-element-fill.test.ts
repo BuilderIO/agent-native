@@ -12,6 +12,7 @@ describe("image scale modes", () => {
     expect(imageScaleModeFromStyles({ objectFit: "cover" })).toBe("fill");
     expect(imageScaleModeFromStyles({ objectFit: "contain" })).toBe("fit");
     expect(imageScaleModeFromStyles({ objectFit: "fill" })).toBe("fill");
+    expect(imageScaleModeFromStyles({})).toBe("fill");
     expect(
       imageScaleModeFromStyles({
         objectFit: "cover",

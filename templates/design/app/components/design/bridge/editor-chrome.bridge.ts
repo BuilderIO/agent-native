@@ -4239,12 +4239,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var typedElement = el as Element & {
       computedStyleMap?: () => StylePropertyMap;
     };
+    var typedStyles: StylePropertyMap | null = null;
     if (typeof typedElement.computedStyleMap !== "function") {
       dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return cacheFailure();
+      // CSSStyleDeclaration can expose used pixel sizes for auto or percentage
+      // sizing, so omit only these fields rather than freezing layout geometry.
+    } else {
+      try {
+        typedStyles = typedElement.computedStyleMap();
+      } catch (_error) {
+        dndLog("style:typed-om-read-failed", { tag: el.tagName });
+        return cacheFailure();
+      }
+      if (!typedStyles) return cacheFailure();
     }
-    try {
-      var typedStyles = typedElement.computedStyleMap();
+    if (typedStyles) {
       for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
         var typedValue = typedStyles.get(property);
         if (typedValue == null) {
@@ -4263,9 +4272,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           styles[property] = size;
         }
       }
-    } catch (_error) {
-      dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return cacheFailure();
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
@@ -14373,12 +14379,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
-  function vectorGradientPaintTarget(
+  function pastedSvgPaintShapes(root: SVGSVGElement): Element[] {
+    var shapes: Element[] = [];
+    function visit(parent: Element): void {
+      Array.from(parent.children).forEach(function (child) {
+        var tag = child.tagName.toLowerCase();
+        if (tag === "defs") return;
+        if (
+          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
+        ) {
+          shapes.push(child);
+        } else if (tag === "g") {
+          visit(child);
+        }
+      });
+    }
+    visit(root);
+    return shapes;
+  }
+
+  function vectorGradientPaintTargets(
     el: Element,
     paintProperty: "fill" | "stroke",
   ): {
     root: SVGSVGElement;
-    target: Element;
+    targets: Element[];
+    metadataTarget: Element;
   } | null {
     var root =
       el.tagName.toLowerCase() === "svg"
@@ -14396,7 +14422,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       target = el;
     }
-    return target ? { root: root, target: target } : null;
+    var targets = target ? [target] : [];
+    if (
+      !targets.length &&
+      el === root &&
+      root.getAttribute("data-an-primitive") === "pasted-svg"
+    ) {
+      targets = pastedSvgPaintShapes(root);
+    }
+    if (!targets.length) return null;
+    var shapeCount = pastedSvgPaintShapes(root).length;
+    return {
+      root: root,
+      targets: targets,
+      metadataTarget: shapeCount === 1 || el === root ? root : targets[0]!,
+    };
   }
 
   function vectorGradientDefAttribute(paintProperty: "fill" | "stroke") {
@@ -14438,12 +14478,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function removeVectorGradientPreview(
     root: SVGSVGElement,
-    target: Element,
+    targets: Element[],
     paintProperty: "fill" | "stroke",
   ): void {
-    var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
-    var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
-    var gradientId = reference ? reference[1] : "";
+    var gradientIds: Record<string, boolean> = Object.create(null);
+    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+    var rootMetadata = root.style.getPropertyValue(metadataProperty);
+    targets.forEach(function (target) {
+      var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
+      var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
+      if (reference?.[1]) gradientIds[reference[1]] = true;
+      (target as HTMLElement).style.removeProperty(metadataProperty);
+    });
     var defsContainers = Array.from(
       root.querySelectorAll(
         ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
@@ -14451,8 +14497,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
     defsContainers.forEach(function (defs) {
       Array.from(defs.children).forEach(function (gradient) {
-        if (gradientId && gradient.getAttribute("id") === gradientId) {
+        var id = gradient.getAttribute("id");
+        var remainingReferences = id
+          ? Array.from(root.querySelectorAll("[style]")).filter(function (el) {
+              if (targets.indexOf(el) >= 0) return false;
+              var reference = (el as HTMLElement).style
+                .getPropertyValue(paintProperty)
+                .match(/^url\(\s*['\"]?#([^)'\"\s]+)['\"]?\s*\)$/i);
+              return reference?.[1] === id;
+            })
+          : [];
+        if (id && gradientIds[id] && !remainingReferences.length) {
           gradient.remove();
+        } else if (rootMetadata && gradientIds[id || ""]) {
+          remainingReferences.forEach(function (el) {
+            (el as HTMLElement).style.setProperty(
+              metadataProperty,
+              rootMetadata,
+            );
+          });
         }
       });
     });
@@ -14460,28 +14523,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (normalizedDefs && normalizedDefs.children.length === 0) {
       normalizedDefs.remove();
     }
-    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
-    (target as HTMLElement).style.removeProperty(metadataProperty);
     root.style.removeProperty(metadataProperty);
-  }
-
-  function vectorFillGradientShapeCount(root: SVGSVGElement): number {
-    var count = 0;
-    function visit(parent: Element): void {
-      Array.from(parent.children).forEach(function (child) {
-        var tag = child.tagName.toLowerCase();
-        if (tag === "defs") return;
-        if (
-          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
-        ) {
-          count += 1;
-        } else if (tag === "g") {
-          visit(child);
-        }
-      });
-    }
-    visit(root);
-    return count;
   }
 
   function appendSvgGradientStops(
@@ -14527,7 +14569,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     value: string,
     paintProperty: "fill" | "stroke",
   ): boolean {
-    var paint = vectorGradientPaintTarget(el, paintProperty);
+    var paint = vectorGradientPaintTargets(el, paintProperty);
     if (!paint) return false;
     var linear = parseLinearGradientCss(value);
     var radialMatch = String(value || "")
@@ -14561,7 +14603,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!linear && !isRadial) return false;
     var stops = linear ? linear.stops : radialStops;
 
-    removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+    removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
     var baseId =
       (paint.root.getAttribute("data-agent-native-node-id") || "vector") +
       "-" +
@@ -14758,15 +14800,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     defs.appendChild(gradient);
     recordSourceSubtree(defs);
-    (paint.target as HTMLElement).style.setProperty(
-      paintProperty,
-      "url(#" + gradientId + ")",
-    );
-    var metadataTarget =
-      vectorFillGradientShapeCount(paint.root) === 1
-        ? paint.root
-        : paint.target;
-    (metadataTarget as HTMLElement).style.setProperty(
+    paint.targets.forEach(function (target) {
+      (target as HTMLElement).style.setProperty(
+        paintProperty,
+        "url(#" + gradientId + ")",
+      );
+    });
+    (paint.metadataTarget as HTMLElement).style.setProperty(
       vectorGradientMetadataProperty(paintProperty),
       value.trim(),
     );
@@ -14800,35 +14840,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var strokeOverlay: Element | null = null;
     var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
-      var shape = vectorPaintTarget(el);
       var vectorRoot =
         el.tagName.toLowerCase() === "svg"
           ? (el as unknown as SVGSVGElement)
           : (el.closest(
               "svg[data-an-primitive]",
             ) as unknown as SVGSVGElement | null);
+      var shape = vectorPaintTarget(el);
+      var shapes = shape ? [shape] : [];
       if (
-        !shape &&
-        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" &&
-        /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
-          el.tagName,
-        )
+        !shapes.length &&
+        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg"
       ) {
-        shape = el;
+        shapes =
+          el === vectorRoot
+            ? pastedSvgPaintShapes(vectorRoot)
+            : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+                  el.tagName,
+                )
+              ? [el]
+              : [];
       }
-      if (shape) {
-        if (cssProperty === "fill" && vectorRoot) {
-          removeVectorGradientPreview(vectorRoot, shape, "fill");
+      if (shapes.length && vectorRoot) {
+        if (cssProperty === "fill" || cssProperty === "stroke") {
+          removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
         }
         strokeOverlay = vectorStrokeTarget(el);
         useOverlay =
           cssProperty.indexOf("stroke") === 0 &&
           !!strokeOverlay &&
           strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-        target = useOverlay ? strokeOverlay! : shape;
-        if (cssProperty === "stroke" && vectorRoot) {
-          removeVectorGradientPreview(vectorRoot, target, "stroke");
-        }
+        target = useOverlay ? strokeOverlay! : shapes[0]!;
         clearVectorWrapperPaint(el);
         if (useOverlay && cssProperty === "stroke-width") {
           var logicalWidth = String(value);
@@ -14844,6 +14886,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             logicalWidth,
           );
           value = actualWidth;
+        }
+        if (shapes.length > 1 && !useOverlay) {
+          shapes.forEach(function (shapeTarget) {
+            (shapeTarget as HTMLElement).style.setProperty(
+              cssProperty,
+              String(value),
+            );
+          });
+          return true;
         }
       }
     }

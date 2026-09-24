@@ -265,10 +265,12 @@ function AdjustmentSlider({
               </>
             ) : null}
           </SliderPrimitive.Track>
-          {/* guard:allow-raw-color — Figma's knob is white in both themes. */}
           <SliderPrimitive.Thumb
             aria-label={label}
-            className="flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={
+              /* guard:allow-raw-color — Figma's neutral adjustment knob stays white in both themes. */
+              "flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            }
           >
             {value !== 0 ? (
               <span className="size-1.5 rounded-full bg-[var(--design-editor-accent-color)]" />

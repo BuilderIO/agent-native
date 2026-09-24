@@ -12,7 +12,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body styl
 const GROUPED_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 const EDITABLE_SVG =
-  '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0L30 30L0 30Z" fill="#f97316"/></svg>';
+  '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30q10 10 20 0L0 30Z" fill="#f97316"/></svg>';
 const GROUPED_EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z" fill="#f97316"/><path d="M50 0L80 0L80 30Z" fill="#16a34a"/></g></svg>';
 const OPEN_PASTED_SVG =
@@ -250,7 +250,7 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
     const svg = frame.locator('svg[data-agent-native-layer-name="Pasted SVG"]');
     const path = svg.locator("path");
     const originalPathData = await path.getAttribute("d");
-    expect(originalPathData).toBe("M0 0L30 0L30 30L0 30Z");
+    expect(originalPathData).toBe("M0 0h30v30q10 10 20 0L0 30Z");
     await page.keyboard.press("Enter");
     await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
     const previewPath = page

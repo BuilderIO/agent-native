@@ -86,6 +86,42 @@ describe("readSystemClipboard", () => {
       trustToken: null,
     });
     expect(contents?.files).toHaveLength(1);
+    expect(contents?.readErrors).toHaveLength(1);
+  });
+
+  it("keeps a successful empty read distinct from denied item reads", async () => {
+    await expect(
+      readSystemClipboard({ clipboard: { read: async () => [] } }),
+    ).resolves.toEqual({ design: null, files: [] });
+    await expect(
+      readSystemClipboard({
+        clipboard: {
+          read: async () => [
+            {
+              types: ["image/png"],
+              getType: async () => Promise.reject(new Error("denied")),
+            },
+          ],
+        },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("uses readText when rich clipboard reads are unavailable", async () => {
+    await expect(
+      readSystemClipboard({
+        clipboard: { readText: async () => "ordinary clipboard text" },
+      }),
+    ).resolves.toEqual({ design: null, files: [] });
+    await expect(
+      readSystemClipboard({
+        clipboard: {
+          readText: async () => {
+            throw new DOMException("denied", "NotAllowedError");
+          },
+        },
+      }),
+    ).resolves.toBeNull();
   });
 
   it("reports a denied read as unreadable, not as an empty clipboard", async () => {

@@ -3733,12 +3733,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hostStyle = el.style;
       var styles = {};
       var typedElement = el;
+      var typedStyles = null;
       if (typeof typedElement.computedStyleMap !== "function") {
         dndLog("style:typed-om-unavailable", { tag: el.tagName });
-        return cacheFailure();
+      } else {
+        try {
+          typedStyles = typedElement.computedStyleMap();
+        } catch (_error) {
+          dndLog("style:typed-om-read-failed", { tag: el.tagName });
+          return cacheFailure();
+        }
+        if (!typedStyles) return cacheFailure();
       }
-      try {
-        var typedStyles = typedElement.computedStyleMap();
+      if (typedStyles) {
         for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
           var typedValue = typedStyles.get(property);
           if (typedValue == null) {
@@ -3753,9 +3760,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             styles[property] = size;
           }
         }
-      } catch (_error) {
-        dndLog("style:typed-om-read-failed", { tag: el.tagName });
-        return cacheFailure();
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
@@ -10603,14 +10607,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         style.removeProperty(properties[i]);
       }
     }
-    function vectorGradientPaintTarget(el, paintProperty) {
+    function pastedSvgPaintShapes(root) {
+      var shapes = [];
+      function visit(parent) {
+        Array.from(parent.children).forEach(function(child) {
+          var tag = child.tagName.toLowerCase();
+          if (tag === "defs") return;
+          if (/^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)) {
+            shapes.push(child);
+          } else if (tag === "g") {
+            visit(child);
+          }
+        });
+      }
+      visit(root);
+      return shapes;
+    }
+    function vectorGradientPaintTargets(el, paintProperty) {
       var root = el.tagName.toLowerCase() === "svg" ? el : el.closest("svg[data-an-primitive]");
       if (!root) return null;
       var target = paintProperty === "stroke" ? vectorStrokeTarget(root) : vectorPaintTarget(root);
       if (!target && el !== root && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)) {
         target = el;
       }
-      return target ? { root, target } : null;
+      var targets = target ? [target] : [];
+      if (!targets.length && el === root && root.getAttribute("data-an-primitive") === "pasted-svg") {
+        targets = pastedSvgPaintShapes(root);
+      }
+      if (!targets.length) return null;
+      var shapeCount = pastedSvgPaintShapes(root).length;
+      return {
+        root,
+        targets,
+        metadataTarget: shapeCount === 1 || el === root ? root : targets[0]
+      };
     }
     function vectorGradientDefAttribute(paintProperty) {
       return "data-an-vector-" + paintProperty + "-gradient";
@@ -10643,10 +10673,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return canonical;
     }
-    function removeVectorGradientPreview(root, target, paintProperty) {
-      var style = target.style.getPropertyValue(paintProperty);
-      var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
-      var gradientId = reference ? reference[1] : "";
+    function removeVectorGradientPreview(root, targets, paintProperty) {
+      var gradientIds = /* @__PURE__ */ Object.create(null);
+      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+      var rootMetadata = root.style.getPropertyValue(metadataProperty);
+      targets.forEach(function(target) {
+        var style = target.style.getPropertyValue(paintProperty);
+        var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
+        if (reference?.[1]) gradientIds[reference[1]] = true;
+        target.style.removeProperty(metadataProperty);
+      });
       var defsContainers = Array.from(
         root.querySelectorAll(
           ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
@@ -10654,8 +10690,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       defsContainers.forEach(function(defs) {
         Array.from(defs.children).forEach(function(gradient) {
-          if (gradientId && gradient.getAttribute("id") === gradientId) {
+          var id = gradient.getAttribute("id");
+          var remainingReferences = id ? Array.from(root.querySelectorAll("[style]")).filter(function(el) {
+            if (targets.indexOf(el) >= 0) return false;
+            var reference = el.style.getPropertyValue(paintProperty).match(/^url\\(\\s*['\\"]?#([^)'\\"\\s]+)['\\"]?\\s*\\)$/i);
+            return reference?.[1] === id;
+          }) : [];
+          if (id && gradientIds[id] && !remainingReferences.length) {
             gradient.remove();
+          } else if (rootMetadata && gradientIds[id || ""]) {
+            remainingReferences.forEach(function(el) {
+              el.style.setProperty(
+                metadataProperty,
+                rootMetadata
+              );
+            });
           }
         });
       });
@@ -10663,25 +10712,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (normalizedDefs && normalizedDefs.children.length === 0) {
         normalizedDefs.remove();
       }
-      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
-      target.style.removeProperty(metadataProperty);
       root.style.removeProperty(metadataProperty);
-    }
-    function vectorFillGradientShapeCount(root) {
-      var count = 0;
-      function visit(parent) {
-        Array.from(parent.children).forEach(function(child) {
-          var tag = child.tagName.toLowerCase();
-          if (tag === "defs") return;
-          if (/^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)) {
-            count += 1;
-          } else if (tag === "g") {
-            visit(child);
-          }
-        });
-      }
-      visit(root);
-      return count;
     }
     function appendSvgGradientStops(gradient, stops) {
       var svgNs = "http://www.w3.org/2000/svg";
@@ -10718,7 +10749,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return appended >= 2;
     }
     function applyVectorGradientPreview(el, value, paintProperty) {
-      var paint = vectorGradientPaintTarget(el, paintProperty);
+      var paint = vectorGradientPaintTargets(el, paintProperty);
       if (!paint) return false;
       var linear = parseLinearGradientCss(value);
       var radialMatch = String(value || "").trim().match(/^radial-gradient\\s*\\(([\\s\\S]*)\\)$/i);
@@ -10739,7 +10770,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var isRadial = !!radialMatch && radialStops.length >= 2;
       if (!linear && !isRadial) return false;
       var stops = linear ? linear.stops : radialStops;
-      removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+      removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
       var baseId = (paint.root.getAttribute("data-agent-native-node-id") || "vector") + "-" + paintProperty + "-gradient";
       var gradientId = baseId;
       var suffix = 2;
@@ -10897,12 +10928,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       defs.appendChild(gradient);
       recordSourceSubtree(defs);
-      paint.target.style.setProperty(
-        paintProperty,
-        "url(#" + gradientId + ")"
-      );
-      var metadataTarget = vectorFillGradientShapeCount(paint.root) === 1 ? paint.root : paint.target;
-      metadataTarget.style.setProperty(
+      paint.targets.forEach(function(target) {
+        target.style.setProperty(
+          paintProperty,
+          "url(#" + gradientId + ")"
+        );
+      });
+      paint.metadataTarget.style.setProperty(
         vectorGradientMetadataProperty(paintProperty),
         value.trim()
       );
@@ -10928,25 +10960,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeOverlay = null;
       var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
-        var shape = vectorPaintTarget(el);
         var vectorRoot = el.tagName.toLowerCase() === "svg" ? el : el.closest(
           "svg[data-an-primitive]"
         );
-        if (!shape && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
-          el.tagName
-        )) {
-          shape = el;
+        var shape = vectorPaintTarget(el);
+        var shapes = shape ? [shape] : [];
+        if (!shapes.length && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg") {
+          shapes = el === vectorRoot ? pastedSvgPaintShapes(vectorRoot) : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+            el.tagName
+          ) ? [el] : [];
         }
-        if (shape) {
-          if (cssProperty === "fill" && vectorRoot) {
-            removeVectorGradientPreview(vectorRoot, shape, "fill");
+        if (shapes.length && vectorRoot) {
+          if (cssProperty === "fill" || cssProperty === "stroke") {
+            removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
           }
           strokeOverlay = vectorStrokeTarget(el);
           useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-          target = useOverlay ? strokeOverlay : shape;
-          if (cssProperty === "stroke" && vectorRoot) {
-            removeVectorGradientPreview(vectorRoot, target, "stroke");
-          }
+          target = useOverlay ? strokeOverlay : shapes[0];
           clearVectorWrapperPaint(el);
           if (useOverlay && cssProperty === "stroke-width") {
             var logicalWidth = String(value);
@@ -10961,6 +10991,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               logicalWidth
             );
             value = actualWidth;
+          }
+          if (shapes.length > 1 && !useOverlay) {
+            shapes.forEach(function(shapeTarget) {
+              shapeTarget.style.setProperty(
+                cssProperty,
+                String(value)
+              );
+            });
+            return true;
           }
         }
       }

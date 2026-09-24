@@ -98,6 +98,7 @@ test("image border and outline remain separate inside and outside strokes", asyn
       .toBe("0px|9px");
 
     await page.reload();
+    await expandAllLayers(page);
     await page
       .getByRole("treeitem")
       .filter({ hasText: "Dual stroke image" })

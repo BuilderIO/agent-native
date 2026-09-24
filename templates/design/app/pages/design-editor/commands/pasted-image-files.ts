@@ -74,6 +74,7 @@ async function pastedImageDisplaySize(
         : null;
     ({ width, height } = await readPastedImageDimensions(file, previewUrl));
   } catch {
+    // coercion-ok: the caller turns decode failure into its typed "undecodable" result.
     return null;
   } finally {
     if (previewUrl) URL.revokeObjectURL(previewUrl);

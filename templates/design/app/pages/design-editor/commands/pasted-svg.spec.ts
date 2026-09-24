@@ -45,6 +45,34 @@ describe("parsePastedSvg", () => {
     ]);
   });
 
+  it("keeps relative and quadratic 1:1 paths editable", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30q10 10 20 0L0 30Z"/></svg>',
+    );
+    const root = new DOMParser().parseFromString(
+      pasted!.svg,
+      "image/svg+xml",
+    ).documentElement;
+    const nodes = JSON.parse(root.getAttribute("data-an-pen-nodes")!);
+
+    expect(nodes[0]).toBe(1);
+    expect(nodes.slice(1).map((node: number[]) => node.slice(0, 2))).toEqual([
+      [0, 0],
+      [30, 0],
+      [30, 30],
+      [50, 30],
+      [0, 30],
+    ]);
+    expect(nodes[3]!.slice(4, 6)).toEqual([
+      30 + (10 * 2) / 3,
+      30 + (10 * 2) / 3,
+    ]);
+    expect(nodes[4]!.slice(2, 4)).toEqual([
+      30 + (20 * 2) / 3,
+      30 + (10 * 2) / 3,
+    ]);
+  });
+
   it("keeps untransformed grouped paths independently editable", () => {
     const pasted = parsePastedSvg(
       '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z"/><path d="M50 0L80 0L80 30Z"/></g></svg>',
@@ -96,7 +124,8 @@ describe("parsePastedSvg", () => {
   });
 
   it.each([
-    '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0h30v30z"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0M40 0L70 0"/></svg>',
+    '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0?"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40"><path transform="scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40" style="transform:scale(2)"><path d="M0 0L30 0L30 30Z"/></svg>',
     '<svg width="80" height="40" viewBox="0 0 80 40"><path style="transform:scale(2)" d="M0 0L30 0L30 30Z"/></svg>',
