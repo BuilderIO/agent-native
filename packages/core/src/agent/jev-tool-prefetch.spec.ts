@@ -433,7 +433,7 @@ describe("preloadJevTools", () => {
       answers: {
         best_tool: {
           choice: "search-customers",
-          probabilities: { "search-customers": 0.8, __no_match__: 0.2 },
+          probabilities: { "search-customers": 0.9, __no_match__: 0.1 },
         },
       },
     });
