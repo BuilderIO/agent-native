@@ -4,113 +4,86 @@
  * The onboarding form writes these keys to scoped secrets. A public base URL
  * is required because chat attachments need stable URLs that remain usable
  * after the request and across later turns in the thread.
+ *
+ * Config resolution and validation go through the shared, isomorphic
+ * `parseS3StorageConfig` (packages/core/src/shared/s3-storage-config.ts) so
+ * this provider, the onboarding/Settings form, and the save route can never
+ * disagree about what makes a value usable.
  */
 
 import { resolveSecret } from "../server/credential-provider.js";
+import {
+  S3_STORAGE_KEYS,
+  S3_STORAGE_LEGACY_KEYS,
+  parseS3StorageConfig,
+  s3StorageFieldErrorMessage,
+  type S3StorageConfig,
+  type S3StorageParseResult,
+  type S3StorageValues,
+} from "../shared/s3-storage-config.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
 import type { FileUploadProvider } from "./types.js";
 
-interface S3Config {
-  region: string;
-  bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint: string;
-  publicBaseUrl: string;
-}
+/** Chat attachments need a stable, publicly-fetchable URL across later turns. */
+const S3_REQUIREMENTS = { publicBaseUrl: "required" as const };
 
-function cleanValue(value: string | null | undefined): string | undefined {
-  const cleaned = value?.trim();
-  return cleaned ? cleaned : undefined;
-}
-
-function buildConfig(values: {
-  bucket?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  endpoint?: string;
-  region?: string;
-  publicBaseUrl?: string;
-}): S3Config | null {
-  const bucket = cleanValue(values.bucket);
-  const accessKeyId = cleanValue(values.accessKeyId);
-  const secretAccessKey = cleanValue(values.secretAccessKey);
-  const endpoint = cleanValue(values.endpoint)?.replace(/\/+$/, "");
-  const publicBaseUrl = cleanValue(values.publicBaseUrl)?.replace(/\/+$/, "");
-  if (
-    !bucket ||
-    !accessKeyId ||
-    !secretAccessKey ||
-    !endpoint ||
-    !publicBaseUrl
-  ) {
-    return null;
-  }
-
-  if (!URL.canParse(endpoint) || !URL.canParse(publicBaseUrl)) {
-    return null;
-  }
-  const endpointUrl = new URL(endpoint);
-  const publicUrl = new URL(publicBaseUrl);
-  if (
-    !["http:", "https:"].includes(endpointUrl.protocol) ||
-    !["http:", "https:"].includes(publicUrl.protocol)
-  ) {
-    return null;
-  }
-
-  return {
-    region: cleanValue(values.region) ?? "auto",
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    endpoint,
-    publicBaseUrl,
-  };
-}
-
-function readEnvConfig(): S3Config | null {
+function readEnvValues(): S3StorageValues {
   const env = process.env;
-  return buildConfig({
-    bucket: env.S3_BUCKET || env.R2_BUCKET,
-    accessKeyId: env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
-    endpoint: env.S3_ENDPOINT || env.R2_ENDPOINT,
-    region: env.S3_REGION || env.R2_REGION,
-    publicBaseUrl: env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL,
-  });
+  const values: S3StorageValues = {};
+  for (const key of S3_STORAGE_KEYS) {
+    values[key] = env[key] || env[S3_STORAGE_LEGACY_KEYS[key]];
+  }
+  return values;
 }
 
-async function resolveStorageSecret(
-  primary: string,
-  fallback: string,
-): Promise<string | undefined> {
-  const primaryValue = cleanValue(await resolveSecret(primary));
-  return primaryValue ?? cleanValue(await resolveSecret(fallback));
+async function readScopedValues(): Promise<S3StorageValues> {
+  const values: S3StorageValues = {};
+  await Promise.all(
+    S3_STORAGE_KEYS.map(async (key) => {
+      const legacyKey = S3_STORAGE_LEGACY_KEYS[key];
+      values[key] =
+        (await resolveSecret(key)) ?? (await resolveSecret(legacyKey));
+    }),
+  );
+  return values;
 }
 
-async function readRequestConfig(): Promise<S3Config | null> {
-  const scopedConfig = buildConfig({
-    bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveStorageSecret(
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveStorageSecret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveStorageSecret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveStorageSecret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveStorageSecret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
-  });
-  return scopedConfig ?? readEnvConfig();
+/**
+ * Resolve the effective config exactly as `upload` does: a usable scoped
+ * config wins; otherwise a usable env config; otherwise report whichever
+ * side actually had a key set (the scoped errors if the caller was mid-way
+ * through configuring scoped secrets, else the env result).
+ */
+async function resolveConfig(): Promise<S3StorageParseResult> {
+  const scopedResult = parseS3StorageConfig(
+    await readScopedValues(),
+    S3_REQUIREMENTS,
+  );
+  if (scopedResult.ok) return scopedResult;
+  const envResult = parseS3StorageConfig(readEnvValues(), S3_REQUIREMENTS);
+  if (envResult.ok) return envResult;
+  return scopedResult.empty ? envResult : scopedResult;
+}
+
+async function readRequestConfig(): Promise<S3StorageConfig | null> {
+  const result = await resolveConfig();
+  return result.ok ? result.config : null;
+}
+
+/**
+ * `parseS3StorageConfig` only returns a null `publicBaseUrl` for "optional"
+ * requirements; this provider always requires one, so an `ok:true` result
+ * with no public base URL is unreachable. Fail loudly rather than build a
+ * broken URL if that invariant is ever violated.
+ */
+function requirePublicBaseUrl(config: S3StorageConfig): string {
+  if (!config.publicBaseUrl) {
+    throw new Error("S3 object storage requires a public base URL");
+  }
+  return config.publicBaseUrl;
 }
 
 async function hmac(key: ArrayBuffer, message: string): Promise<ArrayBuffer> {
@@ -161,12 +134,12 @@ function encodePathSegment(value: string): string {
   );
 }
 
-function objectPath(config: S3Config, key: string): string {
+function objectPath(config: S3StorageConfig, key: string): string {
   return `/${config.bucket}/${key.split("/").map(encodePathSegment).join("/")}`;
 }
 
 async function putObject(
-  config: S3Config,
+  config: S3StorageConfig,
   key: string,
   data: Uint8Array,
   contentType: string,
@@ -236,10 +209,13 @@ async function putObject(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );
   }
-  return `${config.publicBaseUrl}/${key.split("/").map(encodePathSegment).join("/")}`;
+  return `${requirePublicBaseUrl(config)}/${key.split("/").map(encodePathSegment).join("/")}`;
 }
 
-async function deleteObject(config: S3Config, key: string): Promise<boolean> {
+async function deleteObject(
+  config: S3StorageConfig,
+  key: string,
+): Promise<boolean> {
   const now = new Date();
   const amzDate =
     now
@@ -308,11 +284,11 @@ function safeFilename(filename: string | undefined): string {
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",
   name: "S3-compatible object storage",
-  isConfigured: () => readEnvConfig() !== null,
+  isConfigured: () => parseS3StorageConfig(readEnvValues(), S3_REQUIREMENTS).ok,
   isConfiguredForRequest: async () => (await readRequestConfig()) !== null,
   isOwnedUrl: async (value) => {
     const config = await readRequestConfig();
-    if (!config) return false;
+    if (!config?.publicBaseUrl) return false;
     try {
       const url = new URL(value);
       const publicUrl = new URL(config.publicBaseUrl);
@@ -328,13 +304,20 @@ export const s3FileUploadProvider: FileUploadProvider = {
       return false;
     }
   },
+  s3: {
+    requirements: S3_REQUIREMENTS,
+    inspect: resolveConfig,
+  },
   upload: async ({ data, filename, mimeType }) => {
-    const config = await readRequestConfig();
-    if (!config) {
+    const result = await resolveConfig();
+    if (!result.ok) {
       throw new Error(
-        "S3 object storage requires a bucket, endpoint, credentials, and public base URL",
+        `S3 object storage is not configured: ${result.errors
+          .map(s3StorageFieldErrorMessage)
+          .join(" ")}`,
       );
     }
+    const config = result.config;
     const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${safeFilename(filename)}`;
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     const url = await putObject(

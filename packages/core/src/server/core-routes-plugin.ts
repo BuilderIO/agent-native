@@ -63,7 +63,6 @@ import {
 } from "../db/client.js";
 import {
   getDatabaseRuntimeFingerprint,
-  getEffectiveDatabaseEnvStatus,
   getRuntimeDebugFingerprint,
   runDatabaseSchemaHealthCheck,
   type DatabaseSchemaHealthResult,
@@ -110,6 +109,8 @@ import {
   createWriteSecretHandler,
   createTestSecretHandler,
   createAdHocSecretHandler,
+  canMutateWorkspaceScope,
+  resolveScopeId,
 } from "../secrets/routes.js";
 import {
   getSetting,
@@ -290,11 +291,17 @@ import {
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import {
+  findHostEnvironmentKeyNames,
   findUnsupportedScopedKeyNames,
+  resolveScopedEnvKeyStatus,
   saveKeyValuesToScopedSecrets,
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import {
+  getHostEnvironmentStatus,
+  hostEnvironmentKeyError,
+} from "./host-environment.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
@@ -565,6 +572,25 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
       key: envVar,
       label,
     })),
+    {
+      key: "JEV_API_KEY",
+      label: "Decision model (Jev)",
+      helpText:
+        "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
+    },
+    {
+      key: "GITHUB_TOKEN",
+      label: "GitHub token",
+      helpText:
+        "Enables connector-scoped repository file reads and writes for headless/cloud agent runs.",
+    },
+    {
+      key: "GITHUB_REPOSITORY",
+      label: "Default GitHub repository",
+      helpText:
+        "owner/repo used as the default when a GitHub action call does not specify one.",
+      secret: false,
+    },
   ];
 }
 
@@ -4769,23 +4795,11 @@ export function createCoreRoutesPlugin(
               prefetchSecrets(allowedEnvKeyNames),
             );
             return Promise.all(
-              envKeys.map(async (cfg) => {
-                const effectiveDatabaseStatus = getEffectiveDatabaseEnvStatus(
-                  cfg.key,
-                );
-                const configured =
-                  effectiveDatabaseStatus ??
-                  (await runWithRequestContext(requestContext, () =>
-                    resolveSecret(cfg.key).then(Boolean),
-                  ));
-                return {
-                  key: cfg.key,
-                  label: cfg.label,
-                  required: cfg.required ?? false,
-                  configured,
-                  ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-                };
-              }),
+              envKeys.map((cfg) =>
+                runWithRequestContext(requestContext, () =>
+                  resolveScopedEnvKeyStatus(cfg),
+                ),
+              ),
             );
           }),
         );
@@ -4803,6 +4817,22 @@ export function createCoreRoutesPlugin(
               vars?: Array<{ key: string; value: string }>;
               scope?: ScopedKeySaveRequestScope;
             };
+            // Checked before the generic allow-list so a host-only key (e.g.
+            // DATABASE_URL, GITHUB_CLIENT_ID) gets the specific "set it in the
+            // host environment" message instead of "Unsupported env key" — and
+            // so nothing is written when any posted key can never be saved.
+            const hostEnvironmentKeys = findHostEnvironmentKeyNames(
+              vars,
+              envKeys,
+            );
+            if (hostEnvironmentKeys.length > 0) {
+              setResponseStatus(event, 400);
+              return {
+                error: hostEnvironmentKeyError(hostEnvironmentKeys[0]!),
+                hostEnvironmentKeys,
+              };
+            }
+
             const unsupportedKeys = findUnsupportedScopedKeyNames(
               vars,
               allowedEnvKeyNames,
@@ -4832,6 +4862,23 @@ export function createCoreRoutesPlugin(
           }),
         );
       }
+
+      // GET /_agent-native/host-environment — presence-only status of the
+      // infrastructure this app reads from its host environment (database,
+      // auth secret/OAuth clients, deploy email transport). No value ever
+      // leaves the server. Settings/onboarding use this instead of offering a
+      // form for keys the app cannot save.
+      getH3App(nitroApp).use(
+        `${P}/host-environment`,
+        defineEventHandler(async (event: H3Event) => {
+          const session = await getSession(event).catch(() => null);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Sign in to view host environment status" };
+          }
+          return getHostEnvironmentStatus();
+        }),
+      );
 
       getH3App(nitroApp).use(
         `${P}/agent-engine/api-key`,

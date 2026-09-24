@@ -30,8 +30,11 @@ import { runWithRequestContext } from "../server/request-context.js";
  * privilege gradient to enforce in that case.
  *
  * Returns true if the request is allowed to write/delete this scope.
+ *
+ * Exported so `POST /_agent-native/file-upload/s3-config` (core-routes-plugin.ts)
+ * enforces the identical owner/admin rule instead of re-implementing it.
  */
-async function canMutateWorkspaceScope(
+export async function canMutateWorkspaceScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
@@ -178,8 +181,14 @@ async function hasOAuthSecretForEvent(
   return accounts.length > 0;
 }
 
-/** Resolve the scopeId for a given scope, given the current session. */
-async function resolveScopeId(
+/**
+ * Resolve the scopeId for a given scope, given the current session.
+ *
+ * Exported so `POST /_agent-native/file-upload/s3-config` (core-routes-plugin.ts)
+ * resolves the workspace scope id (org id, or `solo:<email>`) the same way
+ * every other workspace-scoped secret write does.
+ */
+export async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
 ): Promise<{ scopeId: string | null; reason?: string }> {

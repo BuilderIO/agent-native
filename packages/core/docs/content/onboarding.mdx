@@ -23,7 +23,9 @@ infrastructure, and add providers only when you need them.
   </div>
   <div class="diagram-card">
     <span class="diagram-pill">optional</span><strong>Database</strong
-    ><small class="diagram-muted">set <code>DATABASE_URL</code></small>
+    ><small class="diagram-muted"
+      ><code>DATABASE_URL</code> in host env</small
+    >
   </div>
   <div class="diagram-card">
     <span class="diagram-pill">optional</span><strong>Authentication</strong
@@ -91,11 +93,16 @@ behind a picker or disclosure when a step has several equivalent providers.
 - **Connect a service (one click)** — e.g. _Connect Builder_ for the managed
   AI gateway. Click the button, a window opens, you sign in, the window closes,
   and the step is marked complete. No keys to copy.
-- **Paste an API key or fill a form** — e.g. choose an LLM provider, database,
-  OAuth provider, or email provider, paste the value(s), click **Save**.
-  Secret fields use a password input so the value isn't shown on screen. Saved
-  values go into your local `.env` (or workspace settings) — see
+- **Paste an API key or fill a form** — e.g. choose an LLM or email provider,
+  paste the value(s), click **Save**. Secret fields use a password input so
+  the value isn't shown on screen. Saved values are encrypted and stored in
+  your account or the workspace, never in a local `.env` file — see
   [Security](/docs/security) for where they live.
+- **Set in the host environment** — for a value the running app reads from
+  its own hosting environment and cannot save, like its database connection
+  or a sign-in OAuth client. The step names the exact variable(s) and links to
+  setup docs. There's no Save button, because there's nothing this checklist
+  can save.
 - **Open a link** — some steps point to a sign-in page or docs. Click
   **Continue** and finish the flow in the new tab.
 - **Ask the agent** — a few steps offer a "Let the agent set it up" option.
@@ -107,13 +114,21 @@ behind a picker or disclosure when a step has several equivalent providers.
 - **Connect an AI engine** (required) — the only mandatory step. Connect
   Builder for a one-click managed gateway, or open the secondary provider-key
   picker and paste your own LLM key.
-- **Database** (optional) — set `DATABASE_URL` when you want to use a specific
-  PostgreSQL connection string.
+- **File uploads and storage** (optional) — Connect Builder for managed
+  storage, or fill in S3-compatible storage keys (AWS S3, Cloudflare R2,
+  MinIO). See [File Uploads](/docs/file-uploads).
+- **Database** (optional) — Agent-Native stores app data in SQL.
+  `DATABASE_URL` is set in the host environment, not from this checklist;
+  without one, the app uses local PGlite.
 - **Authentication** (optional) — built-in email/password accounts work by
-  default. Add OAuth or access-token sign-in only when you want those paths.
-- **Email delivery** (optional) — useful before deploy for password resets,
-  team invitations, and share notifications. Use the provider you already use;
-  local development can run without it.
+  default. Google and GitHub sign-in are set in the host environment
+  (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`,
+  `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`).
+- **Email delivery** (optional) — the Resend or SendGrid form saves a
+  workspace key that sends team invitations and share notifications. Sign-in
+  links, password resets, and scheduled reports read `RESEND_API_KEY` or
+  `SENDGRID_API_KEY` and `EMAIL_FROM` from the host environment only, so the
+  step lists those separately from the form.
 - **Connect a GitHub repository** (optional) — grants a scoped GitHub token so
   the agent can read/write repo files for cloud or headless work, without
   cloning the repo or running code. Skip it for local development where the
@@ -138,9 +153,8 @@ tracking, and dismissal — you just declare what the step is and how it's
 satisfied.
 
 The system is **auto-mounted**. Templates don't need to wire anything to get
-the four built-in steps (LLM, database, auth, email). To add app-specific
-steps (Gmail, Slack, Notion, etc.), call `registerOnboardingStep()` from a
-server plugin.
+the built-in steps listed below. To add app-specific steps (Gmail, Slack,
+Notion, etc.), call `registerOnboardingStep()` from a server plugin.
 
 ### Auto-mounted routes
 

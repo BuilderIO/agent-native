@@ -262,3 +262,24 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  S3_STORAGE_KEYS,
+  S3_STORAGE_LEGACY_KEYS,
+  S3_STORAGE_SECRET_KEYS,
+  inferS3Region,
+  isS3StorageKeyRequired,
+  parseS3StorageConfig,
+  s3StorageFieldErrorMessage,
+  type S3StorageConfig,
+  type S3StorageFieldError,
+  type S3StorageFieldErrorCode,
+  type S3StorageKey,
+  type S3StorageParseResult,
+  type S3StorageRequirements,
+  type S3StorageStatus,
+  type S3StorageValues,
+  type SaveS3StorageErrorResponse,
+  type SaveS3StorageRequest,
+  type SaveS3StorageResponse,
+} from "./s3-storage-config.js";
+export type { HostEnvironmentStatus } from "./host-environment.js";

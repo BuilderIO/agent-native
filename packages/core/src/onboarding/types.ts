@@ -50,6 +50,25 @@ export type OnboardingMethod =
       };
     })
   | (OnboardingMethodBase & {
+      /**
+       * The value is read from the host environment, never saved by the app.
+       * Renders the variable names and a docs link instead of a form. Use it
+       * for anything a running app cannot change about itself: its database
+       * URL, sign-in OAuth clients, deploy-level email transport.
+       */
+      kind: "host-env";
+      payload: { keys: string[]; docsUrl?: string };
+    })
+  | (OnboardingMethodBase & {
+      /**
+       * Renders the shared S3-compatible storage form. It validates against
+       * the provider holding the "s3" upload slot and saves through
+       * `POST /_agent-native/file-upload/s3-config`.
+       */
+      kind: "file-storage";
+      payload: Record<string, never>;
+    })
+  | (OnboardingMethodBase & {
       kind: "builder-cli-auth";
       payload: {
         // "llm" (managed gateway), "browser" (browser automation), and

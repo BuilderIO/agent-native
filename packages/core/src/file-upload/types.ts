@@ -7,6 +7,11 @@
  * closed so binary payloads never get persisted as base64 in SQL.
  */
 
+import type {
+  S3StorageParseResult,
+  S3StorageRequirements,
+} from "../shared/s3-storage-config.js";
+
 export interface FileUploadInput {
   /** File contents. */
   data: Uint8Array | Buffer;
@@ -66,6 +71,16 @@ export interface FileUploadProvider {
   isConfiguredForRequest?: () => Promise<boolean>;
   /** Returns true when a URL belongs to this provider's configured public origin. */
   isOwnedUrl?: (url: string) => boolean | Promise<boolean>;
+  /**
+   * S3-compatible providers declare what they need from the shared S3_* keys.
+   * Forms and the save route validate against the provider holding the "s3"
+   * slot, so they cannot accept a config that provider will reject.
+   */
+  s3?: {
+    requirements: S3StorageRequirements;
+    /** Parse the saved or host-environment values exactly as `upload` will. */
+    inspect: () => Promise<S3StorageParseResult>;
+  };
   /** Upload a file and return a URL. Throw on failure. */
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
   /** Delete a previously uploaded file when the provider supports it. */

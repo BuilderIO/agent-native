@@ -8,8 +8,32 @@ import {
 } from "../secrets/register.js";
 import { writeAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
+import { readDeployCredentialEnv, resolveSecret } from "./credential-provider.js";
+import { getEffectiveDatabaseEnvStatus } from "../db/runtime-diagnostics.js";
+import { isHostEnvironmentKey } from "./host-environment.js";
 
 const KEY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The declared shape both `/env-status` and `/env-vars` key lists satisfy. */
+export interface ScopedEnvKeyDeclaration {
+  key: string;
+  label: string;
+  required?: boolean;
+  helpText?: string;
+  secret?: boolean;
+  /** Value is read from the host environment; the app cannot save it. */
+  hostEnvironment?: boolean;
+}
+
+export interface ScopedEnvKeyStatus {
+  key: string;
+  label: string;
+  required: boolean;
+  configured: boolean;
+  helpText?: string;
+  secret?: false;
+  hostEnvironment?: true;
+}
 
 export type ScopedKeySaveRequestScope =
   | "app"
@@ -40,23 +64,87 @@ export class ScopedKeyStorageError extends Error {
   }
 }
 
-export function findUnsupportedScopedKeyNames(
-  vars: unknown,
-  allowedKeys: Iterable<string>,
-): string[] {
+function normalizedKeysFromVars(vars: unknown): string[] {
   if (!Array.isArray(vars)) return [];
-
-  const allowed = new Set(allowedKeys);
-  const unsupported = new Set<string>();
+  const keys: string[] = [];
   for (const entry of vars) {
     if (!entry || typeof entry !== "object") continue;
     const key = (entry as { key?: unknown }).key;
     const normalizedKey = typeof key === "string" ? key.trim() : "";
-    if (normalizedKey && !allowed.has(normalizedKey)) {
-      unsupported.add(normalizedKey);
-    }
+    if (normalizedKey) keys.push(normalizedKey);
+  }
+  return keys;
+}
+
+/**
+ * A key not in the declared `envKeys` list is still allowed when it is
+ * registered with `kind: "api-key"` — the registry's scoped reader already
+ * works, so the declared list existing separately must not 400 it.
+ */
+function isAllowedEnvKey(key: string, declared: ReadonlySet<string>): boolean {
+  if (declared.has(key)) return true;
+  return getRequiredSecret(key)?.kind === "api-key";
+}
+
+export function findUnsupportedScopedKeyNames(
+  vars: unknown,
+  allowedKeys: Iterable<string>,
+): string[] {
+  const allowed = new Set(allowedKeys);
+  const unsupported = new Set<string>();
+  for (const key of normalizedKeysFromVars(vars)) {
+    if (!isAllowedEnvKey(key, allowed)) unsupported.add(key);
   }
   return [...unsupported];
+}
+
+/**
+ * Every posted key that is host-environment-only, by the static
+ * classification OR a declared `hostEnvironment: true` entry. Checked ahead
+ * of {@link findUnsupportedScopedKeyNames} so a host-only key gets the
+ * specific redirect-to-host-env message instead of "Unsupported env key".
+ */
+export function findHostEnvironmentKeyNames(
+  vars: unknown,
+  declared: readonly ScopedEnvKeyDeclaration[],
+): string[] {
+  const declaredHostKeys = new Set(
+    declared.filter((cfg) => cfg.hostEnvironment).map((cfg) => cfg.key),
+  );
+  const found = new Set<string>();
+  for (const key of normalizedKeysFromVars(vars)) {
+    if (isHostEnvironmentKey(key) || declaredHostKeys.has(key)) {
+      found.add(key);
+    }
+  }
+  return [...found];
+}
+
+/**
+ * One status row for `/env-status`, shared by core-routes-plugin.ts and
+ * create-server.ts so their env-status responses cannot drift. Host-
+ * environment keys report `configured` from the host env directly, never
+ * from app_secrets — saving one there would never change what the app reads.
+ */
+export async function resolveScopedEnvKeyStatus(
+  cfg: ScopedEnvKeyDeclaration,
+): Promise<ScopedEnvKeyStatus> {
+  const effectiveDatabaseStatus = getEffectiveDatabaseEnvStatus(cfg.key);
+  const hostEnvironment = isHostEnvironmentKey(cfg.key) || cfg.hostEnvironment === true;
+  const configured =
+    effectiveDatabaseStatus ??
+    (hostEnvironment
+      ? Boolean(readDeployCredentialEnv(cfg.key))
+      : await resolveSecret(cfg.key).then(Boolean));
+  return {
+    key: cfg.key,
+    label: cfg.label,
+    required: cfg.required ?? false,
+    configured,
+    ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+    ...(cfg.secret === false ? { secret: false as const } : {}),
+    ...(hostEnvironment ? { hostEnvironment: true as const } : {}),
+  };
 }
 
 function redactSecretFromMessage(message: string, secretValue: string): string {
