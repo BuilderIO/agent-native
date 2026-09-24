@@ -1982,7 +1982,7 @@ export default function RecordingPage() {
                 copyLabel={t("shareUi.copy")}
                 copiedLabel={t("bugReportRoute.copied")}
                 onCopy={writeClipboardText}
-                className="rounded-lg border border-border bg-muted/30 p-2 ps-3"
+                className="w-fit max-w-full rounded-lg border border-border bg-muted/30 p-2 ps-3"
               />
             </div>
           </main>
