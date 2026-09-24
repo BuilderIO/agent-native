@@ -21,6 +21,7 @@ import { isDocumentCreationPending } from "@/lib/optimistic-document";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
+import { authoredCandidateMatchesContent } from "./document-save-retry";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import {
   clearPageDraftJournal,
@@ -221,12 +222,7 @@ export function PageDraftRecovery({
       setJournalState("checking");
     };
     void (async () => {
-      for (const saveAttemptId of [
-        ...(journalSnapshot.priorSaveAttemptIds ?? []),
-        ...(journalSnapshot.saveAttemptId
-          ? [journalSnapshot.saveAttemptId]
-          : []),
-      ]) {
+      if (journalSnapshot.saveAttemptId) {
         const receipt = await callAction<{
           found: boolean;
           preservationRequired?: {
@@ -237,7 +233,7 @@ export function PageDraftRecovery({
           "get-document-save-attempt",
           {
             id: document.id,
-            browserSaveAttemptId: saveAttemptId,
+            browserSaveAttemptId: journalSnapshot.saveAttemptId,
           },
           { method: "GET" },
         );
@@ -300,12 +296,7 @@ export function PageDraftRecovery({
             baseUpdatedAt: base.updatedAt,
             baseRevision: base.revision,
             saveAttemptId,
-            priorSaveAttemptIds: [
-              ...(journalSnapshot.priorSaveAttemptIds ?? []),
-              ...(journalSnapshot.saveAttemptId
-                ? [journalSnapshot.saveAttemptId]
-                : []),
-            ],
+            priorSaveAttemptIds: undefined,
           };
           const written = writePageDraftJournal({
             scope: entry.scope,
@@ -334,7 +325,10 @@ export function PageDraftRecovery({
             editorSnapshotContent: content,
             ...(entry.snapshot.authoredBaseRevision &&
             entry.snapshot.authoredBaseContent !== undefined &&
-            entry.snapshot.authoredCandidateContent !== undefined
+            authoredCandidateMatchesContent(
+              content,
+              entry.snapshot.authoredCandidateContent,
+            )
               ? {
                   authoredBaseRevision: entry.snapshot.authoredBaseRevision,
                   authoredBaseContent: entry.snapshot.authoredBaseContent,

@@ -161,7 +161,10 @@ import {
   saveDocumentWithRebase,
   type DocumentContentBase,
 } from "./document-save-rebase";
-import { pendingSaveRetrySnapshot } from "./document-save-retry";
+import {
+  authoredCandidateMatchesContent,
+  pendingSaveRetrySnapshot,
+} from "./document-save-retry";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -2220,7 +2223,8 @@ function PageEditorSessionBody({
               lastSavedContentRef.current.revision,
             editGeneration,
             saveAttemptId: prepared?.saveAttemptId,
-            ...(authored?.baseRevision
+            ...(authored?.baseRevision &&
+            authoredCandidateMatchesContent(content, authored.candidateContent)
               ? {
                   authoredBaseRevision: authored.baseRevision,
                   authoredBaseContent: authored.baseContent,
@@ -2640,7 +2644,12 @@ function PageEditorSessionBody({
           editorSessionId: options.editorSessionId,
           editorEditGeneration: options.editGeneration,
           browserSaveAttemptId: options.saveAttemptId,
-          ...(updates.content !== undefined && options.authoredContentIntent
+          ...(updates.content !== undefined &&
+          options.authoredContentIntent &&
+          authoredCandidateMatchesContent(
+            updates.content,
+            options.authoredContentIntent?.candidateContent,
+          )
             ? {
                 authoredBaseRevision:
                   options.authoredContentIntent.baseRevision,
@@ -3333,7 +3342,12 @@ function PageEditorSessionBody({
               contentObservationEpoch,
               saveAttemptId,
               contentAuthoredAfterRevision,
-              authoredContentIntent,
+              authoredContentIntent: authoredCandidateMatchesContent(
+                content,
+                authoredContentIntent?.candidateContent,
+              )
+                ? authoredContentIntent
+                : undefined,
             }),
           retain: (reason, result) => {
             const snapshotChanged =
@@ -3729,7 +3743,12 @@ function PageEditorSessionBody({
             editorSessionId: pending.editorSessionId,
             editorEditGeneration: pending.editGeneration,
             browserSaveAttemptId: pending.saveAttemptId,
-            ...(updates.content !== undefined && pending.authoredContentIntent
+            ...(updates.content !== undefined &&
+            pending.authoredContentIntent &&
+            authoredCandidateMatchesContent(
+              updates.content,
+              pending.authoredContentIntent?.candidateContent,
+            )
               ? {
                   authoredBaseRevision:
                     pending.authoredContentIntent.baseRevision,

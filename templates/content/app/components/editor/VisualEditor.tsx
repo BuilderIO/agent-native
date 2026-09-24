@@ -3307,6 +3307,7 @@ export function VisualEditor({
   // through `guardsRef`, populated right after the hook runs below. `onUpdate`
   // only fires once the editor exists, by which point the ref holds the guards.
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
+  const draftEmissionGenerationRef = useRef(0);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
   const markUserEditIntent = useCallback(() => {
@@ -3356,7 +3357,11 @@ export function VisualEditor({
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
-        setTimeout(() => onChangeRef.current(normalized), 0);
+        const generation = draftEmissionGenerationRef.current;
+        setTimeout(() => {
+          if (generation === draftEmissionGenerationRef.current)
+            onChangeRef.current(normalized);
+        }, 0);
         return "scheduled" as const;
       } catch (err: any) {
         toast.error(
@@ -3701,6 +3706,7 @@ export function VisualEditor({
             canonicalizeNfm(snapshot.content);
         }
         if (applied) {
+          draftEmissionGenerationRef.current += 1;
           acknowledgedRestoreRef.current = {
             documentId: documentId ?? null,
             ...snapshot,

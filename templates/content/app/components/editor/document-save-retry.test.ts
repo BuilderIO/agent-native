@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { pendingSaveRetrySnapshot } from "./document-save-retry";
+import {
+  authoredCandidateMatchesContent,
+  pendingSaveRetrySnapshot,
+} from "./document-save-retry";
 
 const pending = {
   contentEditVersion: 4,
@@ -39,6 +42,12 @@ describe("pending save retry", () => {
       titleBase: observed.titleBase,
       contentObservationEpoch: 3,
     });
+    expect(
+      authoredCandidateMatchesContent(observed.content, "Local edit"),
+    ).toBe(false);
+    expect(authoredCandidateMatchesContent("Local edit", "Local edit")).toBe(
+      true,
+    );
   });
 
   it("uses a later peer observation when it arrives during the retry delay", () => {

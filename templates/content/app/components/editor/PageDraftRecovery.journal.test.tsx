@@ -230,6 +230,94 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
+  it("replays the observed body when a peer update extends the authored candidate", async () => {
+    state.entries = [
+      {
+        ...entry("first", "Local Peer"),
+        snapshot: {
+          ...entry("first", "Local Peer").snapshot,
+          baseRevision: "body:1:sha256:base",
+          authoredBaseRevision: "body:1:sha256:base",
+          authoredBaseContent: "Saved body",
+          authoredCandidateContent: "Local",
+        },
+      },
+    ];
+    state.update.mockResolvedValue({ ...page, content: "Local Peer" });
+    state.rebase.mockImplementation(
+      async (args: {
+        base: { content: string; updatedAt: string; revision?: string };
+        content: string;
+        persist: (
+          content: string,
+          base: { content: string; updatedAt: string; revision?: string },
+        ) => Promise<Document>;
+      }) => ({
+        status: "saved",
+        document: await args.persist(args.content, args.base),
+      }),
+    );
+
+    await act(async () => render());
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Local Peer" }),
+    );
+    expect(state.update.mock.calls[0]?.[0]).not.toHaveProperty(
+      "authoredCandidateContent",
+    );
+    expect(state.entries).toEqual([]);
+  });
+
+  it("does not clear a newer journal for an older attempt's receipt", async () => {
+    state.entries = [
+      {
+        ...entry("first", "Newer local"),
+        snapshot: {
+          ...entry("first", "Newer local").snapshot,
+          saveAttemptId: "new-attempt",
+          priorSaveAttemptIds: ["old-attempt"],
+        },
+      },
+    ];
+    state.receipt.mockImplementation(
+      async (
+        _action: string,
+        args: {
+          browserSaveAttemptId: string;
+        },
+      ) => ({ found: args.browserSaveAttemptId === "old-attempt" }),
+    );
+    state.update.mockResolvedValue({ ...page, content: "Newer local" });
+    state.rebase.mockImplementation(
+      async (args: {
+        base: { content: string; updatedAt: string; revision?: string };
+        content: string;
+        persist: (
+          content: string,
+          base: { content: string; updatedAt: string; revision?: string },
+        ) => Promise<Document>;
+      }) => ({
+        status: "saved",
+        document: await args.persist(args.content, args.base),
+      }),
+    );
+
+    await act(async () => render());
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "new-attempt" },
+      { method: "GET" },
+    );
+    expect(state.receipt).not.toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "old-attempt" },
+      { method: "GET" },
+    );
+    expect(state.update).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Newer local" }),
+    );
+  });
+
   it("does not inspect local drafts before the current session passes access", async () => {
     state.entries = [entry("first", "Local")];
     state.receipt.mockRejectedValue(new Error("access denied"));

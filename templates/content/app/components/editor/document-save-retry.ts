@@ -1,5 +1,15 @@
 import type { PageSaveResult } from "./pageSession";
 
+export function authoredCandidateMatchesContent(
+  content: string,
+  authoredCandidateContent: string | undefined,
+): boolean {
+  return (
+    authoredCandidateContent !== undefined &&
+    content === authoredCandidateContent
+  );
+}
+
 type SaveSnapshot = {
   title: string;
   content: string;

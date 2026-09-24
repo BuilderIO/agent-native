@@ -300,6 +300,51 @@ describe("update-document compare-and-swap", () => {
     ).toHaveLength(0);
   });
 
+  it("persists a peer observation after the local authored attempt already committed", async () => {
+    const base = "Original passage\nTail";
+    const local = "Local passage\nTail";
+    const observed = "Local passage\nTail\nPeer passage";
+    const id = await createDocument({ content: base });
+    const session = nextId("browser-session");
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          content: local,
+          baseRevision: documentRevisionToken(0, base),
+          authoredBaseRevision: documentRevisionToken(0, base),
+          authoredBaseContent: base,
+          authoredCandidateContent: local,
+          editorSessionId: session,
+          editorEditGeneration: 1,
+          editorSnapshotTitle: "Untitled",
+          editorSnapshotContent: local,
+          browserSaveAttemptId: nextId("local-attempt"),
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(first.content).toBe(local);
+
+    const replay = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          content: observed,
+          baseRevision: first.revision,
+          editorSessionId: session,
+          editorEditGeneration: 1,
+          editorSnapshotTitle: "Untitled",
+          editorSnapshotContent: observed,
+          browserSaveAttemptId: nextId("observed-attempt"),
+        },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(replay.content).toBe(observed);
+    expect((await documentRow(id)).content).toBe(observed);
+  });
+
   it("converges overlapping browser sessions regardless of save delivery order", async () => {
     const base = "Base passage\nUnrelated passage";
     const revision = documentRevisionToken(0, base);
