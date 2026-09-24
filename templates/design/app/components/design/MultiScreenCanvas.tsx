@@ -12030,7 +12030,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             geometry={singleSelectedFrame.geometry}
             chromeScale={chromeScale}
             chromeSettling={chromeSettling}
-            handlesEnabled={!readOnly}
+            handlesEnabled={!readOnly && !focusedInteract}
             showRotate
             onStartResize={(handle, event) =>
               beginResize(singleSelectedFrame.id, handle, event)
@@ -14134,6 +14134,7 @@ const Screen = memo(function Screen({
         <ResizeHandles
           active={false}
           enabled={
+            !focusedInteract &&
             !selectionOutlined &&
             !elementSelectedInScreen &&
             !penActive &&

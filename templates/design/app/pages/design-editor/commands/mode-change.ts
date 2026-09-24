@@ -110,6 +110,13 @@ export function runModeChange(
   }
   if (next === "interact" && overviewInteractScreenId) {
     setOverviewInteractScreenId(nextActiveFile!.id);
+    if (
+      options?.targetFileId &&
+      nextActiveFile!.id !== overviewInteractScreenId
+    ) {
+      enterSingleScreen(nextActiveFile!.id);
+      return;
+    }
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   setMode(next);

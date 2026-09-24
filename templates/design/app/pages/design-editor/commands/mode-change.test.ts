@@ -70,12 +70,12 @@ describe("runModeChange Interact navigation", () => {
     );
   });
 
-  it("retains the requested screen when switching in focused Interact", () => {
+  it("re-enters the requested screen when switching in focused Interact", () => {
     const args = makeArgs("single", activeFile.id);
 
     runModeChange(args, "interact", { targetFileId: targetFile.id });
 
-    expect(args.setActiveFileId).toHaveBeenCalledWith(targetFile.id);
+    expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
     expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
       targetFile.id,
     );
