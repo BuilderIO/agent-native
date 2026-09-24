@@ -5967,9 +5967,7 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result, {
-          excludeSessionCookies: true,
-        });
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);
@@ -5994,9 +5992,7 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result, {
-          excludeSessionCookies: true,
-        });
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);

@@ -1339,6 +1339,65 @@ describe("server/auth", () => {
       );
     });
 
+    it("forwards rotated session cookies when toggling two-factor authentication", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const issueReplacementSession = vi.fn(async () => {
+        const headers = new Headers();
+        headers.append(
+          "set-cookie",
+          "an.session_token=replacement-session-token; Path=/; HttpOnly",
+        );
+        return { headers, response: { status: true } };
+      });
+      const betterAuth = {
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          enableTwoFactor: issueReplacementSession,
+          disableTwoFactor: issueReplacementSession,
+          getSession: vi.fn(async () => ({
+            user: { id: "user-id", email: "user@example.com" },
+            session: { token: "current-session-token" },
+          })),
+          signInEmail: vi.fn(),
+          signUpEmail: vi.fn(),
+          signOut: vi.fn(),
+        },
+      };
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => betterAuth),
+        getBetterAuthSync: vi.fn(() => betterAuth),
+      }));
+      vi.doMock("../org/context.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      for (const path of [
+        "/_agent-native/auth/two-factor/enable",
+        "/_agent-native/auth/two-factor/disable",
+      ]) {
+        const handler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === path,
+        )?.[1];
+        expect(handler).toBeTypeOf("function");
+        const event = createJsonPostEvent(path, {});
+
+        await handler(event);
+
+        expect(event.res.headers.get("set-cookie")).toContain(
+          "an.session_token=replacement-session-token",
+        );
+      }
+    });
+
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("DEBUG", "1");
