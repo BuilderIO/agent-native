@@ -5,6 +5,7 @@ export default defineAgentNativeConfig({
     workspace: {
       appsDirectory: ".",
       authMode: "isolated",
+      rootPage: "directory",
     },
   },
 });

@@ -105,6 +105,31 @@ describe("db/client Postgres URL handling", () => {
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
   });
 
+  it("uses the workspace app ID to resolve app-specific database URLs", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL",
+      "postgres://account-expert.example/db",
+    );
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+      "postgres://account-expert-direct.example/db",
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://workspace.example/db");
+
+    const { getDatabaseUrl, getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getDatabaseUrl()).toBe("postgres://account-expert.example/db");
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgres://account-expert-direct.example/db",
+    );
+    expect(getRuntimeDatabaseSource()).toBe(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+    );
+  });
+
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
     const {
@@ -130,6 +155,56 @@ describe("db/client Postgres URL handling", () => {
       application_name: "agent-native:app",
       idle_in_transaction_session_timeout: 30_000,
     });
+  });
+
+  it("uses AGENT_NATIVE_DB_POOL_MAX for Neon and postgres-js pools", async () => {
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "3");
+    vi.stubEnv("NETLIFY", "true");
+    const { neonPoolMax, neonPoolOptions, pgPoolOptions } =
+      await import("./client.js");
+
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(3);
+    expect(neonPoolMax()).toBe(3);
+    expect(neonPoolOptions().max).toBe(3);
+
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(3);
+    expect(neonPoolMax()).toBe(3);
+  });
+
+  it("uses the runtime defaults when the database pool override is absent", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_VERSION", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubEnv("VERCEL_REGION", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    const { neonPoolMax, pgPoolOptions } = await import("./client.js");
+
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(20);
+    expect(neonPoolMax()).toBe(20);
+  });
+
+  it("rejects invalid database pool overrides", async () => {
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "0");
+    const { pgPoolOptions } = await import("./client.js");
+
+    expect(() => pgPoolOptions("postgres://example.test/db")).toThrow(
+      /databasePoolMax/i,
+    );
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "1.5");
+    expect(() => pgPoolOptions("postgres://example.test/db")).toThrow(
+      /databasePoolMax/i,
+    );
   });
 
   it("keeps the pool bounded when Netlify exposes only the function marker", async () => {

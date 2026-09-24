@@ -1084,6 +1084,8 @@ export interface CreateInlineDatabaseRequest {
   hostDocumentId: string;
   title?: string;
   description?: string;
+  newDocumentId?: string;
+  ownerBlockId?: string;
 }
 
 export interface CreateInlineDatabaseResponse {

@@ -54,6 +54,7 @@ import {
   SectionIconToggle,
 } from "./inspector-controls";
 import { authoredStyleValue } from "./interaction-state-helpers";
+import { useLiveDragPosition } from "./live-drag-position";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
@@ -383,6 +384,9 @@ export function PositionLayoutProperties({
   // preview live in `deriveConstraintsValue` (above) instead.
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
+  const liveDragPosition = useLiveDragPosition(element.selector);
+  const displayedLeft = liveDragPosition?.left ?? authoredLeft;
+  const displayedTop = liveDragPosition?.top ?? authoredTop;
   const authoredTransform = authoredStyleValue(element, "transform");
   const rotationTransform = isMixedValue(styles.transform)
     ? undefined
@@ -527,9 +531,9 @@ export function PositionLayoutProperties({
               tooltipLabel="X-position"
               precision={2}
               value={
-                isMixedValue(authoredLeft)
+                isMixedValue(displayedLeft)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(authoredLeft) ?? "")
+                  : (definiteAuthoredOffset(displayedLeft) ?? "")
               }
               placeholder={element.boundingRect.x}
               inputClassName="h-6"
@@ -576,9 +580,9 @@ export function PositionLayoutProperties({
               tooltipLabel="Y-position"
               precision={2}
               value={
-                isMixedValue(authoredTop)
+                isMixedValue(displayedTop)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(authoredTop) ?? "")
+                  : (definiteAuthoredOffset(displayedTop) ?? "")
               }
               placeholder={element.boundingRect.y}
               inputClassName="h-6"

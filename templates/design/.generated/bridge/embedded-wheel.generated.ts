@@ -11,6 +11,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
     var leftButtonEnabled = false;
     var temporarySpacePanEnabled = false;
+    var forwardedSpaceKeyDown = false;
     var activePointerId = null;
     var activeButton = null;
     var captureTarget = null;
@@ -183,13 +184,21 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       ));
     }
+    function shouldLetEditorChromeHandleSpace() {
+      return !spaceKeyForwardingEnabled && editingSafetyEnabled && !!document.querySelector("[data-agent-native-editor-chrome-host]");
+    }
     function onKeyDown(e) {
-      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
+      if (e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
         return;
       }
       temporarySpacePanEnabled = true;
+      if (shouldLetEditorChromeHandleSpace()) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
-      if (e.repeat) return;
+      if (e.repeat || !spaceKeyForwardingEnabled) return;
+      forwardedSpaceKeyDown = true;
       postToParent({
         type: "design-hotkey",
         key: e.key,
@@ -202,14 +211,20 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       });
     }
     function onKeyUp(e) {
-      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space") {
-        return;
-      }
+      if (e.key !== " " || e.code !== "Space") return;
       var wasTemporarySpacePanEnabled = temporarySpacePanEnabled;
       temporarySpacePanEnabled = false;
-      if (!wasTemporarySpacePanEnabled && isTypingTarget(e.target)) return;
+      var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
+      forwardedSpaceKeyDown = false;
+      if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+      if (shouldLetEditorChromeHandleSpace() && !wasSpaceKeyForwarded) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
-      postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+      if (wasSpaceKeyForwarded) {
+        postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+      }
     }
     function onHostMessage(e) {
       if (e.source !== window.parent) return;
@@ -226,7 +241,19 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         wheelEnabled = !!e.data.wheelEnabled;
         spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
         if (typeof e.data.editingSafetyEnabled === "boolean") {
-          editingSafetyEnabled = e.data.editingSafetyEnabled;
+          var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+          if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+            cancelActivePan();
+            if (forwardedSpaceKeyDown) {
+              forwardedSpaceKeyDown = false;
+              postToParent({
+                type: "design-hotkey-up",
+                key: " ",
+                code: "Space"
+              });
+            }
+          }
+          editingSafetyEnabled = nextEditingSafetyEnabled;
           syncEditingSafetyStyle();
         }
       }
