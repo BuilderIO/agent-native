@@ -196,7 +196,11 @@ export async function validateRelationWrite(
   if (added.length === 0) return ids;
 
   const target = await liveDatabase(db, targetDatabaseId);
-  if (!target || target.systemRole || !(await canReadDatabase(target))) {
+  if (
+    !target ||
+    target.systemRole ||
+    !(await resolveAccess("document", target.documentId))
+  ) {
     relationError(
       "INVALID_RELATION_TARGET",
       "The related database is not available",

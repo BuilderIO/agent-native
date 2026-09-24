@@ -2758,7 +2758,7 @@ function RelationValueEditor({
       setQuery("");
       commit([...selected, newId]);
     } catch {
-      // useActionMutation surfaces the failure; keep the typed title.
+      // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
     }
   }
 

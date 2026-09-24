@@ -37,7 +37,10 @@ export const ordinaryPropertyTypes = [
 ] as const;
 
 /** Types an agent can create through property setup. */
-export const setupPropertyTypes = [...ordinaryPropertyTypes, "relation"] as const;
+export const setupPropertyTypes = [
+  ...ordinaryPropertyTypes,
+  "relation",
+] as const;
 
 const optionPropertyTypes = ["select", "multi_select", "status"] as const;
 const nonOptionPropertyTypes = [
