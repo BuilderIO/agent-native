@@ -1,4 +1,0 @@
-interface:
-  display_name: "Turn Into Skill"
-  short_description: "Save a proven workflow as a reusable skill"
-  default_prompt: "Read the current thread, distill the repeatable workflow into a concise user-invocable skill, save it at personal or organization scope, verify the saved resource, and report its path."
