@@ -54,6 +54,7 @@ const messages = {
     emptyState: "プレゼンテーションについて何でも聞いてください",
     thisSlide: "このスライド",
     currentSelection: "現在の選択",
+    slideNumber: "スライド {{number}}",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",

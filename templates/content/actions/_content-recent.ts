@@ -9,6 +9,7 @@ import {
   type ContentRecentResult,
 } from "../shared/content-personal-navigation.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -22,6 +23,26 @@ const viewIdentitySchema = z.object({
     .array(z.object({ id: z.string().trim().min(1), name: z.string() }))
     .optional(),
 });
+
+/**
+ * Attach the requesting user's pinned state to already access-resolved Recent
+ * rows, so Recent can offer Pin/Unpin without a second client lookup.
+ */
+export async function withRecentPinnedState(
+  userEmail: string,
+  entries: ContentRecentResult[],
+): Promise<ContentRecentResult[]> {
+  if (entries.length === 0) return entries;
+  const pinned = await favoriteDocumentIds(
+    getDb(),
+    userEmail,
+    entries.map((entry) => entry.target.documentId),
+  );
+  return entries.map((entry) => ({
+    ...entry,
+    isFavorite: pinned.has(entry.target.documentId),
+  }));
+}
 
 export async function resolveContentRecentEntries(
   userEmail: string,

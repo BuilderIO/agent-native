@@ -74,6 +74,16 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const STALE_PR_WATCHER_RE = new RegExp(
+  [
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b[^.!?\n]{0,100}\b(?:PR|pull request|ship[- ]watchdog)\b`,
+    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:merged|closed|complete|finished)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat|scheduled task)\b`,
+    String.raw`\b(?:pointless|duplicate|stale|redundant)\b[^.!?\n]{0,80}\b(?:scheduled tasks?|monitors?|watchers?)\b[^.!?\n]{0,80}\b(?:repeat(?:ed)?|same thing|same status|again)\b`,
+  ].join("|"),
+  "i",
+);
+
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
 // A bare namespace mention is routine documentation. Count it only when the
@@ -112,6 +122,18 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const FEEDBACK_EYES_RE =
+  /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
+
+const FEEDBACK_EYES_REGEX_CASES = [
+  [true, "There's not a single eye emoji on anything."],
+  [true, "Put eye emoji on it and fix the bug."],
+  [true, "Remove eye emoji if you're not confident you can fix it."],
+  [false, "I like the eyes emoji."],
+  [false, "One eye emoji is already on the bug."],
+  [false, "Fixed, add a checkmark."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -138,6 +160,23 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const STALE_PR_WATCHER_REGEX_CASES = [
+  [true, "PR #6329 is merged; please stop this scheduled task."],
+  [
+    true,
+    "These pointless scheduled tasks repeat the same status; remove them.",
+  ],
+  [true, "Stop the duplicate ship-watchdog heartbeat."],
+  [true, "Please cancel the PR babysitter."],
+  [true, "Please disable the babysitter for PR #6329."],
+  [false, "Please check back every hour until deployment."],
+  [false, "The merged PR has not deployed yet."],
+  [false, "Run one scan of open PRs."],
+  [false, "Disable the heartbeat for my weekly report."],
+  [false, "Stop this scheduled dashboard refresh."],
+  [false, "These scheduled tasks are pointless."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -146,6 +185,11 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...STALE_PR_WATCHER_REGEX_CASES.filter(
+      ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -160,12 +204,17 @@ if (process.argv.includes("--self-test")) {
         DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...FEEDBACK_EYES_REGEX_CASES.filter(
+      ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -189,6 +238,13 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "stale-pr-watchers",
+    label: "Had to stop a monitor after its PR was complete",
+    fixedBy:
+      ".agents/skills/babysit-pr + ship-watchdog (terminal-state and opt-in gates, 2026-09-23)",
+    re: STALE_PR_WATCHER_RE,
   },
   {
     key: "branch-moves",
@@ -315,6 +371,13 @@ const PATTERNS = [
       "Reported duplicate feedback clarification or missing thank-first reply",
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    key: "feedback-eyes-missed",
+    label: "Had to demand correct 👀 ownership and release",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
+    re: FEEDBACK_EYES_RE,
   },
   // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
   // questions but not their volume, so the 2026-09-01 sweep that posted 23

@@ -67,6 +67,8 @@ export type ContentRecentResult = ContentRecentEntry & {
   icon: string | null;
   viewName: string | null;
   fallback?: { reason: "saved_view_unavailable"; requestedViewId: string };
+  /** Whether the requesting user has this destination pinned. */
+  isFavorite?: boolean;
 };
 
 export function contentRecentTargetKey(target: ContentRecentTarget) {
@@ -126,6 +128,20 @@ export function recordContentRecentVisit(
       .sort((a, b) => b.visitedAt.localeCompare(a.visitedAt))
       .slice(0, CONTENT_RECENT_LIMIT),
   };
+}
+
+/** Forget one Recent destination; the target itself is untouched. */
+export function removeContentRecentEntry(
+  state: ContentRecentState,
+  target: ContentRecentTarget,
+): ContentRecentState {
+  const key = contentRecentTargetKey(target);
+  const entries = state.entries.filter(
+    (candidate) => contentRecentTargetKey(candidate.target) !== key,
+  );
+  return entries.length === state.entries.length
+    ? state
+    : { version: 2, entries };
 }
 
 export function contentRecentHref(target: ContentRecentTarget) {

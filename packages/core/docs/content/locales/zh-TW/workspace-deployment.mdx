@@ -140,7 +140,7 @@ npx @agent-native/core@latest deploy
 
 要接上提供者自己的建置指令，而不是手動部署嗎？在同一個指令後面加上 `--build-only`，例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它會直接寫入輸出結果，因此工作區路由不需要 `vercel.json`。
 
-想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && npx @agent-native/core@latest build` 即可。
+想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && pnpm build` 即可。
 
 </Callout>
 
@@ -217,7 +217,7 @@ npx @agent-native/core@latest deploy
 基本路徑對用戶端封裝來說是建置時期的輸入，對伺服器來說則是執行時期的輸入。請使用代理將要路由到它的相同路徑來建置每個應用程式：
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

@@ -4505,6 +4505,8 @@ function emitNode(
     // paints its geometry at native 1:1 coords under `overflow: visible`.
     if (num(vw)! > 0 && num(vh)! > 0) {
       attrs.push(`viewBox="0 0 ${num(vw)} ${num(vh)}"`);
+      // Figma stretches vector geometry with its box; the SVG default letterboxes.
+      attrs.push(`preserveAspectRatio="none"`);
     }
     attrs.push(`xmlns="http://www.w3.org/2000/svg"`);
     attrs.push(`fill="none"`);
@@ -4840,6 +4842,7 @@ export interface RenderedFrame {
    *  width/height; sections are flattened. Consumers normalize. */
   x: number;
   y: number;
+  nodeKey: string;
 }
 
 export interface RenderHtmlFidelityEntry {
@@ -5331,6 +5334,7 @@ export function renderHtmlTemplates(
         height: frame.size?.y,
         x,
         y,
+        nodeKey: guidKey(frame.guid),
       });
     }
   }

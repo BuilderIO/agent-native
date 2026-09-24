@@ -21,6 +21,7 @@ import {
   codeLayerNodeMatchesBridgeTarget,
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
+  cssStyleAliases,
   elementInfoFromCodeLayerNode,
   elementInfoForOwnedCodeLayerNode,
   isClientRenderedMountShell,
@@ -79,6 +80,20 @@ describe("previewCodeLayerTreeMove", () => {
     );
 
     expect(tree).toBeNull();
+  });
+});
+
+describe("cssStyleAliases", () => {
+  it("maps WebKit text truncation declarations to the inspector style keys", () => {
+    expect(
+      cssStyleAliases({
+        "-webkit-box-orient": "vertical",
+        "-webkit-line-clamp": "2",
+      }),
+    ).toMatchObject({
+      webkitBoxOrient: "vertical",
+      webkitLineClamp: "2",
+    });
   });
 });
 

@@ -49,10 +49,9 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
-  "onboarding.builderActivateCredits":
-    "Activar créditos gratuitos de Builder.io",
-  "onboarding.builderConnectCredits":
-    "Conectar créditos gratuitos de Builder.io",
+  "onboarding.builderCreateAccount": "Crear cuenta de Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":

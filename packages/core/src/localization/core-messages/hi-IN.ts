@@ -48,8 +48,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
-  "onboarding.builderActivateCredits": "Builder.io के मुफ़्त क्रेडिट सक्रिय करें",
-  "onboarding.builderConnectCredits": "Builder.io के मुफ़्त क्रेडिट कनेक्ट करें",
+  "onboarding.builderCreateAccount": "Builder.io खाता बनाएँ",
+  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",

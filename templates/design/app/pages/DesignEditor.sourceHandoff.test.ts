@@ -54,20 +54,19 @@ describe("DesignEditor pending source handoff", () => {
     );
   });
 
-  it("offers only Apply in the host shell, and shows it working", () => {
-    // The host runs the turn and owns the chat, so copying the prompt or
-    // aborting into interact mode have nothing to act on there.
+  it("routes pending edits to the host agent or the copy-prompt menu", () => {
     const start = source.indexOf("data-design-pending-visual-style-toolbar");
     const toolbar = source.slice(
       start,
       source.indexOf('viewMode === "overview"', start),
     );
     expect(toolbar).not.toBe("");
-    expect(toolbar).toContain("{shellMode ? null : (");
+    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent");
+    expect(toolbar).toContain("handleApplyPendingVisualStylesWithAgent");
+    expect(toolbar).toContain("handleCopyPendingVisualStylePrompt");
+    expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent ? null : (");
     expect(toolbar).toContain("<DropdownMenu>");
-    expect(toolbar.indexOf("{shellMode ? null : (")).toBeLessThan(
-      toolbar.indexOf("<DropdownMenu>"),
-    );
+    expect(toolbar).toContain('"designEditor.pendingVisualStyles.copyPrompt"');
     expect(toolbar).toContain('"designEditor.pendingVisualStyles.applying"');
     expect(toolbar).toContain("applyingViaHost ||");
     expect(toolbar).toContain("{applyingViaHost ? (");
