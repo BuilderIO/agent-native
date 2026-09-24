@@ -225,6 +225,7 @@
     "./icons": {
       "types": "./dist/icons/index.d.ts",
       "browser": "./dist/icons/index.js",
+      "node": "./dist/icons/server.js",
       "development": "./dist/icons/index.js",
       "import": "./dist/icons/index.js",
       "default": "./dist/icons/index.js"
