@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendPenNode,
+  setPenNodeMirroring,
+  serializeRoundedPenPath,
+  penNodeMirroring,
+  hitTestPenSegment,
+  continuePenPathFromEndpoint,
+  bendPenSegment,
   closePenPath,
+  clonePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
   createPenCuspLatch,
@@ -15,9 +22,13 @@ import {
   movePenAnchor,
   movePenHandle,
   parsePenNodes,
+  penCornerRadiusFromAttribute,
+  resumePenPathAtEnd,
   scalePenPathToGeometry,
   serializePenNodes,
   serializePenPath,
+  maxPenCornerRadius,
+  setPenNodeCornerRadius,
   setPenNodeType,
   snapPenAnchorPoint,
   translatePenPath,
@@ -25,6 +36,13 @@ import {
 } from "./pen-path";
 
 describe("pen path helpers", () => {
+  it("reads only finite positive corner radii from attributes", () => {
+    expect(penCornerRadiusFromAttribute("8.5")).toBe(8.5);
+    expect(penCornerRadiusFromAttribute(null)).toBe(0);
+    expect(penCornerRadiusFromAttribute("0")).toBe(0);
+    expect(penCornerRadiusFromAttribute("nope")).toBe(0);
+  });
+
   it("serializes click-created corner anchors as line segments", () => {
     const path = appendPenNode(
       appendPenNode(null, createCornerNode({ x: 10, y: 20 })),
@@ -32,6 +50,87 @@ describe("pen path helpers", () => {
     );
 
     expect(serializePenPath(path)).toBe("M 10 20 L 50 60");
+  });
+
+  it("rounds one straight-sided anchor and preserves its radius in serialized nodes", () => {
+    const square = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(
+            appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+            createCornerNode({ x: 100, y: 0 }),
+          ),
+          createCornerNode({ x: 100, y: 100 }),
+        ),
+        createCornerNode({ x: 0, y: 100 }),
+      ),
+    );
+    const rounded = setPenNodeCornerRadius(square, 1, 12)!;
+
+    expect(maxPenCornerRadius(square, 1)).toBeCloseTo(50);
+    expect(serializePenPath(rounded)).toBe(
+      "M 0 0 L 88 0 A 12 12 0 0 1 100 12 L 100 100 L 0 100 L 0 0 Z",
+    );
+    expect(rounded.nodes[0]?.cornerRadius).toBeUndefined();
+    expect(parsePenNodes(serializePenNodes(rounded))).toEqual(rounded);
+
+    const scaled = scalePenPathToGeometry(rounded, getPenPathGeometry(square), {
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+    });
+    const cloned = clonePenPath(scaled);
+    expect(cloned.nodes[1]?.cornerRadius).toBe(12);
+    expect(getPenPathGeometry(cloned)).toEqual({
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+    });
+    expect(parsePenNodes(serializePenNodes(cloned))).toEqual(cloned);
+  });
+
+  it("reads legacy Pen tuples and rejects rounding across curved segments", () => {
+    expect(
+      parsePenNodes("[1,[0,0,null,null,null,null],[10,0,null,null,null,null]]"),
+    ).toEqual({
+      closed: true,
+      nodes: [{ point: { x: 0, y: 0 } }, { point: { x: 10, y: 0 } }],
+    });
+
+    const curved = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+          createSmoothNode({ x: 100, y: 0 }, { x: 120, y: 0 }),
+        ),
+        createCornerNode({ x: 100, y: 100 }),
+      ),
+    );
+    expect(maxPenCornerRadius(curved, 1)).toBeNull();
+    expect(setPenNodeCornerRadius(curved, 1, 8)).toBeNull();
+  });
+
+  it("fails closed for open paths even when the selected point has two straight neighbors", () => {
+    const openPath = appendPenNode(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+          createCornerNode({ x: 100, y: 0 }),
+        ),
+        createCornerNode({ x: 100, y: 100 }),
+      ),
+      createCornerNode({ x: 0, y: 100 }),
+    );
+
+    expect(maxPenCornerRadius(openPath, 1)).toBeNull();
+    expect(setPenNodeCornerRadius(openPath, 1, 12)).toBeNull();
+    expect(
+      parsePenNodes(
+        "[0,[0,0,null,null,null,null,null],[100,0,null,null,null,null,12],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]",
+      ),
+    ).toBeNull();
   });
 
   it("serializes drag-created smooth anchors as cubic Bezier segments", () => {
@@ -197,6 +296,27 @@ describe("pen path helpers", () => {
     const reopened = appendPenNode(closed, createCornerNode({ x: 20, y: 20 }));
     expect(reopened.closed).toBe(false);
     expect(reopened.nodes).toHaveLength(3);
+  });
+
+  it("resumes an open path at its terminal anchor without adding a duplicate", () => {
+    const path: PenPath = {
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 40, y: 20 }),
+      ],
+      closed: false,
+    };
+    const resumed = resumePenPathAtEnd(path, { x: 41, y: 20 }, 4);
+    expect(resumed).toEqual(path);
+    expect(resumed).not.toBe(path);
+    expect(
+      appendPenNode(resumed, createCornerNode({ x: 80, y: 20 })).nodes,
+    ).toHaveLength(3);
+    expect(path.nodes).toHaveLength(2);
+    expect(resumePenPathAtEnd(path, { x: 80, y: 20 }, 4)).toBeNull();
+    expect(
+      resumePenPathAtEnd(closePenPath(path), { x: 40, y: 20 }, 4),
+    ).toBeNull();
   });
 
   it("isPenCloseTarget still hit-tests the first anchor once the path is already closed", () => {
@@ -889,5 +1009,206 @@ describe("pen path helpers", () => {
       const converted = setPenNodeType(path, 0, "corner");
       expect(converted.closed).toBe(true);
     });
+  });
+});
+
+describe("continuePenPathFromEndpoint", () => {
+  const path: PenPath = {
+    closed: false,
+    nodes: [
+      { point: { x: 0, y: 0 }, handleOut: { x: 5, y: -5 } },
+      { point: { x: 50, y: 0 }, handleIn: { x: 45, y: -5 } },
+      createCornerNode({ x: 50, y: 50 }),
+    ],
+  };
+
+  it("continues from the last anchor as drawn", () => {
+    expect(continuePenPathFromEndpoint(path, { x: 51, y: 49 }, 4)).toEqual(
+      path,
+    );
+  });
+
+  it("reverses the path, handles included, when continuing from the first anchor", () => {
+    const reversed = continuePenPathFromEndpoint(path, { x: 1, y: 1 }, 4);
+    expect(reversed?.nodes.map((node) => node.point)).toEqual([
+      { x: 50, y: 50 },
+      { x: 50, y: 0 },
+      { x: 0, y: 0 },
+    ]);
+    expect(reversed?.nodes[1]).toMatchObject({ handleOut: { x: 45, y: -5 } });
+    expect(reversed?.nodes[2]).toMatchObject({ handleIn: { x: 5, y: -5 } });
+  });
+
+  it("ignores middle anchors and closed paths", () => {
+    expect(continuePenPathFromEndpoint(path, { x: 50, y: 0 }, 4)).toBeNull();
+    expect(
+      continuePenPathFromEndpoint({ ...path, closed: true }, { x: 0, y: 0 }, 4),
+    ).toBeNull();
+  });
+});
+
+describe("serializeRoundedPenPath", () => {
+  const square: PenPath = {
+    closed: true,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 100, y: 0 }),
+      createCornerNode({ x: 100, y: 100 }),
+      createCornerNode({ x: 0, y: 100 }),
+    ],
+  };
+
+  it("rounds every corner of a closed path with a tangent arc", () => {
+    expect(serializeRoundedPenPath(square, 10)).toBe(
+      "M 10 0 L 90 0 A 10 10 0 0 1 100 10 L 100 90 A 10 10 0 0 1 90 100 " +
+        "L 10 100 A 10 10 0 0 1 0 90 L 0 10 A 10 10 0 0 1 10 0 Z",
+    );
+  });
+
+  it("clamps a huge radius so a square becomes its incircle", () => {
+    expect(serializeRoundedPenPath(square, 500)).toContain("A 50 50 0 0 1");
+  });
+
+  it("shares each segment between its two corners, so a rhombus becomes a circle", () => {
+    const rhombus: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 50, y: 0 }),
+        createCornerNode({ x: 100, y: 30 }),
+        createCornerNode({ x: 50, y: 60 }),
+        createCornerNode({ x: 0, y: 30 }),
+      ],
+    };
+    const d = serializeRoundedPenPath(rhombus, 1000);
+    const radii = [...d.matchAll(/A ([\d.]+) /g)].map((m) => Number(m[1]));
+    expect(radii).toHaveLength(4);
+    // Inradius of this rhombus: area / semiperimeter = 3000 / (2 * 58.31).
+    radii.forEach((r) => expect(r).toBeCloseTo(25.7, 0));
+  });
+
+  it("lets a rectangle's short sides limit every corner (a stadium)", () => {
+    const rect: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 100, y: 0 }),
+        createCornerNode({ x: 100, y: 40 }),
+        createCornerNode({ x: 0, y: 40 }),
+      ],
+    };
+    expect(serializeRoundedPenPath(rect, 1000)).toBe(
+      "M 20 0 L 80 0 A 20 20 0 0 1 100 20 L 100 20 A 20 20 0 0 1 80 40 L 20 40 A 20 20 0 0 1 0 20 L 0 20 A 20 20 0 0 1 20 0 Z",
+    );
+  });
+
+  it("keeps open endpoints sharp and rounds only interior corners", () => {
+    const open: PenPath = { ...square, closed: false };
+    expect(serializeRoundedPenPath(open, 10)).toBe(
+      "M 0 0 L 90 0 A 10 10 0 0 1 100 10 L 100 90 A 10 10 0 0 1 90 100 L 0 100",
+    );
+  });
+
+  it("falls back to the plain path at radius 0", () => {
+    expect(serializeRoundedPenPath(square, 0)).toBe(serializePenPath(square));
+  });
+});
+
+describe("bending a segment", () => {
+  const line: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 90, y: 0 }),
+    ],
+  };
+
+  it("finds the grabbed segment and its curve parameter", () => {
+    const hit = hitTestPenSegment(line, { x: 45, y: 2 }, 4);
+    expect(hit?.segmentIndex).toBe(0);
+    expect(hit?.t).toBeCloseTo(0.5, 1);
+    expect(hitTestPenSegment(line, { x: 45, y: 20 }, 4)).toBeNull();
+  });
+
+  it("moves the grabbed point with the pointer and keeps both anchors", () => {
+    const bent = bendPenSegment(line, 0, 0.5, { x: 0, y: 30 });
+    expect(bent.nodes.map((node) => node.point)).toEqual([
+      { x: 0, y: 0 },
+      { x: 90, y: 0 },
+    ]);
+    const [from, to] = bent.nodes;
+    const mid = {
+      x:
+        (from!.point.x +
+          3 * from!.handleOut!.x +
+          3 * to!.handleIn!.x +
+          to!.point.x) /
+        8,
+      y:
+        (from!.point.y +
+          3 * from!.handleOut!.y +
+          3 * to!.handleIn!.y +
+          to!.point.y) /
+        8,
+    };
+    expect(mid.x).toBeCloseTo(45);
+    expect(mid.y).toBeCloseTo(30);
+  });
+});
+
+describe("handle mirroring", () => {
+  const cusp: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      {
+        point: { x: 50, y: 50 },
+        handleIn: { x: 50, y: 20 },
+        handleOut: { x: 90, y: 50 },
+      },
+      createCornerNode({ x: 100, y: 0 }),
+    ],
+  };
+
+  it("reads the mode off the handle geometry", () => {
+    expect(penNodeMirroring(cusp.nodes[1]!)).toBe("none");
+    const angle = setPenNodeMirroring(cusp, 1, "angle");
+    expect(penNodeMirroring(angle.nodes[1]!)).toBe("angle");
+    expect(angle.nodes[1]!.handleIn).toEqual({ x: 20, y: 50 });
+    const both = setPenNodeMirroring(cusp, 1, "angleAndLength");
+    expect(both.nodes[1]!.handleIn).toEqual({ x: 10, y: 50 });
+    expect(penNodeMirroring(both.nodes[1]!)).toBe("angleAndLength");
+  });
+
+  it("drags the opposite handle according to the mode", () => {
+    const angle = setPenNodeMirroring(cusp, 1, "angle");
+    const moved = movePenHandle(angle, 1, "out", { x: 50, y: 90 });
+    expect(moved.nodes[1]!.handleIn!.x).toBeCloseTo(50);
+    expect(moved.nodes[1]!.handleIn!.y).toBeCloseTo(20);
+    const free = movePenHandle(cusp, 1, "out", { x: 50, y: 90 });
+    expect(free.nodes[1]!.handleIn).toEqual({ x: 50, y: 20 });
+  });
+
+  it("keeps a chosen mode even when the handles look symmetric", () => {
+    const smooth = setPenNodeMirroring(cusp, 1, "angleAndLength");
+    const free = setPenNodeMirroring(smooth, 1, "none");
+    expect(penNodeMirroring(free.nodes[1]!)).toBe("none");
+    const dragged = movePenHandle(free, 1, "out", { x: 50, y: 90 });
+    expect(dragged.nodes[1]!.handleIn).toEqual(free.nodes[1]!.handleIn);
+    expect(JSON.parse(serializePenNodes(free))[1]).toHaveLength(7);
+    expect(parsePenNodes("[0,[0,0,null,null,null,null,null,2]]")).toBeNull();
+  });
+
+  it("gives a handle-less corner a smooth pair", () => {
+    const corner: PenPath = {
+      ...cusp,
+      nodes: cusp.nodes.map((n, i) =>
+        i === 1 ? createCornerNode(n.point) : n,
+      ),
+    };
+    expect(
+      penNodeMirroring(
+        setPenNodeMirroring(corner, 1, "angleAndLength").nodes[1]!,
+      ),
+    ).toBe("angleAndLength");
   });
 });

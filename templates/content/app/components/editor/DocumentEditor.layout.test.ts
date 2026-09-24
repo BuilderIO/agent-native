@@ -16,7 +16,6 @@ import {
   documentEditorShowsInlineComments,
   documentEditorLoadState,
   documentTitleWidthChanged,
-  documentTypeChooserInitiallyEligible,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
@@ -38,7 +37,6 @@ import {
   retainThenAdoptDisplacedWinner,
   shouldAttestUnchangedEditorSave,
   shouldSubmitDocumentContent,
-  shouldShowNewDocumentTypeChooser,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
   updateAdditionalBlockContents,
@@ -330,7 +328,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    );
+    ).replaceAll("\r\n", "\n");
     // One effect, keyed on the selection. Keying it on the whole pending
     // comment resets the target to invalid for a frame on every keystroke,
     // which flashes the "select text" alert inside the open composer.
@@ -438,7 +436,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    );
+    ).replaceAll("\r\n", "\n");
     const flush = source.slice(
       source.indexOf("const flushSuggestionDraft"),
       source.indexOf("const startSuggestionDraft"),
@@ -1395,87 +1393,35 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("keeps page or database available after the user types a title", () => {
+  it("keeps the editor open and offers collection conversion while the body is empty", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
-    );
+    ).replaceAll("\r\n", "\n");
 
-    expect(
-      shouldShowNewDocumentTypeChooser({
-        canEdit: true,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        initiallyEligible: true,
-        newDocumentTypeChosen: false,
-        description: null,
-        content: "",
-      }),
-    ).toBe(true);
     expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
       documentId: "new-page",
       title: "Typed first",
     });
-    expect(source).toContain(
-      "const showNewDocumentTypeChooser = shouldShowNewDocumentTypeChooser({",
-    );
-    expect(source).toContain("const handleChoosePage = useCallback");
-    expect(source).toContain(
-      "databaseConversionRequest(documentId, localTitleRef.current)",
-    );
+    expect(source).toContain("const showCreateCollectionStarter =");
+    expect(source).toContain("createCollectionStarterIsVisible({");
+    expect(source).toContain("content: localContent");
+    expect(source).toContain("const handleCreateCollection = useCallback");
+    expect(source).toContain("localTitle: localTitleRef.current");
+    expect(source).toContain("localDraft: localContentRef.current");
     expect(source).toContain("isDatabaseChoicePending(");
     expect(source).toContain("document,\n    createDatabase.isPending");
+    expect(source).toContain("canEdit: editorCanEdit,");
     expect(source).toContain(
       "disabled={!editorCanEdit || databaseChoicePending}",
     );
-    expect(source).toContain('{t("sidebar.page")}');
-    expect(source).toContain('{t("sidebar.database")}');
-    expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
-      source.indexOf("const primaryEditor ="),
+    expect(source).not.toContain(
+      "localTitleRef.current,\n          document.description,",
     );
-  });
-
-  it("does not reopen the type chooser for an existing titled empty page", () => {
-    const initiallyEligible = documentTypeChooserInitiallyEligible({
-      creationPending: false,
-      title: "Existing titled page",
-      description: "",
-      content: "",
-    });
-
-    expect(initiallyEligible).toBe(false);
-    expect(
-      shouldShowNewDocumentTypeChooser({
-        canEdit: true,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        initiallyEligible,
-        newDocumentTypeChosen: false,
-        description: "",
-        content: "",
-      }),
-    ).toBe(false);
-  });
-
-  it("retains initial chooser eligibility while a new page title is typed", () => {
-    const initiallyEligible = documentTypeChooserInitiallyEligible({
-      creationPending: true,
-      title: "",
-      description: "",
-      content: "",
-    });
-
-    expect(
-      shouldShowNewDocumentTypeChooser({
-        canEdit: true,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        initiallyEligible,
-        newDocumentTypeChosen: false,
-        description: "",
-        content: "",
-      }),
-    ).toBe(true);
+    expect(source).toContain('{t("editor.createCollection")}');
+    expect(source.indexOf("const primaryEditor =")).toBeLessThan(
+      source.indexOf("{showCreateCollectionStarter ? ("),
+    );
   });
 
   it("gives database pages a wider database surface", () => {
@@ -1757,7 +1703,7 @@ describe("document editor layout", () => {
       {
         encoding: "utf8",
       },
-    );
+    ).replaceAll("\r\n", "\n");
 
     // Every SQL-backed reader keeps the scoped collaboration subscription for
     // presence, but only editors bind the rendered body to Yjs.

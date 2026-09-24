@@ -20,4 +20,27 @@ describe("WorkspaceSourceMenu", () => {
     expect(source).toContain("const accepted = await onCreated?.(created)");
     expect(source).toContain("if (accepted === false) return");
   });
+
+  it("can put workspace choices before one source-creation separator", () => {
+    const source = readFileSync(
+      new URL("./WorkspaceSourceMenu.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("menuStart?: ReactNode");
+    expect(source).toContain("{menuStart}");
+    expect(source).toContain("{menuStart ? <DropdownMenuSeparator /> : null}");
+    expect(source.indexOf("{menuStart}")).toBeLessThan(
+      source.indexOf('t("sidebar.newWorkspace")'),
+    );
+    expect(source.indexOf('t("sidebar.newWorkspace")')).toBeLessThan(
+      source.indexOf('to="/local-files"'),
+    );
+    expect(source).toContain(
+      "window.requestAnimationFrame(() => setDialogOpen(true))",
+    );
+    expect(source).toContain("onCloseAutoFocus={(event) => {");
+    expect(source).toContain("if (!openingDialogRef.current) return");
+    expect(source).toContain("event.preventDefault()");
+  });
 });

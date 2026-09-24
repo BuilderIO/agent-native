@@ -40,7 +40,6 @@ import {
   IconDatabase,
   IconEye,
   IconEyeOff,
-  IconFileText,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
@@ -140,9 +139,9 @@ import {
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import {
+  createCollectionStarterIsVisible,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
-  newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { useCommentAiRequests } from "./comment-ai";
@@ -1435,45 +1434,16 @@ export function documentTitleWidthChanged(
   return Math.abs(nextWidth - previousWidth) >= 0.5;
 }
 
-export function shouldShowNewDocumentTypeChooser(args: {
-  canEdit: boolean;
-  isLocalFileDocument: boolean;
-  isDatabasePage: boolean;
-  initiallyEligible: boolean;
-  newDocumentTypeChosen: boolean;
-  description?: string | null;
-  content: string;
-}) {
-  return (
-    args.canEdit &&
-    !args.isLocalFileDocument &&
-    !args.isDatabasePage &&
-    args.initiallyEligible &&
-    !args.newDocumentTypeChosen &&
-    !args.description?.trim() &&
-    isEffectivelyEmptyDocumentContent(args.content)
-  );
-}
-
-export function documentTypeChooserInitiallyEligible(args: {
-  creationPending: boolean;
-  title: string;
-  description?: string | null;
-  content: string;
-}) {
-  return (
-    args.creationPending ||
-    (!args.title.trim() &&
-      !args.description?.trim() &&
-      isEffectivelyEmptyDocumentContent(args.content))
-  );
-}
-
 export function databaseConversionRequest(
   documentId: string,
   currentTitle: string,
+  currentDescription?: string | null,
 ) {
-  return { documentId, title: currentTitle };
+  return {
+    documentId,
+    title: currentTitle,
+    description: currentDescription?.trim() || undefined,
+  };
 }
 
 export function documentEditorDefaultIconKind(
@@ -1886,27 +1856,6 @@ function PageEditorSessionBody({
     },
     [],
   );
-  const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
-  const newDocumentTypeChooserEligibilityRef = useRef({
-    documentId,
-    eligible: documentTypeChooserInitiallyEligible({
-      creationPending: isDocumentCreationPending(document),
-      title: document.title,
-      description: document.description,
-      content: document.content,
-    }),
-  });
-  if (newDocumentTypeChooserEligibilityRef.current.documentId !== documentId) {
-    newDocumentTypeChooserEligibilityRef.current = {
-      documentId,
-      eligible: documentTypeChooserInitiallyEligible({
-        creationPending: isDocumentCreationPending(document),
-        title: document.title,
-        description: document.description,
-        content: document.content,
-      }),
-    };
-  }
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
@@ -2353,7 +2302,6 @@ function PageEditorSessionBody({
       historySessionRef.current.reset();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
-      setNewDocumentTypeChosen(false);
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -5530,34 +5478,37 @@ function PageEditorSessionBody({
     document,
     createDatabase.isPending,
   );
-  const showNewDocumentTypeChooser = shouldShowNewDocumentTypeChooser({
-    canEdit,
+  const showCreateCollectionStarter = createCollectionStarterIsVisible({
+    canEdit: editorCanEdit,
+    bodyHydrationPending,
     isLocalFileDocument,
     isDatabasePage,
-    initiallyEligible:
-      !document.databaseMembership &&
-      newDocumentTypeChooserEligibilityRef.current.eligible,
-    newDocumentTypeChosen,
-    description: document.description,
+    isCollectionItem: Boolean(
+      document.databaseMembership &&
+      !contentSpaces.some(
+        (space) =>
+          space.filesDatabaseId === document.databaseMembership?.databaseId,
+      ),
+    ),
     content: localContent,
   });
-  const handleChoosePage = useCallback(() => {
-    setNewDocumentTypeChosen(true);
-    requestAnimationFrame(() => titleInputRef.current?.focus());
-  }, []);
-  const handleChooseDatabase = useCallback(async () => {
+  const handleCreateCollection = useCallback(async () => {
     try {
+      const saved = await handleContentSaveNow({
+        localTitle: localTitleRef.current,
+        localDraft: localContentRef.current,
+      });
+      if (!saved) throw new Error(t("empty.genericError"));
       await createDatabase.mutateAsync(
         databaseConversionRequest(documentId, localTitleRef.current),
       );
-      setNewDocumentTypeChosen(true);
     } catch (error) {
       toast.error(t("sidebar.failedCreateDatabase"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [createDatabase, documentId, t]);
+  }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
     defaultIconKind === "database" && !isDatabasePage ? (
       <IconDatabase className="size-12" aria-hidden="true" />
@@ -6112,45 +6063,6 @@ function PageEditorSessionBody({
                         );
                       }
 
-                      if (showNewDocumentTypeChooser) {
-                        return (
-                          <div
-                            className="flex flex-wrap gap-2 pt-3"
-                            aria-label={t("sidebar.newPage")}
-                          >
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="justify-start gap-2"
-                              disabled={newDocumentPageChoiceIsDisabled({
-                                canEdit,
-                                bodyHydrationPending,
-                                databaseCreationPending:
-                                  createDatabase.isPending,
-                              })}
-                              onClick={handleChoosePage}
-                            >
-                              <IconFileText />
-                              {t("sidebar.page")}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="justify-start gap-2"
-                              disabled={!editorCanEdit || databaseChoicePending}
-                              onClick={() => void handleChooseDatabase()}
-                            >
-                              {databaseChoicePending ? (
-                                <IconLoader2 className="animate-spin" />
-                              ) : (
-                                <IconDatabase />
-                              )}
-                              {t("sidebar.database")}
-                            </Button>
-                          </div>
-                        );
-                      }
-
                       // The primary "Content" Blocks field IS the document body,
                       // with the full collaborative editor. It renders chromeless
                       // when it's the only Blocks field, or inside a
@@ -6205,6 +6117,7 @@ function PageEditorSessionBody({
                               localFileSyncRevision,
                             })}:${isSuggesting ? "suggesting" : "canonical"}`}
                             documentId={documentId}
+                            contentSpaceId={document.spaceId ?? undefined}
                             content={
                               isLocalFileDocument
                                 ? localContent
@@ -6309,6 +6222,27 @@ function PageEditorSessionBody({
                           />
                         </>
                       );
+                      const primaryEditorWithStarter = (
+                        <>
+                          {primaryEditor}
+                          {showCreateCollectionStarter ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="mt-2 gap-2 text-muted-foreground"
+                              disabled={!editorCanEdit || databaseChoicePending}
+                              onClick={() => void handleCreateCollection()}
+                            >
+                              {databaseChoicePending ? (
+                                <IconLoader2 className="animate-spin" />
+                              ) : (
+                                <IconDatabase />
+                              )}
+                              {t("editor.createCollection")}
+                            </Button>
+                          ) : null}
+                        </>
+                      );
 
                       // Only database rows have Blocks fields. Standalone pages
                       // and local-file documents keep the plain chromeless body.
@@ -6325,7 +6259,7 @@ function PageEditorSessionBody({
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}
-                            primaryEditor={primaryEditor}
+                            primaryEditor={primaryEditorWithStarter}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
                             }
@@ -6333,7 +6267,7 @@ function PageEditorSessionBody({
                         );
                       }
 
-                      return primaryEditor;
+                      return primaryEditorWithStarter;
                     })()}
                     {!bodyHydrationPending &&
                     !isLocalFileDocument &&

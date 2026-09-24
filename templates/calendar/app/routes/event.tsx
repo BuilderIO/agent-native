@@ -20,12 +20,12 @@ import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.eventPreview }];
+  return [{ title: enUSMessages.routeTitles.eventPreview }];
 }
 
 function formatDuration(start: string, end: string): string {

@@ -115,6 +115,31 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("preserves Priority sort when Jev availability cannot be checked", () => {
+    const source = inboxSource();
+    const emailList = emailListSource();
+
+    expect(source).toContain(
+      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
+    );
+    expect(source).toContain(
+      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
+    );
+    expect(source).toContain(
+      'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
+    );
+    expect(source).toContain(
+      'jevConfigured || (jevAvailability.isError && sortMode === "priority")',
+    );
+    expect(source).toContain("showPrioritySort={showPrioritySort}");
+    expect(emailList).toContain(
+      'showPrioritySort && view === "inbox" && !searchQuery && !labelParam',
+    );
+    expect(emailList).toContain("{showPrioritySort && (");
+    expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
+    expect(source).not.toContain("refetchOnWindowFocus: false");
+  });
+
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
@@ -311,9 +336,7 @@ describe("Inbox pagination", () => {
     expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
     // Priority preloads its bounded evaluation window; other routes start
     // from the newly-active tab's page 0.
-    expect(source).toContain(
-      "  }, [activeAccounts, isInboxView, resolvedInboxTab, sortMode]);",
-    );
+    expect(source).toContain("showPrioritySort,\n    resolvedInboxTab");
   });
 
   it("uses a contact-scoped search and bounded follow-up pages", () => {

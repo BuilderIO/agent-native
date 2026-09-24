@@ -40,6 +40,32 @@ describe("durable integration dispatch", () => {
     );
   });
 
+  it("distinguishes a missing runtime prerequisite from an explicit rollout stop", async () => {
+    const { isIntegrationDurableDispatchExplicitlyDisabledForTask } =
+      await import("./integration-durable-dispatch.js");
+    const task = {
+      platform: "slack",
+      externalThreadId: "slack:team:C123:1",
+    };
+
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
+    vi.stubEnv("A2A_SECRET", "");
+    expect(isIntegrationDurableDispatchExplicitlyDisabledForTask(task)).toBe(
+      false,
+    );
+
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "false");
+    expect(isIntegrationDurableDispatchExplicitlyDisabledForTask(task)).toBe(
+      true,
+    );
+
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES", "slack:C999");
+    expect(isIntegrationDurableDispatchExplicitlyDisabledForTask(task)).toBe(
+      true,
+    );
+  });
+
   it("uses an acknowledged Netlify handoff for an enabled Slack scope", async () => {
     vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
     vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES", "slack:C123");

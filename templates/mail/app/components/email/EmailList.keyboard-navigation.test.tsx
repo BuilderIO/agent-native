@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { isValidElement, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   searchQuery: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
+  view: "all",
+  headerActions: null as unknown,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -59,7 +61,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useParams: () => ({ view: "all" }),
+  useParams: () => ({ view: mocks.view }),
   useSearchParams: () => [
     new URLSearchParams(
       mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
@@ -68,7 +70,9 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("@/components/layout/HeaderActions", () => ({
-  useSetHeaderActions: vi.fn(),
+  useSetHeaderActions: (actions: unknown) => {
+    mocks.headerActions = actions;
+  },
 }));
 
 vi.mock("@/components/GoogleConnectBanner", () => ({
@@ -191,12 +195,14 @@ function Harness({
   accountErrors,
   hasNextPage,
   isFetchingNextPage,
+  showPrioritySort,
 }: {
   emails?: typeof messages;
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
+  showPrioritySort?: boolean;
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -215,6 +221,7 @@ function Harness({
         accountErrors={accountErrors}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
+        showPrioritySort={showPrioritySort}
       />
     </>
   );
@@ -228,6 +235,13 @@ function press(key: string, shiftKey = false) {
   fireEvent.keyDown(window, { key, shiftKey });
 }
 
+function hasPrioritySortOption(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasPrioritySortOption);
+  if (!isValidElement(node)) return false;
+  const props = node.props as { children?: unknown; value?: unknown };
+  return props.value === "priority" || hasPrioritySortOption(props.children);
+}
+
 describe("EmailList keyboard navigation interactions", () => {
   beforeEach(() => {
     mocks.navigate.mockReset();
@@ -236,9 +250,25 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.searchQuery = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
+    mocks.view = "all";
+    mocks.headerActions = null;
   });
 
   afterEach(() => cleanup());
+
+  it("hides Priority sort when Jev is unavailable", () => {
+    mocks.view = "inbox";
+    render(<Harness showPrioritySort={false} />);
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
+  });
+
+  it("shows Priority sort when Jev is configured", () => {
+    mocks.view = "inbox";
+    render(<Harness showPrioritySort />);
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+  });
 
   it("keeps partial refresh warnings out of a populated cached list", () => {
     render(

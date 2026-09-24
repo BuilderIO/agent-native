@@ -10,23 +10,29 @@
  * and the next `ensureInboxFresh` / push notification reconciles it — this
  * is an optimistic local patch, not the source of truth.
  */
-import { invalidateListCacheForOwner } from "./google-auth.js";
+import {
+  invalidateHistoryCacheForAccount,
+  invalidateListCacheForOwner,
+} from "./google-auth.js";
 import {
   applyLocalLabelDelta,
   findThreadIdsByMessageIds,
   type LocalLabelDelta,
 } from "./inbox-store.js";
 
-export async function syncInboxLabelDelta(
+function invalidateInboxCaches(ownerEmail: string, accountEmail: string): void {
+  invalidateHistoryCacheForAccount(accountEmail);
+  invalidateListCacheForOwner(ownerEmail);
+}
+
+async function applyLocalLabelDeltaBestEffort(
   ownerEmail: string,
   accountEmail: string,
-  threadIds: readonly string[],
+  threadIds: string[],
   delta: LocalLabelDelta,
 ): Promise<void> {
-  const ids = threadIds.filter(Boolean);
-  if (ids.length === 0) return;
   try {
-    await applyLocalLabelDelta(ownerEmail, accountEmail, ids, delta);
+    await applyLocalLabelDelta(ownerEmail, accountEmail, threadIds, delta);
   } catch (error) {
     // Gmail already accepted this mutation before we got here — it is the
     // source of truth and has already changed. A mirror failure must not
@@ -37,11 +43,22 @@ export async function syncInboxLabelDelta(
     console.error("[inbox-store-sync] mirror failed", {
       ownerEmail,
       accountEmail,
-      threadIds: ids.length,
+      threadIds: threadIds.length,
       error,
     });
   }
-  invalidateListCacheForOwner(ownerEmail);
+}
+
+export async function syncInboxLabelDelta(
+  ownerEmail: string,
+  accountEmail: string,
+  threadIds: readonly string[],
+  delta: LocalLabelDelta,
+): Promise<void> {
+  const ids = threadIds.filter(Boolean);
+  if (ids.length === 0) return;
+  invalidateInboxCaches(ownerEmail, accountEmail);
+  await applyLocalLabelDeltaBestEffort(ownerEmail, accountEmail, ids, delta);
 }
 
 /**
@@ -79,21 +96,46 @@ export async function syncInboxLabelDeltaForTargets(
 
   await Promise.all(
     [...byAccount.entries()].map(async ([accountEmail, items]) => {
+      // Gmail accepted the mutation before this best-effort mirror lookup.
+      // Invalidate first so a lookup failure cannot preserve stale provider
+      // data, and so a concurrent list cannot cache the pre-mutation window.
+      invalidateInboxCaches(ownerEmail, accountEmail);
       const missingIds = items.filter((i) => !i.threadId).map((i) => i.id);
-      const resolved = missingIds.length
-        ? await findThreadIdsByMessageIds(ownerEmail, accountEmail, missingIds)
-        : new Map<string, string>();
+      let resolved: Map<string, string>;
+      try {
+        resolved = missingIds.length
+          ? await findThreadIdsByMessageIds(
+              ownerEmail,
+              accountEmail,
+              missingIds,
+            )
+          : new Map<string, string>();
+      } catch (error) {
+        console.error("[inbox-store-sync] bulk mirror lookup failed", {
+          ownerEmail,
+          accountEmail,
+          messageIds: missingIds.length,
+          error,
+        });
+        resolved = new Map();
+      }
       const threadIds = new Set<string>();
       for (const item of items) {
         const threadId = item.threadId ?? resolved.get(item.id);
         if (threadId) threadIds.add(threadId);
       }
-      await syncInboxLabelDelta(ownerEmail, accountEmail, [...threadIds], {
-        ...delta,
-        ...(delta.scope === "message"
-          ? { messageIds: items.map((i) => i.id) }
-          : {}),
-      });
+      if (threadIds.size === 0) return;
+      await applyLocalLabelDeltaBestEffort(
+        ownerEmail,
+        accountEmail,
+        [...threadIds],
+        {
+          ...delta,
+          ...(delta.scope === "message"
+            ? { messageIds: items.map((i) => i.id) }
+            : {}),
+        },
+      );
     }),
   );
 }

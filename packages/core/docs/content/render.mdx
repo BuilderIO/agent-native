@@ -4,6 +4,8 @@ description: "Deploy an Agent-Native app to Render with Nitro's render-com prese
 search: "Render deployment Nitro preset Node.js"
 ---
 
+<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
+
 # Render
 
 Use Nitro's `render-com` preset to build an output for a Render web service.
@@ -17,7 +19,7 @@ export default defineConfig({
 Build the app and use Render's normal web service workflow to run the output:
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 node .output/server/index.mjs
 ```
 

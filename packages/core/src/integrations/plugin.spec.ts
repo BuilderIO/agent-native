@@ -1232,7 +1232,7 @@ describe("integrations plugin routes", () => {
 
   it("fails a queued continuation closed after the durable scope is disabled", async () => {
     process.env.NODE_ENV = "development";
-    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "false";
     delete process.env.A2A_SECRET;
     const task = claimedTask(1);
     getPendingTaskMock.mockResolvedValueOnce(task);
@@ -1252,6 +1252,32 @@ describe("integrations plugin routes", () => {
       task.id,
     );
     expect(claimPendingTaskMock).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("pauses a queued continuation when the runtime flag is unavailable", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    delete process.env.A2A_SECRET;
+    const task = claimedTask(1);
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      paused: "durable-runtime-unavailable",
+    });
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
@@ -1337,7 +1363,7 @@ describe("integrations plugin routes", () => {
 
   it("does not send an unreceipted campaign delivery after scope is disabled", async () => {
     process.env.NODE_ENV = "development";
-    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "false";
     const baseTask = claimedTask(1);
     const task = {
       ...baseTask,

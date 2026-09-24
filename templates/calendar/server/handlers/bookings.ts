@@ -1499,11 +1499,28 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult?.meetingUrl) {
-          meetingLink = zoomResult.meetingUrl;
+        if (zoomResult.status === "not_started") {
+          await getDb()
+            .update(schema.bookings)
+            .set({ status: "cancelled" })
+            .where(eq(schema.bookings.id, id));
+          setResponseStatus(event, 503);
+          return { error: "Failed to create booking" };
         }
-      } catch {
-        // Fall through — booking still succeeds without a Zoom link.
+        if (!zoomResult.meetingUrl) {
+          throw new Error("Zoom meeting was not created");
+        }
+        meetingLink = zoomResult.meetingUrl;
+      } catch (error) {
+        console.error(
+          `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
+          error,
+        );
+        // Zoom may have created the meeting even if its response was lost or
+        // unreadable, so keep the booking to reserve the slot and prevent a
+        // retry from silently creating a duplicate meeting.
+        setResponseStatus(event, 502);
+        return { error: "Failed to create booking" };
       }
     }
 

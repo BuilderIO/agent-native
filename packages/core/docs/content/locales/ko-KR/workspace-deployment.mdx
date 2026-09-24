@@ -140,7 +140,7 @@ npx @agent-native/core@latest deploy
 
 직접 배포하는 대신 제공업체의 빌드 명령을 연결하시나요? 동일한 명령에 `--build-only`를 추가하세요. 예를 들면 `npx @agent-native/core@latest deploy --preset vercel --build-only`입니다. 출력물을 직접 작성하므로 작업 공간 라우팅을 위한 `vercel.json`이 필요하지 않습니다.
 
-하나의 공유 오리진 대신 앱마다 별도 도메인을 선호하시나요? 작업 공간의 모든 앱은 여전히 독립적으로 배포할 수 있습니다. 독립형 스캐폴드처럼 `cd apps/<name> && npx @agent-native/core@latest build`를 실행하세요.
+하나의 공유 오리진 대신 앱마다 별도 도메인을 선호하시나요? 작업 공간의 모든 앱은 여전히 독립적으로 배포할 수 있습니다. 독립형 스캐폴드처럼 `cd apps/<name> && pnpm build`를 실행하세요.
 
 </Callout>
 
@@ -217,7 +217,7 @@ npx @agent-native/core@latest deploy
 base path는 클라이언트 번들에는 빌드 타임 입력값이고 서버에는 런타임 입력값입니다. 프록시가 라우팅할 경로와 동일한 경로로 각 앱을 빌드하세요:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

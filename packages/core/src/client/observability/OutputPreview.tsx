@@ -1,5 +1,8 @@
 import type { CSSProperties } from "react";
 
+import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+
 type ChartPoint = { label: string; value: number };
 type DesignToken = { label: string; value: string };
 type TableColumn = { source: string | number; label: string };
@@ -303,23 +306,87 @@ export function parseOutputPreview(answer: string): OutputPreviewModel {
 export function OutputPreview({
   answer,
   previewLabel,
+  inlineApp,
+  inlineAppTitle,
+  compact = false,
+  maxAppHeight,
 }: {
   answer: string;
   previewLabel: string;
+  inlineApp?: AgentMcpAppPayload;
+  inlineAppTitle?: string;
+  compact?: boolean;
+  maxAppHeight?: number;
 }) {
   const preview = parseOutputPreview(answer);
-  const frameClassName =
-    "rounded-md border border-border bg-background p-3 text-sm text-foreground";
+
+  if (inlineApp && !compact) {
+    return (
+      <div className="min-w-0 space-y-4">
+        {answer.trim() && preview.kind === "text" && (
+          <OutputPreview answer={answer} previewLabel={previewLabel} />
+        )}
+        <McpAppRenderer
+          app={inlineApp}
+          readOnly
+          className="min-w-0"
+          maxHeight={maxAppHeight}
+        />
+      </div>
+    );
+  }
+
+  const contentClassName = "text-sm text-foreground";
+
+  if (compact && (inlineApp || inlineAppTitle)) {
+    return (
+      <div
+        aria-label={previewLabel}
+        className="flex size-full min-w-0 items-end p-2"
+        data-preview-kind="app-thumbnail"
+        role="img"
+      >
+        <span className="truncate text-[10px] font-medium text-foreground">
+          {inlineAppTitle ??
+            inlineApp?.tool?.title ??
+            inlineApp?.tool?.name ??
+            inlineApp?.toolName}
+        </span>
+      </div>
+    );
+  }
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
     const chartSummary = preview.data
       .map((point) => `${point.label}: ${point.value}${preview.unit ?? ""}`)
       .join(", ");
+    if (compact) {
+      return (
+        <div
+          aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
+          className="flex size-full items-end gap-1 overflow-hidden p-2"
+          data-preview-kind="chart-thumbnail"
+          role="img"
+        >
+          {preview.data.slice(0, 8).map((point) => (
+            <span
+              key={`${point.label}-${point.value}`}
+              className="min-w-0 flex-1 rounded-sm bg-primary/75"
+              style={
+                {
+                  height: `${Math.max(10, (point.value / maxValue) * 100)}%`,
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      );
+    }
     return (
       <div
         aria-label={`${preview.title ?? previewLabel}: ${chartSummary}`}
-        className={frameClassName}
+        className={contentClassName}
         data-preview-kind="chart"
         role="img"
       >
@@ -355,16 +422,56 @@ export function OutputPreview({
   }
 
   if (preview.kind === "table") {
+    if (compact) {
+      return (
+        <div
+          aria-label={previewLabel}
+          className="size-full overflow-hidden p-1.5"
+          data-preview-kind="table-thumbnail"
+          role="img"
+        >
+          <table className="w-full table-fixed text-left text-[9px] leading-3">
+            <caption className="sr-only">{previewLabel}</caption>
+            <thead className="text-muted-foreground">
+              <tr>
+                {preview.headers.slice(0, 3).map((header) => (
+                  <th key={header} className="truncate px-1 py-0.5 font-medium">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.rows.slice(0, 3).map((row, rowIndex) => (
+                <tr
+                  key={`${rowIndex}-${row.join("|")}`}
+                  className="border-t border-border/70"
+                >
+                  {row.slice(0, 3).map((cell, cellIndex) => (
+                    <td
+                      key={`${cellIndex}-${cell}`}
+                      className="truncate px-1 py-0.5"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
     return (
       <div
         aria-label={previewLabel}
-        className={`${frameClassName} overflow-x-auto p-0`}
+        className="overflow-x-auto text-sm text-foreground"
         data-preview-kind="table"
         role="region"
       >
         <table className="w-full min-w-[28rem] text-left text-xs">
           <caption className="sr-only">{previewLabel}</caption>
-          <thead className="bg-muted/30 text-muted-foreground">
+          <thead className="text-muted-foreground">
             <tr>
               {preview.headers.map((header) => (
                 <th key={header} className="px-3 py-2 font-medium">
@@ -377,7 +484,7 @@ export function OutputPreview({
             {preview.rows.map((row, rowIndex) => (
               <tr
                 key={`${rowIndex}-${row.join("|")}`}
-                className="border-t border-border"
+                className="border-t border-border/70"
               >
                 {row.map((cell, cellIndex) => (
                   <td
@@ -397,11 +504,15 @@ export function OutputPreview({
 
   if (preview.kind === "image") {
     return (
-      <figure className={frameClassName} data-preview-kind="image">
+      <figure data-preview-kind="image">
         <img
           src={preview.src}
           alt={preview.alt}
-          className="max-h-80 max-w-full rounded object-contain"
+          className={
+            compact
+              ? "size-full object-cover"
+              : "max-h-[min(70dvh,45rem)] max-w-full rounded object-contain"
+          }
           loading="lazy"
           referrerPolicy="no-referrer"
         />
@@ -410,8 +521,45 @@ export function OutputPreview({
   }
 
   if (preview.kind === "design") {
+    if (compact && preview.imageUrl) {
+      return (
+        <img
+          src={preview.imageUrl}
+          alt={preview.title ?? previewLabel}
+          className="size-full object-cover"
+          data-preview-kind="design-thumbnail"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      );
+    }
+    if (compact) {
+      return (
+        <div
+          aria-label={
+            [preview.title, preview.summary].filter(Boolean).join(": ") ||
+            previewLabel
+          }
+          className="size-full overflow-hidden p-2"
+          data-preview-kind="design-thumbnail"
+          role="img"
+        >
+          <span className="block h-1 w-1/3 rounded-full bg-primary/80" />
+          <span className="mt-2 block h-2 w-3/4 rounded-full bg-foreground/20" />
+          <span className="mt-1.5 block h-1.5 w-1/2 rounded-full bg-muted-foreground/20" />
+          <span className="mt-2 flex gap-1">
+            {preview.tokens.slice(0, 4).map((token) => (
+              <span
+                key={`${token.label}-${token.value}`}
+                className="size-3 rounded-full bg-primary/40"
+              />
+            ))}
+          </span>
+        </div>
+      );
+    }
     return (
-      <div className={frameClassName} data-preview-kind="design">
+      <div className={contentClassName} data-preview-kind="design">
         {preview.imageUrl && (
           <img
             src={preview.imageUrl}
@@ -428,16 +576,14 @@ export function OutputPreview({
           </p>
         )}
         {preview.tokens.length > 0 && (
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          <dl className="mt-3 divide-y divide-border/70">
             {preview.tokens.map((token) => (
               <div
                 key={`${token.label}-${token.value}`}
-                className="rounded border border-border bg-muted/20 px-2.5 py-2"
+                className="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2 first:pt-0"
               >
-                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {token.label}
-                </dt>
-                <dd className="mt-1 text-xs">{token.value}</dd>
+                <dt className="text-xs text-muted-foreground">{token.label}</dt>
+                <dd className="text-xs">{token.value}</dd>
               </div>
             ))}
           </dl>
@@ -447,10 +593,15 @@ export function OutputPreview({
   }
 
   return (
-    <div className={frameClassName} data-preview-kind="text">
-      <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words">
-        {preview.text}
-      </p>
-    </div>
+    <p
+      className={
+        compact
+          ? "line-clamp-4 size-full overflow-hidden break-words p-2 text-[10px] leading-3 text-foreground"
+          : "whitespace-pre-wrap break-words text-sm text-foreground"
+      }
+      data-preview-kind="text"
+    >
+      {preview.text}
+    </p>
   );
 }

@@ -552,6 +552,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(createOpenAI).toHaveBeenCalledWith({
       apiKey: "sk-test",
       baseURL: "https://api.openai.com/v1",
+      fetch: expect.any(Function),
     });
     expect(provider).toHaveBeenCalledWith("gpt-5.5");
     expect(provider.chat).not.toHaveBeenCalled();
@@ -597,6 +598,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(createOpenAI).toHaveBeenCalledWith({
       apiKey: "sk-test",
       baseURL: "https://gateway.example/v1",
+      fetch: expect.any(Function),
     });
     expect(provider).not.toHaveBeenCalled();
     expect(provider.chat).toHaveBeenCalledWith("gpt-5.5");
@@ -604,6 +606,113 @@ describe("AISDKEngine OpenAI model selection", () => {
       expect.objectContaining({ model: chatModel }),
     );
     expect(engine.preserveCustomModels).toBe(true);
+  });
+
+  it("guards custom endpoint requests without losing Request fields", async () => {
+    const ssrfSafeFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.doMock("../../extensions/url-safety.js", () => ({ ssrfSafeFetch }));
+    try {
+      mockAiSdk();
+      const { createOpenAI } = mockOpenAIProvider();
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      await drain(
+        createAISDKEngine("openai", {
+          apiKey: "sk-test",
+          baseUrl: "https://gateway.example/v1",
+        }).stream(BASE_STREAM_OPTIONS),
+      );
+
+      const providerConfig = createOpenAI.mock.calls[0][0];
+      const requestFetch = providerConfig.fetch as typeof fetch;
+      const controller = new AbortController();
+      const request = new Request(
+        "https://gateway.example/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"model":"gpt-test"}',
+          signal: controller.signal,
+        },
+      );
+      await requestFetch(request, { headers: { "x-provider-test": "kept" } });
+
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(1);
+      expect(ssrfSafeFetch).toHaveBeenCalledWith(
+        "https://gateway.example/v1/chat/completions",
+        expect.objectContaining({
+          method: "POST",
+          signal: expect.any(AbortSignal),
+          duplex: "half",
+        }),
+        expect.objectContaining({
+          followRedirects: false,
+          requireDispatcher: true,
+        }),
+      );
+      const requestInit = ssrfSafeFetch.mock.calls[0][1] as RequestInit;
+      const requestSignal = requestInit.signal as AbortSignal;
+      expect(new Headers(requestInit.headers).get("x-provider-test")).toBe(
+        "kept",
+      );
+      expect(requestInit.body).toBeInstanceOf(ReadableStream);
+      controller.abort();
+      expect(requestSignal.aborted).toBe(true);
+      await expect(
+        requestFetch("https://other.example/v1/chat/completions"),
+      ).rejects.toThrow(/provider request escaped its configured origin/);
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(1);
+
+      ssrfSafeFetch.mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://127.0.0.1/" },
+        }),
+      );
+      await expect(
+        requestFetch("https://gateway.example/v1/chat/completions"),
+      ).rejects.toThrow(/provider endpoint redirects are disabled/);
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.doUnmock("../../extensions/url-safety.js");
+      vi.resetModules();
+    }
+  });
+
+  it("keeps configured provider requests available in edge runtimes", async () => {
+    const ssrfSafeFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.doMock("../../extensions/url-safety.js", () => ({ ssrfSafeFetch }));
+    vi.doMock("../../shared/runtime.js", () => ({
+      isNodeRuntime: () => false,
+    }));
+    try {
+      mockAiSdk();
+      const { createOpenAI } = mockOpenAIProvider();
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      await drain(
+        createAISDKEngine("openai", {
+          apiKey: "sk-test",
+          baseUrl: "https://gateway.example/v1",
+        }).stream(BASE_STREAM_OPTIONS),
+      );
+
+      const requestFetch = createOpenAI.mock.calls[0][0].fetch as typeof fetch;
+      await requestFetch("https://gateway.example/v1/chat/completions", {
+        method: "POST",
+      });
+
+      expect(ssrfSafeFetch).toHaveBeenCalledWith(
+        "https://gateway.example/v1/chat/completions",
+        { method: "POST" },
+        expect.objectContaining({
+          followRedirects: false,
+          requireDispatcher: false,
+        }),
+      );
+    } finally {
+      vi.doUnmock("../../extensions/url-safety.js");
+      vi.doUnmock("../../shared/runtime.js");
+      vi.resetModules();
+    }
   });
 
   it("keeps arbitrary local Ollama model ids", async () => {

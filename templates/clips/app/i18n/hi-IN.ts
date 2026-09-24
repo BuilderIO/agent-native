@@ -138,7 +138,6 @@ const messages = {
     createFolderError: "बनाने में विफल",
     folderCreated: "फ़ोल्डर बन गया",
     folderNamePlaceholder: "फ़ोल्डर का नाम",
-    breadcrumbBack: "{{label}} पर वापस जाएँ",
   },
   empty: {
     library: {
@@ -1198,6 +1197,7 @@ const messages = {
     transcript: "प्रतिलेख",
     comment: "टिप्पणी",
     titleOrDescription: "शीर्षक या विवरण",
+    matchAt: "वीडियो में {{time}} पर मिलान",
   },
   organizationSwitcher: {
     noOrganization: "कोई संगठन नहीं",

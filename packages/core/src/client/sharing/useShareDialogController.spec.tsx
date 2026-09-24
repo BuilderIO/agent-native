@@ -301,6 +301,25 @@ describe("useShareDialogController", () => {
     ).toEqual(["private", "org", "public"]);
   });
 
+  it("does not fetch shares or org members while closed", async () => {
+    const { useActionQuery } = await import("../use-action.js");
+    await render({ ...options, open: false });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(useActionQuery).toHaveBeenLastCalledWith(
+      "list-resource-shares",
+      expect.anything(),
+      { enabled: false },
+    );
+
+    await render(options);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(useActionQuery).toHaveBeenLastCalledWith(
+      "list-resource-shares",
+      expect.anything(),
+      { enabled: true },
+    );
+  });
+
   it("resets tab state when opened and delegates close transitions", async () => {
     let result = await render({ ...options, open: false });
     act(() => result.setActiveTab("invite"));

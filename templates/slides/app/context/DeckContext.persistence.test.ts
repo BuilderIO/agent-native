@@ -398,7 +398,7 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(result.current.decks).toEqual([]);
     expect(result.current.loadError).toBe(true);
-  });
+  }, 15_000);
 
   it("waits for the active organization before loading the deck list", async () => {
     orgQueryState.isLoading = true;

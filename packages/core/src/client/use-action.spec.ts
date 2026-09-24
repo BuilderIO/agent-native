@@ -89,6 +89,37 @@ describe("serializeActionQueryParams", () => {
 });
 
 describe("callAction", () => {
+  it("does not commit a response whose signal was aborted while its body was reading", async () => {
+    let resolveBody!: (body: string) => void;
+    const body = new Promise<string>((resolve) => {
+      resolveBody = resolve;
+    });
+    const response = {
+      headers: new Headers({ "Content-Type": "application/json" }),
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: vi.fn(() => body),
+    } as unknown as Response;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    const controller = new AbortController();
+    const request = callAction(
+      "read-thing",
+      {},
+      {
+        method: "GET",
+        signal: controller.signal,
+      },
+    );
+    await vi.waitFor(() => expect(response.text).toHaveBeenCalled());
+
+    controller.abort();
+    resolveBody(JSON.stringify({ ok: true }));
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("preserves safe structured action error metadata", async () => {
     vi.stubGlobal(
       "fetch",
