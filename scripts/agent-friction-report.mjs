@@ -134,10 +134,10 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
-const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:your|our|this|my|the)\s+(?:handoff|recap|summary|report|output|review)`;
+const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?:handoff|recap|summary|report|output|review)`;
 const PR_REVIEW_HANDOFF_DETAILS = [
   String.raw`which\s+PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
-  String.raw`(?:the\s+)?merge[- ]readiness(?:\s+recommendation)?`,
+  String.raw`(?:the\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
   String.raw`(?:(?:the|an?)\s+)?(?:(?:author[- ]facing|author)\s+)?(?:repl(?:y|ies)|comments?)(?:\s+drafts?)?`,
   String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface))?`,
   String.raw`(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
@@ -223,6 +223,9 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "The review failed to report screenshot availability."],
   [true, "The handoff was missing screenshot status."],
   [true, "The recap was missing the merge-readiness recommendation."],
+  [true, "Handoff omitted which PRs were ready to merge."],
+  [true, "Handoff was missing screenshot status."],
+  [true, "Review omitted the merge-readiness status."],
   [
     true,
     "You missed:\n- which PRs were ready to merge\n- the author-facing reply draft",
