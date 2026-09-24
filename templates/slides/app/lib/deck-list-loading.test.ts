@@ -21,6 +21,12 @@ describe("deckListViewState", () => {
     ).toBe("error");
   });
 
+  it("keeps already-loaded decks visible when a refresh fails", () => {
+    expect(
+      deckListViewState({ loading: false, loadError: true, deckCount: 1 }),
+    ).toBe("decks");
+  });
+
   it("reports empty only for a settled, error-free zero", () => {
     expect(
       deckListViewState({ loading: false, loadError: false, deckCount: 0 }),

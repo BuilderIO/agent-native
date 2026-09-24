@@ -1409,6 +1409,10 @@ export function DocumentSidebar({
     },
     [localFileMode, queryClient],
   );
+  const sidebarActiveDocumentId = location.pathname.startsWith("/trash")
+    ? null
+    : activeDocumentId;
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (!onResize || width === undefined) return;
@@ -2385,7 +2389,7 @@ export function DocumentSidebar({
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
       createDatabasePending={createDatabase.isPending}
-      activeDocumentId={activeDocumentId}
+      activeDocumentId={sidebarActiveDocumentId}
       expandedDocumentIds={visibleExpandedDocumentIds}
       documentMetadata={documentMetadata}
       activePathDocuments={
@@ -2758,7 +2762,7 @@ export function DocumentSidebar({
                 spaceId={selectedSpace.id}
                 pinnedCount={favoritesData?.items.length ?? 0}
                 renderFiles={renderWorkspaceNavigation}
-                activeDocumentId={activeDocumentId}
+                activeDocumentId={sidebarActiveDocumentId}
                 onNavigate={onNavigate}
                 onToggleFavorite={handleToggleFavorite}
                 reorderLabels={sidebarReorderLabels}
@@ -2803,7 +2807,7 @@ export function DocumentSidebar({
                         favoritesDatabase.isLoading ||
                         favoritesPersonalView.isLoading
                       }
-                      activeDocumentId={activeDocumentId}
+                      activeDocumentId={sidebarActiveDocumentId}
                       manualReorder={{
                         labels: sidebarReorderLabels,
                         onReorder: (itemIds) =>

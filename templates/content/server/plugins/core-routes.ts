@@ -27,6 +27,9 @@ export default createCoreRoutesPlugin({
   googleOAuthManagedConnection: "not_applicable",
   envKeys,
   anonymousOwner: resolvePublicViewerOwner,
+  // A public document's viewer syncs navigation and composer state like a
+  // signed-in user; scope it to the viewer cookie instead of answering 401.
+  anonymousApplicationState: true,
   // Land deep links (`/_agent-native/open?app=content&view=editor&documentId=…`)
   // straight on the real SPA path so there's no `/editor` -> `/` bounce before
   // the polled `navigate` command applies record focus.

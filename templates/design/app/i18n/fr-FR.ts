@@ -325,6 +325,18 @@ export default {
       customTransform:
         "Transformation personnalisée — ne peut pas être modifiée comme rotation X/Y/Z",
       shaderEffectType: "Shader",
+      imageScaleMode: "Mode de mise à l'échelle de l'image",
+      imageAdjustments: "Réglages de l'image",
+      imageExposure: "Exposition",
+      imageContrast: "Contraste",
+      imageSaturation: "Saturation",
+      imageScaleFill: "Remplir",
+      imageScaleFit: "Ajuster",
+      imageScaleCrop: "Recadrer",
+      noMirroring: "Pas de symétrie",
+      vector: "Vecteur",
+      mirrorAngle: "Symétrie d’angle",
+      mirrorAngleAndLength: "Symétrie d’angle et de longueur",
     },
     shaders: {
       fillsTitle: "Remplissages shader",
@@ -551,6 +563,22 @@ export default {
         adUnit: "Unité publicitaire",
       },
     },
+    scale: {
+      title: "Échelle",
+      exit: "Quitter la mise à l'échelle",
+      factor: "Facteur d'échelle",
+      presets: "Préréglages d'échelle",
+      anchor: "Point d'ancrage",
+      topLeft: "En haut à gauche",
+      topCenter: "En haut au centre",
+      topRight: "En haut à droite",
+      middleLeft: "Au milieu à gauche",
+      center: "Centre",
+      middleRight: "Au milieu à droite",
+      bottomLeft: "En bas à gauche",
+      bottomCenter: "En bas au centre",
+      bottomRight: "En bas à droite",
+    },
   },
   designEditor: {
     vectorEndpoints: {
@@ -569,11 +597,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Maintenez {{modifier}} enfoncé et cliquez pour sélectionner un calque interne.",
-      dismiss: "Fermer l’astuce de sélection des calques",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Suggérer une mise en page auto…",
       title: "Suggérer une mise en page auto",
@@ -793,6 +816,8 @@ export default {
       figmaPasteTarget: "Collez dans le canevas",
       figmaPasteApiKeyHint:
         "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
+      figmaPasteAccessDenied:
+        'Le jeton Figma connecté ne peut pas accéder à ce fichier. Vérifiez vos autorisations et assurez-vous que le jeton dispose du droit "File content".',
       figmaPasteMatchGuidance:
         "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
       figmaPasteUnreadable:
@@ -1092,6 +1117,7 @@ export default {
         ungroup: "Dissocier",
         frameSelection: "Encadrer la sélection",
         autoLayout: "Mise en page auto",
+        imageVideo: "Image/vidéo...",
       },
     },
     undo: "Défaire",
@@ -1383,6 +1409,10 @@ export default {
         "Impossible de mettre à jour la source de l’écran",
       vectorEditUnsupported:
         "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
+      imageUploading: "Import de l’image…",
+      pasteReplaceFailed: "Impossible de remplacer ce calque",
+      swapFillStrokeLayeredFill:
+        "Les remplissages multiples ou d'image ne peuvent pas encore devenir un contour",
     },
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:

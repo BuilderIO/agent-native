@@ -62,6 +62,15 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("keeps transient missing share records loading while retrying locally", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain("const MISSING_SHARE_RETRY_LIMIT = 8;");
+    expect(route).toContain("status === 404 &&");
+    expect(route).toContain("updateCount < MISSING_SHARE_RETRY_LIMIT");
+    expect(route).toContain("retryingMissingShare ||");
+    expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
+  });
+
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 

@@ -261,6 +261,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   }),
 
   shortcut({
+    id: "place-image",
+    category: "shape",
+    bindings: ["$mod+shift+k"],
+    labelKey: "designEditor.keyboardShortcuts.commands.imageVideo",
+    handler: "onPlaceImage",
+  }),
+  shortcut({
     id: "boolean-subtract",
     category: "shape",
     bindings: ["alt+shift+s"],

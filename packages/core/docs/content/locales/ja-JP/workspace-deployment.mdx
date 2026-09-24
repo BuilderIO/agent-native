@@ -140,7 +140,7 @@ npx @agent-native/core@latest deploy
 
 手動でデプロイする代わりにプロバイダーのビルドコマンドを組み込みますか？ 同じコマンドに `--build-only` を追加します。例えば `npx @agent-native/core@latest deploy --preset vercel --build-only` のようにします。これは出力を直接書き出すため、ワークスペースのルーティングに `vercel.json` は不要です。
 
-1 つの共有オリジンではなく、アプリごとに別々のドメインを使いたいですか？ ワークスペース内のどのアプリも引き続き独立してデプロイ可能です。スタンドアロンのスキャフォールドと同様に `cd apps/<name> && npx @agent-native/core@latest build` を実行してください。
+1 つの共有オリジンではなく、アプリごとに別々のドメインを使いたいですか？ ワークスペース内のどのアプリも引き続き独立してデプロイ可能です。スタンドアロンのスキャフォールドと同様に `cd apps/<name> && pnpm build` を実行してください。
 
 </Callout>
 
@@ -217,7 +217,7 @@ npx @agent-native/core@latest deploy
 ベースパスは、クライアントバンドルにとってはビルド時の入力であり、サーバーにとってはランタイムの入力です。プロキシがルーティングするのと同じパスで各アプリをビルドします。
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

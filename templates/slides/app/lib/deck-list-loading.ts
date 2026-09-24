@@ -17,6 +17,7 @@ export function deckListViewState({
   deckCount: number;
 }): DeckListViewState {
   if (loading) return "loading";
+  if (deckCount > 0) return "decks";
   if (loadError) return "error";
-  return deckCount === 0 ? "empty" : "decks";
+  return "empty";
 }

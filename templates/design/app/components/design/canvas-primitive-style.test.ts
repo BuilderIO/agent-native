@@ -7,6 +7,7 @@ import {
   canvasVectorPaint,
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_SHAPE_FILL,
 } from "./canvas-primitive-style";
 
 describe("canvas text primitive style", () => {
@@ -60,7 +61,7 @@ describe("canvas text primitive style", () => {
 describe("canvas rect/ellipse default tokens", () => {
   it("uses plain neutral-gray fills without a persistent authored border", () => {
     const rect = canvasPrimitiveVisual("rect");
-    expect(rect.background).toBe("rgb(218 218 218)");
+    expect(rect.background).toBe("rgb(217 217 217)");
     expect(rect.border).toBe("0 solid transparent");
     expect(canvasPrimitiveReactStyle("rect")).toMatchObject({
       borderWidth: 0,
@@ -68,7 +69,7 @@ describe("canvas rect/ellipse default tokens", () => {
     });
 
     const ellipse = canvasPrimitiveVisual("ellipse");
-    expect(ellipse.background).toBe("rgb(218 218 218)");
+    expect(ellipse.background).toBe("rgb(217 217 217)");
     expect(ellipse.border).toBe("0 solid transparent");
   });
 
@@ -106,8 +107,23 @@ describe("canvas line/arrow/pen default stroke tokens (Figma parity)", () => {
   });
 
   it("never fills an open path", () => {
-    expect(canvasVectorPaint({ closed: false, fill: "#ff0000" }).fill).toBe(
-      "none",
-    );
+    expect(
+      canvasVectorPaint({ outline: "open-path", fill: "#ff0000" }).fill,
+    ).toBe("none");
+  });
+
+  it("keeps a closed pen path stroke-only, like Figma", () => {
+    expect(canvasVectorPaint({ outline: "closed-path" })).toEqual({
+      fill: "none",
+      stroke: DEFAULT_LINE_STROKE,
+      strokeWidth: DEFAULT_LINE_STROKE_WIDTH_PX,
+    });
+  });
+
+  it("fills polygons and stars without a stroke", () => {
+    expect(canvasVectorPaint({ outline: "shape" })).toMatchObject({
+      fill: DEFAULT_SHAPE_FILL,
+      stroke: "none",
+    });
   });
 });

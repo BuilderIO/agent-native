@@ -6,6 +6,8 @@
  * across the entire observability stack.
  */
 
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+
 // ─── Traces ───────────────────────────────────────────────────────────
 
 export type SpanType = "llm_call" | "tool_call" | "agent_run";
@@ -83,15 +85,23 @@ export interface InstructionUpdate {
   updatedAt: number;
 }
 
-export interface OutputReviewRow {
+export interface OutputReviewListRow {
   runId: string;
   threadId: string | null;
   ask: string;
   answer: string;
+  hasInlineApp: boolean;
+  /** Bounded display name; the saved app payload is fetched on demand. */
+  inlineAppTitle?: string;
   model: string;
   createdAt: number;
   feedback: FeedbackEntry[];
   instructionUpdate: InstructionUpdate | null;
+}
+
+/** @deprecated Use OutputReviewListRow for list data. */
+export interface OutputReviewRow extends OutputReviewListRow {
+  inlineApp?: AgentMcpAppPayload;
 }
 
 export interface SatisfactionScore {
