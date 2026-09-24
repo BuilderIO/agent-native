@@ -51,6 +51,7 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { buildClipsExtensionBaseUrl } from "@/lib/extension-auth";
 import {
   isLegacyRecordingPath,
+  isRecordingSharePath,
   isStandalonePublicPath,
 } from "@/lib/public-ssr-paths";
 
@@ -392,7 +393,7 @@ function PrivateAppContent() {
   const { status: sessionStatus } = useSession();
   const authenticatedShare =
     typeof window !== "undefined" &&
-    location.pathname.startsWith("/share/") &&
+    isRecordingSharePath(location.pathname) &&
     sessionStatus === "authenticated";
   const standalonePublic =
     isStandalonePublicPath(location.pathname) && !authenticatedShare;

@@ -66,7 +66,7 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("share.$shareId.tsx");
     const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");
 
-    expect(root).toContain('location.pathname.startsWith("/share/")');
+    expect(root).toContain("isRecordingSharePath(location.pathname)");
     expect(root).toContain('typeof window !== "undefined"');
     expect(root).toContain('sessionStatus === "authenticated"');
     expect(root).toContain(
