@@ -49,6 +49,7 @@ describe("Factory review skill alignment", () => {
     expect(second).toContain("Shomix (shomix)");
     expect(second).toMatch(/across app and\s+framework areas/);
     expect(second).toContain("independent human review");
+    expect(second).toContain("MCP iframe sandboxing, CSP, HTML sanitization");
     expect(second).not.toContain("old contract");
   });
 

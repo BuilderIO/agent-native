@@ -481,6 +481,12 @@ describe("pull-request governance", () => {
         ],
       }),
     ).toMatchObject({ ownerException: null, autoApprove: false });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        changedFiles: ["packages/core/src/client/mcp-apps/McpAppRenderer.tsx"],
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
   });
 
   it("requires complete check evidence while allowing the internal-member exception", () => {
