@@ -407,6 +407,7 @@ export function ShareButton(props: ShareButtonProps) {
           overlayClassName="z-[1999]"
           className="z-[2000] max-h-[90dvh] overflow-y-auto rounded-t-2xl p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={handleSharePopoverInteractOutside}
         >
           <SheetTitle className="sr-only">{triggerLabel}</SheetTitle>
           <div

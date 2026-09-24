@@ -20,6 +20,15 @@ const popoverInteractOutsideHandlers = vi.hoisted(
       }) => void
     >,
 );
+const sheetInteractOutsideHandlers = vi.hoisted(
+  () =>
+    [] as Array<
+      (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void
+    >,
+);
 const popoverOpenChangeHandlers = vi.hoisted(
   () => [] as Array<(open: boolean) => void>,
 );
@@ -120,6 +129,27 @@ vi.mock("../components/ui/popover.js", () => {
   };
 });
 
+vi.mock("../components/ui/sheet.js", () => ({
+  Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SheetTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  SheetTitle: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SheetContent: ({
+    children,
+    onInteractOutside,
+  }: {
+    children: React.ReactNode;
+    onInteractOutside?: (event: {
+      detail: { originalEvent: { target: EventTarget | null } };
+      preventDefault: () => void;
+    }) => void;
+  }) => {
+    if (onInteractOutside) sheetInteractOutsideHandlers.push(onInteractOutside);
+    return <div>{children}</div>;
+  },
+}));
+
 function setInputValue(
   input: HTMLInputElement | HTMLTextAreaElement,
   value: string,
@@ -154,6 +184,7 @@ describe("ShareButton", () => {
     otherMutate.mockReset();
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
+    sheetInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
     popoverTestState.simulateMounting = false;
     sharesError.current = false;
@@ -769,6 +800,50 @@ describe("ShareButton", () => {
     const handler =
       popoverInteractOutsideHandlers[popoverInteractOutsideHandlers.length - 1];
     if (!handler) throw new Error("share popover outside handler not found");
+
+    const nestedOverlay = document.createElement("div");
+    nestedOverlay.setAttribute("data-agent-native-share-overlay", "");
+    const nestedItem = document.createElement("button");
+    nestedOverlay.appendChild(nestedItem);
+    document.body.appendChild(nestedOverlay);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+
+    const preventNestedDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: nestedItem } },
+      preventDefault: preventNestedDismiss,
+    });
+    expect(preventNestedDismiss).toHaveBeenCalledOnce();
+
+    const preventOutsideDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: outside } },
+      preventDefault: preventOutsideDismiss,
+    });
+    expect(preventOutsideDismiss).not.toHaveBeenCalled();
+
+    nestedOverlay.remove();
+    outside.remove();
+  });
+
+  it("keeps the mobile share sheet open for nested portaled share menus", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" mobileSheet />
+        </QueryClientProvider>,
+      );
+    });
+
+    const handler =
+      sheetInteractOutsideHandlers[sheetInteractOutsideHandlers.length - 1];
+    if (!handler) throw new Error("share sheet outside handler not found");
 
     const nestedOverlay = document.createElement("div");
     nestedOverlay.setAttribute("data-agent-native-share-overlay", "");
