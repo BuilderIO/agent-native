@@ -319,6 +319,7 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import {
+  createOAuthPopupAttemptWindows,
   createOAuthPopupCloser,
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
@@ -13047,6 +13048,19 @@ registerShortcutsIpc({
 registerInterAppIpc();
 
 // ---------- OAuth handling ----------
+const oauthPopupAttemptWindows = createOAuthPopupAttemptWindows<
+  Electron.WebContents,
+  BrowserWindow
+>();
+
+ipcMain.on(
+  IPC.OAUTH_POPUP_CANCEL,
+  (event: IpcMainEvent, attemptId: unknown) => {
+    if (typeof attemptId !== "string" || !attemptId) return;
+    oauthPopupAttemptWindows.close(event.sender, attemptId);
+  },
+);
+
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
 // system browser. Signed Builder app-webview connects can use the system
@@ -13530,8 +13544,12 @@ function openOAuthWindow(
       ...(sourceSession ? { session: sourceSession } : {}),
     },
   });
+  const removePopupAttempt = attemptId
+    ? oauthPopupAttemptWindows.track(sourceContents, attemptId, oauthWin)
+    : () => {};
 
   oauthWin.on("closed", () => {
+    removePopupAttempt();
     if (sourceContents.isDestroyed()) return;
     sourceContents.send(IPC.OAUTH_POPUP_CLOSED, attemptId);
   });

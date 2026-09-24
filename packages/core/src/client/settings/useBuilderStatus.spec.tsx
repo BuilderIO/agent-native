@@ -1570,6 +1570,41 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("asks Electron to close the matching OAuth window when cancelled", async () => {
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    const cancelPopup = vi.fn();
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          cancelPopup,
+          onPopupClosed: () => () => {},
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
+    expect(cancelPopup).toHaveBeenCalledWith(attemptId);
+  });
+
   it("refreshes status but keeps waiting when system-browser focus returns", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
@@ -1770,6 +1805,93 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain(
       "Didn't finish connecting to Builder.io",
     );
+  });
+
+  it("releases the cancellation grace while callback status confirmation is stalled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let stallNextStatus = false;
+    let releaseStalledStatus: (() => void) | null = null;
+    let callbackStatusSignal: AbortSignal | null = null;
+    vi.mocked(fetch).mockImplementation((_input, init) => {
+      if (stallNextStatus) {
+        stallNextStatus = false;
+        callbackStatusSignal = init?.signal ?? null;
+        return new Promise<Response>((resolve) => {
+          releaseStalledStatus = () =>
+            resolve(
+              jsonResponse({
+                configured: false,
+                envManaged: false,
+                builderEnabled: true,
+                orgName: null,
+                connectUrl: signedConnectUrl,
+                appHost: "https://builder.io",
+                apiHost: "https://api.builder.io",
+                publicKeyConfigured: false,
+                privateKeyConfigured: false,
+              }),
+            );
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      );
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    stallNextStatus = true;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(callbackStatusSignal).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(callbackStatusSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(22_000);
+    });
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
+    releaseStalledStatus?.();
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

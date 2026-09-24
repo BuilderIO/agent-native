@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createOAuthPopupAttemptWindows,
   createOAuthPopupCloser,
   watchOAuthSystemBrowserReturn,
   watchOAuthSystemBrowserReturnForContents,
@@ -23,6 +24,41 @@ function fakeWindow() {
     },
   };
 }
+
+describe("createOAuthPopupAttemptWindows", () => {
+  it("closes only the window registered for the exact source and attempt", () => {
+    const source = {};
+    const otherSource = {};
+    const popup = { isDestroyed: vi.fn(() => false), close: vi.fn() };
+    const windows = createOAuthPopupAttemptWindows<object, typeof popup>();
+    const removeOnClose = windows.track(source, "attempt-123", popup);
+
+    expect(windows.close(otherSource, "attempt-123")).toBe(false);
+    expect(windows.close(source, "attempt-456")).toBe(false);
+    expect(popup.close).not.toHaveBeenCalled();
+
+    expect(windows.close(source, "attempt-123")).toBe(true);
+    expect(popup.close).toHaveBeenCalledOnce();
+
+    removeOnClose();
+    expect(windows.close(source, "attempt-123")).toBe(false);
+  });
+
+  it("does not remove a replacement window when an older attempt window closes", () => {
+    const source = {};
+    const oldPopup = { isDestroyed: vi.fn(() => false), close: vi.fn() };
+    const currentPopup = { isDestroyed: vi.fn(() => false), close: vi.fn() };
+    const windows = createOAuthPopupAttemptWindows<object, typeof oldPopup>();
+    const removeOldOnClose = windows.track(source, "attempt-123", oldPopup);
+    windows.track(source, "attempt-123", currentPopup);
+
+    removeOldOnClose();
+
+    expect(windows.close(source, "attempt-123")).toBe(true);
+    expect(oldPopup.close).not.toHaveBeenCalled();
+    expect(currentPopup.close).toHaveBeenCalledOnce();
+  });
+});
 
 describe("createOAuthPopupCloser", () => {
   it("closes immediately on a genuine load failure instead of waiting for a did-finish-load that never fires", () => {

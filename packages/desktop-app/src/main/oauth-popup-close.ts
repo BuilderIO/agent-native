@@ -52,6 +52,48 @@ export function createOAuthPopupCloser(win: OAuthPopupWindowLike) {
   };
 }
 
+interface OAuthPopupAttemptWindowLike {
+  isDestroyed(): boolean;
+  close(): void;
+}
+
+/** Tracks Electron OAuth windows by their initiating webview and connect attempt. */
+export function createOAuthPopupAttemptWindows<
+  Source extends object,
+  Popup extends OAuthPopupAttemptWindowLike,
+>() {
+  const windowsBySource = new WeakMap<Source, Map<string, Popup>>();
+
+  const remove = (source: Source, attemptId: string, popup: Popup) => {
+    const windows = windowsBySource.get(source);
+    if (windows?.get(attemptId) !== popup) return;
+    windows.delete(attemptId);
+    if (windows.size === 0) windowsBySource.delete(source);
+  };
+
+  return {
+    track(source: Source, attemptId: string, popup: Popup) {
+      let windows = windowsBySource.get(source);
+      if (!windows) {
+        windows = new Map();
+        windowsBySource.set(source, windows);
+      }
+      windows.set(attemptId, popup);
+      return () => remove(source, attemptId, popup);
+    },
+    close(source: Source, attemptId: string): boolean {
+      const popup = windowsBySource.get(source)?.get(attemptId);
+      if (!popup) return false;
+      if (popup.isDestroyed()) {
+        remove(source, attemptId, popup);
+        return false;
+      }
+      popup.close();
+      return true;
+    },
+  };
+}
+
 interface OAuthSystemBrowserWindowLike {
   on(event: "blur", listener: () => void): void;
   once(event: "focus" | "closed", listener: () => void): void;

@@ -41,6 +41,9 @@ const agentNativeDesktop = {
     clientPlatform: "electron" as const,
   },
   oauth: {
+    cancelPopup: (attemptId: string): void => {
+      ipcRenderer.send(IPC.OAUTH_POPUP_CANCEL, attemptId);
+    },
     onSystemBrowserReturned: (
       callback: (attemptId: string | null) => void,
     ): (() => void) => {

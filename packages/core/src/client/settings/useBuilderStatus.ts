@@ -734,6 +734,14 @@ export function useBuilderConnectFlow(
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const callbackSuccessInFlightAtRef = useRef<number | null>(null);
+  const callbackSuccessCancelRef = useRef<{
+    started: number;
+    cancel: () => void;
+  } | null>(null);
+  const callbackSuccessRequestControllerRef = useRef<{
+    started: number;
+    controller: AbortController;
+  } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
@@ -774,6 +782,13 @@ export function useBuilderConnectFlow(
       (attemptId) => {
         if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
         popupClosedAtRef.current ??= Date.now();
+        const started = connectStartedAtRef.current;
+        if (callbackSuccessCancelRef.current?.started === started) {
+          callbackSuccessCancelRef.current.cancel();
+        }
+        if (callbackSuccessRequestControllerRef.current?.started === started) {
+          callbackSuccessRequestControllerRef.current.controller.abort();
+        }
       },
     );
     return () => {
@@ -978,12 +993,31 @@ export function useBuilderConnectFlow(
 
   const retry = useCallback(() => retryStatusRef.current(), []);
   const cancel = useCallback(() => {
-    if (connectStartedAtRef.current === null) return;
+    const started = connectStartedAtRef.current;
+    if (started === null) return;
     popupClosedAtRef.current ??= Date.now();
+    if (callbackSuccessCancelRef.current?.started === started)
+      callbackSuccessCancelRef.current.cancel();
+    if (callbackSuccessRequestControllerRef.current?.started === started)
+      callbackSuccessRequestControllerRef.current.controller.abort();
     try {
       activePopupRef.current?.close();
     } catch {
       // The bounded cancellation path still applies if the browser refuses.
+    }
+    const attemptId = connectAttemptIdRef.current;
+    if (typeof window !== "undefined" && attemptId) {
+      try {
+        (
+          window as Window & {
+            agentNativeDesktop?: {
+              oauth?: { cancelPopup?: (id: string) => void };
+            };
+          }
+        ).agentNativeDesktop?.oauth?.cancelPopup?.(attemptId);
+      } catch {
+        // The bounded cancellation path still applies if the desktop bridge is unavailable.
+      }
     }
   }, []);
 
@@ -997,10 +1031,14 @@ export function useBuilderConnectFlow(
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       const provisionAccountForStart =
         startOptions?.provisionAccount ?? provisionAccount;
+      callbackSuccessCancelRef.current?.cancel();
+      callbackSuccessRequestControllerRef.current?.controller.abort();
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
       callbackSuccessStartedAtRef.current = null;
       callbackSuccessInFlightAtRef.current = null;
+      callbackSuccessCancelRef.current = null;
+      callbackSuccessRequestControllerRef.current = null;
       activePopupRef.current = null;
       popupClosedAtRef.current = null;
       activeTrackingRef.current = {
@@ -1402,23 +1440,84 @@ export function useBuilderConnectFlow(
       callbackSuccessStartedAtRef.current = started;
       callbackSuccessInFlightAtRef.current = started;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
-      for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
-        s = await fetchStatus(
-          undefined,
-          connectAttemptIdRef.current ?? undefined,
-        );
-        if (!mountedRef.current || connectStartedAtRef.current !== started) {
-          return;
+      let cancelled = false;
+      let resolveCancelled: (value: null) => void = () => {};
+      const cancelledPromise = new Promise<null>((resolve) => {
+        resolveCancelled = resolve;
+      });
+      const cancelConfirmation = () => {
+        if (cancelled) return;
+        cancelled = true;
+        resolveCancelled(null);
+      };
+      callbackSuccessCancelRef.current = {
+        started,
+        cancel: cancelConfirmation,
+      };
+      try {
+        for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
+          const controller =
+            typeof AbortController !== "undefined"
+              ? new AbortController()
+              : null;
+          if (controller) {
+            callbackSuccessRequestControllerRef.current = {
+              started,
+              controller,
+            };
+          }
+          const timeoutId = controller
+            ? setTimeout(() => controller.abort(), STATUS_FETCH_ABORT_MS)
+            : null;
+          try {
+            s = await Promise.race([
+              fetchStatus(
+                controller?.signal,
+                connectAttemptIdRef.current ?? undefined,
+              ),
+              cancelledPromise,
+            ]);
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (
+              callbackSuccessRequestControllerRef.current?.controller ===
+              controller
+            ) {
+              callbackSuccessRequestControllerRef.current = null;
+            }
+          }
+          if (
+            cancelled ||
+            !mountedRef.current ||
+            connectStartedAtRef.current !== started
+          ) {
+            return;
+          }
+          if (
+            s?.configured ||
+            isCurrentConnectError(s?.connectError, started)
+          ) {
+            break;
+          }
+          if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
+            await Promise.race([
+              delay(CALLBACK_SUCCESS_STATUS_RETRY_MS),
+              cancelledPromise,
+            ]);
+            if (cancelled) return;
+          }
         }
-        if (s?.configured || isCurrentConnectError(s?.connectError, started)) {
-          break;
+      } finally {
+        if (callbackSuccessCancelRef.current?.started === started) {
+          callbackSuccessCancelRef.current = null;
         }
-        if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
-          await delay(CALLBACK_SUCCESS_STATUS_RETRY_MS);
+        if (callbackSuccessRequestControllerRef.current?.started === started) {
+          callbackSuccessRequestControllerRef.current.controller.abort();
+          callbackSuccessRequestControllerRef.current = null;
         }
-      }
-      if (callbackSuccessInFlightAtRef.current === started) {
-        callbackSuccessInFlightAtRef.current = null;
+        if (callbackSuccessInFlightAtRef.current === started) {
+          callbackSuccessInFlightAtRef.current = null;
+        }
       }
       if (!mountedRef.current || connectStartedAtRef.current !== started) {
         return;

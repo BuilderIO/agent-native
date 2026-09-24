@@ -276,6 +276,49 @@ describe("FirstRunOnboarding", () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
+  it("lets users cancel a direct Builder connect during first run", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-connect-builder']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const cancelButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-cancel-builder']",
+    );
+    expect(cancelButton?.textContent).toBe("Cancel");
+    act(() => cancelButton?.click());
+    expect(flow.cancel).toHaveBeenCalledOnce();
+  });
+
   it("shows one-click account consent in a popover and its loading state when enabled", () => {
     const flow = {
       hasFetchedStatus: true,

@@ -757,6 +757,16 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
+            {connectFlow.connecting && (
+              <button
+                type="button"
+                data-testid="first-run-cancel-builder"
+                className={cn(secondaryButtonClass, "mt-4")}
+                onClick={connectFlow.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
             {connectFlow.error && (
               <div className="mt-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-destructive">{connectFlow.error}</p>
