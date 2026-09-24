@@ -213,7 +213,7 @@ describe("buildPastedSvgLayer", () => {
   it("removes external URLs after a hex escape with a CRLF terminator", () => {
     const measuredRoots: SVGSVGElement[] = [];
     buildPastedSvgLayer(
-      '<svg width="10" height="10"><rect width="10" height="10"/><style>.shape { fill: u\\72\r\nl(https://example.com/payload.svg); stroke: red }</style></svg>',
+      '<svg width="10" height="10"><rect width="10" height="10"/><style>.shape { fill: u\\72&#13;&#10;l(https://example.com/payload.svg); stroke: red }</style></svg>',
       "Logo",
       (root) => {
         measuredRoots.push(root);
@@ -229,15 +229,51 @@ describe("buildPastedSvgLayer", () => {
 
   it("imports namespace-less clipboard SVG markup into the SVG namespace", () => {
     const importNode = vi.spyOn(document, "importNode");
-    buildPastedSvgLayer('<svg><path d="M0 0h10" /></svg>', "Logo");
+    let importedRoot: SVGSVGElement | undefined;
+    try {
+      buildPastedSvgLayer(
+        '<svg data-title="a > b"><path d="M0 0h10" /></svg>',
+        "Logo",
+      );
+      importedRoot = importNode.mock.results[0]?.value as
+        | SVGSVGElement
+        | undefined;
+    } finally {
+      importNode.mockRestore();
+    }
 
-    const importedRoot = importNode.mock.results[0]?.value as
-      | SVGSVGElement
-      | undefined;
     expect(importedRoot?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(importedRoot?.getAttribute("data-title")).toBe("a > b");
     expect(importedRoot?.firstElementChild?.namespaceURI).toBe(
       "http://www.w3.org/2000/svg",
     );
+  });
+
+  it("measures namespace-less clipboard shapes as SVG elements", () => {
+    let measuredShape: Element | undefined;
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><path d="M0 0H10" fill="#123456" /></svg>',
+      "Logo",
+      (root) => {
+        const shape = root.querySelector("path")!;
+        measuredShape = shape;
+        return new Map([
+          [
+            shape,
+            {
+              box: { x: 0, y: 0, width: 10, height: 10 },
+              userBox: { x: 0, y: 0, width: 10, height: 10 },
+              paint: fill("#123456"),
+              opacity: 1,
+              transform: "",
+            },
+          ],
+        ]);
+      },
+    );
+
+    expect(measuredShape?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(layer?.html).toContain('data-an-primitive="path"');
   });
 
   it("keeps safe stylesheet declarations and rules around external URLs", () => {

@@ -221,7 +221,7 @@ function parseSvgRoot(markup: string): SVGSVGElement | null {
     removeCssLineContinuations,
   );
   const namespacedMarkup = sanitizedMarkup.replace(
-    /<svg(?=[\s>])([^>]*)>/i,
+    /<svg(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
     (_tag, attributes: string) => {
       const namespace = /\sxmlns\s*=\s*(["']).*?\1/i;
       const namespacedAttributes = namespace.test(attributes)
