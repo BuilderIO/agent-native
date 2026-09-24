@@ -506,6 +506,9 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
+    redactionsPendingBody:
+      "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
     publicDescription:
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",

@@ -897,14 +897,15 @@ function SharePanel(
           onValueChange={(value) =>
             handleShareTabChange(value === "people" ? "share" : value)
           }
-          peopleLabel={props.peopleTabLabel ?? "People"}
-          agentsLabel={props.agentsTabLabel ?? "Agents"}
+          peopleLabel={props.peopleTabLabel ?? t("agentChat.share.people")}
+          agentsLabel={props.agentsTabLabel ?? t("agentChat.share.agents")}
           people={sharePanel}
           agents={agentPanel}
-          extraTabs={extraTabs.map(({ value, label, content }) => ({
+          extraTabs={extraTabs.map(({ value, label, content, disabled }) => ({
             value,
             label,
             content,
+            disabled,
           }))}
         />
       </div>

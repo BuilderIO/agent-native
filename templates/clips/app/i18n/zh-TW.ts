@@ -474,6 +474,9 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮蔽處理",
+    redactionsPendingBody:
+      "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",

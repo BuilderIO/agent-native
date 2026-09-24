@@ -497,6 +497,9 @@ const messages = {
     saveThumbnail: "썸네일 저장",
   },
   shareDialog: {
+    redactionsPendingTitle: "공유하기 전에 가림 처리 완료",
+    redactionsPendingBody:
+      "적용되지 않은 가림 처리: {{count}}개. 공유하기 전에 편집기에서 적용하세요. 동영상에는 아직 원본 내용이 남아 있습니다.",
     publicDescription:
       "링크가 있는 사람은 누구나 볼 수 있습니다. 댓글을 달거나 반응하려면 로그인하세요.",
     shareRecording: "녹음 공유",

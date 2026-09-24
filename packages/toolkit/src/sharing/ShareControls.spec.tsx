@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip.js";
-import { JoinedShareControl } from "./ShareControls.js";
+import { JoinedShareControl, ShareModeTabs } from "./ShareControls.js";
 
 describe("JoinedShareControl", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
@@ -48,5 +48,40 @@ describe("JoinedShareControl", () => {
     await act(async () => copy!.click());
     expect(onCopy).toHaveBeenCalledOnce();
     expect(copy?.getAttribute("aria-label")).toBe("Copy link");
+  });
+
+  it("keeps disabled extra share tabs unavailable", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(
+        <ShareModeTabs
+          value="people"
+          onValueChange={() => {}}
+          peopleLabel="People"
+          agentsLabel="Agents"
+          people={<div>Access</div>}
+          agents={<div>Prompt</div>}
+          extraTabs={[
+            {
+              value: "coming-soon",
+              label: "Coming soon",
+              content: <div>Later</div>,
+              disabled: true,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[role="tab"][data-state="inactive"]:last-child',
+      )?.disabled,
+    ).toBe(true);
   });
 });

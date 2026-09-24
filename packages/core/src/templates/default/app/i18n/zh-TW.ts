@@ -260,6 +260,8 @@ const messages = {
     owner: "擁有者：{{name}}",
     close: "關閉",
     shareOptions: "分享選項",
+    people: "人員",
+    agents: "代理程式",
     link: "連結",
     invite: "Invite",
     embed: "Embed",

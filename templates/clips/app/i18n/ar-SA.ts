@@ -497,6 +497,9 @@ const messages = {
     saveThumbnail: "حفظ الصورة المصغرة",
   },
   shareDialog: {
+    redactionsPendingTitle: "أكمل التنقيح قبل المشاركة",
+    redactionsPendingBody:
+      "عمليات التنقيح المعلّقة: {{count}}. طبّقها في المحرر قبل المشاركة؛ فما زال الفيديو يحتوي على المحتوى الأصلي.",
     publicDescription:
       "يمكن لأي شخص لديه الرابط المشاهدة — قم بتسجيل الدخول للتعليق أو الرد",
     shareRecording: "مشاركة التسجيل",

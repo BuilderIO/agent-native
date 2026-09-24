@@ -81,6 +81,7 @@ export interface ShareModeTab {
   value: string;
   label: ReactNode;
   content: ReactNode;
+  disabled?: boolean;
 }
 
 export interface ShareModeTabsProps {
@@ -122,6 +123,7 @@ export function ShareModeTabs({
           <TabsTrigger
             key={tab.value}
             value={tab.value}
+            disabled={tab.disabled}
             className="relative h-8 min-w-0 flex-none rounded-none bg-transparent px-2 py-0 text-sm font-normal shadow-none after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:bg-foreground after:opacity-0 data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none data-[state=active]:after:opacity-100"
           >
             {tab.label}

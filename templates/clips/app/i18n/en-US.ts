@@ -493,6 +493,9 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    redactionsPendingTitle: "Finish redactions before sharing",
+    redactionsPendingBody:
+      "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",
     publicDescription:
       "Anyone with the link can view — sign in to comment or react",
     shareRecording: "Share recording",
