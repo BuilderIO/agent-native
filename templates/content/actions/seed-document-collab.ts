@@ -12,6 +12,7 @@ import { resolveDocumentAccess } from "./_document-access.js";
 export default defineAction({
   description:
     "Initialize a Content page's live editor from its saved body exactly once.",
+  agentTool: false,
   deferLoading: false,
   schema: z.object({
     id: z.string().min(1),

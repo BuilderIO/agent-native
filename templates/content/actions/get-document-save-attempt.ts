@@ -16,6 +16,7 @@ import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 export default defineAction({
   description:
     "Look up a confirmed browser document save attempt for the current editor.",
+  agentTool: false,
   schema: z.object({
     id: z.string().min(1).describe("Document ID"),
     browserSaveAttemptId: z
