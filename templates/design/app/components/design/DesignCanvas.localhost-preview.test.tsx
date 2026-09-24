@@ -8,10 +8,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const callActionMock = vi.hoisted(() => vi.fn());
+const useActionQueryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   callAction: callActionMock,
+  useActionQuery: useActionQueryMock,
 }));
 
 import {
@@ -22,6 +24,7 @@ import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
 let root: Root;
+const queryClient = new QueryClient();
 let iframeServer: Server | null = null;
 
 function requestInfoUrl(input: RequestInfo | URL): string {
@@ -45,11 +48,22 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  const render = root.render.bind(root);
+  root.render = (children) =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>,
+    );
+  queryClient.clear();
   callActionMock.mockReset();
+  useActionQueryMock.mockReset();
+  useActionQueryMock.mockReturnValue({ data: undefined });
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  queryClient.clear();
   if (iframeServer) {
     await new Promise<void>((resolve) => iframeServer!.close(() => resolve()));
     iframeServer = null;
@@ -60,6 +74,108 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
+    useActionQueryMock.mockReturnValue({
+      data: {
+        designId: "design-one",
+        fileId: "screen-account",
+        html: '<!doctype html><html><head><script>top.alert("unsafe-snapshot")</script></head><body><main onclick="unsafe()"><a href="javascript:unsafe()">Shared screen</a><img src="http://localhost:5173/private.png"></main></body></html>',
+        updatedAt: "2026-09-24T00:00:00.000Z",
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          designId="design-one"
+          sourceType="localhost"
+          snapshotOnly
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(iframe?.getAttribute("src")).toBeNull();
+    expect(iframe?.getAttribute("srcdoc")).toContain("Shared screen");
+    expect(iframe?.getAttribute("srcdoc")).not.toContain("localhost:5173");
+    expect(iframe?.getAttribute("srcdoc")).not.toContain("unsafe-snapshot");
+    expect(iframe?.getAttribute("srcdoc")).not.toContain("onclick");
+    expect(iframe?.getAttribute("srcdoc")).not.toContain("href=");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        requestInfoUrl(input).includes("localhost:5173"),
+      ),
+    ).toBe(false);
+    expect(useActionQueryMock).toHaveBeenCalledWith(
+      "get-visual-edit-snapshot",
+      {
+        designId: "design-one",
+        fileId: "screen-account",
+        knownUpdatedAt: null,
+      },
+      { refetchInterval: 2_000 },
+    );
+  });
+
+  it("waits instead of mounting the URL when a shared snapshot is not ready", async () => {
+    useActionQueryMock.mockReturnValue({
+      data: {
+        designId: "design-one",
+        fileId: "screen-account",
+        html: null,
+        updatedAt: null,
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          designId="design-one"
+          sourceType="localhost"
+          snapshotOnly
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-design-live-canvas-waiting]"),
+    ).not.toBeNull();
+    expect(container.innerHTML).not.toContain("localhost:5173");
+  });
+
   it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

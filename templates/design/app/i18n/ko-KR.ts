@@ -944,6 +944,10 @@ export default {
     signUpToSaveDescription:
       "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
     signUpToShare: "가입하고 공유",
+    signUpToShareLiveCanvas: "실시간 캔버스를 공유하려면 가입하세요",
+    liveCanvasLink: "실시간 캔버스 링크",
+    liveCanvasWaitingForOwner:
+      "소유자의 실시간 캔버스 스냅샷을 기다리는 중입니다.",
     shareEditorLink: "디자인 편집기 링크",
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -1214,6 +1218,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
+      applySharedEdits: "편집 내용 적용",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",

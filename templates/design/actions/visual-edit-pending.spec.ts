@@ -12,9 +12,11 @@ const mocks = vi.hoisted(() => {
   const insertChain = {
     values: vi.fn(),
     onConflictDoUpdate: vi.fn(),
+    returning: vi.fn(),
   };
   insertChain.values.mockReturnValue(insertChain);
-  insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
+  insertChain.onConflictDoUpdate.mockReturnValue(insertChain);
+  insertChain.returning.mockResolvedValue([{ revision: 2 }]);
 
   const updateChain = {
     set: vi.fn(),
@@ -32,6 +34,8 @@ const mocks = vi.hoisted(() => {
       status: "pending.status",
       prompt: "pending.prompt",
       revision: "pending.revision",
+      publisherId: "pending.publisherId",
+      clientRevision: "pending.clientRevision",
       updatedAt: "pending.updatedAt",
     },
     designs: {},
@@ -44,6 +48,7 @@ const mocks = vi.hoisted(() => {
     updateChain,
     isSameOrigin: vi.fn(),
     assertAccess: vi.fn(),
+    resolveAccess: vi.fn(),
     selectChain,
   };
 });
@@ -57,12 +62,17 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  resolveAccess: mocks.resolveAccess,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => ({ requestOrigin: "https://design.example.test" }),
 }));
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
-  sql: vi.fn((...parts) => ({ parts })),
+  sql: vi.fn((strings, ...values) => ({ strings: [...strings], values })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -87,16 +97,21 @@ const design = {
   orgId: null,
   visibility: "public",
 };
+const publisherId = "11111111-1111-4111-8111-111111111111";
 
 describe("visual-edit pending handoff", () => {
   beforeEach(() => {
     mocks.isSameOrigin.mockReset();
     mocks.assertAccess.mockReset();
     mocks.assertAccess.mockResolvedValue({ role: "editor", resource: design });
+    mocks.resolveAccess.mockReset();
+    mocks.resolveAccess.mockResolvedValue(null);
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
+    mocks.insertChain.returning.mockReset();
+    mocks.insertChain.returning.mockResolvedValue([{ revision: 2 }]);
     mocks.updateChain.set.mockClear();
     mocks.updateChain.where.mockClear();
     mocks.updateChain.returning.mockReset();
@@ -146,7 +161,7 @@ describe("visual-edit pending handoff", () => {
 
     await expect(
       publishPendingAction.run(
-        { designId: "design_public", revision: 1, pending: null },
+        { designId: "design_public", publisherId, revision: 1, pending: null },
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).rejects.toThrow(/same-origin Design page/);
@@ -163,6 +178,7 @@ describe("visual-edit pending handoff", () => {
       publishPendingAction.run(
         {
           designId: "design_public",
+          publisherId,
           revision: 1,
           pending: {
             designId: "design_public",
@@ -177,6 +193,317 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
   });
 
+  it("allows a same-origin live-canvas share collaborator to publish", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: design,
+    });
+
+    const result = await publishPendingAction.run(
+      {
+        designId: "design_public",
+        publisherId,
+        revision: 1,
+        pending: {
+          designId: "design_public",
+          pendingEditCount: 1,
+          status: "ready",
+          prompt: "Move the call to action.",
+        },
+      },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({
+          origin: "https://design.example.test",
+          referer:
+            "https://design.example.test/visual-edit/design_public?share=1",
+          "sec-fetch-site": "same-origin",
+        }),
+      },
+    );
+
+    expect(result).toMatchObject({
+      designId: "design_public",
+      status: "ready",
+    });
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_public",
+        prompt: "Move the call to action.",
+        revision: 1,
+        publisherId,
+        clientRevision: 1,
+      }),
+    );
+  });
+
+  it("allows an invited private viewer to publish from the Visual Edit surface", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: { ...design, visibility: "private" },
+    });
+
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: "design_public",
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: "design_public",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Adjust the heading.",
+          },
+        },
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({
+            origin: "https://design.example.test",
+            referer:
+              "https://design.example.test/visual-edit/design_public?share=1",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).resolves.toMatchObject({ status: "ready" });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "Adjust the heading." }),
+    );
+  });
+
+  it("limits viewer handoff clearing to the publishing browser", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: design,
+    });
+
+    await publishPendingAction.run(
+      { designId: "design_public", publisherId, revision: 2, pending: null },
+      {
+        caller: "frontend",
+        requestHeaders: new Headers({
+          origin: "https://design.example.test",
+          referer:
+            "https://design.example.test/visual-edit/design_public?share=1",
+          "sec-fetch-site": "same-origin",
+        }),
+      },
+    );
+
+    expect(mocks.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_public",
+        pendingEditCount: 0,
+        status: "empty",
+        prompt: "",
+        publisherId,
+        clientRevision: 2,
+        revision: 1,
+      }),
+    );
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    expect(update?.setWhere.strings.join(" ")).toContain(
+      "= excluded.publisher_id AND",
+    );
+    expect(update?.setWhere.values).toEqual([
+      "pending.publisherId",
+      "pending.clientRevision",
+    ]);
+  });
+
+  it("returns an explicit stale result when a browser publication is out of order", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.insertChain.returning.mockResolvedValueOnce([]);
+
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: "design_public",
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: "design_public",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Older prompt.",
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({
+      status: "stale",
+      pendingEditCount: null,
+      revision: null,
+      updatedAt: null,
+    });
+  });
+
+  it.each([
+    [
+      "the ordinary public design page",
+      "https://design.example.test/design/design_public",
+    ],
+    [
+      "another visual-edit design",
+      "https://design.example.test/visual-edit/other_design",
+    ],
+    [
+      "a cross-origin visual-edit page",
+      "https://attacker.example.test/visual-edit/design_public",
+    ],
+  ])("rejects a public viewer referred from %s", async (_label, referer) => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: "design_public",
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: "design_public",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Do not publish this.",
+          },
+        },
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({
+            origin: "https://design.example.test",
+            referer,
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("rejects a public viewer publishing from an ordinary Visual Edit link", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: design,
+    });
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 1, pending: null },
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({
+            origin: "https://design.example.test",
+            referer: "https://design.example.test/visual-edit/design_public",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_public");
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("preserves editor publication access for private designs", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: { ...design, visibility: "private" },
+    });
+
+    await publishPendingAction.run(
+      {
+        designId: "design_public",
+        publisherId,
+        revision: 1,
+        pending: {
+          designId: "design_public",
+          pendingEditCount: 1,
+          status: "ready",
+          prompt: "Update a private design.",
+        },
+      },
+      { caller: "frontend", requestHeaders: new Headers() },
+    );
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_public",
+      "editor",
+    );
+    expect(mocks.insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ visibility: "private" }),
+    );
+  });
+
+  it("rejects a private viewer on the ordinary Design route", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: { ...design, visibility: "private" },
+    });
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 1, pending: null },
+        {
+          caller: "frontend",
+          requestHeaders: new Headers({
+            origin: "https://design.example.test",
+            referer: "https://design.example.test/design/design_public",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("does not grant the public browser collaborator path to WebMCP", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockRejectedValueOnce(
+      new Error("Requires editor role on design design_public (have viewer)"),
+    );
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 1, pending: null },
+        {
+          caller: "webmcp",
+          requestHeaders: new Headers({
+            origin: "https://design.example.test",
+            referer: "https://design.example.test/visual-edit/design_public",
+            "sec-fetch-site": "same-origin",
+          }),
+        },
+      ),
+    ).rejects.toThrow(/Requires editor role/);
+
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
   it("upserts a capability-scoped visual-edit handoff without exposing bridge credentials", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     const prompt = "Change the title in Clips at src/Library.tsx:42.";
@@ -184,6 +511,7 @@ describe("visual-edit pending handoff", () => {
     const result = await publishPendingAction.run(
       {
         designId: "design_public",
+        publisherId,
         revision: 1,
         pending: {
           designId: "design_public",
@@ -301,6 +629,7 @@ describe("visual-edit pending handoff", () => {
   it("bounds the durable prompt to a single handoff-sized payload", () => {
     const parsed = publishPendingAction.schema.safeParse({
       designId: "design_public",
+      publisherId,
       revision: 1,
       pending: {
         designId: "design_public",
@@ -312,5 +641,16 @@ describe("visual-edit pending handoff", () => {
 
     expect(parsed.success).toBe(false);
     expect(getPendingAction.maxResultChars).toBe(64 * 1024);
+  });
+
+  it("bounds browser-local revisions to their database column range", () => {
+    const parsed = publishPendingAction.schema.safeParse({
+      designId: "design_public",
+      publisherId,
+      revision: 2_147_483_648,
+      pending: null,
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });

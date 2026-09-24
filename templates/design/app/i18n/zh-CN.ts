@@ -919,6 +919,9 @@ export default {
     signUpToSaveDescription:
       "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
     signUpToShare: "注册以共享",
+    signUpToShareLiveCanvas: "注册以共享实时画布",
+    liveCanvasLink: "实时画布链接",
+    liveCanvasWaitingForOwner: "正在等待画布所有者的实时快照。",
     shareEditorLink: "设计编辑器链接",
     shareEditorLinkDescription:
       "有访问权限的任何人都可以在编辑器中打开此设计。",
@@ -1188,6 +1191,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
+      applySharedEdits: "应用修改",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",

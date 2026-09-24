@@ -942,6 +942,10 @@ export default {
     signUpToSaveDescription:
       "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
     signUpToShare: "साझा करने के लिए sign up करें",
+    signUpToShareLiveCanvas: "लाइव कैनवास साझा करने के लिए साइन अप करें",
+    liveCanvasLink: "लाइव कैनवास लिंक",
+    liveCanvasWaitingForOwner:
+      "मालिक के लाइव कैनवास स्नैपशॉट की प्रतीक्षा की जा रही है।",
     shareEditorLink: "design editor link",
     shareEditorLinkDescription:
       "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
@@ -1212,6 +1216,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
+      applySharedEdits: "संपादन लागू करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",

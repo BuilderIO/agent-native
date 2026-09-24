@@ -952,6 +952,9 @@ export default {
     signUpToSaveDescription:
       "Sign up for a free account to save designs, screen layouts, and generate new ones.",
     signUpToShare: "Sign up to share",
+    signUpToShareLiveCanvas: "Sign up to share a live canvas",
+    liveCanvasLink: "Live canvas link",
+    liveCanvasWaitingForOwner: "Waiting for the owner’s live canvas snapshot.",
     shareEditorLink: "Design editor link",
     shareEditorLinkDescription:
       "Anyone with access can open this design in the editor.",
@@ -1226,6 +1229,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
+      applySharedEdits: "Apply edits",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
       applying: "Applying…",

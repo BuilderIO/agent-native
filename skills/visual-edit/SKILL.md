@@ -1,10 +1,9 @@
 ---
 name: visual-edit
 description: >-
-  Open a running local app in Design overview mode as URL-backed iframe screens
-  for visual editing, flow review, duplication, route-state exploration, and
-  source handoff. Use when the user asks to inspect or edit a real local app in
-  Design, including through a browser-capable host without an MCP connector.
+  Open and collaboratively edit a running local app in Design, with shared
+  fallback previews and source handoff. Use when the user asks to inspect,
+  share, or edit a real local app in Design.
 metadata:
   visibility: exported
 ---
@@ -149,17 +148,20 @@ approve it and never bypass that consent.
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
-- Localhost Edit mode renders the running app through the local bridge as a live
-  iframe with the same editor bridge used by HTML designs. It is never a frozen
-  static DOM snapshot. Editing is direct DOM manipulation against that live
-  document; the parallel `/snapshot` fetch feeds the editable source model only
-  and must never be rendered in the frame.
+- The owner edits through the local bridge. Shared
+  `/visual-edit/:designId?share=1` links render a sanitized inert snapshot,
+  refreshed on route or DOM changes; guests never reach the owner's localhost.
+  Guest edits stay pending until an owner or editor applies them to source.
+- Authorized viewers and commenters on private designs can edit the shared
+  Visual Edit canvas and submit pending changes without writing design files.
+  The owner or editor applies those source changes.
 - **The `/visual-edit` skill needs no Design account sign-in.**
   `open-visual-edit` mints a five-minute, single-use capability for the exact
   `/visual-edit/:designId` local-editor route. The MCP host redeems it outside
   model-visible text, then opens the existing editor with localhost edit access.
   A public `/visual-edit/:designId` route enables browser-only DOM editing of
-  localhost screens; pending changes stay in the browser until applied.
+  public localhost snapshots; handoffs stay pending until applied. The owner
+  sees **Apply edits** when a recipient has pending changes.
   This capability is not an account session: `/_agent-native/session` remains
   signed out, and account-backed save/share/generate actions remain denied.
 - Hosted MCP highlights `get-visual-edit-pending`; pass the visual-edit
@@ -173,12 +175,11 @@ approve it and never bypass that consent.
   WebMCP helper, not `pnpm action` in the target app. The page path works
   signed out only for loopback apps in public mode, using a short-lived
   capability-scoped principal; hosted MCP uses its normal OAuth identity.
-- Ordinary public links stay read-only, including on loopback. Public
-  `/visual-edit/:designId` is the browser-only DOM editing surface for public
-  localhost designs; it never upgrades `/design/*` links or grants server
-  writes. Loopback identity is not an authentication boundary because a tunnel
-  or proxy can make a remote request appear local. Persisted writes remain
-  role-gated.
+- Ordinary public links stay read-only. Public `/visual-edit/:designId` and
+  authorized private shares allow DOM-only edits, never source writes. Guest
+  Interact is blocked; snapshots strip active content and owner-local resources,
+  and persisted writes stay role-gated. Loopback is not a trust boundary because
+  tunnels can proxy remote callers.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
@@ -498,11 +499,10 @@ npx @agent-native/core@latest design pending --root .
 
 It prints the source prompt; empty JSON means this bridge has no pending edits.
 
-Canvas edits on a localhost screen do not write source as you make them. They
-accumulate as pending edits and the editor shows an **Apply design updates**
-button on the canvas. An MCP App sends the bounded prompt to the host;
-otherwise it uses the local Design agent. The dropdown's **Copy prompt to your
-agent** action is the manual fallback.
+Canvas edits on a localhost screen never write source directly. They stay
+pending until the canvas shows **Apply design updates** (local) or **Apply edits**
+(shared). An MCP App sends its prompt through the host or local Design agent;
+otherwise use **Copy prompt to your agent**.
 
 ChatGPT and Claude Code should pull, apply, acknowledge, and pull again.
 Browser WebMCP hosts can call `get-visual-edit-prompt`. Never acknowledge

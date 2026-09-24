@@ -61,4 +61,18 @@ describe("runModeChange Interact navigation", () => {
 
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
   });
+
+  it("blocks Interact while a shared visual edit is waiting for source apply", () => {
+    const args = {
+      ...makeArgs(),
+      blockInteraction: true,
+    } as unknown as Parameters<typeof runModeChange>[0];
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.pendingVisualStyles.interactBlocked",
+    );
+    expect(args.enterSingleScreen).not.toHaveBeenCalled();
+  });
 });

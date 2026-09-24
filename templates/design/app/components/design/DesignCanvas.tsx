@@ -1,4 +1,8 @@
-import { callAction, usePinchZoom } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionQuery,
+  usePinchZoom,
+} from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
@@ -44,6 +48,7 @@ import {
 } from "@shared/preview-source-provenance";
 import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
+import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -616,6 +621,10 @@ interface DesignCanvasProps {
    * the original URL.
    */
   externalSnapshotHtml?: string;
+  /** Render the shared snapshot without ever navigating to a viewer's localhost. */
+  snapshotOnly?: boolean;
+  /** Prevent an Interact frame from taking input while shared edits are pending. */
+  blockPreviewInteraction?: boolean;
   onExternalContentSnapshot?: (snapshot: {
     url: string;
     html: string;
@@ -1505,6 +1514,58 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
 const INSPECTOR_POPUP_SELECTOR =
   '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
 
+type VisualEditSharedSnapshot = {
+  designId: string;
+  fileId: string;
+  html: string;
+  updatedAt: string;
+};
+
+function SharedSnapshotPoller({
+  designId,
+  fileId,
+  knownUpdatedAt,
+  onSnapshot,
+}: {
+  designId: string;
+  fileId: string;
+  knownUpdatedAt: string | null;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+}) {
+  const { data } = useActionQuery<{
+    designId: string;
+    fileId: string;
+    html: string | null;
+    updatedAt: string | null;
+    unchanged: boolean;
+  }>(
+    "get-visual-edit-snapshot",
+    { designId, fileId, knownUpdatedAt },
+    {
+      // request-storm-allow: Anonymous viewers cannot receive owner sync events; only mounted shared canvases poll, and hidden tabs pause refetching.
+      refetchInterval: 2_000,
+    },
+  );
+
+  useEffect(() => {
+    if (
+      data?.html &&
+      data.updatedAt &&
+      data.designId === designId &&
+      data.fileId === fileId
+    ) {
+      onSnapshot({
+        designId,
+        fileId,
+        html: data.html,
+        updatedAt: data.updatedAt,
+      });
+    }
+  }, [data, designId, fileId, onSnapshot]);
+
+  return null;
+}
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -1514,6 +1575,8 @@ export function DesignCanvas({
   connectionId,
   nativePreviewActive = true,
   externalSnapshotHtml,
+  snapshotOnly = false,
+  blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
   onBridgeReady,
@@ -1897,6 +1960,25 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
+  const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
+  const requestSharedSnapshotAfterEdit = useCallback(() => {
+    if (sourceType !== "localhost" || snapshotOnly) return;
+    if (sharedSnapshotRequestTimerRef.current !== undefined) {
+      window.clearTimeout(sharedSnapshotRequestTimerRef.current);
+    }
+    sharedSnapshotRequestTimerRef.current = window.setTimeout(() => {
+      sharedSnapshotRequestTimerRef.current = undefined;
+      postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+    }, 100);
+  }, [postOneShotBridgeMessage, snapshotOnly, sourceType]);
+  useEffect(
+    () => () => {
+      if (sharedSnapshotRequestTimerRef.current !== undefined) {
+        window.clearTimeout(sharedSnapshotRequestTimerRef.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
@@ -2275,10 +2357,26 @@ export function DesignCanvas({
   );
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
+  const [cachedSharedSnapshot, setCachedSharedSnapshot] = useState<{
+    designId: string;
+    fileId: string;
+    html: string;
+    updatedAt: string;
+  } | null>(null);
+  const matchingSharedSnapshot =
+    cachedSharedSnapshot?.designId === designId &&
+    cachedSharedSnapshot?.fileId === screenId
+      ? cachedSharedSnapshot
+      : null;
+  const handleSharedSnapshot = useCallback(
+    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    [],
+  );
   // The screen's own URL wins: it carries the route path and may address the
   // container through a same-origin proxy. `fusionUrl` only covers fusion
   // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
+    if (snapshotOnly && sourceType === "localhost") return null;
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
     if (overrideUrl) return overrideUrl;
     const contentUrl = getExternalPreviewUrl(
@@ -2297,7 +2395,14 @@ export function DesignCanvas({
       }
     }
     return null;
-  }, [content, fusionUrl, previewUrlOverride, renderedContent, sourceType]);
+  }, [
+    content,
+    fusionUrl,
+    previewUrlOverride,
+    renderedContent,
+    snapshotOnly,
+    sourceType,
+  ]);
   const runtimeLayerSnapshotEnabled =
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
@@ -2472,13 +2577,8 @@ export function DesignCanvas({
   // or native hover/focus/pressed behavior would run against the stale HTML
   // from before the inspector edits.
   //
-  // A localhost screen NEVER renders `activeExternalSnapshotHtml`. The snapshot
-  // is the editable source model only. Rendering it produced a frame that looked
-  // exactly like the running app but was a corpse: no live DOM to manipulate,
-  // layers parsed from frozen HTML, and every edit applied to markup the app had
-  // already moved past — a failure indistinguishable from success. A viewer with
-  // no bridge entitlement gets the real dev-server URL instead (see
-  // externalPreviewUrl below), which is live even without editor chrome.
+  // The owner uses the running localhost app. A shared Visual Edit viewer gets
+  // the last published snapshot and never attempts to load its own localhost.
   // A source-mode transition is also an authoritative content boundary. A
   // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
   // after URL -> static, or the canvas shows the old live app behind a
@@ -2490,9 +2590,24 @@ export function DesignCanvas({
     interactMode ||
     (sourceType !== "localhost" &&
       Boolean(getExternalPreviewUrl(renderedContent)));
-  const iframeRenderContent = useCurrentIframeContent
-    ? content
-    : renderedContent;
+  const snapshotSourceContent = snapshotOnly
+    ? (matchingSharedSnapshot?.html ?? externalSnapshotHtml ?? "")
+    : (externalSnapshotHtml ?? renderedContent);
+  const iframeRenderContent = useMemo(() => {
+    if (snapshotOnly) {
+      return !snapshotSourceContent.trim() ||
+        getExternalPreviewUrl(snapshotSourceContent)
+        ? ""
+        : sanitizeVisualEditSnapshotHtml(snapshotSourceContent);
+    }
+    return useCurrentIframeContent ? content : renderedContent;
+  }, [
+    content,
+    renderedContent,
+    snapshotOnly,
+    snapshotSourceContent,
+    useCurrentIframeContent,
+  ]);
   const iframeSourceContent = useCurrentIframeContent
     ? (authoredSourceContent ?? content)
     : renderedDocument.sourceContent;
@@ -4213,6 +4328,9 @@ export function DesignCanvas({
                   : (liveRoutePathRef.current ?? undefined),
             },
           );
+          if (e.data.phase !== "preview") {
+            requestSharedSnapshotAfterEdit();
+          }
         }
         return;
       }
@@ -4224,6 +4342,7 @@ export function DesignCanvas({
         }
         const accepted = onVisualStyleBatchChange(changes);
         if (accepted !== true) restoreKScalePreviewRef.current?.();
+        else requestSharedSnapshotAfterEdit();
         return;
       }
       if (e.data.type === "gradient-edit-change") {
@@ -4258,6 +4377,7 @@ export function DesignCanvas({
                 ? e.data.routePath
                 : (liveRoutePathRef.current ?? undefined),
           });
+          requestSharedSnapshotAfterEdit();
         }
         return;
       }
@@ -4405,6 +4525,7 @@ export function DesignCanvas({
         const applied = valid
           ? onVisualGridGroupChange?.(rawMoves as GridGroupStructureMove[])
           : false;
+        if (applied !== false) requestSharedSnapshotAfterEdit();
         if (applied !== "pending" && Array.isArray(rawMoves)) {
           for (const move of rawMoves) {
             if (typeof move?.requestId !== "string") continue;
@@ -4587,6 +4708,7 @@ export function DesignCanvas({
                     : {}),
                 },
               );
+          if (applied !== false) requestSharedSnapshotAfterEdit();
           dndHostLog("persist:result", {
             applied,
             requestId,
@@ -4693,6 +4815,7 @@ export function DesignCanvas({
                 })
               : false;
           applied = result === "pending" ? "pending" : result !== false;
+          if (applied !== false) requestSharedSnapshotAfterEdit();
         }
         if (requestId && applied !== "pending") {
           iframeRef.current?.contentWindow?.postMessage(
@@ -5166,6 +5289,7 @@ export function DesignCanvas({
     onVisualDuplicateChange,
     onZoomChange,
     scheduleZoomCommit,
+    requestSharedSnapshotAfterEdit,
     centerInteractPreview,
     deviceFrame,
     onPrototypeNavigate,
@@ -7194,6 +7318,14 @@ export function DesignCanvas({
           : null),
       }}
     >
+      {snapshotOnly && designId && screenId ? (
+        <SharedSnapshotPoller
+          designId={designId}
+          fileId={screenId}
+          knownUpdatedAt={matchingSharedSnapshot?.updatedAt ?? null}
+          onSnapshot={handleSharedSnapshot}
+        />
+      ) : null}
       {desktopNativeSnapshot && desktopNativeSnapshotLayer !== "none" ? (
         <img
           data-desktop-native-preview-snapshot
@@ -7211,8 +7343,16 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {rawExternalPreviewUrl &&
-      !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
+      {snapshotOnly && !iframeRenderContent.trim() ? (
+        <div
+          data-design-live-canvas-waiting
+          role="status"
+          className="absolute inset-0 z-10 flex items-center justify-center bg-background/90 px-4 text-center text-sm text-muted-foreground"
+        >
+          {t("designEditor.liveCanvasWaitingForOwner")}
+        </div>
+      ) : rawExternalPreviewUrl &&
+        !externalPreviewUrl ? null : externalPreviewPendingOrigin ? null : (
         <iframe
           key={iframeElementIdentity}
           ref={iframeRef}
@@ -7220,7 +7360,8 @@ export function DesignCanvas({
           srcDoc={externalPreviewUrl ? undefined : srcdoc}
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
-            readOnly,
+            readOnly: readOnly || snapshotOnly,
+            snapshotOnly,
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
@@ -7266,7 +7407,10 @@ export function DesignCanvas({
             // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
             colorScheme:
               boardSurface || externalPreviewUrl ? undefined : "light",
-            pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
+            pointerEvents:
+              liveEditInteractionBlocked || blockPreviewInteraction
+                ? "none"
+                : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({
               viewportWidth:

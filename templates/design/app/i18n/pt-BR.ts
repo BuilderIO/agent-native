@@ -954,6 +954,10 @@ export default {
     signUpToSaveDescription:
       "Crie uma conta gratis para salvar designs, layouts de tela e gerar novas direcoes.",
     signUpToShare: "Criar conta para compartilhar",
+    signUpToShareLiveCanvas: "Cadastre-se para compartilhar um canvas ao vivo",
+    liveCanvasLink: "Link do canvas ao vivo",
+    liveCanvasWaitingForOwner:
+      "Aguardando a captura instantânea do canvas ao vivo do proprietário.",
     shareEditorLink: "Link do editor de design",
     shareEditorLinkDescription:
       "Qualquer pessoa com acesso pode abrir este design no editor.",
@@ -1227,6 +1231,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "Aplicar edições visuais de estilo pendentes",
       applyButton: "Aplicar estilos",
+      applySharedEdits: "Aplicar edições",
       previewLabel: "Prévia visual pendente",
       applyDesignUpdates: "Aplicar atualizações de design",
       applying: "Aplicando…",

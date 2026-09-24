@@ -958,6 +958,10 @@ export default {
     signUpToSaveDescription:
       "無料アカウントを作成して、デザインや画面レイアウトを保存し、新しい案を生成できます。",
     signUpToShare: "登録して共有",
+    signUpToShareLiveCanvas: "登録してライブキャンバスを共有",
+    liveCanvasLink: "ライブキャンバスのリンク",
+    liveCanvasWaitingForOwner:
+      "オーナーのライブキャンバスのスナップショットを待っています。",
     shareEditorLink: "デザインエディターリンク",
     shareEditorLinkDescription:
       "アクセス権のある人は、このデザインをエディターで開けます。",
@@ -1230,6 +1234,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "保留中のビジュアルスタイル編集を適用",
       applyButton: "スタイルを適用",
+      applySharedEdits: "編集内容を適用",
       previewLabel: "保留中のビジュアルプレビュー",
       applyDesignUpdates: "デザインの更新を適用",
       applying: "適用中…",

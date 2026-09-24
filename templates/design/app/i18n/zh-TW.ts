@@ -1046,6 +1046,9 @@ export default {
     signUpToSave: "註冊",
     signUpToSaveDescription: "登入即可儲存這個設計的可編輯副本。",
     signUpToShare: "註冊以分享",
+    signUpToShareLiveCanvas: "註冊以分享即時畫布",
+    liveCanvasLink: "即時畫布連結",
+    liveCanvasWaitingForOwner: "正在等待畫布擁有者的即時快照。",
     shareEditorLink: "編輯器連結",
     shareEditorLinkDescription: "分享可在編輯器中開啟這個設計的連結。",
     modes: {
@@ -1187,6 +1190,7 @@ export default {
     pendingVisualStyles: {
       applyAria: "套用設計更新",
       applyButton: "套用樣式",
+      applySharedEdits: "套用變更",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
       applying: "正在套用…",

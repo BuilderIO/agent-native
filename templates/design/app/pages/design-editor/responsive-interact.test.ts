@@ -347,17 +347,23 @@ describe("responsive Interact wiring", () => {
   });
 
   it("keeps a focused localhost screen on its live route when returning to Edit", () => {
+    const focusedCanvasStart = source.lastIndexOf("<DesignCanvas");
     const focusedCanvas = source.slice(
-      source.lastIndexOf("<DesignCanvas"),
-      source.indexOf(
-        "onRoutePathChange={handleLiveRoutePathChange}",
-        source.lastIndexOf("<DesignCanvas"),
-      ) + 100,
+      focusedCanvasStart,
+      source.indexOf("publicVisualEdit={", focusedCanvasStart),
     );
-    expect(focusedCanvas).toContain('activeCanvasSourceType === "localhost"');
-    expect(focusedCanvas).toContain("previewUrlAtLiveRoute(");
-    expect(focusedCanvas).toContain("liveRoutePathsByScreenIdRef.current[");
-    expect(focusedCanvas).toContain("activeFile.id");
+    const liveRouteOverride = source.slice(
+      source.indexOf("previewUrlOverride={", focusedCanvasStart),
+      source.indexOf("bridgeUrl={activeScreenBridgeUrl}", focusedCanvasStart),
+    );
+    expect(liveRouteOverride).toContain(
+      'activeCanvasSourceType === "localhost"',
+    );
+    expect(liveRouteOverride).toContain("previewUrlAtLiveRoute(");
+    expect(liveRouteOverride).toContain("liveRoutePathsByScreenIdRef.current[");
+    expect(liveRouteOverride).toContain("activeFile.id");
+    expect(focusedCanvas).toContain("onRoutePathChange={");
+    expect(focusedCanvas).toContain("handleLiveRoutePathChange");
   });
 
   it("uses the selected screen size and the real canvas bounds", () => {

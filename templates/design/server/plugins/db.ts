@@ -445,6 +445,28 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
       name: "design-visual-edit-pending-revision",
       sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 32,
+      name: "design-visual-edit-fallback-snapshots",
+      sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshots (
+    design_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    html TEXT NOT NULL,
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    PRIMARY KEY (design_id, file_id),
+    FOREIGN KEY (design_id) REFERENCES designs(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES design_files(id) ON DELETE CASCADE
+  )`,
+    },
+    {
+      version: 33,
+      name: "design-visual-edit-publisher-ordering",
+      sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS client_revision INTEGER NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "design_migrations" },
 );

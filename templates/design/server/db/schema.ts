@@ -6,7 +6,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { boolean, primaryKey } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -343,6 +343,24 @@ export const designVisualEditPending = table("design_visual_edit_pending", {
     .default("empty"),
   prompt: text("prompt").notNull().default(""),
   revision: integer("revision").notNull().default(0),
+  publisherId: text("publisher_id").notNull().default(""),
+  clientRevision: integer("client_revision").notNull().default(0),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });
+
+export const designVisualEditSnapshots = table(
+  "design_visual_edit_snapshots",
+  {
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fileId: text("file_id")
+      .notNull()
+      .references(() => designFiles.id, { onDelete: "cascade" }),
+    html: text("html").notNull(),
+    updatedAt: text("updated_at").default(now()),
+    ...ownableColumns(),
+  },
+  (t) => [primaryKey({ columns: [t.designId, t.fileId] })],
+);

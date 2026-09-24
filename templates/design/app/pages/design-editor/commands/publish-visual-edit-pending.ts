@@ -18,11 +18,9 @@ export interface PublishVisualEditPendingArgs {
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
   ) => Promise<unknown>;
-  /** The durable action requires editor access; a signed-out or read-only
-   *  visual-edit viewer would always fail it, so this is skipped for them —
-   *  the local bridge POST below is their actual read path and must still
-   *  run unconditionally. */
-  canEditDesign: boolean;
+  /** The durable action verifies editor access or the same-origin live-share
+   *  URL; this only decides whether to attempt that action from the browser. */
+  canPublishDurableHandoff: boolean;
   designId: string;
   fetchImpl: typeof fetch;
   pending: PendingVisualEditHandoff;
@@ -39,7 +37,7 @@ export async function runPublishVisualEditPending(
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
     callAction,
-    canEditDesign,
+    canPublishDurableHandoff,
     designId,
     fetchImpl,
     pending,
@@ -49,7 +47,7 @@ export async function runPublishVisualEditPending(
     showHandoffErrorToast,
   } = args;
   const clearRequested = pending.pending === null;
-  if (canEditDesign) {
+  if (canPublishDurableHandoff) {
     try {
       await callAction("publish-visual-edit-pending", pending);
       setPendingVisualEditPublicationFailed(false);
