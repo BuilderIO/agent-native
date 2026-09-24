@@ -13729,6 +13729,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.groupSelected === next.groupSelected &&
     prev.contentEditable === next.contentEditable &&
     prev.readOnly === next.readOnly &&
+    prev.interactMode === next.interactMode &&
     prev.handlesEnabled === next.handlesEnabled &&
     prev.penActive === next.penActive &&
     prev.creationToolActive === next.creationToolActive &&

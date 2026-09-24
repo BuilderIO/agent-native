@@ -972,6 +972,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       host.style.zIndex = readOnly ? "2147483000" : "2147483647";
       host.style.pointerEvents = "none";
       host.style.overflow = "visible";
+      var themeVars = window.__anEditorBridgeThemeVars;
+      if (themeVars && typeof themeVars === "object") {
+        Object.keys(themeVars).forEach(function(name) {
+          if (typeof themeVars[name] === "string") {
+            host.style.setProperty(name, themeVars[name]);
+          }
+        });
+      }
     }
     function appendEditorChromeNode(node) {
       if (editorChromeNodes.indexOf(node) === -1) {
@@ -17555,7 +17563,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
         readOnly = nextReadOnly;
-        textEditingEnabled = !readOnly && textEditingEnabledFlag;
+        textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
           if (activeTextEditEl) {
             activeTextEditEl.blur();
@@ -17563,11 +17571,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
           setSelectionOverlayResizeChromeVisible(false);
-          shieldOverlay.style.pointerEvents = "auto";
-        } else {
-          setSelectionOverlayResizeChromeVisible(true);
-          shieldOverlay.style.pointerEvents = "auto";
         }
+        shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+        setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+        if (interactionMode) hideSelectionOverlay();
+        else if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
         return;
       }
       if (e.data.type === "set-interaction-mode") {
@@ -17577,13 +17586,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
           if (activeTextEditEl) activeTextEditEl.blur();
+          textEditingEnabled = false;
           setSelectionOverlayResizeChromeVisible(false);
+          hideSelectionOverlay();
           highlightOverlay.style.display = "none";
           marqueeSelectionOverlay.style.display = "none";
           shieldOverlay.style.pointerEvents = "none";
         } else {
+          textEditingEnabled = !readOnly && textEditingEnabledFlag;
           setSelectionOverlayResizeChromeVisible(!readOnly);
           shieldOverlay.style.pointerEvents = "auto";
+          if (selectedEl?.isConnected)
+            positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
         }
         return;
@@ -17592,7 +17606,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextTextEditingEnabledFlag = !!e.data.enabled;
         if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
-        var nextTextEditingEnabled = !readOnly && textEditingEnabledFlag;
+        var nextTextEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (textEditingEnabled === nextTextEditingEnabled) return;
         textEditingEnabled = nextTextEditingEnabled;
         if (!textEditingEnabled && activeTextEditEl) {
@@ -18799,21 +18813,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
-          textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
           if (readOnly) {
             if (activeTextEditEl) activeTextEditEl.blur();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
-            setSelectionOverlayResizeChromeVisible(false);
-            shieldOverlay.style.pointerEvents = "auto";
-          } else {
-            setSelectionOverlayResizeChromeVisible(true);
-            shieldOverlay.style.pointerEvents = "auto";
           }
-        } else {
-          textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
+        textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
+        if (interactionMode) {
+          setSelectionOverlayResizeChromeVisible(false);
+          hideSelectionOverlay();
+          highlightOverlay.style.display = "none";
+          marqueeSelectionOverlay.style.display = "none";
+          shieldOverlay.style.pointerEvents = "none";
+        } else {
+          setSelectionOverlayResizeChromeVisible(!readOnly);
+          shieldOverlay.style.pointerEvents = "auto";
+          if (selectedEl?.isConnected)
+            positionOverlay(selectionOverlay, selectedEl);
+        }
         if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
           activeTextEditEl.blur();
         }

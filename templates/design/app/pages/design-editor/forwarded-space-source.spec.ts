@@ -48,7 +48,7 @@ function loadTransitionHelper(sourcePath: string) {
   ) => unknown;
 }
 
-describe("DesignEditor forwarded Space source handler", () => {
+describe("DesignEditor Space source handler", () => {
   let browser: any;
   let page: any;
   let handlerSource: string;
@@ -65,20 +65,23 @@ describe("DesignEditor forwarded Space source handler", () => {
 
   async function run(
     events: Array<{ type: string; repeat?: boolean; drag?: boolean }>,
+    canEditDesign = true,
   ) {
     return page.evaluate(
       ({
         handlerSource,
         helperSource,
         events,
+        canEditDesign,
       }: {
         handlerSource: string;
         helperSource: string;
         events: Array<{ type: string; repeat?: boolean; drag?: boolean }>;
+        canEditDesign: boolean;
       }) => {
         const spaceForwardArmedRef = { current: false };
         const activeEditorDragRef = { current: false };
-        const canEditDesignRef = { current: true };
+        const canEditDesignRef = { current: canEditDesign };
         const spacePanStashedToolRef: { current: string | null } = {
           current: null,
         };
@@ -163,7 +166,12 @@ describe("DesignEditor forwarded Space source handler", () => {
         window.removeEventListener("blur", handlers.handleWindowBlur);
         return result;
       },
-      { handlerSource, helperSource: transitionHelper.toString(), events },
+      {
+        handlerSource,
+        helperSource: transitionHelper.toString(),
+        events,
+        canEditDesign,
+      },
     );
   }
 
@@ -200,6 +208,26 @@ describe("DesignEditor forwarded Space source handler", () => {
     expect(result.activeTool).toBe("move");
     expect(result.stashedTool).toBeNull();
     expect(result.spacePanActive).toBe(false);
+  });
+
+  it("lets public viewers Space-pan without forwarding edit hotkeys", async () => {
+    const result = await run([{ type: "keydown" }, { type: "keyup" }], false);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.prevented).toEqual([true, true]);
+    expect(result.armed).toBe(false);
+    expect(result.stashedTool).toBeNull();
+    expect(result.activeTool).toBe("move");
+    expect(result.spacePanActive).toBe(false);
+  });
+
+  it("keeps iframe reorder forwarding gated to design editors", async () => {
+    const result = await run([{ type: "keydown", drag: true }], false);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.prevented).toEqual([true]);
+    expect(result.armed).toBe(false);
+    expect(result.stashedTool).toBe("move");
+    expect(result.activeTool).toBe("hand");
+    expect(result.spacePanActive).toBe(true);
   });
 
   it("sends the matching release on blur after a forwarded drag hold", async () => {

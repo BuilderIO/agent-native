@@ -509,10 +509,7 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
 <script data-agent-native-editor-theme>
 (function() {
   var vars = ${serializedVars};
-  var root = document.documentElement;
-  Object.keys(vars).forEach(function(name) {
-    root.style.setProperty(name, vars[name]);
-  });
+  window.__anEditorBridgeThemeVars = vars;
 })();
 </script>
 `;

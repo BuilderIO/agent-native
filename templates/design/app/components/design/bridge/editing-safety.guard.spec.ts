@@ -12,6 +12,111 @@ function editingSafetyBridgeScript(enabled = true): string {
 
 describe("editing safety bridge", () => {
   it(
+    "captures Space-drag in the iframe without forwarding host hotkeys unless enabled",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<iframe id="preview" style="width:640px;height:480px;border:0"></iframe>
+          <script>
+            window.__bridgeMessages = [];
+            window.addEventListener('message', event => window.__bridgeMessages.push(event.data));
+          </script>`);
+        const iframe = page.frames()[1];
+        await iframe.setContent(
+          `<button id="target" style="margin:80px;width:180px;height:80px">Drag</button>`,
+        );
+        await iframe.evaluate(() => {
+          (window as any).__appPointerDowns = 0;
+          (window as any).__appClicks = 0;
+          document
+            .querySelector("#target")
+            ?.addEventListener(
+              "pointerdown",
+              () => (window as any).__appPointerDowns++,
+            );
+          document
+            .querySelector("#target")
+            ?.addEventListener("click", () => (window as any).__appClicks++);
+        });
+        await iframe.addScriptTag({ content: editingSafetyBridgeScript() });
+
+        await iframe.evaluate(() => window.focus());
+        const box = await page
+          .frameLocator("#preview")
+          .locator("#target")
+          .boundingBox();
+        expect(box).not.toBeNull();
+        const x = box!.x + box!.width / 2;
+        const y = box!.y + box!.height / 2;
+
+        await page.mouse.move(x, y);
+        await page.keyboard.down("Space");
+        await page.mouse.down();
+        await page.mouse.move(x + 48, y + 24, { steps: 3 });
+        await page.mouse.up();
+        await page.keyboard.up("Space");
+        await page.waitForTimeout(50);
+
+        const editModeMessages = await page.evaluate(
+          () => (window as any).__bridgeMessages,
+        );
+        const appInteractions = await iframe.evaluate(() => ({
+          pointerDowns: (window as any).__appPointerDowns,
+          clicks: (window as any).__appClicks,
+        }));
+        expect(
+          editModeMessages
+            .filter((message: any) => message.type === "embedded-canvas-pan")
+            .map((message: any) => message.phase),
+        ).toEqual(["start", "move", "move", "move", "end"]);
+        expect(
+          editModeMessages.some(
+            (message: any) => message.type === "design-hotkey",
+          ),
+        ).toBe(false);
+        expect(appInteractions.pointerDowns).toBe(0);
+        expect(appInteractions.clicks).toBe(0);
+
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLIFrameElement>("#preview")
+            ?.contentWindow?.postMessage(
+              {
+                type: "embedded-canvas-gesture-mode",
+                wheelEnabled: false,
+                spaceKeyForwardingEnabled: true,
+              },
+              "*",
+            );
+        });
+        await page.waitForTimeout(0);
+        await page.keyboard.down("Space");
+        await page.mouse.down();
+        await page.mouse.move(x + 72, y + 24, { steps: 2 });
+        await page.mouse.up();
+        await page.keyboard.up("Space");
+        await page.waitForFunction(() =>
+          (window as any).__bridgeMessages.some(
+            (message: any) => message.type === "design-hotkey-up",
+          ),
+        );
+        const forwarded = await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter((message: any) =>
+              ["design-hotkey", "design-hotkey-up"].includes(message.type),
+            )
+            .map((message: any) => message.type),
+        );
+        expect(forwarded).toEqual(["design-hotkey", "design-hotkey-up"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "freezes authored motion, blocks link/form navigation, and reports full reloads",
     { timeout: 30_000 },
     async () => {

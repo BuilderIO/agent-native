@@ -147,6 +147,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     host.style.zIndex = readOnly ? "2147483000" : "2147483647";
     host.style.pointerEvents = "none";
     host.style.overflow = "visible";
+    var themeVars = (window as any).__anEditorBridgeThemeVars;
+    if (themeVars && typeof themeVars === "object") {
+      Object.keys(themeVars).forEach(function (name) {
+        if (typeof themeVars[name] === "string") {
+          host.style.setProperty(name, themeVars[name]);
+        }
+      });
+    }
   }
 
   function appendEditorChromeNode(node: HTMLElement): void {
@@ -24869,7 +24877,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
       readOnly = nextReadOnly;
-      textEditingEnabled = !readOnly && textEditingEnabledFlag;
+      textEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
       if (readOnly) {
         // Leave the text editor gracefully before going read-only.
         if (activeTextEditEl) {
@@ -24878,12 +24887,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clearPendingShieldDrag();
         cancelActiveBridgeDrag();
         setSelectionOverlayResizeChromeVisible(false);
-        // Keep the shield active so the viewer can select and inspect layers.
-        shieldOverlay.style.pointerEvents = "auto";
-      } else {
-        setSelectionOverlayResizeChromeVisible(true);
-        shieldOverlay.style.pointerEvents = "auto";
       }
+      // Preserve the more specific Interact ownership when read-only state is
+      // replayed after a mode change on a retained iframe.
+      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      if (interactionMode) hideSelectionOverlay();
+      else if (selectedEl?.isConnected)
+        positionOverlay(selectionOverlay, selectedEl);
       return;
     }
     // Interact changes pointer ownership in-place. The editor chrome stays
@@ -24895,13 +24906,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clearPendingShieldDrag();
         cancelActiveBridgeDrag();
         if (activeTextEditEl) activeTextEditEl.blur();
+        textEditingEnabled = false;
         setSelectionOverlayResizeChromeVisible(false);
+        hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
         shieldOverlay.style.pointerEvents = "none";
       } else {
+        textEditingEnabled = !readOnly && textEditingEnabledFlag;
         setSelectionOverlayResizeChromeVisible(!readOnly);
         shieldOverlay.style.pointerEvents = "auto";
+        if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
       }
       return;
@@ -24916,7 +24932,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nextTextEditingEnabledFlag = !!e.data.enabled;
       if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
-      var nextTextEditingEnabled = !readOnly && textEditingEnabledFlag;
+      var nextTextEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
       if (textEditingEnabled === nextTextEditingEnabled) return;
       textEditingEnabled = nextTextEditingEnabled;
       // Leaving text-editing-enabled mode: gracefully exit any in-progress
@@ -26667,21 +26684,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
-        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
         if (readOnly) {
           if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
-          setSelectionOverlayResizeChromeVisible(false);
-          shieldOverlay.style.pointerEvents = "auto";
-        } else {
-          setSelectionOverlayResizeChromeVisible(true);
-          shieldOverlay.style.pointerEvents = "auto";
         }
-      } else {
-        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
       }
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      textEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (interactionMode) {
+        setSelectionOverlayResizeChromeVisible(false);
+        hideSelectionOverlay();
+        highlightOverlay.style.display = "none";
+        marqueeSelectionOverlay.style.display = "none";
+        shieldOverlay.style.pointerEvents = "none";
+      } else {
+        setSelectionOverlayResizeChromeVisible(!readOnly);
+        shieldOverlay.style.pointerEvents = "auto";
+        if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
+      }
       if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
         activeTextEditEl.blur();
       }
