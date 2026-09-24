@@ -923,6 +923,48 @@ export type SyncAccountPatch = Partial<{
   labelsUpdatedAt: number;
 }>;
 
+export async function recordInboxPushInvalidation(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<void> {
+  await getDb().insert(schema.mailInboxPushInvalidations).values({
+    id: crypto.randomUUID(),
+    ownerEmail: ownerEmail.toLowerCase(),
+    accountEmail: accountEmail.toLowerCase(),
+  });
+}
+
+export async function readInboxPushInvalidationIds(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<string[]> {
+  const rows = await getDb()
+    .select({ id: schema.mailInboxPushInvalidations.id })
+    .from(schema.mailInboxPushInvalidations)
+    .where(
+      and(
+        eq(
+          schema.mailInboxPushInvalidations.ownerEmail,
+          ownerEmail.toLowerCase(),
+        ),
+        eq(
+          schema.mailInboxPushInvalidations.accountEmail,
+          accountEmail.toLowerCase(),
+        ),
+      ),
+    );
+  return rows.map((row) => row.id);
+}
+
+export async function deleteInboxPushInvalidations(
+  ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  await getDb()
+    .delete(schema.mailInboxPushInvalidations)
+    .where(inArray(schema.mailInboxPushInvalidations.id, ids));
+}
+
 /**
  * Updates one sync-account row. When `opts.claimId` is given, the write is
  * fenced with `AND sync_claim_id = ?` and the return value says whether a row

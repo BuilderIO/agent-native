@@ -123,6 +123,21 @@ export const mailSyncAccounts = table(
   (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
 );
 
+export const mailInboxPushInvalidations = table(
+  "mail_inbox_push_invalidations",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+  },
+  (t) => [
+    index("mail_inbox_push_invalidations_owner_account_idx").on(
+      t.ownerEmail,
+      t.accountEmail,
+    ),
+  ],
+);
+
 /**
  * SQL mirror of each connected account's INBOX threads, kept fresh by
  * `server/lib/inbox-sync.ts`. Metadata only — no bodies, no HTML.

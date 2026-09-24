@@ -11,9 +11,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
+  pushInvalidations: [] as any[],
+  inserts: [] as any[],
   updates: [] as Array<{ table: string; set: any; cond: any }>,
   conflictUpdates: [] as any[],
   deletes: [] as any[],
+  deleteTables: [] as string[],
   lockModes: [] as string[],
   transactions: 0,
   // When true, the next update().set().where().returning() call reports 0
@@ -41,6 +44,12 @@ vi.mock("../db/index.js", () => {
   const schema = {
     mailSyncAccounts: { __name: "mail_sync_accounts" },
     mailInboxThreads: { __name: "mail_inbox_threads" },
+    mailInboxPushInvalidations: {
+      __name: "mail_inbox_push_invalidations",
+      id: "id",
+      ownerEmail: "ownerEmail",
+      accountEmail: "accountEmail",
+    },
   };
 
   function chainable(getRows: () => any[]) {
@@ -64,7 +73,9 @@ vi.mock("../db/index.js", () => {
           chainable(() =>
             table === schema.mailSyncAccounts
               ? dbState.syncAccounts
-              : dbState.threadRows,
+              : table === schema.mailInboxPushInvalidations
+                ? dbState.pushInvalidations
+                : dbState.threadRows,
           ),
       }),
     }),
@@ -80,17 +91,21 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
-    insert: () => ({
-      values: () => ({
-        onConflictDoNothing: async () => undefined,
-        onConflictDoUpdate: async (config: any) => {
-          dbState.conflictUpdates.push(config);
-        },
-      }),
+    insert: (table: any) => ({
+      values: (values: any) => {
+        dbState.inserts.push({ table: table.__name, values });
+        return {
+          onConflictDoNothing: async () => undefined,
+          onConflictDoUpdate: async (config: any) => {
+            dbState.conflictUpdates.push(config);
+          },
+        };
+      },
     }),
-    delete: () => ({
+    delete: (table: any) => ({
       where: async (cond: any) => {
         dbState.deletes.push(cond);
+        dbState.deleteTables.push(table.__name);
       },
     }),
     transaction: async (fn: (tx: any) => Promise<unknown>) => {
@@ -104,8 +119,11 @@ vi.mock("../db/index.js", () => {
 
 import {
   applyLocalLabelDelta,
+  deleteInboxPushInvalidations,
   patchSyncAccount,
+  readInboxPushInvalidationIds,
   readCachedLabels,
+  recordInboxPushInvalidation,
   resetSyncAccountProgress,
   SyncClaimLostError,
   deleteInboxThreadRow,
@@ -139,9 +157,12 @@ function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
 beforeEach(() => {
   dbState.syncAccounts = [];
   dbState.threadRows = [];
+  dbState.pushInvalidations = [];
+  dbState.inserts = [];
   dbState.updates = [];
   dbState.conflictUpdates = [];
   dbState.deletes = [];
+  dbState.deleteTables = [];
   dbState.lockModes = [];
   dbState.transactions = 0;
   dbState.forceNoRowsMatched = false;
@@ -427,6 +448,36 @@ describe("applyLocalLabelDelta", () => {
       expect(dbState.updates[0].set.localMutationFields).toEqual(
         expect.any(Number),
       );
+    });
+  });
+});
+
+describe("Gmail push invalidations", () => {
+  it("records a durable, normalized account marker", async () => {
+    await recordInboxPushInvalidation("Owner@Example.com", "Acct@Example.com");
+
+    expect(dbState.inserts).toHaveLength(1);
+    expect(dbState.inserts[0].table).toBe("mail_inbox_push_invalidations");
+    expect(dbState.inserts[0].values).toMatchObject({
+      ownerEmail: "owner@example.com",
+      accountEmail: "acct@example.com",
+    });
+  });
+
+  it("reads and deletes the exact pending marker snapshot", async () => {
+    dbState.pushInvalidations = [{ id: "push-1" }, { id: "push-2" }];
+
+    const ids = await readInboxPushInvalidationIds(
+      "owner@example.com",
+      "acct@example.com",
+    );
+    await deleteInboxPushInvalidations(ids);
+
+    expect(ids).toEqual(["push-1", "push-2"]);
+    expect(dbState.deleteTables).toEqual(["mail_inbox_push_invalidations"]);
+    expect(dbState.deletes[0]).toMatchObject({
+      op: "inArray",
+      val: ids,
     });
   });
 });

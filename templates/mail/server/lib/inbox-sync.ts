@@ -28,10 +28,12 @@ import {
 import { classifyAutomated } from "./inbox-classify.js";
 import {
   claimSyncAccount,
+  deleteInboxPushInvalidations,
   deleteInboxThreadRow,
   ensureSyncAccountRow,
   markThreadsOutOfInboxBeforeSync,
   patchSyncAccount,
+  readInboxPushInvalidationIds,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
@@ -561,6 +563,7 @@ export async function syncInboxAccount(
     budgetMs?: number;
     force?: boolean;
     connectedAccountEmails?: readonly string[];
+    pushInvalidationIds?: string[];
   },
 ): Promise<InboxSyncAccountStatus> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
@@ -579,6 +582,9 @@ export async function syncInboxAccount(
 
   let row = claim.row;
   try {
+    const pushInvalidationIds =
+      opts?.pushInvalidationIds ??
+      (await readInboxPushInvalidationIds(ownerEmail, accountEmail));
     let client: { accessToken: string; email: string } | null;
     try {
       client = await getClientForConnectedAccount(ownerEmail, accountEmail);
@@ -653,6 +659,8 @@ export async function syncInboxAccount(
         : "idle";
     if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
+    if (accountStatus.state === "ready")
+      await deleteInboxPushInvalidations(pushInvalidationIds);
     await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
     return accountStatus;
   } catch (err) {
@@ -698,8 +706,14 @@ export async function ensureInboxFresh(
   const statuses = await Promise.all(
     emails.map(async (accountEmail) => {
       const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
+      const pushInvalidationIds = await readInboxPushInvalidationIds(
+        ownerEmail,
+        accountEmail,
+      );
       const fresh =
-        row.lastSyncedAt != null && now - row.lastSyncedAt < maxAgeMs;
+        pushInvalidationIds.length === 0 &&
+        row.lastSyncedAt != null &&
+        now - row.lastSyncedAt < maxAgeMs;
       if (fresh) return statusFromRow(row);
       try {
         // Accounts run concurrently and share nothing — each has its own
@@ -707,6 +721,7 @@ export async function ensureInboxFresh(
         return await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
           connectedAccountEmails: accounts,
+          pushInvalidationIds,
         });
       } catch (err) {
         // Belt-and-suspenders: syncInboxAccount already records failures on
@@ -730,18 +745,6 @@ export async function ensureInboxFresh(
       error: boundedErrorMessage(error),
     })),
   ];
-}
-
-export async function markInboxAccountStale(
-  ownerEmail: string,
-  accountEmail: string,
-): Promise<void> {
-  // The stale marker must clear the claim too; sync progress writes are claim-fenced.
-  await patchSyncAccount(ownerEmail, accountEmail, {
-    lastSyncedAt: null,
-    syncClaimId: null,
-    syncClaimedAt: null,
-  });
 }
 
 export async function resetInboxSync(

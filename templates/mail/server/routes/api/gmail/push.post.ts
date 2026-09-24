@@ -12,7 +12,7 @@ import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,
 } from "../../../lib/google-auth.js";
-import { markInboxAccountStale } from "../../../lib/inbox-sync.js";
+import { recordInboxPushInvalidation } from "../../../lib/inbox-store.js";
 
 // Cache Google's public keys for OIDC verification. jose handles TTL + refresh.
 // https://cloud.google.com/pubsub/docs/push#validate_tokens
@@ -123,10 +123,12 @@ export default defineEventHandler(async (event: H3Event) => {
     bumpHistoryWatermark(emailAddress, historyId);
     if (owner) {
       invalidateListCacheForOwner(owner);
-      await markInboxAccountStale(owner, emailAddress);
+      await recordInboxPushInvalidation(owner, emailAddress);
     }
   } catch (err: any) {
     console.warn(`[gmail-push] processing failed: ${err.message}`);
+    setResponseStatus(event, 500);
+    return { ok: false, error: "processing failed" };
   }
 
   return { ok: true };

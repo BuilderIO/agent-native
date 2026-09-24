@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => {
     releaseSyncAccount: vi.fn(),
     patchSyncAccount: vi.fn(),
     resetSyncAccountProgress: vi.fn(),
+    readInboxPushInvalidationIds: vi.fn(),
+    deleteInboxPushInvalidations: vi.fn(),
     upsertInboxThreadRows: vi.fn(),
     deleteInboxThreadRow: vi.fn(),
     markThreadsOutOfInboxBeforeSync: vi.fn(),
@@ -61,6 +63,8 @@ vi.mock("./inbox-store.js", () => ({
   releaseSyncAccount: mocks.releaseSyncAccount,
   patchSyncAccount: mocks.patchSyncAccount,
   resetSyncAccountProgress: mocks.resetSyncAccountProgress,
+  readInboxPushInvalidationIds: mocks.readInboxPushInvalidationIds,
+  deleteInboxPushInvalidations: mocks.deleteInboxPushInvalidations,
   upsertInboxThreadRows: mocks.upsertInboxThreadRows,
   deleteInboxThreadRow: mocks.deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
@@ -71,7 +75,6 @@ vi.mock("./inbox-store.js", () => ({
 
 import {
   ensureInboxFresh,
-  markInboxAccountStale,
   resetInboxSync,
   syncInboxAccount,
 } from "./inbox-sync.js";
@@ -101,18 +104,6 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   };
 }
-
-describe("markInboxAccountStale", () => {
-  it("invalidates freshness and fences an in-flight sync", async () => {
-    await markInboxAccountStale(OWNER, ACCOUNT);
-
-    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(OWNER, ACCOUNT, {
-      lastSyncedAt: null,
-      syncClaimId: null,
-      syncClaimedAt: null,
-    });
-  });
-});
 
 function thread(
   id: string,
@@ -171,6 +162,8 @@ beforeEach(() => {
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
+  mocks.readInboxPushInvalidationIds.mockResolvedValue([]);
+  mocks.deleteInboxPushInvalidations.mockResolvedValue(undefined);
   mocks.withSyncClaim.mockImplementation(
     async (_owner, _account, _claimId, write) => write({}),
   );
@@ -607,6 +600,20 @@ describe("resetInboxSync", () => {
 });
 
 describe("ensureInboxFresh — managed workspace grant", () => {
+  it("syncs a recent account when a push invalidation is pending", async () => {
+    currentRow = baseRow({ historyId: "500", lastSyncedAt: Date.now() });
+    mocks.ensureSyncAccountRow.mockResolvedValue(currentRow);
+    mocks.readInboxPushInvalidationIds.mockResolvedValue(["push-1"]);
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
+
+    const statuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(statuses).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "ready" }),
+    ]);
+    expect(mocks.deleteInboxPushInvalidations).toHaveBeenCalledWith(["push-1"]);
+  });
+
   it("syncs a managed grant even when listOAuthAccountsByOwner reports no accounts", async () => {
     // HIGH review finding: listOAuthAccountsByOwner returning [] must not be
     // read as "disconnected" — getConnectedAccounts (OAuth rows, else the
