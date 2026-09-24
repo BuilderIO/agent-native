@@ -860,7 +860,9 @@ async function executeBackgroundAutomation(
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,
             cacheWriteTokens: usage.cacheWriteTokens,
-            builderCreditsUsed: usage.builderCreditsUsed,
+            ...(usage.builderCreditsUsed == null
+              ? {}
+              : { builderCreditsUsed: usage.builderCreditsUsed }),
             engineName: usage.engineName ?? engine.name,
             model: usage.model,
             label: usageLabel,

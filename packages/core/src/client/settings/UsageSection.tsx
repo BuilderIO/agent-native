@@ -214,15 +214,19 @@ function formatCost(
   if (billing.unit !== "usd") {
     const parts: string[] = [];
     const actual = builderCredits ?? 0;
-    const estimated = estimatedBuilderCredits ?? 0;
+    const estimated =
+      estimatedBuilderCredits ??
+      (typeof builderCredits === "number" || billing.unit === "mixed"
+        ? 0
+        : usageAmount(cents, billing));
     if (actual > 0) {
       parts.push(
-        `${actual.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${t("usage.builderCredits", { defaultValue: "Builder credits" })}`,
+        `${actual.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${t("agentChat.usage.builderCredits", { defaultValue: "Builder credits" })}`,
       );
     }
     if (estimated > 0) {
       parts.push(
-        t("usage.estimatedBuilderCredits", {
+        t("agentChat.usage.estimatedBuilderCredits", {
           defaultValue: "~{{amount}} estimated credits",
           amount: estimated.toLocaleString(undefined, {
             maximumFractionDigits: 3,
@@ -232,7 +236,7 @@ function formatCost(
     }
     if (includeOtherUsd && otherCostCents && otherCostCents > 0) {
       parts.push(
-        t("usage.otherUsdSpend", {
+        t("agentChat.usage.otherUsdSpend", {
           defaultValue: "{{amount}} other USD",
           amount: formatUsdCost(otherCostCents),
         }),
@@ -240,7 +244,9 @@ function formatCost(
     }
     return (
       parts.join(" · ") ||
-      t("usage.noBuilderCredits", { defaultValue: "0 Builder credits" })
+      t("agentChat.usage.noBuilderCredits", {
+        defaultValue: "0 Builder credits",
+      })
     );
   }
   return formatUsdCost(cents);
@@ -399,11 +405,13 @@ function DriverList({
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
           {billing.unit === "mixed"
-            ? t("usage.driverCreditsAndUsd", {
+            ? t("agentChat.usage.driverCreditsAndUsd", {
                 defaultValue: "Builder credits / USD",
               })
             : billing.unit === "builder-credits"
-              ? t("usage.builderCredits", { defaultValue: "Builder credits" })
+              ? t("agentChat.usage.builderCredits", {
+                  defaultValue: "Builder credits",
+                })
               : "Spend"}
         </span>
       </div>
@@ -495,6 +503,7 @@ function AlertEditor({
   onCancel: () => void;
   isPending: boolean;
 }) {
+  const t = useT();
   const channelCount = Number(draft.inApp) + Number(draft.email);
   return (
     <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
@@ -510,7 +519,11 @@ function AlertEditor({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="usd">Dollars</SelectItem>
-              <SelectItem value="builder-credits">Builder credits</SelectItem>
+              <SelectItem value="builder-credits">
+                {t("agentChat.usage.builderCredits", {
+                  defaultValue: "Builder credits",
+                })}
+              </SelectItem>
               <SelectItem value="tokens">Tokens</SelectItem>
             </SelectContent>
           </Select>
@@ -953,11 +966,11 @@ export function UsageSection({
             <MetricCard
               label={
                 billing.unit === "builder-credits"
-                  ? t("usage.builderCredits", {
+                  ? t("agentChat.usage.builderCredits", {
                       defaultValue: "Builder credits",
                     })
                   : billing.unit === "mixed"
-                    ? t("usage.builderCredits", {
+                    ? t("agentChat.usage.builderCredits", {
                         defaultValue: "Builder credits",
                       })
                     : billing.label
@@ -976,11 +989,11 @@ export function UsageSection({
             />
             {billing.unit === "mixed" ? (
               <MetricCard
-                label={t("usage.otherUnclassifiedSpend", {
+                label={t("agentChat.usage.otherUnclassifiedSpend", {
                   defaultValue: "Other or unclassified USD spend",
                 })}
                 value={formatUsdCost(data.totals.otherCostCents ?? 0)}
-                detail={t("usage.providerSpendDetail", {
+                detail={t("agentChat.usage.providerSpendDetail", {
                   defaultValue:
                     "Provider or older calls outside Builder billing",
                 })}
@@ -1019,7 +1032,7 @@ export function UsageSection({
                 {billing.unit === "mixed" &&
                 (data.currentDay.otherCalls ?? 0) > 0 ? (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t("usage.providerSpendToday", {
+                    {t("agentChat.usage.providerSpendToday", {
                       defaultValue:
                         "Other or unclassified usage: {{amount}} today",
                       amount: formatUsdCost(
@@ -1050,7 +1063,7 @@ export function UsageSection({
                 <div>
                   {billing.unit === "mixed" ? (
                     <h3 className="mb-2 text-xs font-medium text-muted-foreground">
-                      {t("usage.builderCredits", {
+                      {t("agentChat.usage.builderCredits", {
                         defaultValue: "Builder credits",
                       })}
                     </h3>
@@ -1061,7 +1074,7 @@ export function UsageSection({
                 (data.totals.otherCostCents ?? 0) > 0 ? (
                   <div>
                     <h3 className="mb-2 text-xs font-medium text-muted-foreground">
-                      {t("usage.otherUnclassifiedSpend", {
+                      {t("agentChat.usage.otherUnclassifiedSpend", {
                         defaultValue: "Other or unclassified USD spend",
                       })}
                     </h3>

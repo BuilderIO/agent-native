@@ -29,7 +29,7 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
-const { recordUsage } = await import("./store.js");
+const { builderCreditsFromCostCents, recordUsage } = await import("./store.js");
 const { listAppUsageMetrics } = await import("./metrics-store.js");
 
 const TABLE_SQL = `CREATE TABLE IF NOT EXISTS token_usage (
@@ -92,6 +92,7 @@ beforeEach(async () => {
     "APP_ID",
     "AGENT_APP",
     "APP_NAME",
+    "AGENT_ENGINE",
   ]) {
     delete process.env[key];
   }
@@ -114,6 +115,32 @@ function recordInOrg(orgId: string, inputTokens: number) {
 }
 
 describe("listAppUsageMetrics organization scoping", () => {
+  it("keeps estimated Builder credits visible while exact reporting is disabled", async () => {
+    process.env.AGENT_ENGINE = "builder";
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-1" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 10_000,
+          outputTokens: 1_000,
+          engineName: "builder",
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me", builderCreditsEnabled: false },
+      { ownerEmail: "a@example.com", orgId: "org-1", app: "" },
+    );
+
+    expect(metrics.billing.unit).toBe("builder-credits");
+    expect(metrics.currentDay.credits).toBe(
+      builderCreditsFromCostCents(metrics.currentDay.costCents),
+    );
+    expect(metrics.currentDay.credits).toBeGreaterThan(0);
+  });
+
   it("counts usage recorded with no request organization context", async () => {
     // recordUsage fills org_id from the active request context, so recurring
     // jobs, automations, and every row written before that column started

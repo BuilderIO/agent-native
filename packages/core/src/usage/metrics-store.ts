@@ -715,7 +715,9 @@ export async function listAppUsageMetrics(
     },
     currentDay: {
       costCents: currentDay.costCents,
-      credits: currentDay.builderCredits ?? 0,
+      credits:
+        currentDay.builderCredits ??
+        builderCreditsFromCostCents(currentDay.costCents),
       ...(builderCreditsEnabled
         ? {
             estimatedBuilderCredits: currentDay.estimatedBuilderCredits ?? 0,
