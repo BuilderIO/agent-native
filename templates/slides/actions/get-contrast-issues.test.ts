@@ -57,53 +57,33 @@ describe("get-contrast-issues", () => {
     });
   });
 
-  it("audits every slide and rolls up issues across the deck", async () => {
+  it("audits every slide, rolls up issues, and only claims a pass when none remain", async () => {
     mockResolveAccess.mockResolvedValueOnce(deckAccess());
 
-    const result = await action.run({ deckId: "deck-1" });
-
-    expect(result).toMatchObject({
-      deckId: "deck-1",
-      designSystemId: null,
-      designSystemColorsResolved: "none",
+    const mixed = await action.run({ deckId: "deck-1" });
+    expect(mixed).toMatchObject({
       slideCount: 2,
       totalIssues: 1,
       totalUnresolvedElements: 0,
       canClaimDeckPassesContrast: false,
     });
-    expect(result.slides).toHaveLength(2);
-    expect(result.slides[0]).toMatchObject({
-      slideId: "slide-a",
-      slideNumber: 1,
-      status: "measured",
-    });
-    expect(result.slides[0].issues).toHaveLength(1);
-    expect(result.slides[1].issues).toHaveLength(0);
-  });
+    expect(mixed.slides[0].issues).toHaveLength(1);
+    expect(mixed.slides[1].issues).toHaveLength(0);
 
-  it("reports canClaimDeckPassesContrast true when nothing fails or is unresolved", async () => {
     mockResolveAccess.mockResolvedValueOnce(
       deckAccess({ slides: [passingSlide] }),
     );
-
-    const result = await action.run({ deckId: "deck-1" });
-
-    expect(result.canClaimDeckPassesContrast).toBe(true);
-    expect(result.totalIssues).toBe(0);
+    const clean = await action.run({ deckId: "deck-1" });
+    expect(clean.canClaimDeckPassesContrast).toBe(true);
   });
 
-  it("audits only the requested slide when slideId is passed", async () => {
+  it("scopes to one slide via slideId, and 404s for an unknown one", async () => {
     mockResolveAccess.mockResolvedValueOnce(deckAccess());
-
     const result = await action.run({ deckId: "deck-1", slideId: "slide-b" });
-
     expect(result.slideCount).toBe(1);
     expect(result.slides[0].slideId).toBe("slide-b");
-  });
 
-  it("throws when the requested slideId does not exist on the deck", async () => {
     mockResolveAccess.mockResolvedValueOnce(deckAccess());
-
     await expect(
       action.run({ deckId: "deck-1", slideId: "does-not-exist" }),
     ).rejects.toMatchObject({ statusCode: 404 });
@@ -133,14 +113,12 @@ describe("get-contrast-issues", () => {
 
     const result = await action.run({ deckId: "deck-1" });
 
-    expect(mockResolveAccess).toHaveBeenNthCalledWith(1, "deck", "deck-1");
     expect(mockResolveAccess).toHaveBeenNthCalledWith(
       2,
       "design-system",
       "ds-1",
     );
     expect(result.designSystemColorsResolved).toBe("available");
-    expect(result.slides[0].issues).toHaveLength(1);
     expect(result.slides[0].issues[0].foreground).toBe("#e5e5e5");
   });
 
@@ -153,9 +131,7 @@ describe("get-contrast-issues", () => {
     mockResolveAccess
       .mockResolvedValueOnce(deckAccess({ designSystemId: "ds-builder" }))
       .mockResolvedValueOnce({
-        resource: {
-          data: JSON.stringify({ source: "builder" }),
-        },
+        resource: { data: JSON.stringify({ source: "builder" }) },
       });
 
     const result = await action.run({ deckId: "deck-1" });

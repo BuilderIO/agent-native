@@ -8,7 +8,6 @@ export interface RgbaColor {
   r: number;
   g: number;
   b: number;
-  /** 0-1 */
   a: number;
 }
 
@@ -69,11 +68,10 @@ function parsePercentOrNumber(token: string, max: number): number {
   return parseFloat(trimmed);
 }
 
-// Matches the rgb/rgba/hsl/hsla functional notations with either comma or
-// space argument syntax. Deliberately does not special-case `var(...)`
-// arguments — by the time a value reaches here it has already been through
-// `resolveCssVarChain`, so a real custom-property reference has already
-// become a literal or was left unresolved on purpose.
+// Does not special-case `var(...)` arguments: by the time a value reaches
+// here it has already been through `resolveCssVarChain`, so a real
+// custom-property reference has already become a literal or was left
+// unresolved on purpose.
 const FUNCTIONAL_COLOR_PATTERN = /^(rgba?|hsla?)\(([^)]+)\)$/i;
 
 function hslToRgb(
