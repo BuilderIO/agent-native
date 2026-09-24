@@ -730,7 +730,7 @@ export async function markInboxAccountStale(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<void> {
-  // Release an older worker so it cannot mark pre-push data fresh on completion.
+  // The stale marker must clear the claim too; sync progress writes are claim-fenced.
   await patchSyncAccount(ownerEmail, accountEmail, {
     lastSyncedAt: null,
     syncClaimId: null,
