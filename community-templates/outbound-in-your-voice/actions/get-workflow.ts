@@ -9,6 +9,8 @@ import { workflow, type WorkflowSnapshot } from "../app/lib/workflow.js";
 
 const WORKFLOW_STATE_KEY = "outbound-in-your-voice:workflow-data";
 const SELECTION_STATE_KEY = "outbound-in-your-voice:workflow-selection";
+const LEGACY_WORKFLOW_STATE_KEY = "workflow-data";
+const LEGACY_SELECTION_STATE_KEY = "workflow-selection";
 
 const workflowSchema = z.object({
   title: z.string(),
@@ -34,7 +36,10 @@ export async function readWorkflowState(): Promise<
   WorkflowSnapshot["workflow"]
 > {
   const stored = await readAppState(WORKFLOW_STATE_KEY);
-  if (stored === null) {
+  const legacyStored =
+    stored === null ? await readAppState(LEGACY_WORKFLOW_STATE_KEY) : null;
+  const value = stored ?? legacyStored;
+  if (value === null) {
     await writeAppState(
       WORKFLOW_STATE_KEY,
       workflow as unknown as Record<string, unknown>,
@@ -42,10 +47,18 @@ export async function readWorkflowState(): Promise<
     return workflow;
   }
 
-  const parsed = workflowSchema.safeParse(stored);
+  const parsed = workflowSchema.safeParse(value);
   if (!parsed.success) {
+    const invalidKey =
+      stored === null ? LEGACY_WORKFLOW_STATE_KEY : WORKFLOW_STATE_KEY;
     throw new Error(
-      `Stored workflow state is invalid. Reset ${WORKFLOW_STATE_KEY} before retrying.`,
+      `Stored workflow state is invalid. Reset ${invalidKey} before retrying.`,
+    );
+  }
+  if (stored === null) {
+    await writeAppState(
+      WORKFLOW_STATE_KEY,
+      parsed.data as unknown as Record<string, unknown>,
     );
   }
   return parsed.data;
@@ -60,7 +73,13 @@ export default defineAction({
   run: async (): Promise<WorkflowSnapshot> => {
     const currentWorkflow = await readWorkflowState();
 
-    const selection = await readAppState(SELECTION_STATE_KEY);
+    let selection = await readAppState(SELECTION_STATE_KEY);
+    if (selection === null) {
+      selection = await readAppState(LEGACY_SELECTION_STATE_KEY);
+      if (selection !== null) {
+        await writeAppState(SELECTION_STATE_KEY, selection);
+      }
+    }
     const selectedId =
       typeof selection?.selectedId === "string" &&
       currentWorkflow.items.some((item) => item.id === selection.selectedId)
