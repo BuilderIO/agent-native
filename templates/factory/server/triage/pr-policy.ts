@@ -423,6 +423,13 @@ export function isDocsOnly(changedFiles: readonly string[]): boolean {
 export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
   return changedFiles.some((file) => {
     const normalized = normalizePath(file);
+    const securityPath = file
+      .trim()
+      .split("\\")
+      .join("/")
+      .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+      .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
+      .toLowerCase();
     return (
       normalized === "agents.md" ||
       normalized === "claude.md" ||
@@ -445,12 +452,14 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/start-builder-for-item.ts") ||
       normalized.endsWith("/agent-chat.ts") ||
       normalized.endsWith("/builder-executor.ts") ||
+      normalized.endsWith("/framework-route-prefix.ts") ||
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith("packages/core/src/client/mcp-apps/") ||
       normalized.startsWith("packages/core/src/mcp/embed-app.") ||
       normalized.startsWith("packages/core/src/mcp/mount-mcp.") ||
       normalized.startsWith("packages/core/src/mcp/build-server.") ||
+      normalized.includes("/scripts/db/") ||
       normalized.startsWith(
         "packages/core/src/client/blocks/library/sanitize-html.",
       ) ||
@@ -459,8 +468,8 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       /(^|\/)(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(?:\.yml)?|turbo\.jsonc?|nx\.json|lerna\.json|dockerfile(?:\..*)?|docker-compose(?:\..*)?|\.nvmrc|\.node-version|vite\.config\..*|webpack\.config\..*|rollup\.config\..*|esbuild\.config\..*|tsconfig(?:\..*)?\.json|makefile)$/i.test(
         normalized,
       ) ||
-      /(^|[\/_-])(?:auth|authentication|authorization|identity|credentials?|secrets?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded)?|iframeembed|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|service[-_]tokens?)([\/_-]|\.|$)/.test(
-        normalized,
+      /(^|[\/_\.-])(?:auth|authorize|authentication|authorization|identity|credentials?|secrets?|keys?|sessions?|permissions?|access|members?|membership|roles?|groups?|grants?|approvals?|scopes?|schemas?|csrf|cors|dependabot|renovate|federation|orgs?|guards?|a2a|webmcp|mcp|tenant|tenants|isolation|security|execution|sandbox|payments?|subscriptions?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded|ding)?|iframeembed|agentnativeembedded|mcp-app-host|connect(?:ion|or)?s?|integrations?|service[-_]tokens?|short[-_]lived[-_]tokens?|realtime[-_]tokens?|internal[-_]tokens?)([\/_-]|\.|$)/.test(
+        securityPath,
       )
     );
   });
