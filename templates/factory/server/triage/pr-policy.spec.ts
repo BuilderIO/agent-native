@@ -481,12 +481,20 @@ describe("pull-request governance", () => {
         ],
       }),
     ).toMatchObject({ ownerException: null, autoApprove: false });
-    expect(
-      decidePullRequestGovernance({
-        ...shomixPullRequest,
-        changedFiles: ["packages/core/src/client/mcp-apps/McpAppRenderer.tsx"],
-      }),
-    ).toMatchObject({ ownerException: null, autoApprove: false });
+    for (const path of [
+      "packages/core/src/client/mcp-apps/McpAppRenderer.tsx",
+      "packages/core/src/mcp/embed-app.ts",
+      "packages/core/src/shared/mcp-embed-headers.ts",
+      "packages/core/src/client/blocks/library/sanitize-html.ts",
+    ]) {
+      expect(isUltraScaryChange([path])).toBe(true);
+      expect(
+        decidePullRequestGovernance({
+          ...shomixPullRequest,
+          changedFiles: [path],
+        }),
+      ).toMatchObject({ ownerException: null, autoApprove: false });
+    }
   });
 
   it("requires complete check evidence while allowing the internal-member exception", () => {

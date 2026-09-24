@@ -220,12 +220,12 @@ describe("McpAppRenderer security helpers", () => {
           readOnly: true,
         }),
       );
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        "Loading MCP App",
-      );
-      expect(container.querySelector("iframe")).toBeNull();
     });
 
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Loading MCP App",
+    );
+    expect(container.querySelector("iframe")).toBeNull();
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")).not.toBeNull(),
     );
