@@ -571,7 +571,7 @@ export function ResourceIconPicker({
         portalled={portalled}
         container={container}
         className={cn(
-          "w-80 max-w-[calc(100vw-1rem)] overflow-hidden p-0",
+          "max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-1rem)] overflow-y-auto p-0",
           className,
           contentClassName,
         )}

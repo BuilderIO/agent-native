@@ -15173,10 +15173,13 @@ function DatabaseViewTabs({
   ) => Promise<void>;
   onViewSelect: (viewId: string) => void;
 }) {
+  const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
   const [addViewOpen, setAddViewOpen] = useState(false);
   const [openViewMenuId, setOpenViewMenuId] = useState<string | null>(null);
+  const [iconPickerViewId, setIconPickerViewId] = useState<string | null>(null);
+  const activeViewTabRef = useRef<HTMLButtonElement>(null);
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
@@ -15344,6 +15347,7 @@ function DatabaseViewTabs({
         const tabButton = (
           <button
             type="button"
+            ref={active && canEdit ? activeViewTabRef : undefined}
             data-database-view-id={view.id}
             aria-label={
               active && canEdit ? `${view.name} view menu` : view.name
@@ -15411,14 +15415,21 @@ function DatabaseViewTabs({
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
               <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
-                <EmojiPicker
-                  icon={view.icon ?? null}
-                  variant="compact"
-                  contentClassName="z-[310]"
-                  defaultIcon={<ViewIcon className="size-4" />}
-                  defaultIconLabel={view.name}
-                  onSelect={(icon) => onViewIconChange(view.id, icon)}
-                />
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpenViewMenuId(null);
+                    setIconPickerViewId(view.id);
+                  }}
+                >
+                  {view.icon ? (
+                    <ContentIcon value={view.icon} size={16} />
+                  ) : (
+                    <ViewIcon className="size-4" />
+                  )}
+                </button>
                 <span className="truncate">{view.name}</span>
               </DropdownMenuLabel>
               {renameViewId === view.id ? (
@@ -15514,6 +15525,17 @@ function DatabaseViewTabs({
                 </>
               )}
             </DropdownMenuContent>
+            <EmojiPicker
+              icon={view.icon ?? null}
+              open={iconPickerViewId === view.id}
+              onOpenChange={(open) =>
+                setIconPickerViewId(open ? view.id : null)
+              }
+              anchored
+              anchorElement={activeViewTabRef.current}
+              contentClassName="z-[310]"
+              onSelect={(icon) => onViewIconChange(view.id, icon)}
+            />
           </DropdownMenu>
         );
       })}
