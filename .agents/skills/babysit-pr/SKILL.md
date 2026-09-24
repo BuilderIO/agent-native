@@ -364,9 +364,10 @@ in the recap rather than treating it as no findings.
      `/ship`, these checks are outside the merge gate and do not reset its
      10-minute soak.
 
-6. **Standalone only:** if everything is green and no new feedback arrives for
-   30 minutes, cancel the loop and report done. Under `/ship`, keep the watcher
-   active and merge when the 10-minute gate holds.
+6. Apply the active mode's endpoint: standalone uses the 30-minute quiet-green
+   stop, `ship_mode=merge-authorized` continues to the guarded merge, and
+   `ship_mode=ready-only` cleans up at the verified ready-PR gate without
+   merging.
 
 ## Responding to feedback
 
@@ -421,12 +422,14 @@ Fix issues that are:
 
 ## Merging
 
-An invocation from `/ship` inherits that skill's explicit merge authorization;
-do not return "All clear" or stop the watcher while its PR is still open.
+In `ship_mode=merge-authorized`, `/babysit-pr` inherits `/ship`'s merge
+authorization; do not return "All clear" or stop the watcher while its PR is
+open. In `ship_mode=ready-only`, never merge; stop at the verified ready-PR
+endpoint, leave the PR open, and clean up the watcher and lease.
 
-Never enable GitHub auto-merge. `/ship` is explicit authorization to admin-merge
-when its gates hold; for a standalone `/babysit-pr`, merge only when the user
-explicitly asks.
+Never enable GitHub auto-merge. In `ship_mode=merge-authorized`, admin-merge
+when the `/ship` gates hold. For standalone `/babysit-pr`, merge only when the
+user explicitly asks. Never merge in `ship_mode=ready-only`.
 
 `/ship-now` is an explicit fast-path exception. When it is invoked, follow
 `ship-now`'s local targeted-recovery gate and immediate admin-merge rule instead
@@ -501,4 +504,17 @@ another owner's lease.
 Verify the PR's final state. Never leave a heartbeat or lease owned by this
 task running after completion.
 
-Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.
+Before stopping or merging, re-run the unaddressed inline-comments command
+above and inspect every review body from the final tick:
+
+```bash
+gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
+  --jq '.[] | select(.body != "") | {id, user: .user.login, state, submitted_at, body}'
+```
+
+Confirm every actionable item in the newest review summaries has a verified
+fix and a reply, or a valid terminal disposition, including items without an
+inline thread. New review feedback resets the merge soak. Do not stop in
+`ready-only` mode or merge in `merge-authorized` mode until both the inline
+thread audit and review-body audit are clear. "I replied earlier" is not
+sufficient; bots may have posted new rounds since.
