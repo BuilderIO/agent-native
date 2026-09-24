@@ -477,6 +477,27 @@ marking the goal complete. In `ship_mode=ready-only`, stop only at the verified
 ready-PR endpoint above, leave the PR open, and complete cleanup without a
 merge or branch rotation. Never stop because a resumed wake lost its mode.
 
+Before the guarded merge or ready-only cleanup, re-run the unaddressed
+inline-comments command and inspect every review body while this task still
+owns its watcher and lease:
+
+```bash
+gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
+  --jq '.[] | select(.body != "") | {id, user: .user.login, state, submitted_at, body}'
+```
+
+Confirm every actionable item in the newest review summaries has a verified
+fix and a reply, or a valid terminal disposition, including items without an
+inline thread. New review feedback resets the merge soak. Do not stop in
+`ready-only` mode or merge in `merge-authorized` mode until both the inline
+thread audit and review-body audit are clear. "I replied earlier" is not
+sufficient; bots may have posted new rounds since. If either final audit finds
+new actionable feedback, keep the watcher and lease, fix it, and restart the
+soak. Pause/release ownership only after the endpoint is reached and both
+audits pass.
+
+## Cleanup
+
 Cleanup has two mutually exclusive paths. If this invocation claimed the PR
 lease but did not create or resume its task-scoped heartbeat, release that lease
 first with the same owner/version `git push --force-with-lease` operation;
@@ -503,18 +524,3 @@ precondition. Never pause or release the legacy shared per-PR identity or
 another owner's lease.
 Verify the PR's final state. Never leave a heartbeat or lease owned by this
 task running after completion.
-
-Before stopping or merging, re-run the unaddressed inline-comments command
-above and inspect every review body from the final tick:
-
-```bash
-gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
-  --jq '.[] | select(.body != "") | {id, user: .user.login, state, submitted_at, body}'
-```
-
-Confirm every actionable item in the newest review summaries has a verified
-fix and a reply, or a valid terminal disposition, including items without an
-inline thread. New review feedback resets the merge soak. Do not stop in
-`ready-only` mode or merge in `merge-authorized` mode until both the inline
-thread audit and review-body audit are clear. "I replied earlier" is not
-sufficient; bots may have posted new rounds since.

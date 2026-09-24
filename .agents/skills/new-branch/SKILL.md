@@ -60,23 +60,44 @@ Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and 
 
 When `/ship` activates this skill after verifying the merge commit on
 `origin/main`, use this path instead of the generic command below. In the
-current user-owned worktree, confirm there are no unpushed commits or dirty
-publishable paths using `/ship`'s existing exclusions; only `learnings.md`,
-`bridge/**`, and `data/**` may remain dirty. Fetch `origin/main`, choose a
-unique name with the Branch naming rules, and create directly from the fetched
-ref:
+current user-owned worktree, confirm there are no unpushed commits on any path
+and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
+may remain dirty. If any unpushed commit remains, keep the source branch checked
+out and report the commit hashes instead of rotating. This preserves commits
+excluded from `/ship:push`. Fetch `origin/main`, choose a unique name with the
+Branch naming rules, and create directly from the fetched ref:
 
 ```bash
-git fetch origin main
-git switch -c <github-username>/changes-N origin/main
+git fetch origin
+branch=$(git branch --show-current)
+if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  if ! unpublished=$(git log --oneline "origin/$branch"..HEAD); then
+    echo "Cannot verify unpublished commits; keep the source branch." >&2
+    exit 1
+  fi
+else
+  if ! unpublished=$(git log --oneline HEAD --not --remotes=origin); then
+    echo "Cannot verify unpublished commits; keep the source branch." >&2
+    exit 1
+  fi
+fi
+if [ -n "$unpublished" ]; then
+  printf '%s\n' "$unpublished"
+  echo "Keeping $branch; report these commits instead of rotating."
+else
+  git switch -c <github-username>/changes-N origin/main
+fi
 ```
+
+This checks all paths; do not use `/ship`'s excluded-path filter for rotation.
 
 Verify the new branch points at current `origin/main` and the excluded local
 changes are still present. Do not check out or pull a local `main`, stash,
 force, reset, or touch another worktree. If Git refuses to carry an excluded
-path, leave the current worktree intact and keep the ship goal active until a
-safe rotation is possible. Platform-assigned Builder.io and Fusion checkouts
-stay on their assigned branches and do not use this path.
+path, leave the current worktree intact. Retaining the source branch because it
+has unpublished commits is a safe branch disposition; platform-assigned
+Builder.io and Fusion checkouts stay on their assigned branches and do not use
+this path.
 
 ## Steps
 

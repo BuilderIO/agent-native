@@ -34,15 +34,19 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   user-owned checkout, after the merge commit is verified on `origin/main`.
   Platform-assigned Builder.io and Fusion branches stay in place. Apply
   `/new-branch`'s naming and safety checks only when rotation is allowed; do not
-  move branches earlier or touch another checkout.
+  move branches earlier or touch another checkout. If unpublished commits
+  remain on any path, retain the source branch and report them; do not strand
+  commits excluded from `ship:push` on the old branch without naming them.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
   is verified, and post-merge branch disposition is complete (rotate only in a
-  user-owned checkout; preserve platform-assigned branches), while checking and
-  fixing CI/review feedback and using the guarded squash-admin merge. If the user explicitly
-  opts out of merging, make the goal match that endpoint. Reuse an existing goal
-  only when it covers this shipment; never replace an unrelated goal. For
+  user-owned checkout with no unpushed commits; otherwise retain the source
+  branch and report the hashes; preserve platform-assigned branches), while
+  checking and fixing CI/review feedback and using the guarded squash-admin
+  merge. If the user explicitly opts out of merging, make the goal match that
+  endpoint. Reuse an existing goal only when it covers this shipment; never
+  replace an unrelated goal. For
   `ship_mode=ready-only`, set the endpoint to an open PR with green required
   checks, addressed review feedback with no new actionable item at final
   revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
@@ -51,26 +55,25 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   wake-ups.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
   a session command, not an agent tool, so the user must submit it as a separate
-  message before invoking `/ship`; loading the skill cannot set it. Use a
-  condition that tells Claude to run `/ship` and continue until the PR is
-  merged, `origin/main` contains the merge commit, and post-merge branch
-  disposition is complete: rotate only in a user-owned checkout, while keeping
-  platform-assigned Builder.io and Fusion branches unchanged. Do not replace an
-  unrelated active goal; Claude Code permits one per session. If `/ship` was
-  already invoked without one, keep shipping in the foreground and do not claim
-  the native goal is active or mark the shipment complete.
-  The `merge-authorized` invocation condition is: `Run /ship through the guarded admin merge,
-  verify origin/main contains the merge commit, then rotate only if the checkout
-  is user-owned; keep platform-assigned Builder.io and Fusion branches unchanged.
-  Keep fixing CI and review feedback until then.`
+  message before invoking `/ship`; loading the skill cannot set it. Submit this
+  condition in a standalone `/goal` message: `Run /ship through the guarded admin merge, verify
+  origin/main contains the merge commit, then finish branch disposition: rotate
+  only in a user-owned checkout with no unpushed commits; otherwise retain the
+  source branch and report the hashes; keep platform-assigned Builder.io and
+  Fusion branches unchanged. Keep checking and fixing CI and review feedback
+  until then.` Do not replace an unrelated active goal; Claude Code permits one
+  per session. If `/ship` was already invoked without one, keep shipping in the
+  foreground; the missing native goal does not block the authorized merge or
+  completion. Do not claim that a native goal is active.
   If the user explicitly opts out of merge, replace that goal with the
   `ready-only` endpoint above; leave the PR open and do not rotate.
   The goal evaluator reads the transcript, so report the live PR state, merge
-  SHA, ancestry proof, and rotation result as they happen. If Claude clears the
-  goal after judging it impossible or an unrecoverable error, or pauses it
-  without reaching the endpoint, that is not success: fix the cause, set the
-  same goal again, and continue. A resumed Claude Code session restores an
-  active goal.
+  SHA, ancestry proof, and branch disposition as they happen. If Claude clears,
+  pauses, or completes the goal before the actual endpoint, state that it is
+  inactive and continue the shipment in the foreground. If the session ends
+  first, give the user the same condition to submit as `/goal` in the next
+  session; do not claim the goal is active or ask the user to interrupt an
+  in-progress shipment to restore it.
 - If the user asks not to create scheduled tasks, keep ship and babysitting in
   the foreground; do not create a separate recurring automation.
 - For a linked GitHub issue, a verified source fix in the merged shipping
