@@ -441,6 +441,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/reconcile-triage-run.ts") ||
       normalized.endsWith("/approve-factory-item.ts") ||
       normalized.endsWith("/govern-factory-pull-request.ts") ||
+      normalized.includes("/require-workspace-member.") ||
       normalized.endsWith("/start-builder-for-item.ts") ||
       normalized.endsWith("/agent-chat.ts") ||
       normalized.endsWith("/builder-executor.ts") ||

@@ -62,15 +62,20 @@ function hasUsableChangedFiles(
   );
 }
 
-export function hasSafeFinalApprovalChecks(
+export function hasSafeFinalApprovalGateEvidence(
   evidence: Parameters<typeof hasCompletePassingChecks>[0],
-  internalBuilderMember: boolean,
+  membership: { afterClaim: boolean; beforeApproval: boolean },
 ): boolean {
-  return hasAcceptableGovernanceCheckEvidence({
-    checksPassed: hasCompletePassingChecks(evidence),
-    checksCoverage: evidence.checksCoverage ?? "unknown",
-    internalBuilderMember,
-  });
+  const internalBuilderMember =
+    membership.afterClaim && membership.beforeApproval;
+  return (
+    internalBuilderMember &&
+    hasAcceptableGovernanceCheckEvidence({
+      checksPassed: hasCompletePassingChecks(evidence),
+      checksCoverage: evidence.checksCoverage ?? "unknown",
+      internalBuilderMember,
+    })
+  );
 }
 
 async function hasVerifiedFactoryRun(input: {
@@ -986,16 +991,36 @@ export default defineAction({
           );
           throw error;
         }
+        let finalAuthorMembership;
+        try {
+          finalAuthorMembership = await github.checkOrganizationMemberById(
+            "BuilderIO",
+            pullRequest.userId,
+            pullRequest.userLogin,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown membership verification error";
+          const reason =
+            "Author membership could not be revalidated immediately before approval; no approval was posted.";
+          await reconcileClaim(
+            pullRequest.headSha,
+            `${reason} ${message} Reconciliation is required before retrying.`,
+          );
+          return { ok: true, action: "needs_manual", reason };
+        }
         if (
           finalApprovals.length > 0 ||
           hasCurrentBlockingPullRequestReview(
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
-          !hasSafeFinalApprovalChecks(
-            finalReviewSnapshot,
-            postClaimInternalMember.isMember,
-          ) ||
+          !hasSafeFinalApprovalGateEvidence(finalReviewSnapshot, {
+            afterClaim: postClaimInternalMember.isMember,
+            beforeApproval: finalAuthorMembership.isMember,
+          }) ||
           finalReviewSnapshot.commentsTruncated ||
           finalReviewSnapshot.reviewsTruncated ||
           hasActiveCredibleSafetyFinding(

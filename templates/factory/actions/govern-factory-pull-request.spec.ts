@@ -33,10 +33,11 @@ vi.mock("../server/triage/metadata.js", () => ({
   serializeTriageMetadata: vi.fn(),
 }));
 
-import { hasSafeFinalApprovalChecks } from "./govern-factory-pull-request.js";
+import { hasSafeFinalApprovalGateEvidence } from "./govern-factory-pull-request.js";
 
 describe("govern-factory-pull-request final check evidence", () => {
-  it("applies the verified internal-member exception without waiving evidence coverage", () => {
+  it("requires membership at both gates and complete check coverage", () => {
+    const membership = { afterClaim: true, beforeApproval: true };
     const failedChecks = {
       checks: [{ name: "Build", state: "failed", observedAt: "now" }],
       checksCoverage: "complete",
@@ -50,18 +51,29 @@ describe("govern-factory-pull-request final check evidence", () => {
       checksCoverage: "partial",
     } as const;
 
-    expect(hasSafeFinalApprovalChecks(failedChecks, true)).toBe(true);
-    expect(hasSafeFinalApprovalChecks(pendingChecks, true)).toBe(true);
-    expect(hasSafeFinalApprovalChecks(incompleteEvidence, true)).toBe(false);
-    expect(hasSafeFinalApprovalChecks(failedChecks, false)).toBe(false);
+    expect(hasSafeFinalApprovalGateEvidence(failedChecks, membership)).toBe(
+      true,
+    );
+    expect(hasSafeFinalApprovalGateEvidence(pendingChecks, membership)).toBe(
+      true,
+    );
     expect(
-      hasSafeFinalApprovalChecks(
+      hasSafeFinalApprovalGateEvidence(incompleteEvidence, membership),
+    ).toBe(false);
+    expect(
+      hasSafeFinalApprovalGateEvidence(failedChecks, {
+        afterClaim: true,
+        beforeApproval: false,
+      }),
+    ).toBe(false);
+    expect(
+      hasSafeFinalApprovalGateEvidence(
         {
           checks: [{ name: "Build", state: "passed", observedAt: "now" }],
           checksCoverage: "complete",
         },
-        false,
+        { afterClaim: true, beforeApproval: false },
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

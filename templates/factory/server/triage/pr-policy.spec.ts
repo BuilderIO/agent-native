@@ -164,6 +164,16 @@ describe("pull-request governance", () => {
       ]),
     ).toBe(true);
     expect(
+      isUltraScaryChange([
+        "templates/factory/server/lib/require-workspace-member.ts",
+      ]),
+    ).toBe(true);
+    expect(
+      isUltraScaryChange([
+        "templates/factory/server/lib/require-workspace-member.spec.ts",
+      ]),
+    ).toBe(true);
+    expect(
       hasActiveCredibleSafetyFinding(
         [{ state: "commented", body: "No security issues found." }],
         [],
@@ -460,6 +470,14 @@ describe("pull-request governance", () => {
         ...shomixPullRequest,
         changedFiles: [
           "templates/factory/actions/govern-factory-pull-request.ts",
+        ],
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        changedFiles: [
+          "templates/factory/server/lib/require-workspace-member.ts",
         ],
       }),
     ).toMatchObject({ ownerException: null, autoApprove: false });
