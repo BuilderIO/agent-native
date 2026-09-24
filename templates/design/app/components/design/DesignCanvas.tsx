@@ -2369,15 +2369,19 @@ export function DesignCanvas({
   // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
   // it can carry the real first-paint value: forwarding that arrives only by
   // postMessage stays dead until the handshake, and is stranded by a swap.
+  const initialInteractModeRef = useRef(interactMode);
   const embeddedGestureBridgeForSrcdoc = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
         "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
-        isEmbeddedFrame && !interactMode ? "true" : "false",
+        isEmbeddedFrame && !initialInteractModeRef.current ? "true" : "false",
       )
         .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
-        .replace("__EDITING_SAFETY_ENABLED__", interactMode ? "false" : "true"),
-    [interactMode, isEmbeddedFrame],
+        .replace(
+          "__EDITING_SAFETY_ENABLED__",
+          initialInteractModeRef.current ? "false" : "true",
+        ),
+    [isEmbeddedFrame],
   );
   const includeLiveEditEditorChrome = !readOnly;
   const liveEditBridgeScript = useMemo(() => {
@@ -3571,15 +3575,13 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
-  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
-  // outside Edit mode. The editor chrome bridge is omitted for Interact mode
-  // so preview/app users can interact with the app normally.
+  // Build the srcdoc. Both mode bridges stay installed; live postMessages
+  // switch pointer ownership without replacing the iframe document.
   //
-  // readOnly and editMode are intentionally NOT deps here: the bridge is
-  // injected whenever !interactMode and the initial __READ_ONLY__ /
-  // __TEXT_EDITING_ENABLED__ placeholders are baked from the *first* render
-  // only (so first paint never flashes the wrong mode). After that, live
-  // readOnly / editMode changes flow through the set-read-only and
+  // readOnly and editMode are intentionally NOT deps here: the initial
+  // __READ_ONLY__ / __TEXT_EDITING_ENABLED__ placeholders are baked from the
+  // first render only (so first paint never flashes the wrong mode). After
+  // that, live readOnly / editMode changes flow through set-read-only and
   // set-text-editing-enabled postMessages (see the useEffects below) so
   // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
   // never rebuilds srcdoc / reloads every screen iframe.
@@ -3589,50 +3591,49 @@ export function DesignCanvas({
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__READ_ONLY__",
-          readOnly ? "true" : "false",
+    const editorChromeBridge =
+      createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+        "__READ_ONLY__",
+        readOnly ? "true" : "false",
+      )
+        .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+        .replace(
+          "__EDITOR_CHROME_SCALE_X__",
+          String(effectiveEditorChromeScaleX),
         )
-          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-          .replace(
-            "__EDITOR_CHROME_SCALE_X__",
-            String(effectiveEditorChromeScaleX),
-          )
-          .replace(
-            "__EDITOR_CHROME_SCALE_Y__",
-            String(effectiveEditorChromeScaleY),
-          )
-          .replace(
-            "__DESIGN_CANVAS_SCREEN_ID__",
-            JSON.stringify(screenId ?? contentKey ?? ""),
-          )
-          .replace(
-            "__DESIGN_CANVAS_BOARD_SURFACE__",
-            boardSurface ? "true" : "false",
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
-          )
-          .replace(
-            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
-          )
-          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-          .replace(
-            "__LIVE_REFLOW_ENABLED__",
-            LIVE_REFLOW_ENABLED ? "true" : "false",
-          )
-          .replace(
-            "__SELECTED_LAYER_DRAG_PRIORITY__",
-            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-          )
-          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
-          );
+        .replace(
+          "__EDITOR_CHROME_SCALE_Y__",
+          String(effectiveEditorChromeScaleY),
+        )
+        .replace(
+          "__DESIGN_CANVAS_SCREEN_ID__",
+          JSON.stringify(screenId ?? contentKey ?? ""),
+        )
+        .replace(
+          "__DESIGN_CANVAS_BOARD_SURFACE__",
+          boardSurface ? "true" : "false",
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+          String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+          String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+        )
+        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+        .replace(
+          "__LIVE_REFLOW_ENABLED__",
+          LIVE_REFLOW_ENABLED ? "true" : "false",
+        )
+        .replace(
+          "__SELECTED_LAYER_DRAG_PRIORITY__",
+          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+        )
+        .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+          inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
+        );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -3696,7 +3697,6 @@ export function DesignCanvas({
     boardSurface,
     fitRootBodyToFrame,
     rawExternalPreviewUrl,
-    interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
     embeddedGestureBridgeForSrcdoc,

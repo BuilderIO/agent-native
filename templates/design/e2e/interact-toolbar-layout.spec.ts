@@ -43,7 +43,29 @@ async function enterInteractAndSampleImmediately(
 
   const fullView = page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
+  const screenShell = fullView.locator("xpath=ancestor::*[@data-screen-shell]");
+  const previewIframe = screenShell.locator(
+    "iframe[data-design-preview-iframe]",
+  );
+  const previewIframeHandle = await previewIframe.elementHandle();
+  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
   await fullView.click();
+  await expect(screenShell).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
+  await expect(
+    page.getByRole("button", { name: "Exit responsive preview" }),
+  ).toBeVisible();
+  expect(
+    await previewIframeHandle.evaluate((before) =>
+      Boolean(
+        before
+          .closest("[data-screen-shell]")
+          ?.querySelector("iframe[data-design-preview-iframe]") === before,
+      ),
+    ),
+  ).toBe(true);
 
   return page.evaluate((labels) => {
     const bounds = (element: Element | null): Rect | null => {
@@ -139,7 +161,7 @@ test("Interact actions clear the right rail at Tiana's 1751×897 viewport", asyn
 }, testInfo) => {
   const snapshot = await enterInteractAndSampleImmediately(page, 1751, 897);
 
-  expect(snapshot.screenShellCount).toBe(0);
+  expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);
   expect(snapshot.rightPanelCount).toBe(0);
   expect(snapshot.bar).not.toBeNull();
@@ -164,7 +186,7 @@ test("Interact height input is unclipped at Damian's 1456×410 viewport", async 
 }, testInfo) => {
   const snapshot = await enterInteractAndSampleImmediately(page, 1456, 410);
 
-  expect(snapshot.screenShellCount).toBe(0);
+  expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);
   expect(snapshot.rightPanelCount).toBe(0);
   expect(snapshot.bar).not.toBeNull();

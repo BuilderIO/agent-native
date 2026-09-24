@@ -34,6 +34,7 @@ export interface ModeChangeArgs {
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
 }
@@ -56,6 +57,7 @@ export function runModeChange(
     setMode,
     setPinMode,
     setSelectedElement,
+    setOverviewInteractScreenId,
     t,
     viewModeRef,
   }: ModeChangeArgs,
@@ -94,6 +96,7 @@ export function runModeChange(
     viewMode: viewModeRef.current,
   });
   if (routing === "enter-single-interact") {
+    setOverviewInteractScreenId(nextActiveFile!.id);
     enterSingleScreen(nextActiveFile?.id);
     return;
   }

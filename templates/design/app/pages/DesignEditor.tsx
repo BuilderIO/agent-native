@@ -1535,7 +1535,9 @@ function DesignEditor() {
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   useEffect(() => {
-    if (viewMode !== "overview" || mode !== "edit") {
+    // An overview-origin Interact view keeps its frame id while the focused
+    // canvas remains on the same mounted MultiScreenCanvas tree.
+    if (viewMode !== "single" || mode !== "interact") {
       setOverviewInteractScreenId(null);
     }
   }, [mode, viewMode]);
@@ -18615,6 +18617,7 @@ function DesignEditor() {
           setMode,
           setPinMode,
           setSelectedElement,
+          setOverviewInteractScreenId,
           t,
           viewModeRef,
         },
@@ -18635,31 +18638,12 @@ function DesignEditor() {
       files,
     ],
   );
-  // The single path that decides per-frame Interact entry: runModeChange
-  // guards the same way for the toolbar/single-screen path, and this is the
-  // only other caller that can flip a frame into Interact
-  // (handleFrameInteract, the locked-screen double-click, and
-  // handleOverviewEditBreakpoint all funnel through here). Leaving Interact
-  // (re-clicking the active frame) is always allowed. Reads refs rather than
-  // depending on the pending-edit arrays or overviewInteractScreenId itself
-  // so this stays the one stable callback every Screen instance shares
-  // (PF18) instead of invalidating memo(Screen) on every pending edit.
+  // Frame-button entry uses the same mode guard as the toolbar and screen list.
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => {
-      if (overviewInteractScreenIdRef.current === screenId) {
-        setOverviewInteractScreenId(null);
-        return;
-      }
-      if (
-        pendingVisualStyleEditsRef.current.length > 0 ||
-        pendingLiveNonStyleEditsRef.current.length > 0
-      ) {
-        toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
-        return;
-      }
-      setOverviewInteractScreenId(screenId);
+      handleModeChange("interact", { targetFileId: screenId });
     },
-    [t],
+    [handleModeChange],
   );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
@@ -28373,13 +28357,23 @@ function DesignEditor() {
                       </div>
                     </div>
                   ) : null}
-                  {viewMode === "overview" ? (
+                  {viewMode === "overview" ||
+                  (responsiveInteractActive &&
+                    overviewInteractScreenId === activeFileId) ? (
                     <>
                       {/* ── Render: overview canvas ── */}
                       <MultiScreenCanvas
                         screens={overviewScreens}
-                        zoom={overviewCanvasZoom}
-                        onZoomChange={setExplicitOverviewCanvasZoom}
+                        zoom={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? interactZoom
+                            : overviewCanvasZoom
+                        }
+                        onZoomChange={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? undefined
+                            : setExplicitOverviewCanvasZoom
+                        }
                         cameraCommand={cameraCommand}
                         suppressLineupRecenter={suppressLineupRecenter}
                         preserveCameraOnScreenCountChange={
@@ -28402,8 +28396,19 @@ function DesignEditor() {
                         fullViewScreenIds={fullViewScreenIds}
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
-                        interactMode={mode === "interact"}
-                        interactScreenId={overviewInteractScreenId}
+                        interactMode={
+                          mode === "interact" && !overviewInteractScreenId
+                        }
+                        interactScreenId={
+                          responsiveInteractActive
+                            ? overviewInteractScreenId
+                            : null
+                        }
+                        focusedInteractViewport={
+                          responsiveInteractActive && overviewInteractScreenId
+                            ? interactDeviceSize
+                            : null
+                        }
                         readOnly={!canEditDesign}
                         editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={

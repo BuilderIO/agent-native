@@ -35,6 +35,7 @@ function makeArgs() {
     setMode: vi.fn(),
     setPinMode: vi.fn(),
     setSelectedElement: vi.fn(),
+    setOverviewInteractScreenId: vi.fn(),
     t: (key: string) => key,
     viewModeRef: { current: "overview" as const },
   } as unknown as Parameters<typeof runModeChange>[0];
@@ -60,5 +61,8 @@ describe("runModeChange Interact navigation", () => {
     runModeChange(args, "interact", { targetFileId: targetFile.id });
 
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
+      targetFile.id,
+    );
   });
 });
