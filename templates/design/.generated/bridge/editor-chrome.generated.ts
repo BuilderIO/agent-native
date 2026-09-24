@@ -18119,8 +18119,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextInteractionMode = e.data.interact === true;
         interactionMode = nextInteractionMode;
         if (interactionMode) {
+          var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
+          if (releaseSpacePan) {
+            bridgeSpaceKeyPressed = false;
+            bridgeSpaceKeyConsumedByDrag = false;
+            window.parent.postMessage(
+              { type: "design-hotkey-up", key: " ", code: "Space" },
+              "*"
+            );
+          }
           if (activeTextEditEl) activeTextEditEl.blur();
           textEditingEnabled = false;
           setSelectionOverlayResizeChromeVisible(false);

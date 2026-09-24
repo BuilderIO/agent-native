@@ -2163,7 +2163,7 @@ it(
       page.on("pageerror", (err) => pageErrors.push(err.message));
       await page.setContent(`<!doctype html>
 <html><head><style>html,body{margin:0;width:100%;height:100%}#spaces,#target{position:absolute;width:160px;height:60px}#spaces{left:120px;top:140px}#target{left:360px;top:140px}</style></head>
-<body><a id="spaces" href="#spaces-destination">Spaces</a><div id="target">Target</div></body></html>`);
+<body><a id="spaces" href="#spaces-destination">Spaces</a><div id="target">Target</div><script>window.__bridgeMessages=[];window.addEventListener('message',event=>window.__bridgeMessages.push(event.data));</script></body></html>`);
       await page.evaluate(() => {
         (
           window as Window & {
@@ -2202,6 +2202,13 @@ it(
       expect(outlineColorBeforeHydration.hostAccent).toBe("hsl(205 100% 53%)");
       expect(outlineColorBeforeHydration.outline).toBe("rgb(15, 155, 255)");
 
+      await page.keyboard.down("Space");
+      await page.waitForFunction(() =>
+        (window as any).__bridgeMessages.some(
+          (message: any) =>
+            message.type === "design-hotkey" && message.code === "Space",
+        ),
+      );
       await page.evaluate(() => {
         window.postMessage(
           { type: "set-interaction-mode", interact: true },
@@ -2216,6 +2223,17 @@ it(
         );
         return shield?.style.pointerEvents === "none";
       });
+      expect(
+        await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter(
+              (message: any) =>
+                message.code === "Space" &&
+                ["design-hotkey", "design-hotkey-up"].includes(message.type),
+            )
+            .map((message: any) => message.type),
+        ),
+      ).toEqual(["design-hotkey", "design-hotkey-up"]);
       await page.evaluate(() => {
         const bridge = (window as any).__anEditorChromeBridgeInstance;
         bridge.updateConfig({ readOnly: true, textEditingEnabled: true });
@@ -2252,6 +2270,7 @@ it(
         );
         return selection && getComputedStyle(selection).display === "block";
       });
+      await page.keyboard.up("Space");
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
