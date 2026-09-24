@@ -5429,6 +5429,13 @@ export function DesignCanvas({
   // Routed through the one-shot queue too: a zoom settle that lands while the
   // iframe is mid-reload would otherwise be silently dropped, leaving the
   // chrome at a stale scale until the next zoom change.
+  //
+  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
+  // embedded-canvas-gesture-mode effect below: a document swap resets
+  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
+  // message if it queued before the swap. Without this dep, a URL-backed frame
+  // that loads at a non-1 overview scale never gets a live scale push after the
+  // swap (only the baked-at-1 script value applies) until the next zoom change.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "set-editor-chrome-scale",
@@ -5439,6 +5446,7 @@ export function DesignCanvas({
     effectiveEditorChromeScaleX,
     effectiveEditorChromeScaleY,
     postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
   ]);
 
   // Overview/focused placement is presentation state, not document identity.

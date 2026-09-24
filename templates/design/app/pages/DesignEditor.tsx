@@ -734,6 +734,7 @@ import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
+import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import {
   commitPendingLiveStructureEdits,
@@ -1447,6 +1448,10 @@ function DesignEditor() {
   const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
     string | null
   >(null);
+  const overviewInteractScreenIdRef = useRef(overviewInteractScreenId);
+  useEffect(() => {
+    overviewInteractScreenIdRef.current = overviewInteractScreenId;
+  }, [overviewInteractScreenId]);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -18621,11 +18626,32 @@ function DesignEditor() {
       files,
     ],
   );
-  const handleOverviewFrameAction = useCallback((screenId: string) => {
-    setOverviewInteractScreenId((current) =>
-      current === screenId ? null : screenId,
-    );
-  }, []);
+  // The single path that decides per-frame Interact entry: runModeChange
+  // guards the same way for the toolbar/single-screen path, and this is the
+  // only other caller that can flip a frame into Interact
+  // (handleFrameInteract, the locked-screen double-click, and
+  // handleOverviewEditBreakpoint all funnel through here). Leaving Interact
+  // (re-clicking the active frame) is always allowed. Reads refs rather than
+  // depending on the pending-edit arrays or overviewInteractScreenId itself
+  // so this stays the one stable callback every Screen instance shares
+  // (PF18) instead of invalidating memo(Screen) on every pending edit.
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (overviewInteractScreenIdRef.current === screenId) {
+        setOverviewInteractScreenId(null);
+        return;
+      }
+      if (
+        pendingVisualStyleEditsRef.current.length > 0 ||
+        pendingLiveNonStyleEditsRef.current.length > 0
+      ) {
+        toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
+        return;
+      }
+      setOverviewInteractScreenId(screenId);
+    },
+    [t],
+  );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -19915,54 +19941,23 @@ function DesignEditor() {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
-    const clearRequested = pending.pending === null;
-    const publish = async () => {
-      try {
-        await callAction("publish-visual-edit-pending", pending);
-        setPendingVisualEditPublicationFailed(false);
-        if (
-          clearRequested &&
-          pendingVisualEditClearRequestedRef.current === id
-        ) {
-          pendingVisualEditClearRequestedRef.current = null;
-          pendingVisualEditHadPendingRef.current = null;
-        }
-      } catch (error) {
-        console.error(
-          "[design:visual-edit] durable handoff publication failed",
-          error,
-        );
-        setPendingVisualEditPublicationFailed(true);
-        toast.error(t("designEditor.toasts.codingHandoffError"), {
-          id: "design-visual-edit-pending-publication",
-        });
-      }
-
-      if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-      try {
-        const response = await fetch(
-          `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-design-preview-token": activeScreenPreviewToken,
-            },
-            body: JSON.stringify(pending.pending),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Bridge returned HTTP ${response.status}`);
-        }
-      } catch (error) {
-        // The bridge is optional for static screens; durable MCP publication
-        // remains authoritative when the local app is offline.
-        console.warn(
-          "[design:visual-edit] local bridge handoff publication failed",
-          error,
-        );
-      }
-    };
+    const publish = () =>
+      runPublishVisualEditPending({
+        activeScreenBridgeUrl,
+        activeScreenPreviewToken,
+        callAction,
+        canEditDesign,
+        designId: id,
+        fetchImpl: fetch,
+        pending,
+        pendingVisualEditClearRequestedRef,
+        pendingVisualEditHadPendingRef,
+        setPendingVisualEditPublicationFailed,
+        showHandoffErrorToast: () =>
+          toast.error(t("designEditor.toasts.codingHandoffError"), {
+            id: "design-visual-edit-pending-publication",
+          }),
+      });
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
         .catch((error) => {
@@ -19975,6 +19970,7 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    canEditDesign,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
