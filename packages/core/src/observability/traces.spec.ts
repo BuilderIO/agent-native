@@ -908,7 +908,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"';
+      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -953,6 +953,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
     expect(JSON.stringify(events[0])).not.toContain("compound-secret");
     expect(JSON.stringify(events[0])).not.toContain("provider-camel-secret");
+    expect(JSON.stringify(events[0])).not.toContain("second-line-secret");
     expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
     // The output side says withheld rather than going absent: an empty
     // `$ai_output_state` reads as a tool that returned nothing, which is a
@@ -982,6 +983,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(persistedError).not.toContain("compound-secret");
     expect(persistedError).not.toContain("compound-private-key");
     expect(persistedError).not.toContain("provider-camel-secret");
+    expect(persistedError).not.toContain("second-line-secret");
     expect(persistedError).not.toContain("not-a-real-private-key");
     expect(persistedError).toContain('client_secret="[REDACTED]"');
     expect(persistedError).toContain("private_key=[REDACTED]");
