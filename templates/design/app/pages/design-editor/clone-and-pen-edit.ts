@@ -62,6 +62,11 @@ function restoreClosedPenPathPaint(path: SVGPathElement): void {
     path.removeAttribute("fill-opacity");
   } else if (originalFillOpacity?.startsWith("value:")) {
     path.setAttribute("fill-opacity", originalFillOpacity.slice(6));
+  } else if (
+    originalFillOpacity === null &&
+    path.getAttribute("fill-opacity") === "0"
+  ) {
+    path.removeAttribute("fill-opacity");
   }
   if (originalFillOpacity !== null) {
     path.removeAttribute(OPEN_FILL_OPACITY_MARKER);

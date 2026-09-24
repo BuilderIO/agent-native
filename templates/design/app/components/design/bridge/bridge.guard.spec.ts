@@ -5254,6 +5254,21 @@ describe("editor chrome bridge — text editing session", () => {
         await page.waitForSelector("[data-agent-native-text-editing]", {
           state: "detached",
         });
+        const restoredChrome = await page.evaluate(() => ({
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+          visibleHandles: Array.from(
+            document.querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display !== "none")
+            .length,
+        }));
+        expect(restoredChrome.shieldPointerEvents).toBe("auto");
+        expect(restoredChrome.visibleHandles).toBeGreaterThan(0);
         expect(pageErrors).toEqual([]);
       } finally {
         await browser.close();

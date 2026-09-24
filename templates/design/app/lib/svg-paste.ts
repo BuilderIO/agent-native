@@ -94,9 +94,14 @@ const DEF_TAGS = new Set(
 const GROUP_EFFECT_ATTRIBUTES = ["clip-path", "mask", "filter"];
 const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/gi;
 
+function removeCssLineContinuations(value: string): string {
+  return value.replace(/\\(?:\r\n|[\n\r\f])/g, "");
+}
+
 function normalizeCssTokens(value: string): string {
   const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
-  return uncommented.replace(
+  const withoutLineContinuations = removeCssLineContinuations(uncommented);
+  return withoutLineContinuations.replace(
     /\\([\da-f]{1,6})\s?|\\(.)/gi,
     (_, hex, escaped) => {
       if (!hex) return escaped;
@@ -122,7 +127,7 @@ function sanitizeExternalUrlReferences(value: string): string {
 
 function sanitizeStyleAttribute(value: string): string | null {
   try {
-    const root = postcss.parse(`svg{${value}}`);
+    const root = postcss.parse(`svg{${removeCssLineContinuations(value)}}`);
     root.walkDecls((declaration) => {
       declaration.value = sanitizeExternalUrlReferences(declaration.value);
     });
@@ -141,7 +146,9 @@ function sanitizeStyleAttribute(value: string): string | null {
 
 function sanitizeStyleSheet(styleElement: Element): void {
   try {
-    const root = postcss.parse(styleElement.textContent ?? "");
+    const root = postcss.parse(
+      removeCssLineContinuations(styleElement.textContent ?? ""),
+    );
     root.walkAtRules((rule) => {
       if (normalizeCssTokens(rule.name).toLowerCase() === "import") {
         rule.remove();
@@ -207,7 +214,12 @@ export function svgLayerName(fileName: string): string {
 }
 
 function parseSvgRoot(markup: string): SVGSVGElement | null {
-  const doc = new DOMParser().parseFromString(markup, "image/svg+xml");
+  // XML normalizes attribute line breaks before the CSS sanitizer sees them.
+  const sanitizedMarkup = markup.replace(
+    /<(?:"[^"]*"|'[^']*'|[^'">])*?>/g,
+    removeCssLineContinuations,
+  );
+  const doc = new DOMParser().parseFromString(sanitizedMarkup, "image/svg+xml");
   if (
     doc.querySelector("parsererror") ||
     doc.documentElement.localName !== "svg"

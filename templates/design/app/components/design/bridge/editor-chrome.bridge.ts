@@ -27771,11 +27771,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         typeof next.textEditingEnabled === "boolean"
           ? next.textEditingEnabled
           : textEditingEnabledFlag;
-      var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
         if (readOnly) {
-          if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
         }
@@ -27783,6 +27781,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+        activeTextEditEl.blur();
+      }
       if (interactionMode) {
         setSelectionOverlayResizeChromeVisible(false);
         hideSelectionOverlay();
@@ -27794,9 +27795,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         shieldOverlay.style.pointerEvents = activeTextEditEl ? "none" : "auto";
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
-      }
-      if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-        activeTextEditEl.blur();
       }
       if (typeof next.screenId === "string") {
         designCanvasScreenId = next.screenId;

@@ -410,6 +410,34 @@ describe("nested Pen path commits", () => {
 });
 
 describe("continuing a committed open Pen path", () => {
+  it("removes legacy synthetic zero fill opacity when closing an open path", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="legacy" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-an-pen-nodes="${serializePenNodes(openPath)}" d="${serializePenPath(openPath)}"
+        fill="none" fill-opacity="0" stroke="#000000" />
+    </svg>`;
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "legacy",
+      closePenPath(openPath),
+    );
+    const closedPath = new DOMParser()
+      .parseFromString(closed!, "text/html")
+      .querySelector("path");
+
+    expect(closedPath?.getAttribute("fill-opacity")).toBeNull();
+    expect(closedPath?.getAttribute("stroke")).toBe("#000000");
+  });
+
   it("appends and closes in place while preserving stroke-only paint", () => {
     const path: PenPath = {
       closed: false,

@@ -19627,17 +19627,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
         var nextTextEditingEnabledFlag = typeof next.textEditingEnabled === "boolean" ? next.textEditingEnabled : textEditingEnabledFlag;
-        var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
-            if (activeTextEditEl) activeTextEditEl.blur();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
+        if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+          activeTextEditEl.blur();
+        }
         if (interactionMode) {
           setSelectionOverlayResizeChromeVisible(false);
           hideSelectionOverlay();
@@ -19649,9 +19650,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           shieldOverlay.style.pointerEvents = activeTextEditEl ? "none" : "auto";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
-        }
-        if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-          activeTextEditEl.blur();
         }
         if (typeof next.screenId === "string") {
           designCanvasScreenId = next.screenId;

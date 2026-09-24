@@ -236,6 +236,31 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(closedPath).toContain('data-testid="base-fill-color-input"');
   });
 
+  it("keeps an authored vector gradient visible on an open Pen path", () => {
+    const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          vectorStrokeCanAlign: false,
+          computedStyles: {
+            fill: "url(#vector-fill-gradient)",
+            fillOpacity: "0",
+          },
+          inlineStyles: { "--an-vector-fill-gradient": gradient },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-testid="base-fill-color-input"');
+    expect(markup).toContain(`data-value="${gradient}"`);
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial"',
+    );
+  });
+
   it("offers native linear and radial fill paints for SVG shapes", () => {
     const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
     const markup = renderToStaticMarkup(

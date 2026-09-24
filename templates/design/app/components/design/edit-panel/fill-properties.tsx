@@ -333,9 +333,7 @@ export function FillProperties({
     (isTextFillElement && isMixedValue(styles.backgroundClip));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
-  const authoredFill = element.inlineStyles?.[fillProperty]
-    ?.trim()
-    .toLowerCase();
+  const authoredFill = authoredFillValue?.trim().toLowerCase();
   const isOpenPenPath =
     element.tagName.toLowerCase() === "svg" &&
     element.primitiveKind === "path" &&

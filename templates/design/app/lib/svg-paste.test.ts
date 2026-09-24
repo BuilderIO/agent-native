@@ -178,6 +178,38 @@ describe("buildPastedSvgLayer", () => {
     expect(layer.html).not.toContain("https://example.com");
   });
 
+  it("removes external URLs obscured by CSS escaped newlines", () => {
+    for (const lineBreak of ["\n", "\r\n"]) {
+      const lineContinuation = "\\" + lineBreak;
+      const measuredRoots: SVGSVGElement[] = [];
+      buildPastedSvgLayer(
+        `<svg width="10" height="10">
+        <style>.shape { fill: u${lineContinuation}rl(https://example.com/paint.svg); stroke: red }</style>
+        <rect class="shape" width="10" height="10"
+          filter="url(${lineContinuation}https://example.com/filter.svg)"
+          style="clip-path:u${lineContinuation}rl(https://example.com/clip.svg);stroke:blue" />
+      </svg>`,
+        "Logo",
+        (root) => {
+          measuredRoots.push(root);
+          return measureAll(fill("red"))(root);
+        },
+      );
+
+      const root = measuredRoots[0]!;
+      const rect = root.querySelector("rect")!;
+      expect(rect.hasAttribute("filter")).toBe(false);
+      expect(rect.getAttribute("style")).toContain("stroke: blue");
+      expect(rect.getAttribute("style")).not.toContain("clip-path");
+      expect(
+        root.ownerDocument.querySelector("style")?.textContent,
+      ).not.toContain("example.com");
+      expect(root.ownerDocument.querySelector("style")?.textContent).toContain(
+        "stroke: red",
+      );
+    }
+  });
+
   it("keeps safe stylesheet declarations and rules around external URLs", () => {
     const measuredRoots: SVGSVGElement[] = [];
     buildPastedSvgLayer(
