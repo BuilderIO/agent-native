@@ -1,0 +1,81 @@
+---
+title: "Content: Escrevendo e organizando documentos"
+description: "Como escrever, formatar, organizar, comentar e compartilhar documentos no Content — para qualquer pessoa que use o aplicativo no dia a dia."
+---
+
+# Escrevendo e organizando documentos
+
+Esta página cobre as tarefas do dia a dia no Content: escrever e formatar uma página, organizar suas páginas em uma árvore, comentar com colegas de equipe, voltar a uma versão anterior e controlar quem pode ver um documento. É escrita para qualquer pessoa que use o aplicativo, não apenas desenvolvedores.
+
+## Escrevendo e formatando
+
+Digite `/` em uma linha vazia para abrir o menu de barra e inserir títulos, listas com marcadores ou numeradas, tabelas, imagens, divisores e callouts. Ative os blocos avançados de código, layout, visuais ou de documentação para desenvolvedores em **Configurações → Labs** antes de inseri-los. Selecione qualquer texto para abrir uma barra de formatação para negrito, itálico, links e código inline.
+
+- Imagens podem ser arrastadas ou coladas; o Content faz o upload automaticamente para o armazenamento de arquivos configurado.
+- Fórmulas matemáticas são renderizadas como equações reais — digite matemática inline entre marcas `` $` `` ou uma equação em bloco entre linhas `$$`, e o editor exibe o resultado formatado mantendo a notação original no documento.
+- Peça ao agente em vez de formatar manualmente: "adicione um callout de aviso sobre o endpoint obsoleto", "transforme esta lista em uma tabela" ou "torne este título de nível 2". Depois de salvar uma edição, o Content mantém aquela versão. Um rascunho de recuperação tardio não substitui a alteração salva nem a exibe como uma edição externa.
+
+## Organizando suas páginas
+
+Escolha **Página** ou **Coleção** no menu **+** no topo, em qualquer estado da barra lateral. Pressione Escape para cancelar. Se você criar um item a partir de uma linha em outro espaço de trabalho, aguarde esse espaço de trabalho carregar primeiro. Toda página vive em uma árvore na barra lateral. Arraste uma página para reordená-la ou aninhá-la sob outra página como subpágina. Marque uma página com estrela para fixá-la em **Favoritos** no topo da barra lateral.
+
+Use a caixa de busca (ou peça ao agente para "encontrar minhas anotações da reunião da semana passada") para pesquisar títulos e conteúdo em todas as páginas que você pode ver, com um trecho de prévia para cada correspondência. Os resultados são classificados por relevância, então uma correspondência forte de título aparece antes de um documento recente que só menciona os termos de busca no corpo do texto.
+
+## Comentários
+
+Selecione um trecho e deixe um comentário da mesma forma que faria no Notion ou no Google Docs. O texto comentado recebe um destaque em vez de qualquer alteração no corpo do documento, então a página fica com a leitura exatamente igual depois. Os comentários suportam @menções de colegas de equipe, respostas em thread e um alternador de resolver/reabrir. Threads resolvidos são recolhidos em uma seção "Resolvido" na barra lateral para não atrapalhar uma revisão ativa.
+
+<Callout tone="info">
+
+Se um trecho comentado for editado depois, o destaque acompanha o texto ao redor em vez de ficar fixo em uma posição. Se o texto exato chegar a ser excluído, a thread do comentário continua acessível pela barra lateral em vez de desaparecer.
+
+</Callout>
+
+## Histórico de versões
+
+O Content mantém um instantâneo de uma página toda vez que ela muda significativamente. Abra o histórico de versões de uma página para ver instantâneos anteriores e restaurar um deles.
+
+<Callout tone="warning">
+
+Restaurar substitui totalmente o conteúdo atual pelo conteúdo daquela versão. Não há diff linha a linha nem restauração parcial, então revise o instantâneo antes de restaurá-lo.
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Lista de verificação de lançamento</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>Responsável: Priya · Status: Em revisão</div><p style='margin:0' class='wf-muted'>O plano de reversão está documentado abaixo.</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>Histórico de versões</strong><span class='wf-pill'>Hoje, 14:14</span><span class='wf-pill'>Ontem, 17:02</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Compartilhamento e visibilidade
+
+Documentos são **privados por padrão** — só você pode ver uma página que você cria. Para compartilhar uma, abra a caixa de diálogo de compartilhamento, ou peça ao agente para "compartilhar este documento com a equipe como editor":
+
+<Steps>
+
+### Defina quem pode vê-lo
+
+Mude a visibilidade para **organização**, para que qualquer pessoa na sua organização possa abri-lo, ou para **público**, para que qualquer pessoa com o link possa abri-lo em uma URL pública somente leitura.
+
+### Conceda um papel
+
+Conceda a pessoas específicas, ou a toda a sua organização, o papel de **visualizador**, **editor** ou **administrador**.
+
+### Opcionalmente, oculte-o da busca
+
+Torne uma página visível para a organização não detectável: ela permanece aberta para quem tem o link, mas some da busca em toda a organização e da lista da barra lateral. Use isso para páginas que existem como referência, mas não deveriam aparecer na navegação do dia a dia.
+
+</Steps>
+
+Páginas públicas oferecem um chat somente leitura para visitantes. Eles podem fazer perguntas sobre o conteúdo da página, mas não podem criar, editar, comentar ou compartilhar nada por meio dele.
+
+## Próximos passos
+
+- [Visão geral do Content](/docs/template-content) — o que é o aplicativo e como começar
+- [Coleções, propriedades e formulários](/docs/template-content-databases) — transformando uma página em uma tabela estruturada
+- [Arquivos locais, sincronização com Notion e Builder CMS](/docs/template-content-sync) — editando as mesmas páginas fora do aplicativo
+- [Compartilhamento](/docs/sharing) — o modelo de concessão de compartilhamento em todo o framework no qual os papéis desta página se baseiam
+- [Colaboração em tempo real](/docs/real-time-collaboration) — como edições simultâneas de pessoas e do agente se fundem ao vivo

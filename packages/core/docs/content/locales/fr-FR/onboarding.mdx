@@ -73,11 +73,22 @@ infrastructure et ajoutez des fournisseurs uniquement lorsque vous en avez besoi
 - L'ensemble du panneau peut être réduit avec le chevron en haut à droite, ou
   entièrement masqué avec **Masquer la configuration** en bas.
 
+<Callout tone="info">
+
+Dans un espace de travail multi-applications, définissez
+`ONBOARDING_SHARED_COMPLETION` pour réutiliser l'intégration terminée entre
+les applications. Si vous ne le définissez pas, chaque application suit
+l'achèvement de l'intégration séparément.
+
+</Callout>
+
 ### Comment terminer chaque étape
 
 Les étapes proposent une ou plusieurs **méthodes** : différentes manières de satisfaire la même chose
 exigence. Le chemin principal est affiché en premier ; les chemins secondaires restent compacts
 derrière un sélecteur ou une divulgation lorsqu'une étape a plusieurs fournisseurs équivalents.
+Les cartes de configuration affichent les choix de configuration disponibles.
+Elles ne répertorient pas toutes les clés ou informations d'identification possibles.
 
 - **Connectez un service (un clic)** — par ex. _Connectez Builder_ pour le géré
   Passerelle IA. Cliquez sur le bouton, une fenêtre s'ouvre, vous vous connectez, la fenêtre se ferme,

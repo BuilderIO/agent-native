@@ -1,0 +1,81 @@
+---
+title: "Content : rédiger et organiser des documents"
+description: "Comment écrire, mettre en forme, organiser, commenter et partager des documents dans Content — pour toute personne utilisant l'application au quotidien."
+---
+
+# Rédiger et organiser des documents
+
+Cette page couvre les tâches quotidiennes de Content : écrire et mettre en forme une page, organiser vos pages en arborescence, commenter avec des coéquipiers, revenir à une version antérieure et contrôler qui peut voir un document. Elle est destinée à toute personne utilisant l'application, pas seulement aux développeurs.
+
+## Rédaction et mise en forme
+
+Tapez `/` sur une ligne vide pour ouvrir le menu slash et insérer des titres, des listes à puces ou numérotées, des tableaux, des images, des séparateurs et des callouts. Activez les blocs avancés de code, de mise en page, visuels ou de documentation technique depuis **Paramètres → Labs** avant de les insérer. Sélectionnez du texte pour faire apparaître une barre de mise en forme pour le gras, l'italique, les liens et le code en ligne.
+
+- Les images peuvent être déposées ou collées ; Content les télécharge automatiquement vers votre stockage de fichiers configuré.
+- Les mathématiques s'affichent comme de véritables équations — tapez des maths en ligne entre des marques `` $` `` ou une équation en bloc entre des lignes `$$`, et l'éditeur affiche le résultat mis en forme tout en conservant la notation d'origine dans le document.
+- Demandez à l'agent plutôt que de mettre en forme manuellement : « ajoute un callout d'avertissement sur le endpoint obsolète », « transforme cette liste en tableau » ou « fais de ce titre un niveau 2 ». Une fois une modification enregistrée, Content conserve cette version. Un brouillon de récupération tardif ne remplace pas la modification enregistrée et ne l'affiche pas comme une modification externe.
+
+## Organiser vos pages
+
+Choisissez **Page** ou **Collection** dans le menu **+** en haut, quel que soit l'état de la barre latérale. Appuyez sur Échap pour annuler. Si vous créez un élément à partir d'une ligne d'un autre espace de travail, attendez d'abord que cet espace de travail se charge. Chaque page vit dans une arborescence de barre latérale. Faites glisser une page pour la réorganiser ou l'imbriquer sous une autre page en tant que sous-page. Marquez une page d'une étoile pour l'épingler dans **Favoris** en haut de la barre latérale.
+
+Utilisez la zone de recherche (ou demandez à l'agent de « retrouver mes notes de réunion de la semaine dernière ») pour rechercher des titres et du contenu dans toutes les pages que vous pouvez voir, avec un extrait d'aperçu pour chaque résultat. Les résultats sont classés par pertinence, de sorte qu'une forte correspondance de titre apparaît avant un document récent qui ne mentionne les termes de recherche que dans son corps.
+
+## Commentaires
+
+Sélectionnez un passage et laissez un commentaire comme vous le feriez dans Notion ou Google Docs. Le texte commenté reçoit une surbrillance au lieu d'une modification du corps du document, de sorte que la page se lit exactement de la même façon ensuite. Les commentaires prennent en charge les mentions @ des coéquipiers, les réponses en fil de discussion et un bouton résoudre/rouvrir. Les fils résolus se replient dans une section « Résolu » de la barre latérale pour ne pas encombrer une revue active.
+
+<Callout tone="info">
+
+Si un passage commenté est modifié ultérieurement, la surbrillance suit le texte environnant au lieu de se figer à une position fixe. Si le texte exact est supprimé, le fil de commentaire reste accessible depuis la barre latérale au lieu de disparaître.
+
+</Callout>
+
+## Historique des versions
+
+Content enregistre un instantané d'une page à chaque modification significative. Ouvrez l'historique des versions d'une page pour voir les instantanés précédents et en restaurer un.
+
+<Callout tone="warning">
+
+La restauration remplace intégralement le contenu actuel par celui de cette version. Il n'y a pas de diff ligne par ligne ni de restauration partielle, alors examinez l'instantané avant de le restaurer.
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Liste de contrôle de lancement</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>Responsable : Priya · Statut : En cours de révision</div><p style='margin:0' class='wf-muted'>Le plan de restauration est documenté ci-dessous.</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>Historique des versions</strong><span class='wf-pill'>Aujourd'hui, 14 h 14</span><span class='wf-pill'>Hier, 17 h 02</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Partage et visibilité
+
+Les documents sont **privés par défaut** — vous seul pouvez voir une page que vous créez. Pour en partager une, ouvrez la boîte de dialogue de partage, ou demandez à l'agent de « partager ce document avec l'équipe en tant qu'éditeur » :
+
+<Steps>
+
+### Définir qui peut le voir
+
+Passez la visibilité à **organisation** pour que toute personne de votre organisation puisse l'ouvrir, ou à **public** pour que toute personne disposant du lien puisse l'ouvrir via une URL publique en lecture seule.
+
+### Accorder un rôle
+
+Accordez à des personnes spécifiques, ou à toute votre organisation, un rôle de **lecteur**, **éditeur** ou **administrateur**.
+
+### Éventuellement, le masquer de la recherche
+
+Rendez une page visible à l'organisation non détectable : elle reste accessible à toute personne disposant du lien, mais disparaît de la recherche à l'échelle de l'organisation et de la liste de la barre latérale. Utilisez cette option pour les pages qui existent à titre de référence mais qui ne devraient pas apparaître dans la navigation quotidienne.
+
+</Steps>
+
+Les pages publiques offrent un chat en lecture seule aux visiteurs. Ils peuvent poser des questions sur le contenu de la page, mais ne peuvent rien créer, modifier, commenter ou partager via celui-ci.
+
+## Et ensuite
+
+- [Présentation de Content](/docs/template-content) — ce qu'est l'application et comment démarrer
+- [Collections, propriétés et formulaires](/docs/template-content-databases) — transformer une page en tableau structuré
+- [Fichiers locaux, synchronisation Notion et Builder CMS](/docs/template-content-sync) — modifier les mêmes pages depuis l'extérieur de l'application
+- [Partage](/docs/sharing) — le modèle d'octroi de partage à l'échelle du framework sur lequel s'appuient les rôles de cette page
+- [Collaboration en temps réel](/docs/real-time-collaboration) — comment les modifications simultanées des personnes et de l'agent fusionnent en direct

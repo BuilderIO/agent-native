@@ -1,0 +1,81 @@
+---
+title: "Content：撰写与整理文档"
+description: "如何在 Content 中撰写、格式化、整理、评论和共享文档——适用于每天使用该应用的任何人。"
+---
+
+# 撰写与整理文档
+
+本页介绍 Content 的日常操作：撰写和格式化页面、将页面整理成树状结构、与团队成员互相评论、回滚到较早的版本，以及控制谁可以看到某个文档。它面向使用该应用的所有人，而不仅仅是开发者。
+
+## 撰写与格式化
+
+在空行中输入 `/` 即可打开斜杠菜单，插入标题、项目符号或编号列表、表格、图片、分隔线和标注框。在插入高级代码、布局、可视化或开发者文档区块之前，请先在**设置 → Labs** 中启用它们。选中任意文本会弹出格式工具栏，用于加粗、斜体、链接和行内代码。
+
+- 图片可以拖放或粘贴；Content 会自动将其上传到你配置的文件存储中。
+- 数学公式会渲染为真正的公式——在 `` $` `` 标记之间输入行内公式，或在 `$$` 行之间输入块级公式，编辑器会在文档中保留原始记法的同时显示格式化后的结果。
+- 与其手动格式化，不如让智能体来做：例如"为已弃用的接口添加一个警告标注"、"把这个列表变成表格"，或"把这个标题改成二级标题"。保存编辑后，Content 会保留该版本。之后到达的恢复草稿既不会替换已保存的更改，也不会将其显示为外部编辑。
+
+## 整理你的页面
+
+无论侧边栏处于哪种状态，都可以从顶部的 **+** 菜单中选择**页面**或**集合**。按 Escape 取消。如果你从另一个工作区的某一行创建条目，请先等待该工作区加载完成。每个页面都存在于侧边栏树中。拖动页面可以重新排序，或将其嵌套在另一个页面下作为子页面。为页面加星标可将其固定到侧边栏顶部的**收藏夹**。
+
+使用搜索框（或让智能体"查找我上周的会议记录"）可以在你能看到的所有页面中搜索标题和内容，每个匹配项都会显示预览片段。结果按相关性排序，因此标题高度匹配的结果会排在只在正文中提到搜索词的近期文档之前。
+
+## 评论
+
+选中一段文字，像在 Notion 或 Google Docs 中一样留下评论。被评论的文本会得到高亮显示，而不是对文档正文做任何更改，因此事后页面看起来完全一样。评论支持 @提及团队成员、串行回复，以及解决/重新打开的切换开关。已解决的讨论串会折叠到侧边栏的"已解决"部分，以免干扰正在进行的审阅。
+
+<Callout tone="info">
+
+如果被评论的文字之后被编辑，高亮会跟随周围的文本移动，而不是固定在某个位置。如果确切的文字被删除，评论讨论串仍可从侧边栏访问，而不会消失。
+
+</Callout>
+
+## 版本历史
+
+每当页面发生重大更改时，Content 都会保存一份快照。打开页面的版本历史可以查看之前的快照并恢复其中一个。
+
+<Callout tone="warning">
+
+恢复操作会用该版本的内容整体替换当前内容。这里没有逐行对比或部分恢复功能，所以在恢复之前请先查看快照内容。
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>上线检查清单</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>负责人：Priya · 状态：审核中</div><p style='margin:0' class='wf-muted'>回滚计划记录在下方。</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>版本历史</strong><span class='wf-pill'>今天，下午2:14</span><span class='wf-pill'>昨天，下午5:02</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## 共享与可见性
+
+文档**默认是私密的**——只有你自己能看到你创建的页面。要共享某个页面，可以打开共享对话框，或让智能体"把这份文档以编辑者身份共享给团队"：
+
+<Steps>
+
+### 设置谁可以看到它
+
+将可见性改为**组织**，让组织内任何人都能打开它；或改为**公开**，让拥有链接的任何人都能通过只读的公开 URL 打开它。
+
+### 授予角色
+
+为特定人员或整个组织授予**查看者**、**编辑者**或**管理员**角色。
+
+### 可选：将其从搜索中隐藏
+
+将一个对组织可见的页面设为不可发现：它对拥有链接的人仍然保持开放，但会从组织范围的搜索和侧边栏列表中消失。适用于那些作为参考存在、但不应出现在日常浏览中的页面。
+
+</Steps>
+
+公开页面会为访客提供一个只读聊天窗口。访客可以就页面内容提问，但无法通过它创建、编辑、评论或共享任何内容。
+
+## 后续内容
+
+- [Content 概览](/docs/template-content) — 这个应用是什么以及如何开始使用
+- [集合、属性和表单](/docs/template-content-databases) — 将页面转变为结构化表格
+- [本地文件、Notion 和 Builder CMS 同步](/docs/template-content-sync) — 在应用外部编辑相同的页面
+- [共享](/docs/sharing) — 本页角色所基于的框架级共享授权模型
+- [实时协作](/docs/real-time-collaboration) — 人与智能体的同时编辑如何实时合并

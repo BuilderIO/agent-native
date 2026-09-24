@@ -1,0 +1,81 @@
+---
+title: "Content: 문서 작성 및 정리"
+description: "Content에서 문서를 작성, 서식 지정, 정리, 댓글 작성, 공유하는 방법 — 매일 앱을 사용하는 모든 사람을 위한 안내."
+---
+
+# 문서 작성 및 정리
+
+이 페이지에서는 Content의 일상적인 작업, 즉 페이지 작성 및 서식 지정, 페이지를 트리 구조로 정리하기, 팀원과 댓글 주고받기, 이전 버전으로 되돌리기, 문서를 볼 수 있는 사람 제어하기를 다룹니다. 개발자뿐 아니라 앱을 사용하는 모든 사람을 위해 작성되었습니다.
+
+## 작성 및 서식 지정
+
+빈 줄에서 `/`를 입력하면 슬래시 메뉴가 열리며 제목, 글머리 기호 또는 번호 매기기 목록, 표, 이미지, 구분선, 콜아웃을 삽입할 수 있습니다. 고급 코드, 레이아웃, 시각 자료, 개발자 문서 블록은 삽입하기 전에 **설정 → Labs**에서 활성화하세요. 아무 텍스트나 선택하면 굵게, 기울임꼴, 링크, 인라인 코드용 서식 도구 모음이 나타납니다.
+
+- 이미지는 끌어다 놓거나 붙여넣을 수 있으며, Content가 구성된 파일 저장소에 자동으로 업로드합니다.
+- 수식은 실제 수식으로 렌더링됩니다 — `` $` `` 표시 사이에 인라인 수식을, `$$` 줄 사이에 블록 수식을 입력하면 편집기가 문서에 원본 표기법을 유지하면서 서식이 적용된 결과를 표시합니다.
+- 직접 서식을 지정하는 대신 에이전트에게 요청하세요. "더 이상 사용되지 않는 엔드포인트에 대한 경고 콜아웃 추가해줘", "이 목록을 표로 바꿔줘", "이 제목을 레벨 2로 만들어줘" 등입니다. 편집 내용을 저장하면 Content는 해당 버전을 유지합니다. 나중에 도착하는 복구 초안은 저장된 변경 내용을 대체하지 않으며 외부 편집으로 표시되지도 않습니다.
+
+## 페이지 정리하기
+
+사이드바 상태와 관계없이 최상단 **+** 메뉴에서 **페이지** 또는 **컬렉션**을 선택하세요. 취소하려면 Escape를 누릅니다. 다른 워크스페이스의 행에서 항목을 생성하는 경우, 먼저 해당 워크스페이스가 로드될 때까지 기다리세요. 모든 페이지는 사이드바 트리 안에 존재합니다. 페이지를 끌어서 순서를 바꾸거나 다른 페이지 아래에 하위 페이지로 중첩할 수 있습니다. 페이지에 별표를 표시하면 사이드바 상단의 **즐겨찾기**에 고정됩니다.
+
+검색창을 사용하거나(또는 에이전트에게 "지난주 회의 노트 찾아줘"라고 요청하면) 볼 수 있는 모든 페이지의 제목과 내용을 검색할 수 있으며, 일치 항목마다 미리보기 스니펫이 제공됩니다. 결과는 관련성 순으로 정렬되므로, 제목이 강하게 일치하는 항목이 본문에만 검색어를 언급하는 최신 문서보다 먼저 표시됩니다.
+
+## 댓글
+
+Notion이나 Google Docs에서처럼 구절을 선택하고 댓글을 남길 수 있습니다. 댓글이 달린 텍스트는 문서 본문이 변경되는 대신 하이라이트로 표시되므로, 이후에도 페이지는 완전히 동일하게 보입니다. 댓글은 팀원 @멘션, 스레드형 답글, 해결/재오픈 토글을 지원합니다. 해결된 스레드는 사이드바의 "Resolved" 섹션으로 접혀 들어가 진행 중인 검토를 방해하지 않습니다.
+
+<Callout tone="info">
+
+댓글이 달린 구절이 나중에 편집되면, 하이라이트는 고정된 위치에 머무르지 않고 주변 텍스트를 따라 이동합니다. 정확한 텍스트가 삭제되더라도 댓글 스레드는 사라지지 않고 사이드바에서 계속 접근할 수 있습니다.
+
+</Callout>
+
+## 버전 기록
+
+Content는 페이지가 크게 변경될 때마다 스냅샷을 저장합니다. 페이지의 버전 기록을 열어 이전 스냅샷을 확인하고 복원할 수 있습니다.
+
+<Callout tone="warning">
+
+복원하면 현재 콘텐츠가 해당 버전의 콘텐츠로 전부 교체됩니다. 줄 단위 비교나 부분 복원 기능은 없으므로, 복원하기 전에 스냅샷을 검토하세요.
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>출시 체크리스트</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>담당자: Priya · 상태: 검토 중</div><p style='margin:0' class='wf-muted'>롤백 계획은 아래에 문서화되어 있습니다.</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>버전 기록</strong><span class='wf-pill'>오늘, 오후 2:14</span><span class='wf-pill'>어제, 오후 5:02</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## 공유 및 공개 범위
+
+문서는 **기본적으로 비공개**입니다 — 내가 만든 페이지는 나만 볼 수 있습니다. 페이지를 공유하려면 공유 대화상자를 열거나, 에이전트에게 "이 문서를 팀과 편집자 권한으로 공유해줘"라고 요청하세요.
+
+<Steps>
+
+### 볼 수 있는 사람 설정하기
+
+공개 범위를 **조직**으로 변경하면 조직 내 누구나 열 수 있고, **공개**로 변경하면 링크가 있는 누구나 읽기 전용 공개 URL에서 열 수 있습니다.
+
+### 역할 부여하기
+
+특정 사용자 또는 전체 조직에 **뷰어**, **편집자**, **관리자** 역할을 부여합니다.
+
+### 원하는 경우 검색에서 숨기기
+
+조직에 공개된 페이지를 검색 제외(discoverable-off)로 설정할 수 있습니다. 링크가 있는 누구에게나 계속 열려 있지만, 조직 전체 검색과 사이드바 목록에서는 제외됩니다. 참고용으로 존재하지만 일상적인 탐색에는 나타나지 않아야 하는 페이지에 사용하세요.
+
+</Steps>
+
+공개 페이지는 방문자를 위한 읽기 전용 채팅을 제공합니다. 방문자는 페이지 내용에 대해 질문할 수 있지만, 이를 통해 무언가를 만들거나 편집, 댓글 작성, 공유할 수는 없습니다.
+
+## 다음 단계
+
+- [Content 개요](/docs/template-content) — 이 앱이 무엇이고 어떻게 시작하는지
+- [컬렉션, 속성, 폼](/docs/template-content-databases) — 페이지를 구조화된 표로 바꾸기
+- [로컬 파일, Notion, Builder CMS 동기화](/docs/template-content-sync) — 앱 외부에서 동일한 페이지 편집하기
+- [공유](/docs/sharing) — 이 페이지의 역할이 기반하는 프레임워크 전반의 공유 부여 모델
+- [실시간 협업](/docs/real-time-collaboration) — 사람과 에이전트의 동시 편집이 실시간으로 병합되는 방식

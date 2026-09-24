@@ -1,0 +1,81 @@
+---
+title: "Content: Dokumente schreiben und organisieren"
+description: "Wie Sie in Content schreiben, formatieren, organisieren, kommentieren und Dokumente freigeben – für alle, die die App im Alltag nutzen."
+---
+
+# Dokumente schreiben und organisieren
+
+Diese Seite behandelt die alltäglichen Teile von Content: eine Seite schreiben und formatieren, Ihre Seiten in einem Baum anordnen, mit Teammitgliedern kommentieren, zu einer früheren Version zurückkehren und steuern, wer ein Dokument sehen kann. Sie richtet sich an alle, die die App nutzen, nicht nur an Entwickler.
+
+## Schreiben und Formatieren
+
+Geben Sie `/` in einer leeren Zeile ein, um das Slash-Menü zu öffnen und Überschriften, Aufzählungs- oder nummerierte Listen, Tabellen, Bilder, Trennlinien und Callouts einzufügen. Aktivieren Sie erweiterte Code-, Layout-, Visual- oder Entwicklerdokumentations-Blöcke unter **Einstellungen → Labs**, bevor Sie sie einfügen. Markieren Sie beliebigen Text, um eine Formatierungsleiste für Fett, Kursiv, Links und Inline-Code einzublenden.
+
+- Bilder können hineingezogen oder eingefügt werden; Content lädt sie automatisch in Ihren konfigurierten Dateispeicher hoch.
+- Mathematik wird als echte Gleichungen dargestellt – geben Sie Inline-Mathematik zwischen `` $` `` -Zeichen oder eine Blockgleichung zwischen `$$`-Zeilen ein, und der Editor zeigt das formatierte Ergebnis an, während die ursprüngliche Notation im Dokument erhalten bleibt.
+- Fragen Sie den Agenten, statt von Hand zu formatieren: „Füge einen Callout-Hinweis zum veralteten Endpunkt hinzu“, „Verwandle diese Liste in eine Tabelle“ oder „Mach diese Überschrift zu einer Ebene 2“. Nachdem Sie eine Bearbeitung gespeichert haben, behält Content diese Version bei. Ein später eintreffender Wiederherstellungsentwurf ersetzt die gespeicherte Änderung nicht und zeigt sie auch nicht als externe Bearbeitung an.
+
+## Ihre Seiten organisieren
+
+Wählen Sie **Seite** oder **Sammlung** aus dem obersten **+**-Menü in beiden Seitenleistenzuständen. Drücken Sie Escape zum Abbrechen. Wenn Sie ein Element aus einer Zeile in einem anderen Arbeitsbereich erstellen, warten Sie zunächst, bis dieser Arbeitsbereich geladen ist. Jede Seite lebt in einem Seitenleisten-Baum. Ziehen Sie eine Seite, um sie neu anzuordnen oder als Unterseite unter eine andere Seite zu verschachteln. Markieren Sie eine Seite mit einem Stern, um sie oben in der Seitenleiste unter **Favoriten** anzuheften.
+
+Verwenden Sie das Suchfeld (oder bitten Sie den Agenten, „meine Meeting-Notizen von letzter Woche zu finden“), um Titel und Inhalte über jede Seite zu durchsuchen, die Sie sehen können, mit einem Vorschau-Ausschnitt für jeden Treffer. Die Ergebnisse werden nach Relevanz sortiert, sodass eine starke Titelübereinstimmung vor einem aktuellen Dokument erscheint, das die Suchbegriffe nur im Text erwähnt.
+
+## Kommentare
+
+Markieren Sie eine Textpassage und hinterlassen Sie einen Kommentar, so wie Sie es in Notion oder Google Docs tun würden. Der kommentierte Text erhält eine Hervorhebung statt einer Änderung am Dokumentinhalt, sodass die Seite danach genau gleich aussieht. Kommentare unterstützen @-Erwähnungen von Teammitgliedern, verschachtelte Antworten und einen Auflösen/Wiedereröffnen-Schalter. Aufgelöste Threads werden in einen „Aufgelöst“-Bereich in der Seitenleiste eingeklappt, damit sie eine aktive Überprüfung nicht überladen.
+
+<Callout tone="info">
+
+Wenn eine kommentierte Passage später bearbeitet wird, folgt die Hervorhebung dem umgebenden Text, statt an eine feste Position zu springen. Wird der genaue Text jemals gelöscht, bleibt der Kommentar-Thread trotzdem über die Seitenleiste erreichbar, statt zu verschwinden.
+
+</Callout>
+
+## Versionsverlauf
+
+Content erstellt jedes Mal, wenn sich eine Seite wesentlich ändert, einen Schnappschuss. Öffnen Sie den Versionsverlauf einer Seite, um frühere Schnappschüsse anzuzeigen und einen davon wiederherzustellen.
+
+<Callout tone="warning">
+
+Beim Wiederherstellen wird der aktuelle Inhalt vollständig durch den Inhalt dieser Version ersetzt. Es gibt keinen zeilenweisen Diff oder eine Teilwiederherstellung, prüfen Sie den Schnappschuss also, bevor Sie ihn wiederherstellen.
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Startcheckliste</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>Verantwortlich: Priya · Status: In Überprüfung</div><p style='margin:0' class='wf-muted'>Der Rollback-Plan ist unten dokumentiert.</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>Versionsverlauf</strong><span class='wf-pill'>Heute, 14:14 Uhr</span><span class='wf-pill'>Gestern, 17:02 Uhr</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Freigabe und Sichtbarkeit
+
+Dokumente sind **standardmäßig privat** – nur Sie können eine von Ihnen erstellte Seite sehen. Um eine Seite freizugeben, öffnen Sie den Freigabedialog oder bitten Sie den Agenten, „dieses Dokument mit dem Team als Editor zu teilen“:
+
+<Steps>
+
+### Legen Sie fest, wer es sehen kann
+
+Ändern Sie die Sichtbarkeit auf **Organisation**, damit jeder in Ihrer Organisation die Seite öffnen kann, oder auf **öffentlich**, damit jeder mit dem Link sie über eine schreibgeschützte öffentliche URL öffnen kann.
+
+### Rolle vergeben
+
+Vergeben Sie an bestimmte Personen oder Ihre gesamte Organisation die Rolle **Betrachter**, **Editor** oder **Administrator**.
+
+### Optional aus der Suche ausblenden
+
+Machen Sie eine für die Organisation sichtbare Seite nicht auffindbar: Sie bleibt für jeden mit dem Link offen, fällt aber aus der organisationsweiten Suche und der Seitenleistenliste heraus. Verwenden Sie dies für Seiten, die als Referenz existieren, aber nicht im alltäglichen Durchstöbern auftauchen sollen.
+
+</Steps>
+
+Öffentliche Seiten bieten Besuchern einen schreibgeschützten Chat. Sie können Fragen zum Seiteninhalt stellen, aber darüber nichts erstellen, bearbeiten, kommentieren oder freigeben.
+
+## Was kommt als nächstes?
+
+- [**Content-Überblick**](/docs/template-content) — was die App ist und wie man loslegt
+- [**Sammlungen, Eigenschaften und Formulare**](/docs/template-content-databases) — eine Seite in eine strukturierte Tabelle verwandeln
+- [**Lokale Dateien, Notion- und Builder-CMS-Synchronisierung**](/docs/template-content-sync) — dieselben Seiten von außerhalb der App bearbeiten
+- [**Freigabe**](/docs/sharing) — das Framework-weite Freigabemodell, auf dem die Rollen dieser Seite aufbauen
+- [**Echtzeit-Zusammenarbeit**](/docs/real-time-collaboration) — wie gleichzeitige Bearbeitungen von Personen und dem Agenten live zusammengeführt werden

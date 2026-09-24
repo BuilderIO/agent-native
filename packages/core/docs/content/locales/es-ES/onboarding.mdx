@@ -73,11 +73,22 @@ infraestructura y agregue proveedores solo cuando los necesite.
 - Todo el panel se puede contraer con el galón en la parte superior derecha, o
   oculto por completo con **Ocultar configuración** en la parte inferior.
 
+<Callout tone="info">
+
+En un espacio de trabajo con varias aplicaciones, configure
+`ONBOARDING_SHARED_COMPLETION` para reutilizar la incorporación completada
+entre aplicaciones. Si no lo configura, cada aplicación realiza un seguimiento
+de la finalización de la incorporación por separado.
+
+</Callout>
+
 ### Cómo completar cada paso
 
 Los pasos ofrecen uno o más **métodos**: diferentes formas de satisfacer lo mismo
 requisito. La ruta principal se muestra primero; los caminos secundarios se mantienen compactos
 detrás de un selector o divulgación cuando un paso tiene varios proveedores equivalentes.
+Las tarjetas de configuración muestran las opciones de configuración disponibles.
+No enumeran todas las claves o credenciales posibles.
 
 - **Conectar un servicio (un clic)** — p.e. _Connect Builder_ para lo administrado
   Puerta de entrada de IA. Haga clic en el botón, se abre una ventana, inicia sesión, la ventana se cierra

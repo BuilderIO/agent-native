@@ -29,7 +29,6 @@ ar-SA|template-brain-sources
 ar-SA|template-chat-developers
 ar-SA|template-content-databases
 ar-SA|template-content-developers
-ar-SA|template-content-editing
 ar-SA|template-content-sync
 ar-SA|template-dispatch-agent
 ar-SA|template-dispatch-developers
@@ -85,7 +84,6 @@ de-DE|template-brain-sources
 de-DE|template-chat-developers
 de-DE|template-content-databases
 de-DE|template-content-developers
-de-DE|template-content-editing
 de-DE|template-content-sync
 de-DE|template-dispatch-agent
 de-DE|template-dispatch-developers
@@ -141,7 +139,6 @@ es-ES|template-brain-sources
 es-ES|template-chat-developers
 es-ES|template-content-databases
 es-ES|template-content-developers
-es-ES|template-content-editing
 es-ES|template-content-sync
 es-ES|template-dispatch-agent
 es-ES|template-dispatch-developers
@@ -197,7 +194,6 @@ fr-FR|template-brain-sources
 fr-FR|template-chat-developers
 fr-FR|template-content-databases
 fr-FR|template-content-developers
-fr-FR|template-content-editing
 fr-FR|template-content-sync
 fr-FR|template-dispatch-agent
 fr-FR|template-dispatch-developers
@@ -253,7 +249,6 @@ hi-IN|template-brain-sources
 hi-IN|template-chat-developers
 hi-IN|template-content-databases
 hi-IN|template-content-developers
-hi-IN|template-content-editing
 hi-IN|template-content-sync
 hi-IN|template-dispatch-agent
 hi-IN|template-dispatch-developers
@@ -309,7 +304,6 @@ ja-JP|template-brain-sources
 ja-JP|template-chat-developers
 ja-JP|template-content-databases
 ja-JP|template-content-developers
-ja-JP|template-content-editing
 ja-JP|template-content-sync
 ja-JP|template-dispatch-agent
 ja-JP|template-dispatch-developers
@@ -365,7 +359,6 @@ ko-KR|template-brain-sources
 ko-KR|template-chat-developers
 ko-KR|template-content-databases
 ko-KR|template-content-developers
-ko-KR|template-content-editing
 ko-KR|template-content-sync
 ko-KR|template-dispatch-agent
 ko-KR|template-dispatch-developers
@@ -421,7 +414,6 @@ pt-BR|template-brain-sources
 pt-BR|template-chat-developers
 pt-BR|template-content-databases
 pt-BR|template-content-developers
-pt-BR|template-content-editing
 pt-BR|template-content-sync
 pt-BR|template-dispatch-agent
 pt-BR|template-dispatch-developers
@@ -477,7 +469,6 @@ zh-CN|template-brain-sources
 zh-CN|template-chat-developers
 zh-CN|template-content-databases
 zh-CN|template-content-developers
-zh-CN|template-content-editing
 zh-CN|template-content-sync
 zh-CN|template-dispatch-agent
 zh-CN|template-dispatch-developers
@@ -532,7 +523,6 @@ zh-TW|template-brain-sources
 zh-TW|template-chat-developers
 zh-TW|template-content-databases
 zh-TW|template-content-developers
-zh-TW|template-content-editing
 zh-TW|template-content-sync
 zh-TW|template-dispatch-agent
 zh-TW|template-dispatch-developers

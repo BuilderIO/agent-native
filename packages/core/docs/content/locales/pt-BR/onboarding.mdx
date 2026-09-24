@@ -73,11 +73,22 @@ infraestrutura e adicione provedores somente quando precisar deles.
 - O painel inteiro pode ser recolhido com a divisa no canto superior direito ou
   oculto totalmente com **Ocultar configuração** na parte inferior.
 
+<Callout tone="info">
+
+Em um espaço de trabalho com vários aplicativos, defina
+`ONBOARDING_SHARED_COMPLETION` para reutilizar a integração concluída entre os
+aplicativos. Se você não definir isso, cada aplicativo rastreará a conclusão
+da integração separadamente.
+
+</Callout>
+
 ### Como concluir cada etapa
 
 As etapas oferecem um ou mais **métodos** — diferentes maneiras de satisfazer o mesmo
 requisito. O caminho principal é mostrado primeiro; caminhos secundários são mantidos compactos
 por trás de um seletor ou divulgação quando uma etapa tem vários provedores equivalentes.
+Os cartões de configuração mostram as opções de configuração disponíveis. Eles
+não listam todas as chaves ou credenciais possíveis.
 
 - **Conecte um serviço (um clique)** — por exemplo, _Conecte Builder_ para o gerenciado
   Portal de IA. Clique no botão, uma janela se abre, você faz login, a janela fecha,

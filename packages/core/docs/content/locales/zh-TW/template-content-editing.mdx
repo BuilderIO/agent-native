@@ -1,0 +1,81 @@
+---
+title: "Content：撰寫與整理文件"
+description: "如何在 Content 中撰寫、格式化、整理、評論及分享文件——適用於每天使用該應用程式的任何人。"
+---
+
+# 撰寫與整理文件
+
+本頁介紹 Content 的日常操作：撰寫並格式化頁面、將頁面整理成樹狀結構、與團隊成員互相評論、回復到較早的版本，以及控制誰可以看到某個文件。它適用於使用該應用程式的所有人，而不僅是開發者。
+
+## 撰寫與格式化
+
+在空白行輸入 `/` 即可開啟斜線選單，插入標題、項目符號或編號清單、表格、圖片、分隔線與標註框。在插入進階程式碼、版面配置、視覺化或開發者文件區塊之前，請先在**設定 → Labs** 中啟用它們。選取任意文字會彈出格式工具列，用於粗體、斜體、連結與行內程式碼。
+
+- 圖片可以拖放或貼上；Content 會自動將其上傳到你設定的檔案儲存空間。
+- 數學公式會呈現為真正的公式——在 `` $` `` 標記之間輸入行內公式，或在 `$$` 行之間輸入區塊公式，編輯器會在文件中保留原始記法的同時顯示格式化後的結果。
+- 與其手動格式化，不如請代理人來做：例如「為已棄用的端點加入警告標註」、「把這個清單變成表格」，或「把這個標題改成第二層」。儲存編輯後，Content 會保留該版本。之後送達的復原草稿既不會取代已儲存的變更，也不會將其顯示為外部編輯。
+
+## 整理你的頁面
+
+無論側邊欄處於哪種狀態，都可以從頂部的 **+** 選單中選擇**頁面**或**集合**。按 Escape 取消。如果你從另一個工作區的某一列建立項目，請先等待該工作區載入完成。每個頁面都存在於側邊欄樹狀結構中。拖曳頁面可以重新排序，或將其巢狀放在另一個頁面下作為子頁面。將頁面加上星號可將其釘選到側邊欄頂部的**我的最愛**。
+
+使用搜尋框（或請代理人「找出我上週的會議記錄」）可以在你能看到的所有頁面中搜尋標題與內容，每個相符項目都會顯示預覽片段。結果依相關性排序，因此標題高度相符的結果會排在只在內文中提到搜尋詞的近期文件之前。
+
+## 評論
+
+選取一段文字，像在 Notion 或 Google Docs 中一樣留下評論。被評論的文字會獲得反白顯示，而不是對文件內文做任何變更，因此事後頁面看起來完全一樣。評論支援 @提及團隊成員、串連回覆，以及解決/重新開啟的切換開關。已解決的討論串會摺疊到側邊欄的「已解決」區段，以免干擾正在進行的審閱。
+
+<Callout tone="info">
+
+如果被評論的文字之後被編輯，反白會跟隨周圍的文字移動，而不是固定在某個位置。如果確切的文字被刪除，評論討論串仍可從側邊欄存取，而不會消失。
+
+</Callout>
+
+## 版本歷史
+
+每當頁面發生重大變更時，Content 都會儲存一份快照。開啟頁面的版本歷史可以檢視先前的快照並還原其中一個。
+
+<Callout tone="warning">
+
+還原操作會用該版本的內容整體取代目前內容。這裡沒有逐行比對或部分還原功能，所以在還原之前請先檢視快照內容。
+
+</Callout>
+
+<WireframeBlock id="doc-block-content3">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 260px;gap:14px;padding:16px;min-height:480px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>上線檢查清單</h1><div style='flex:1'></div><span class='wf-pill'>3 comments</span></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px;padding:20px'><p style='margin:0'>Confirm pricing page copy before <mark>Thursday's release window</mark>.</p><div class='wf-box'>負責人：Priya · 狀態：審閱中</div><p style='margin:0' class='wf-muted'>回復計畫記錄於下方。</p></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Sam: \"Can we push this a day?\"</div><div class='wf-box wf-muted'>Resolved (2)</div><hr/><strong>版本歷史</strong><span class='wf-pill'>今天，下午2:14</span><span class='wf-pill'>昨天，下午5:02</span><span class='wf-pill'>Restore</span></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## 分享與可見性
+
+文件**預設為私密**——只有你自己能看到你建立的頁面。要分享某個頁面，可以開啟分享對話框，或請代理人「把這份文件以編輯者身分分享給團隊」：
+
+<Steps>
+
+### 設定誰可以看到它
+
+將可見性改為**組織**，讓組織內任何人都能開啟它；或改為**公開**，讓擁有連結的任何人都能透過唯讀的公開 URL 開啟它。
+
+### 授予角色
+
+為特定人員或整個組織授予**檢視者**、**編輯者**或**管理員**角色。
+
+### 可選：將其從搜尋中隱藏
+
+將一個對組織可見的頁面設為不可發現：它對擁有連結的人仍然保持開放，但會從組織範圍的搜尋與側邊欄清單中消失。適用於那些作為參考存在、但不應出現在日常瀏覽中的頁面。
+
+</Steps>
+
+公開頁面會為訪客提供一個唯讀聊天視窗。訪客可以就頁面內容提問，但無法透過它建立、編輯、評論或分享任何內容。
+
+## 後續內容
+
+- [Content 概覽](/docs/template-content) — 這個應用程式是什麼以及如何開始使用
+- [集合、屬性與表單](/docs/template-content-databases) — 將頁面轉變為結構化表格
+- [本機檔案、Notion 與 Builder CMS 同步](/docs/template-content-sync) — 在應用程式外部編輯相同的頁面
+- [分享](/docs/sharing) — 本頁角色所基於的框架級分享授權模型
+- [即時協作](/docs/real-time-collaboration) — 人與代理人的同時編輯如何即時合併
