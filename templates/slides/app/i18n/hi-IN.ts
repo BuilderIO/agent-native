@@ -52,6 +52,7 @@ const messages = {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",
     thisSlide: "यह स्लाइड",
     currentSelection: "वर्तमान चयन",
+    slideNumber: "स्लाइड {{number}}",
     suggestionPitch: "इस दस्तावेज़ से 10-स्लाइड पिच बनाएं",
     suggestionBrand: "इस डेक पर हमारा ब्रांड लागू करें",
     suggestionHero: "इस स्लाइड के लिए हीरो इमेज बनाएं",
