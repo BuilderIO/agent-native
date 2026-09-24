@@ -332,6 +332,10 @@ export interface AssistantChatSendOptions {
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
+  /** See `AgentChatMessage.approvedToolCalls`. */
+  approvedToolCalls?: string[];
+  /** Send as a protocol continuation that stays out of visible history. */
+  hideUserMessage?: boolean;
 }
 
 export function createUserMessageRunConfig(
@@ -6349,9 +6353,9 @@ const AssistantChatInner = forwardRef<
           false,
           options?.trackInRunsTray === true,
           false,
-          false,
+          options?.hideUserMessage === true,
           options?.submitMessageId,
-          undefined,
+          options?.approvedToolCalls,
           undefined,
           options?.usageLabel,
           options?.actionScope,
