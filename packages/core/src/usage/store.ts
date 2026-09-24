@@ -39,13 +39,16 @@ interface ModelPricing {
 export const BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER = 1.25;
 export const BUILDER_AGENT_CREDITS_PER_USD = 20;
 
-export type UsageBillingUnit = "usd" | "builder-credits";
+export type UsageBillingUnit = "usd" | "builder-credits" | "mixed";
 
 export interface UsageBillingMode {
   unit: UsageBillingUnit;
   label: string;
   shortLabel: string;
-  source: "estimated-provider-cost" | "builder-agent-credits";
+  source:
+    | "estimated-provider-cost"
+    | "builder-agent-credits"
+    | "mixed-provider-usage";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
@@ -64,6 +67,13 @@ export const BUILDER_CREDIT_USAGE_BILLING: UsageBillingMode = {
   source: "builder-agent-credits",
   hardCostMarginMultiplier: BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   creditsPerUsd: BUILDER_AGENT_CREDITS_PER_USD,
+};
+
+export const MIXED_USAGE_BILLING: UsageBillingMode = {
+  unit: "mixed",
+  label: "Builder credits and provider cost",
+  shortLabel: "Mixed",
+  source: "mixed-provider-usage",
 };
 
 export function usageBillingForEngine(
@@ -218,6 +228,10 @@ export interface UsageRecord {
    * provider-reported dollar cost so two surfaces agree exactly.
    */
   costCentsX100?: number;
+  /** Exact credits reported by the Builder gateway for this run, when available. */
+  builderCreditsUsed?: number;
+  /** Engine selected for this call; nullable on historical and external usage rows. */
+  engineName?: string;
   /** Whether cost is provider-reported, estimated, or unavailable. */
   costSource?: UsageCostSource;
   /** Defaults to the active request organization when omitted. */
@@ -252,6 +266,8 @@ export async function ensureUsageTable(): Promise<void> {
           cache_read_tokens BIGINT NOT NULL DEFAULT 0,
           cache_write_tokens BIGINT NOT NULL DEFAULT 0,
           cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+          builder_credits_used NUMERIC,
+          engine_name TEXT,
           cost_source TEXT NOT NULL DEFAULT 'estimated',
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
@@ -273,6 +289,8 @@ export async function ensureUsageTable(): Promise<void> {
       const additions: Array<[string, string]> = [
         ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
         ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
+        ["builder_credits_used", "NUMERIC"],
+        ["engine_name", "TEXT"],
         ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
@@ -426,6 +444,8 @@ export async function recordUsage(
     app,
     refId,
     costCentsX100,
+    builderCreditsUsed,
+    engineName,
     costSource,
     orgId,
     runId,
@@ -437,7 +457,22 @@ export async function recordUsage(
   } = record;
 
   // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
-  if (!inTok && !outTok && !cacheReadTokens && !cacheWriteTokens) return;
+  if (
+    !inTok &&
+    !outTok &&
+    !cacheReadTokens &&
+    !cacheWriteTokens &&
+    builderCreditsUsed == null
+  ) {
+    return;
+  }
+
+  if (
+    builderCreditsUsed != null &&
+    (!Number.isFinite(builderCreditsUsed) || builderCreditsUsed < 0)
+  ) {
+    throw new Error("Builder gateway credits must be a non-negative number.");
+  }
 
   await ensureUsageTable();
   const client = getDbExec();
@@ -476,8 +511,8 @@ export async function recordUsage(
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, builder_credits_used, engine_name, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -486,6 +521,8 @@ export async function recordUsage(
       cacheReadTokens,
       cacheWriteTokens,
       costX100,
+      builderCreditsUsed ?? null,
+      engineName ?? null,
       resolvedCostSource,
       modelName,
       resolvedLabel,
