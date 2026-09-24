@@ -534,17 +534,19 @@ before pausing the watcher or releasing its lease:
    lease rules. If new actionable feedback appears after merge, record it as a
    post-merge follow-up, retain the source branch, and do not restart this PR's
    merge soak.
-3. Complete `/ship`'s authorized post-merge branch disposition, passing the
-   saved `ship_merge_head_oid` to `/new-branch`. Compare both local and remote
-   source-branch tips. Renew and verify the lease immediately before any
-   branch mutation, including a checkout switch. If fencing fails, keep the
-   source checkout unchanged; otherwise rotate only when its safety checks
-   pass, retaining the source branch and reporting why when they do not.
-4. Once ancestry proof and branch disposition are complete and both audits have
-   been run, clean up the watcher and lease. A recorded post-merge follow-up
-   with the source branch retained is a terminal disposition for this shipment;
-   do not keep its watcher or lease active waiting for the already-merged PR to
-   be fixed.
+3. If Step 2 recorded a post-merge follow-up, retain the source branch and skip
+   branch mutation. Otherwise, complete `/ship`'s authorized post-merge branch
+   disposition, passing the saved `ship_merge_head_oid` to `/new-branch`.
+   Compare both local and remote source-branch tips. Renew and verify the lease
+   immediately before any branch mutation, including a checkout switch. If
+   fencing fails, keep the source checkout unchanged; otherwise rotate only
+   when its safety checks pass, retaining the source branch and reporting why
+   when they do not.
+4. Once ancestry proof and branch disposition (including retaining the source
+   branch for a post-merge follow-up) are complete and both audits have been
+   run, clean up the watcher and lease. A recorded post-merge follow-up is a
+   terminal disposition for this shipment; do not keep its watcher or lease
+   active waiting for the already-merged PR to be fixed.
 
 PR merge by itself is not a watcher stop, parent handoff completion, or goal
 completion. If the exact head OID is unavailable, preserve the source branch
