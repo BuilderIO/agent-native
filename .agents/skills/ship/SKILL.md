@@ -2,10 +2,11 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean unless the user asks to leave it open, then
-  create a fresh branch. Use when the user asks to ship, publish, or hand off
-  local changes. Matching beta and docs
-  paths publish automatically after merge; other production promotion is manual.
+  babysit it, and merge when clean unless the user asks to leave it open. Keep
+  the current branch unless the user explicitly requests the exact branch
+  operation. Use when the user asks to ship, publish, or hand off local changes.
+  Matching beta and docs paths publish automatically after merge; other
+  production promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -38,25 +39,27 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   when one exists; otherwise use the foreground task transcript and continue
   without yielding through post-merge disposition. A missing watcher or
   `/goal` never blocks the authorized merge. Carry the immutable value through
-  `/new-branch`; never replace it with a live PR head read after merge, because
-  the source branch may advance or be deleted.
-- That `/ship` request also authorizes one post-merge branch rotation in a
-  user-owned checkout, after the merge commit is verified on `origin/main`.
-  Platform-assigned Builder.io and Fusion branches stay in place. Apply
-  `/new-branch`'s naming and safety checks only when rotation is allowed; do not
-  move branches earlier or touch another checkout. If unpublished commits
-  remain on any path, retain the source branch and report them; do not strand
-  commits excluded from `ship:push` on the old branch without naming them.
+  post-merge verification; never replace it with a live PR head read after
+  merge, because the source branch may advance or be deleted.
+- `/ship` ships and merges the current branch; the request alone does not
+  authorize creating or switching branches. After `origin/main` ancestry is
+  verified, retain the source branch unless the user explicitly requested that
+  exact branch operation in this task. If they did, use `/new-branch`'s safety
+  checks in the current user-owned checkout. Preserve platform-assigned
+  branches. If unpublished commits remain on any path, retain the source branch
+  and report them; do not strand commits excluded from `ship:push` on the old
+  branch without naming them.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
-  is verified, and post-merge branch disposition is complete (rotate only in a
-  user-owned checkout with no unpushed commits; otherwise retain the source
-  branch and report the hashes; preserve platform-assigned branches), while
-  checking and fixing CI/review feedback and using the guarded squash-admin
-  merge. If the user explicitly opts out of merging, make the goal match that
-  endpoint. Reuse an existing goal only when it covers this shipment; never
-  replace an unrelated goal. For
+  is verified, and branch disposition is complete: retain the source branch by
+  default; if the user explicitly requested the exact branch operation in this
+  task, rotate only in a user-owned checkout with no unpushed commits. Otherwise
+  retain the source branch and report unpushed hashes. Preserve
+  platform-assigned branches while checking and fixing CI/review feedback and
+  using the guarded squash-admin merge. If the user explicitly opts out of
+  merging, make the goal match that endpoint. Reuse an existing goal only when
+  it covers this shipment; never replace an unrelated goal. For
   `ship_mode=ready-only`, set the endpoint to an open PR with green required
   checks, addressed review feedback with no new actionable item at final
   revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
@@ -67,12 +70,14 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   a session command, not an agent tool, so the user must submit it as a separate
   message before invoking `/ship`; loading the skill cannot set it. Submit this
   condition in a standalone `/goal` message: `Run /ship through the guarded admin merge, verify
-  origin/main contains the merge commit, then finish branch disposition: rotate
-  only in a user-owned checkout with no unpushed commits; otherwise retain the
-  source branch and report the hashes; keep platform-assigned Builder.io and
-  Fusion branches unchanged. Keep checking and fixing CI and review feedback
-  until then.` Do not replace an unrelated active goal; Claude Code permits one
-  per session. If `/ship` was already invoked without one, keep shipping in the
+  origin/main contains the merge commit, then finish branch disposition. Keep
+  the source branch unless I explicitly requested the exact branch operation
+  in this task. If I did, rotate only in a user-owned checkout and only when no
+  unpushed commits remain; otherwise retain the source branch and report their
+  hashes. Keep platform-assigned Builder.io and Fusion branches unchanged. Keep
+  checking and fixing CI and review feedback until then.` Do not replace an
+  unrelated active goal; Claude Code permits one per session. If `/ship` was
+  already invoked without one, keep shipping in the
   foreground; the missing native goal does not block the authorized merge or
   completion. Do not claim that a native goal is active.
   If the user explicitly opts out of merge, replace that goal with the
@@ -109,8 +114,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 5. In `merge-authorized` mode, merge only after the live gates hold for 10
    minutes. In `ready-only` mode, stop at the verified ready-PR gate, leave the
    PR open, and clean up its watcher and lease.
-6. After a merge, verify it reached `origin/main`, then rotate only in a
-   user-owned checkout. `ready-only` shipments do not rotate.
+6. After a merge, verify it reached `origin/main`, then finish branch
+   disposition. Keep the source branch unless the user explicitly requested
+   the exact branch operation in this task; if so, follow `/new-branch`'s
+   safety checks. `ready-only` shipments do not rotate.
 7. Report source checks, PR, merge or intentional open state, branch
    disposition, and deployment boundaries separately.
 
@@ -312,13 +319,14 @@ coherent update to the same PR, and restart the soak. A queued, skipped,
 cancelled, superseded, provider, or missing-secret job is not automatically a
 repo defect; classify it before changing code.
 
-## 6. Rotate after merge
+## 6. Branch disposition after merge
 
 After the merge, verify that `origin/main` contains the merge commit. In a
-platform-managed Builder.io or Fusion checkout, keep its assigned branch and
-complete the ship goal without rotating. Otherwise, in the current user-owned
-worktree, use `/new-branch`'s dedicated post-merge rotation path. Do not run
-its generic local-main checkout flow. Only then mark the ship goal complete.
+platform-managed Builder.io or Fusion checkout, keep its assigned branch. Keep
+the source branch in every checkout unless the user explicitly requested the
+exact branch operation in this task. If they did, use `/new-branch`'s dedicated
+post-merge path in the current user-owned worktree. Only then mark the ship goal
+complete.
 
 ## Deployment boundary
 
@@ -331,8 +339,9 @@ or manual-production proof.
 
 ## Final report
 
-Include the ready PR URL, merged commit, fresh branch, focused/local checks,
-required CI state, and any deployment result. In the feedback dispositions,
+Include the ready PR URL, merged commit, branch disposition, focused/local
+checks, required CI state, and any deployment result. In the feedback
+dispositions,
 name each linked issue that was thanked and closed and each issue left open
 with its precise blocker. Say explicitly when deployment was not part of this
 run.

@@ -1,9 +1,9 @@
 ---
 name: new-branch
 description: >-
-  Use when explicitly asked for /new-branch or a fresh git branch. /ship also
-  authorizes one post-merge rotation in a user-owned checkout after origin/main
-  proof. Do not rotate platform-assigned Builder.io or Fusion branches.
+  Use when explicitly asked for /new-branch or a fresh git branch. A /ship
+  request alone does not authorize post-merge branch movement. Keep
+  platform-assigned Builder.io and Fusion branches in place.
 user-invocable: true
 scope: dev
 metadata:
@@ -16,28 +16,29 @@ metadata:
 
 Use this skill when the user explicitly invokes `/new-branch`, mentions this
 skill as the workflow to run, or directly asks you to create a fresh git branch
-from main. The single post-merge rotation required by an active `/ship` is also
-authorized by that `/ship` request in a user-owned checkout, but only after
-`/ship` verifies its merge commit on `origin/main`. Platform-assigned Builder.io
-and Fusion branches stay in place. This never authorizes moving branches earlier
-or touching another checkout.
+from main. A post-merge branch move during `/ship` requires the user to
+explicitly request that exact branch operation in the current task, and only
+after `/ship` verifies its merge commit on `origin/main`. Platform-assigned
+Builder.io and Fusion branches stay in place. This never authorizes moving
+branches earlier or touching another checkout.
 
-If neither an explicit new-branch request nor the verified post-merge `/ship`
-exception above applies, **stop here** and continue the original task without
-branch movement.
+If neither an explicit new-branch request nor the explicitly requested
+post-merge branch operation above applies, **stop here** and continue the
+original task without branch movement.
 
 ### Do NOT invoke this skill in any of these situations
 
 These are mistakes other agents have made that stranded concurrent work:
 
-- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. The only exception is `/ship`'s authorized rotation after its merge is verified on `origin/main`.
-- The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them. The verified post-merge `/ship` exception applies only to the current user-owned checkout.
-- You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI. This rule also exempts `/ship` from its post-merge rotation in that checkout.
+- The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. A `/ship` request alone does not authorize post-merge branch movement.
+- The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
+- You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
 - The working tree has uncommitted changes. For normal branch requests,
   checkpoint all nonignored work before branching; do not classify by authorship
-  or stash it silently. `/ship` may carry only its documented `learnings.md`,
-  `bridge/**`, and `data/**` exclusions to its post-merge branch, preserving and
-  verifying those local changes. Any other dirty path blocks rotation.
+  or stash it silently. An explicitly requested `/ship` rotation may carry only
+  its documented `learnings.md`, `bridge/**`, and `data/**` exclusions to its
+  post-merge branch, preserving and verifying those local changes. Any other
+  dirty path blocks rotation.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
 When in doubt: stay on the current branch. Ask the user before moving.
@@ -56,11 +57,11 @@ git log origin/main --oneline -1
 
 Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
 
-## Post-merge `/ship` rotation
+## Explicitly requested post-merge `/ship` rotation
 
-When `/ship` activates this skill after verifying the merge commit on
-`origin/main`, use this path instead of the generic command below. In the
-current user-owned worktree, confirm there are no unpushed commits on any path
+When the user explicitly requests the exact branch operation during `/ship`,
+use this path after verifying the merge commit on `origin/main`. In the current
+user-owned worktree, confirm there are no unpushed commits on any path
 and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
 may remain dirty. If any unpushed commit remains, keep the source branch checked
 out and report the commit hashes instead of rotating. This preserves commits
