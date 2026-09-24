@@ -460,7 +460,7 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [
     true,
-    "The agent stopped /ship with the pull request unmerged because it falsely claimed I explicitly asked to leave the PR open, then gave a long explanation of why the run ended and what it did afterward. That is false; I asked for the opposite.",
+    "The agent stopped /ship with the pull request unmerged because it falsely claimed I explicitly asked to leave the PR open, then explained that several checks were green, no reviewer had replied, the worktree was clean, no merge command had run, and the original instruction still asked the agent to watch until merge. That is false; I asked for the opposite.",
   ],
   [
     true,
