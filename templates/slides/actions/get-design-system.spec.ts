@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn(() => "access-filter");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
@@ -17,13 +18,23 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
+    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
 
+vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ type: "and", conditions }),
+  eq: (column: unknown, value: unknown) => ({ type: "eq", column, value }),
+}));
+
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
-  schema: { designSystems: { id: "id", data: "data" } },
+  schema: {
+    designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
+    designSystemShares: { resourceId: "resourceId" },
+  },
 }));
 
 import action from "./get-design-system.js";
@@ -34,6 +45,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -93,6 +105,12 @@ describe("get-design-system", () => {
     await action.run({ id: "builder-ds-1" });
 
     expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      { id: "id", ownerEmail: "ownerEmail", data: "data" },
+      { resourceId: "resourceId" },
+      undefined,
+      "editor",
+    );
     expect(mockSet).toHaveBeenCalledWith({
       data: JSON.stringify({
         source: "builder",
@@ -102,12 +120,35 @@ describe("get-design-system", () => {
         docCount: 1,
       }),
     });
+    expect(mockWhere).toHaveBeenCalledWith({
+      type: "and",
+      conditions: [
+        { type: "eq", column: "id", value: "builder-ds-1" },
+        {
+          type: "eq",
+          column: "ownerEmail",
+          value: "owner@example.com",
+        },
+        {
+          type: "eq",
+          column: "data",
+          value: JSON.stringify({
+            source: "builder",
+            builderDesignSystemId: "ds-1",
+            builderJobId: "job-1",
+            colors: { primary: "var(--primary)" },
+          }),
+        },
+        "access-filter",
+      ],
+    });
   });
 
   it("does not write when the hydrated docCount matches the cached row", async () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({

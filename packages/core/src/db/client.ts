@@ -107,17 +107,16 @@ function hasCloudflareRuntime(): boolean {
 /**
  * Resolve the PostgreSQL URL for the current app.
  *
- * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
- * then falls back to `DATABASE_URL`, then Netlify's managed database env. This
- * allows multiple apps to run in the same process group (e.g. eager repo dev or
- * builder.io) with separate databases while still using the persistent Netlify
- * runtime database when `DATABASE_URL` was only exported for the build command.
+ * Checks the current app's prefixed database URL first (e.g.
+ * `MAIL_DATABASE_URL`), then falls back to `DATABASE_URL` and Netlify's managed
+ * database env. Workspace runtimes use their app ID as the prefix, allowing
+ * sibling apps to keep separate databases.
  *
- * Set `APP_NAME=mail` in the child process env and
- * `MAIL_DATABASE_URL=postgres://...` in the shared env.
+ * Standalone processes can set `APP_NAME=mail`; workspace deploys provide the
+ * app ID automatically.
  */
 export function getDatabaseUrl(fallback = ""): string {
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const appName = getAppEnvPrefix();
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
@@ -256,7 +255,9 @@ export function getRuntimeDatabaseSource(fallback = ""): string {
 }
 
 function getAppEnvPrefix(): string | undefined {
-  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
+  const appConfig = getAppConfig().app;
+  const appName = appConfig.workspaceId || appConfig.name;
+  return appName?.toUpperCase().replace(/-/g, "_") || undefined;
 }
 
 /**
@@ -1263,10 +1264,13 @@ function poolApplicationName(): string {
 
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
+  const max =
+    getAppConfig().runtime.databasePoolMax ??
+    (serverless ? serverlessPoolMax() : 20);
   return {
     onnotice: () => {},
     connection: { application_name: poolApplicationName() },
-    max: serverless ? serverlessPoolMax() : 20,
+    max,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -1316,8 +1320,10 @@ export function neonPoolOptions(): {
  * Keep pools shared if you raise this.
  */
 export function neonPoolMax(): number {
-  if (!isServerlessRuntime()) return 20;
-  return serverlessPoolMax();
+  return (
+    getAppConfig().runtime.databasePoolMax ??
+    (isServerlessRuntime() ? serverlessPoolMax() : 20)
+  );
 }
 
 function serverlessPoolMax(): number {

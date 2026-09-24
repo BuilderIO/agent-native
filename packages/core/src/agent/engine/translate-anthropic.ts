@@ -15,6 +15,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 import {
   createProviderToolNameMap,
   toEngineToolName,
@@ -31,12 +32,6 @@ import type {
 // ---------------------------------------------------------------------------
 // EngineTool → Anthropic.Tool
 // ---------------------------------------------------------------------------
-
-const ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS = [
-  "oneOf",
-  "anyOf",
-  "allOf",
-] as const;
 
 type JsonSchemaRecord = Record<string, unknown>;
 
@@ -82,18 +77,7 @@ function normalizeAnthropicInputSchema(
     return normalizeDbExecAnthropicInputSchema(schema);
   }
 
-  if (
-    !ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS.some((key) => key in schema)
-  ) {
-    return schema as Anthropic.Tool["input_schema"];
-  }
-
-  const normalized: Record<string, unknown> = { ...schema };
-  for (const key of ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS) {
-    delete normalized[key];
-  }
-  normalized.type = "object";
-  return normalized as Anthropic.Tool["input_schema"];
+  return flattenComposedRootSchema(schema) as Anthropic.Tool["input_schema"];
 }
 
 export function engineToolToAnthropic(

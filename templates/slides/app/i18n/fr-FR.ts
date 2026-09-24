@@ -55,6 +55,7 @@ const messages = {
     emptyState: "Posez-moi vos questions sur vos présentations",
     thisSlide: "Cette diapositive",
     currentSelection: "Sélection actuelle",
+    slideNumber: "Diapositive {{number}}",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",

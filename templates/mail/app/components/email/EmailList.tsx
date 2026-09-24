@@ -146,6 +146,7 @@ interface EmailListProps {
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
   onNavigateThread?: (threadId: string) => void;
+  showPrioritySort?: boolean;
   sortMode?: MailSortMode;
   onSortModeChange?: (mode: MailSortMode) => void;
 }
@@ -467,6 +468,7 @@ export function EmailList({
   onArchived,
   onDraftOpen,
   onNavigateThread,
+  showPrioritySort = false,
   sortMode = "newest",
   onSortModeChange,
 }: EmailListProps) {
@@ -484,7 +486,9 @@ export function EmailList({
   const searchQuery = searchParams.get("q") ?? undefined;
   const labelParam = searchParams.get("label");
   const currentSortMode: MailSortMode =
-    view === "inbox" && !searchQuery && !labelParam ? sortMode : "newest";
+    showPrioritySort && view === "inbox" && !searchQuery && !labelParam
+      ? sortMode
+      : "newest";
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -1916,7 +1920,7 @@ export function EmailList({
     () =>
       view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
         <Select
-          value={sortMode}
+          value={currentSortMode}
           onValueChange={(value) => onSortModeChange?.(value as MailSortMode)}
         >
           <SelectTrigger
@@ -1929,16 +1933,21 @@ export function EmailList({
           </SelectTrigger>
           <SelectContent align="end">
             <SelectItem value="newest">{t("mail.sort.newest")}</SelectItem>
-            <SelectItem value="priority">{t("mail.sort.priority")}</SelectItem>
+            {showPrioritySort && (
+              <SelectItem value="priority">
+                {t("mail.sort.priority")}
+              </SelectItem>
+            )}
           </SelectContent>
         </Select>
       ) : null,
     [
       isPriorityPending,
       labelParam,
+      showPrioritySort,
+      currentSortMode,
       onSortModeChange,
       searchQuery,
-      sortMode,
       t,
       threads.length,
       view,

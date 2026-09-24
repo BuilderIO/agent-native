@@ -17,7 +17,7 @@ vi.mock("../settings/store.js", () => ({
   putSetting: mockPutSetting,
 }));
 vi.mock("./self-dispatch.js", () => ({
-  resolveSelfDispatchBaseUrl: mockSelfUrl,
+  resolveDeploymentBaseUrl: mockSelfUrl,
 }));
 vi.mock("./deploy-environment.js", () => ({
   resolveDeployEnvironment: mockDeployEnv,
@@ -286,7 +286,7 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("does not register the canonical origin from a process that may not be the deploy", async () => {
-    // No per-deploy platform var means `resolveSelfDispatchBaseUrl` fell back
+    // No per-deploy platform var means `resolveDeploymentBaseUrl` fell back
     // to `app.url` — the CANONICAL origin, shared by every environment built
     // from the production env file. A built server run on a laptop against a
     // branch database resolves "production" (the default with no platform

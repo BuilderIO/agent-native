@@ -12,10 +12,9 @@
  *   CanvasPrimitiveInsert shape the existing overview commit path already
  *   knows how to persist.
  * - parsePenPathFromSerializedD: the deliberate inverse of pen-path.ts's
- *   serializePenPath, used to recover a structured PenPath (for
- *   data-an-pen-nodes) from the flattened `d` string that is the only pen
- *   geometry MultiScreenCanvas's CanvasPrimitiveInsert carries across the
- *   overview commit boundary. Round-tripped against the real serializer/
+ *   serializePenPath, used as a fallback to recover a structured PenPath
+ *   (for data-an-pen-nodes) from flattened `d` when an insert does not carry
+ *   the structured model directly. Round-tripped against the real serializer/
  *   pen-path helpers rather than hand-written `d` strings, so this pins the
  *   actual serializePenPath grammar rather than an assumption about it.
  */
@@ -214,6 +213,7 @@ describe("createPrimitiveInsertFromSpec", () => {
       { x: 150, y: 90 },
     ]);
     expect(result?.pathData).toBe(serializePenPath(penPath));
+    expect(result?.penPath).toEqual(penPath);
     expect(result?.pathData).toContain(" C ");
   });
 

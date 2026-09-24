@@ -8,7 +8,7 @@
  * jump and the B6 ellipse border-radius jump.
  *
  * Design decisions:
- * - Fill (rect/ellipse): `rgb(218 218 218)` — a plain, theme-independent
+ * - Fill (rect/ellipse): Figma's D9D9D9 neutral — a plain, theme-independent
  *   neutral gray, not a CSS custom property. This is intentional: a shape
  *   drawn with no explicit color should look the same (a soft Figma-like
  *   gray) regardless of which document theme it lands in, rather than
@@ -70,7 +70,7 @@ export interface CanvasPrimitiveVisual {
 
 /** Default fill — a soft Figma-like neutral gray. */
 // guard:allow-raw-color — a drawn shape must not retint with the document theme.
-export const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
+export const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 
 /** Default stroke used when a caller explicitly enables a stroke. */
 const DEFAULT_STROKE = "rgb(168 168 168)";
@@ -118,20 +118,23 @@ export interface CanvasVectorPaint {
 }
 
 /**
- * A closed pen path is a shape, so it takes the same fill-and-no-stroke
- * defaults a drawn rectangle or ellipse takes above; an open path, line, or
- * arrow IS its stroke, and dropping that would commit an invisible element.
+ * Polygons and stars are shapes: filled, no stroke. A pen path, line, or arrow
+ * IS its stroke even once closed (Figma adds no fill on close), and an open
+ * path never takes a fill.
  */
 export function canvasVectorPaint(overrides: {
-  closed: boolean;
+  outline: "shape" | "closed-path" | "open-path";
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
 }): CanvasVectorPaint {
-  const { closed, fill, stroke, strokeWidth } = overrides;
+  const { outline, fill, stroke, strokeWidth } = overrides;
   return {
-    fill: closed ? (fill ?? DEFAULT_SHAPE_FILL) : "none",
-    stroke: stroke ?? (closed ? "none" : DEFAULT_LINE_STROKE),
+    fill:
+      outline === "open-path"
+        ? "none"
+        : (fill ?? (outline === "shape" ? DEFAULT_SHAPE_FILL : "none")),
+    stroke: stroke ?? (outline === "shape" ? "none" : DEFAULT_LINE_STROKE),
     strokeWidth: strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
   };
 }

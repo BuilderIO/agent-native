@@ -57,6 +57,7 @@ import {
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  ensureMessageMetadata,
   shouldSuppressUnauthenticatedDesktopThreadRestore,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
@@ -1999,6 +2000,62 @@ describe("tool approval continuation", () => {
     expect(approvalSource).toContain("approvalProtocolContinuationContext(");
     expect(approvalSource).toContain("continuation.actionScope");
   });
+
+  it("passes imperative sendMessage approval keys into addToQueue's matching positions", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const paramsStart = source.indexOf("const addToQueue = useCallback(");
+    const paramsEnd = source.indexOf(") => {", paramsStart);
+    const params = source
+      .slice(
+        source.indexOf("async (", paramsStart) + "async (".length,
+        paramsEnd,
+      )
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.match(/^(\w+)/)?.[1]);
+
+    const handleStart = source.indexOf("useImperativeHandle(");
+    const callStart = source.indexOf("void addToQueue(", handleStart);
+    const callEnd = source.indexOf(");", callStart);
+    const args = source
+      .slice(callStart + "void addToQueue(".length, callEnd)
+      .split("\n")
+      .map((line) => line.trim().replace(/,$/, ""))
+      .filter(Boolean);
+
+    expect(paramsStart).toBeGreaterThan(-1);
+    expect(source.slice(handleStart, callStart)).toContain(
+      "options?: AssistantChatSendOptions",
+    );
+    expect(args[params.indexOf("approvedToolCalls")]).toBe(
+      "options?.approvedToolCalls",
+    );
+    expect(args[params.indexOf("hideUserMessage")]).toBe(
+      "options?.hideUserMessage === true",
+    );
+  });
+
+  it("puts approval keys in the run config of a hidden continuation", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["publish-release:{}"],
+      undefined,
+      true,
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      approvedToolCalls: ["publish-release:{}"],
+    });
+    expect(options.metadata?.custom).toMatchObject({
+      agentNativeHiddenUserMessage: true,
+    });
+  });
 });
 
 describe("protocol continuation scope wiring", () => {
@@ -2387,6 +2444,36 @@ describe("useAutoResumeStatus", () => {
       );
     });
     expect(apiRef.current?.isAutoResuming).toBe(false);
+  });
+});
+
+describe("ensureMessageMetadata", () => {
+  it("does not mutate the live repository the periodic in-run save exports", () => {
+    const liveTool = {
+      type: "tool-call",
+      toolCallId: "tool-1",
+      toolName: "list-records",
+      args: {},
+    };
+    const liveMessage = {
+      id: "a1",
+      role: "assistant",
+      content: [{ type: "text", text: "Looking it up." }, liveTool],
+      status: { type: "running" },
+    };
+    const repo = { messages: [{ parentId: null, message: liveMessage }] };
+
+    const persisted = ensureMessageMetadata(repo);
+    const saved = persisted.messages[0].message;
+
+    // The snapshot is settled for storage...
+    expect(saved.status).toEqual({ type: "complete", reason: "stop" });
+    expect(saved.content[1].outcome).toBe("unknown");
+    // ...but the message assistant-ui is still streaming into is untouched, so
+    // the thread keeps running and the tool result can still land cleanly.
+    expect(liveMessage.status).toEqual({ type: "running" });
+    expect(liveTool).not.toHaveProperty("outcome");
+    expect(liveTool).not.toHaveProperty("result");
   });
 });
 

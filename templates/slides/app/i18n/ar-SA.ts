@@ -52,6 +52,7 @@ const messages = {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
     thisSlide: "هذه الشريحة",
     currentSelection: "التحديد الحالي",
+    slideNumber: "الشريحة {{number}}",
     suggestionPitch: "أنشئ عرضا من 10 شرائح من هذا المستند",
     suggestionBrand: "طبّق علامتنا على هذا العرض",
     suggestionHero: "أنشئ صورة رئيسية لهذه الشريحة",

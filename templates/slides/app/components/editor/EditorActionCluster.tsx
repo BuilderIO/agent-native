@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { cn } from "@/lib/utils";
 
 const BUTTON_CLASS =
@@ -112,7 +113,12 @@ export function EditorActionCluster({
             variant="ghost"
             size="sm"
             className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={onAddEmptySlide}
+            onPointerEnter={preloadAddSlidePopover}
+            onFocus={preloadAddSlidePopover}
+            onClick={() => {
+              preloadAddSlidePopover();
+              onAddEmptySlide();
+            }}
             disabled={addSlideGenerating}
           >
             <IconPlus className="size-3.5" />

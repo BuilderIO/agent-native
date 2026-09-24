@@ -31,7 +31,8 @@ import {
 /** Reserved filename for the board overlay file. */
 export const BOARD_FILENAME = "__board__.html";
 
-const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
+// guard:allow-raw-color — Figma's default shape paint (D9D9D9), independent of the document theme.
+const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 
 // Figma-parity default stroke for vector primitives (line/arrow/pen path).

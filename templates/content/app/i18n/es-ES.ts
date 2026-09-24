@@ -457,8 +457,9 @@ const editor = {
   pageBodySyncing: "El contenido de esta página aún se está sincronizando",
   pageBodySyncingDescription:
     "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
+  createCollection: "Crear colección",
   creatingDatabase: "Creando colección integrada...",
-  databaseCreated: "Colección integrada creada",
+  databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
   describeWhatToGenerate: "Describe qué generar...",
   enterToSubmit: "Entra para enviar",
@@ -709,6 +710,11 @@ const editor = {
     collapsibleBlockDescription: "bloque plegable",
     database: "Colección",
     databaseDescription: "Colección integrada en esta página",
+    collectionInline: "Colección — integrada",
+    collectionInlineDescription: "Añade una colección dentro de esta página",
+    collectionFullPage: "Colección — página completa",
+    collectionFullPageDescription:
+      "Crea una colección secundaria y enlázala aquí",
     divider: "Divisor",
     dividerDescription: "regla horizontal",
     generate: "generar",
@@ -1087,6 +1093,7 @@ const rawLiterals = {
     copied: "Copiado",
     copy: "Copiar",
     database: "Colección",
+    collection: "Colección",
     databasePermanentlyDeleted: "Colección eliminada permanentemente",
     databaseRestored: "Colección restaurada",
     disconnectWorkspace: "Desconectar espacio",
@@ -1494,6 +1501,18 @@ const overrides = {
     labCreativeContext: "Contexto creativo",
     labCreativeContextDescription:
       "Conecta y reutiliza contexto de referencia regulado en Content.",
+    labSlashAdvancedCode: "Bloques de código avanzados",
+    labSlashAdvancedCodeDescription:
+      "Añade bloques de código y pestañas de código al menú de comandos.",
+    labSlashLayouts: "Bloques de diseño",
+    labSlashLayoutsDescription:
+      "Añade bloques de HTML personalizado y pestañas al menú de comandos.",
+    labSlashVisuals: "Bloques visuales",
+    labSlashVisualsDescription:
+      "Añade diagramas, Mermaid y wireframes al menú de comandos.",
+    labSlashDeveloperDocs: "Bloques de documentación técnica",
+    labSlashDeveloperDocsDescription:
+      "Añade bloques de API y documentación técnica al menú de comandos.",
   },
   chat: {
     publicEmptyState: "Pregúntame cualquier cosa sobre este documento",

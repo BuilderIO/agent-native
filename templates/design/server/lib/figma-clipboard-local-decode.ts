@@ -37,8 +37,19 @@ const MAX_CLIPBOARD_FRAMES = 50;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
 
+export interface ClipboardLayerPlacement {
+  /** The screen root is a synthetic frame around one loose node. */
+  wrapsLooseNode: boolean;
+  /** Top-left on the Figma page, for keeping a multi-node copy's arrangement. */
+  origin: { x: number; y: number };
+  /** Top-left relative to the frame it was copied out of in Figma. */
+  sourceOffset: { x: number; y: number } | null;
+}
+
 export interface ClipboardLocalDecodeResult {
   files: ImportedDesignFile[];
+  /** Parallel to `files`. */
+  layers: ClipboardLayerPlacement[];
   warnings: string[];
   unresolvedImageRefs: string[];
   stats: {
@@ -65,64 +76,138 @@ function findOrphanRoots(nodeChanges: FigNode[]): FigNode[] {
   });
 }
 
+// The renderer emits one screen per top-level frame; anything else copied on
+// its own (a vector, group, text, shape) would render nothing at all.
+const TOP_LEVEL_FRAME_TYPES = new Set([
+  "FRAME",
+  "SYMBOL",
+  "INSTANCE",
+  "SECTION",
+]);
+
+interface NormalizedClipboardDocument {
+  document: unknown;
+  /** guidKeys of the synthetic frames that each hold one loose node. */
+  wrapperKeys: Set<string>;
+}
+
 /**
- * Wrap an orphaned nodeChanges array (clipboard format: selected subtree
- * without a DOCUMENT/CANVAS container) in synthetic DOCUMENT and CANVAS
- * nodes so `renderHtmlTemplates` can find the top-level frame hierarchy.
+ * Make the clipboard's selection renderable by the `.fig` walker: give an
+ * orphaned subtree a synthetic DOCUMENT/CANVAS, and give each loose non-frame
+ * top-level node a transparent, unclipped frame of exactly its bounds.
  *
- * The synthetic node GUIDs use `sessionID = maxExisting + 1` to guarantee
- * no collision with real clipboard node GUIDs.
+ * Synthetic GUIDs use `sessionID = maxExisting + 1` so they cannot collide
+ * with real clipboard nodes.
  */
-function normalizeClipboardDocument(document: unknown): unknown {
+function normalizeClipboardDocument(
+  document: unknown,
+): NormalizedClipboardDocument {
   const doc = document as {
     nodeChanges?: FigNode[];
     blobs?: unknown[];
   };
-  const nodeChanges = doc.nodeChanges;
-  if (!Array.isArray(nodeChanges)) return document;
+  const wrapperKeys = new Set<string>();
+  if (!Array.isArray(doc.nodeChanges)) return { document, wrapperKeys };
 
-  // Already has a DOCUMENT node → renderer can handle it as-is.
-  if (nodeChanges.some((n) => n.type === "DOCUMENT")) return document;
+  const synBase =
+    doc.nodeChanges.reduce((m, n) => Math.max(m, n.guid?.sessionID ?? 0), 0) +
+    1;
+  let nodeChanges = doc.nodeChanges;
 
-  const maxSession = nodeChanges.reduce(
-    (m, n) => Math.max(m, n.guid?.sessionID ?? 0),
-    0,
+  if (!nodeChanges.some((n) => n.type === "DOCUMENT")) {
+    const docGuid: Guid = { sessionID: synBase, localID: 0 };
+    const pageGuid: Guid = { sessionID: synBase, localID: 1 };
+    const orphanKeys = new Set(
+      findOrphanRoots(nodeChanges).map((n) => guidKey(n.guid)),
+    );
+    nodeChanges = [
+      { guid: docGuid, type: "DOCUMENT", name: "Document" },
+      {
+        guid: pageGuid,
+        type: "CANVAS",
+        name: "Clipboard",
+        parentIndex: { guid: docGuid, position: "0.5" },
+      },
+      ...nodeChanges.map((n) =>
+        orphanKeys.has(guidKey(n.guid))
+          ? {
+              ...n,
+              parentIndex: {
+                guid: pageGuid,
+                position: n.parentIndex?.position ?? "0.5",
+              },
+            }
+          : n,
+      ),
+    ];
+  }
+
+  const pageKeys = new Set(
+    nodeChanges
+      .filter((n) => n.type === "CANVAS" && !n.internalOnly)
+      .map((n) => guidKey(n.guid)),
   );
-  const synBase = maxSession + 1;
-  const docGuid: Guid = { sessionID: synBase, localID: 0 };
-  const pageGuid: Guid = { sessionID: synBase, localID: 1 };
-
-  const orphans = findOrphanRoots(nodeChanges);
-
-  const documentNode: FigNode = {
-    guid: docGuid,
-    type: "DOCUMENT",
-    name: "Document",
-  };
-  const canvasNode: FigNode = {
-    guid: pageGuid,
-    type: "CANVAS",
-    name: "Clipboard",
-    parentIndex: { guid: docGuid, position: "0.5" },
-  };
-
-  // Shallow-copy the orphan nodes, pointing their parentIndex to the
-  // synthetic CANVAS. Non-orphan nodes keep their original parentIndex.
-  const orphanKeys = new Set(orphans.map((n) => guidKey(n.guid)));
-  const patchedNodes = nodeChanges.map((n) => {
-    if (!orphanKeys.has(guidKey(n.guid))) return n;
+  const wrappers: FigNode[] = [];
+  const patched = nodeChanges.map((n) => {
+    if (
+      !n.type ||
+      n.visible === false ||
+      TOP_LEVEL_FRAME_TYPES.has(n.type) ||
+      !pageKeys.has(guidKey(n.parentIndex?.guid))
+    ) {
+      return n;
+    }
+    const t = n.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+    const w = n.size?.x ?? 0;
+    const h = n.size?.y ?? 0;
+    const corners = [
+      [0, 0],
+      [w, 0],
+      [0, h],
+      [w, h],
+    ].map(([x, y]) => ({
+      x: t.m00 * x + t.m01 * y + t.m02,
+      y: t.m10 * x + t.m11 * y + t.m12,
+    }));
+    const minX = Math.min(...corners.map((c) => c.x));
+    const minY = Math.min(...corners.map((c) => c.y));
+    const wrapperGuid: Guid = {
+      sessionID: synBase,
+      localID: 2 + wrappers.length,
+    };
+    wrappers.push({
+      guid: wrapperGuid,
+      type: "FRAME",
+      name: n.name,
+      visible: true,
+      opacity: 1,
+      parentIndex: n.parentIndex,
+      size: {
+        x: Math.max(...corners.map((c) => c.x)) - minX,
+        y: Math.max(...corners.map((c) => c.y)) - minY,
+      },
+      transform: { m00: 1, m01: 0, m02: minX, m10: 0, m11: 1, m12: minY },
+      fillPaints: [],
+      frameMaskDisabled: true,
+    });
+    wrapperKeys.add(guidKey(wrapperGuid));
     return {
       ...n,
-      parentIndex: {
-        guid: pageGuid,
-        position: n.parentIndex?.position ?? "0.5",
-      },
+      parentIndex: { guid: wrapperGuid, position: "!" },
+      transform: { ...t, m02: t.m02 - minX, m12: t.m12 - minY },
     };
   });
 
+  if (wrappers.length === 0) {
+    return {
+      document:
+        nodeChanges === doc.nodeChanges ? document : { ...doc, nodeChanges },
+      wrapperKeys,
+    };
+  }
   return {
-    ...doc,
-    nodeChanges: [documentNode, canvasNode, ...patchedNodes],
+    document: { ...doc, nodeChanges: [...patched, ...wrappers] },
+    wrapperKeys,
   };
 }
 
@@ -160,11 +245,11 @@ export async function importFigmaClipboardFromBuffer(options: {
     );
   }
 
-  const normalizedDoc = normalizeClipboardDocument(decoded.document);
+  const normalized = normalizeClipboardDocument(decoded.document);
 
   // Empty imageMap so all IMAGE fills are treated as unresolved. The renderer
   // will stamp data-figma-image-ref on affected elements via trackUnresolvedImageRefs.
-  const rendered = renderHtmlTemplates(normalizedDoc, {
+  const rendered = renderHtmlTemplates(normalized.document, {
     imageMap: new Map(),
     missingImageUrl: "about:blank",
     trackUnresolvedImageRefs: true,
@@ -180,6 +265,18 @@ export async function importFigmaClipboardFromBuffer(options: {
   }
 
   const unresolvedRefs = Array.from(rendered.unresolvedImageRefs ?? []);
+  // Figma records the enclosing frame's page origin only when the selection
+  // had one; without it there is no parent-relative position to restore.
+  const pasteOffset = (
+    decoded.document as { pasteOffset?: { x: number; y: number } }
+  ).pasteOffset;
+  const layers: ClipboardLayerPlacement[] = rendered.frames.map((frame) => ({
+    wrapsLooseNode: normalized.wrapperKeys.has(frame.nodeKey),
+    origin: { x: frame.x, y: frame.y },
+    sourceOffset: pasteOffset
+      ? { x: frame.x - pasteOffset.x, y: frame.y - pasteOffset.y }
+      : null,
+  }));
 
   let totalHtmlBytes = 0;
   const files: ImportedDesignFile[] = rendered.frames.map((frame) => {
@@ -238,6 +335,7 @@ export async function importFigmaClipboardFromBuffer(options: {
 
   return {
     files,
+    layers,
     warnings,
     unresolvedImageRefs: unresolvedRefs,
     stats: {

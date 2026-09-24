@@ -227,7 +227,7 @@ ChatGPT 透過`window.openai`獲得專用的相容路徑：啟動檔案直接讀
 
 Claude 預設使用單幀移植路徑。在偵錯主機模組載入行為時，您還可以在具有 `embedMode: "transplant"` 或 `frame: "transplant"` 的其他主機中強制使用它。您可以使用 `embedMode: "iframe"`、`renderMode: "iframe"`、`nested: true` 或 `frame: "iframe"` 強制嵌套診斷 iframe。如果 iframe 被阻止，`embedApp()` 會將其替換為開放應用後備：使用者可以重試行內、透過主機開啟新建立的嵌入工作階段，或使用可見路由 URL。保持動作的 `link` 目標本身有用，因為它仍然是通用逃生艙口。
 
-透過 ngrok 測試 Claude 時，請使用正式環境版本（`npx @agent-native/core@latest build` 然後 `npx @agent-native/core@latest start`）或已部署的預覽/正式環境 URL。 Claude 的單幀移植路徑適用於正式環境資產塊；原始 Vite 開發模組（例如 `/app/root.tsx`）可以受到應用程式驗證的保護，並且無法從 Claude 資源來源進行動態匯入。
+透過 ngrok 測試 Claude 時，請使用正式環境版本（`pnpm build` 然後 `npx @agent-native/core@latest start`）或已部署的預覽/正式環境 URL。 Claude 的單幀移植路徑適用於正式環境資產塊；原始 Vite 開發模組（例如 `/app/root.tsx`）可以受到應用程式驗證的保護，並且無法從 Claude 資源來源進行動態匯入。
 
 ## 主橋 API {#host-bridge}
 

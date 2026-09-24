@@ -2150,6 +2150,170 @@ it(
 );
 
 it(
+  "keeps chrome theme tokens on its host and hands pointer ownership back in Interact",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html><head><style>html,body{margin:0;width:100%;height:100%}#spaces,#target{position:absolute;width:160px;height:60px}#spaces{left:120px;top:140px}#target{left:360px;top:140px}</style></head>
+<body><a id="spaces" href="#spaces-destination">Spaces</a><div id="target">Target</div><script>window.__bridgeMessages=[];window.addEventListener('message',event=>window.__bridgeMessages.push(event.data));</script></body></html>`);
+      await page.evaluate(() => {
+        (
+          window as Window & {
+            __anEditorBridgeThemeVars?: Record<string, string>;
+          }
+        ).__anEditorBridgeThemeVars = {
+          "--design-editor-accent-color": "hsl(205 100% 53%)",
+          "--design-editor-selection-color": "hsl(205 100% 53% / 0.14)",
+        };
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (
+          window as Window & { __retainedDocument?: Document }
+        ).__retainedDocument = document;
+      });
+      await page.mouse.move(150, 160);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="highlight"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      await page.mouse.click(400, 160);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+
+      const outlineColorBeforeHydration = await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>(
+          "[data-agent-native-editor-chrome-host]",
+        )!;
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        document.documentElement.removeAttribute("style");
+        return {
+          hostAccent: host.style.getPropertyValue(
+            "--design-editor-accent-color",
+          ),
+          outline: getComputedStyle(selection).borderTopColor,
+        };
+      });
+      expect(outlineColorBeforeHydration.hostAccent).toBe("hsl(205 100% 53%)");
+      expect(outlineColorBeforeHydration.outline).toBe("rgb(15, 155, 255)");
+
+      await page.keyboard.down("Space");
+      await page.waitForFunction(() =>
+        (window as any).__bridgeMessages.some(
+          (message: any) =>
+            message.type === "design-hotkey" && message.code === "Space",
+        ),
+      );
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-interaction-mode", interact: true },
+          "*",
+        );
+        // This is the parent replay order that previously re-armed the shield.
+        window.postMessage({ type: "set-read-only", readOnly: false }, "*");
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        const highlight = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="highlight"]',
+        );
+        return (
+          shield?.style.pointerEvents === "none" &&
+          selection?.style.display === "none" &&
+          highlight?.style.display === "none"
+        );
+      });
+      expect(
+        await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter(
+              (message: any) =>
+                message.code === "Space" &&
+                ["design-hotkey", "design-hotkey-up"].includes(message.type),
+            )
+            .map((message: any) => message.type),
+        ),
+      ).toEqual(["design-hotkey", "design-hotkey-up"]);
+      await page.evaluate(() => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        bridge.updateConfig({ readOnly: true, textEditingEnabled: true });
+        bridge.repair();
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        return shield?.style.pointerEvents === "none";
+      });
+      await page.mouse.click(150, 160);
+      await page.waitForFunction(
+        () => window.location.hash === "#spaces-destination",
+      );
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __retainedDocument?: Document })
+              .__retainedDocument === document,
+        ),
+      ).toBe(true);
+
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-interaction-mode", interact: false },
+          "*",
+        );
+        window.postMessage({ type: "set-read-only", readOnly: false }, "*");
+      });
+      await page.waitForFunction(() => {
+        const shield = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        );
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return (
+          shield?.style.pointerEvents === "auto" &&
+          selection?.style.display === "block"
+        );
+      });
+      await page.mouse.click(400, 160);
+      await page.waitForFunction(() => {
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return selection && getComputedStyle(selection).display === "block";
+      });
+      await page.keyboard.up("Space");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge keeps viewer selection inspectable without transform handles",
   { timeout: 30_000 },
   async () => {
@@ -13468,15 +13632,89 @@ it(
   },
 );
 
-// ── Layers-panel-driven selection must post the same rich payload ──────────
-//
-// The host tells the iframe which element is selected via a "select-element"
-// postMessage (this is how Layers-panel clicks, not just canvas pointer
-// clicks, drive selection). Before this fix, that handler only repositioned
-// the selection overlay and never called postElementSelect(), so the
-// properties panel kept whatever payload (or lack of one) it already had —
-// live-QA symptom: canvas-click selection showed Fill correctly, the same
-// element selected via the Layers panel showed an empty Fill section.
+// CSSStyleDeclaration expands shorthand declarations when read by property.
+// Preserve which border side keys were actually authored so the inspector
+// can distinguish one uniform border from four independently styled sides.
+it(
+  "reports only explicitly authored border sides in the selection inline-style payload",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html>
+<html><body>
+  <div id="shorthand" data-agent-native-node-id="shorthand" style="border-width: 6px; border-style: solid; border-color: #111827"></div>
+  <div id="sides" data-agent-native-node-id="sides" style="border-top-width: 6px; border-right-width: 6px; border-bottom-width: 6px; border-left-width: 6px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: #111827; border-right-color: #111827; border-bottom-color: #111827; border-left-color: #111827"></div>
+  <div id="top-border" data-agent-native-node-id="top-border" style="border-top: 6px solid #111827"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const select = async (selector: string) => {
+        await page.evaluate((targetSelector) => {
+          window.postMessage(
+            {
+              type: "select-element",
+              selector: targetSelector,
+              selectorCandidates: [targetSelector],
+            },
+            "*",
+          );
+        }, selector);
+        await page.waitForFunction(
+          (sourceId) =>
+            ((window as any).__bridgeMessages ?? []).some(
+              (message: any) =>
+                message.type === "element-select" &&
+                message.payload?.sourceId === sourceId,
+            ),
+          selector.slice(1),
+        );
+        return (await readBridgeMessages(page)).find(
+          (message) =>
+            message.type === "element-select" &&
+            (message as any).payload?.sourceId === selector.slice(1),
+        ) as
+          | { payload?: { inlineStyles?: Record<string, string> } }
+          | undefined;
+      };
+
+      const shorthand = await select("#shorthand");
+      expect(shorthand?.payload?.inlineStyles?.borderWidth).toBe("6px");
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopWidth",
+      );
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopStyle",
+      );
+      expect(shorthand?.payload?.inlineStyles).not.toHaveProperty(
+        "borderTopColor",
+      );
+
+      const sides = await select("#sides");
+      expect(sides?.payload?.inlineStyles?.borderTopWidth).toBe("6px");
+      expect(sides?.payload?.inlineStyles?.borderTopStyle).toBe("solid");
+      expect(sides?.payload?.inlineStyles?.borderTopColor).toBe(
+        "rgb(17, 24, 39)",
+      );
+
+      const topBorder = await select("#top-border");
+      expect(topBorder?.payload?.inlineStyles?.borderTop).toBe(
+        "6px solid rgb(17, 24, 39)",
+      );
+      expect(topBorder?.payload?.inlineStyles).not.toHaveProperty(
+        "borderRight",
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "editor chrome bridge posts the full element-select payload when the host drives selection via select-element (Layers panel parity with pointer selection)",
   { timeout: 30_000 },
@@ -14594,6 +14832,351 @@ it(
       )) as { dropMode: string };
 
       expect(reply.dropMode).toBe("flow-insert");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge relays video clipboard files to the host",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(["video"], "clipboard.mp4", { type: "video/mp4" }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      const messages = await readBridgeMessages(page);
+      const paste = messages.find(
+        (message) => message.type === "canvas-image-paste",
+      ) as
+        | {
+            files?: Array<{ type?: string; dataUrl?: string; name?: string }>;
+            screenId?: string;
+          }
+        | undefined;
+      expect(paste).not.toHaveProperty("screenId");
+      expect(paste?.files).toEqual([
+        expect.objectContaining({
+          type: "video/mp4",
+          name: "clipboard.mp4",
+          dataUrl: expect.stringMatching(/^data:video\/mp4;base64,/),
+        }),
+      ]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "relays SVG clipboard files through the sanitized SVG paste path",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(
+            ['<svg width="17" height="9"><path d="M0 0h17"/></svg>'],
+            "clipboard.svg",
+            { type: "image/svg+xml" },
+          ),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svg?.includes('<path d="M0 0h17"'),
+        ),
+      );
+
+      const paste = (await readBridgeMessages(page)).find(
+        (message) => message.type === "figma-clipboard-paste",
+      ) as { content?: string; screenId?: string; svg?: string } | undefined;
+      expect(paste).toMatchObject({
+        content: "",
+        screenId: "screen-target",
+        svg: '<svg width="17" height="9"><path d="M0 0h17"/></svg>',
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "omits screen binding when relaying SVG clipboard files from the board iframe",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(false, "board", true),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(['<svg><path d="M0 0h17"/></svg>'], "board.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svg?.includes('<path d="M0 0h17"'),
+        ),
+      );
+      const paste = (await readBridgeMessages(page)).find(
+        (message) => message.type === "figma-clipboard-paste",
+      ) as { screenId?: string; svg?: string } | undefined;
+      expect(paste?.svg).toBe('<svg><path d="M0 0h17"/></svg>');
+      expect(paste).not.toHaveProperty("screenId");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "relays every SVG and mixed image/video file from one iframe clipboard paste",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(['<svg><path d="M0 0h1"/></svg>'], "first.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        transfer.items.add(
+          new File(['<svg><circle r="2"/></svg>'], "second.svg", {
+            type: "application/octet-stream",
+          }),
+        );
+        transfer.items.add(
+          new File(["image"], "photo.png", { type: "image/png" }),
+        );
+        transfer.items.add(
+          new File(["video"], "clip.mp4", { type: "video/mp4" }),
+        );
+        document.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: transfer,
+          }),
+        );
+      });
+
+      await page.waitForFunction(
+        () => {
+          const messages = (window as any).__bridgeMessages ?? [];
+          return (
+            messages.filter(
+              (message: any) =>
+                message.type === "figma-clipboard-paste" && message.svg,
+            ).length === 2 &&
+            messages.some(
+              (message: any) => message.type === "canvas-image-paste",
+            )
+          );
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      const messages = await readBridgeMessages(page);
+      expect(
+        messages
+          .filter((message) => message.type === "figma-clipboard-paste")
+          .map((message) => {
+            const paste = message as { screenId?: string; svg?: string };
+            return { screenId: paste.screenId, svg: paste.svg };
+          }),
+      ).toEqual([
+        {
+          screenId: "screen-target",
+          svg: '<svg><path d="M0 0h1"/></svg>',
+        },
+        {
+          screenId: "screen-target",
+          svg: '<svg><circle r="2"/></svg>',
+        },
+      ]);
+      expect(messages[messages.length - 1]).toMatchObject({
+        type: "canvas-image-paste",
+        screenId: "screen-target",
+        files: [
+          expect.objectContaining({ type: "image/png", name: "photo.png" }),
+          expect.objectContaining({ type: "video/mp4", name: "clip.mp4" }),
+        ],
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "consumes oversized SVG clipboard files and reports the rejection",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(["x".repeat(1_000_001)], "large.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      const messages = await readBridgeMessages(page);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          type: "figma-clipboard-paste",
+          content: "",
+          svgFileError: "too-large",
+        }),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "consumes unreadable SVG clipboard files and reports the read failure",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "screen-target",
+          false,
+        ),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const defaultPrevented = await page.evaluate(() => {
+        const file = new File(["<svg/>"], "unreadable.svg", {
+          type: "image/svg+xml",
+        });
+        Object.defineProperty(file, "text", {
+          value: () => Promise.reject(new DOMException("Read failed")),
+        });
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        document.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(defaultPrevented).toBe(true);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "figma-clipboard-paste" &&
+            message.svgFileError === "unreadable",
+        ),
+      );
     } finally {
       await browser.close();
     }

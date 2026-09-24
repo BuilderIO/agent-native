@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Improved
+
+- Slides loads AI prompt tools and extra slide controls only when you open them.
+
 ## 2026-09-22
 
 ### Improved

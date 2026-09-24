@@ -40,7 +40,7 @@ vi.mock("react-router", () => ({
   ),
 }));
 
-vi.mock("@/components/player/recording-views-badge", () => ({
+vi.mock("@/components/player/agent-view-count", () => ({
   AgentViewCount: () => null,
 }));
 

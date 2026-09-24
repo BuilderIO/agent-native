@@ -462,8 +462,9 @@ const editor = {
   pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
   pageBodySyncingDescription:
     "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
+  createCollection: "Sammlung erstellen",
   creatingDatabase: "Inline-Sammlung wird erstellt...",
-  databaseCreated: "Inline-Sammlung erstellt",
+  databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
@@ -716,6 +717,11 @@ const editor = {
     collapsibleBlockDescription: "Zusammenklappbarer Block",
     database: "Sammlung",
     databaseDescription: "Inline-Sammlung auf dieser Seite",
+    collectionInline: "Sammlung — eingebettet",
+    collectionInlineDescription: "Eine Sammlung in dieser Seite hinzufügen",
+    collectionFullPage: "Sammlung — ganze Seite",
+    collectionFullPageDescription:
+      "Eine untergeordnete Sammlung erstellen und hier verlinken",
     divider: "Teiler",
     dividerDescription: "Horizontale Regel",
     generate: "Generieren",
@@ -876,6 +882,7 @@ const rawLiterals = {
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
     database: "Sammlung",
+    collection: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
     databaseRestored: "Sammlung wiederhergestellt",
     deleteDatabaseNamedPermanently: "{{title}} endgültig löschen",
@@ -1250,6 +1257,18 @@ const overrides = {
     labCreativeContext: "Kreativer Kontext",
     labCreativeContextDescription:
       "Verbinden und Wiederverwenden von geregeltem Referenzkontext in Content.",
+    labSlashAdvancedCode: "Erweiterte Codeblöcke",
+    labSlashAdvancedCodeDescription:
+      "Fügt Code- und Code-Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashLayouts: "Layoutblöcke",
+    labSlashLayoutsDescription:
+      "Fügt benutzerdefinierte HTML- und Tab-Blöcke zum Slash-Menü hinzu.",
+    labSlashVisuals: "Visuelle Blöcke",
+    labSlashVisualsDescription:
+      "Fügt Diagramm-, Mermaid- und Wireframe-Blöcke zum Slash-Menü hinzu.",
+    labSlashDeveloperDocs: "Blöcke für Entwicklerdokumentation",
+    labSlashDeveloperDocsDescription:
+      "Fügt API- und Entwicklerdokumentationsblöcke zum Slash-Menü hinzu.",
   },
   chat: {
     publicEmptyState: "Frag mich alles zu diesem Dokument",

@@ -10,6 +10,11 @@ import {
   getChangeVersion,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
+import {
+  aiRequestTabId,
+  parseAiRequestTabId,
+  type ClipsAiRequestKind,
+} from "@shared/ai-request-status";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
@@ -125,12 +130,25 @@ export function useAutoTitleBridge(): void {
   useEffect(() => {
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (
-        detail?.isRunning !== false ||
-        (detail.reason !== "stopped" && detail.reason !== "failed") ||
-        typeof detail.tabId !== "string"
-      )
+      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
         return;
+
+      if (detail.reason !== "stopped" && detail.reason !== "failed") return;
+
+      const aiRequest = parseAiRequestTabId(detail.tabId);
+      if (aiRequest) {
+        const status = detail.reason === "stopped" ? "cancelled" : "failed";
+        void callAction(
+          "update-ai-request-status" as any,
+          { ...aiRequest, status } as any,
+        ).catch((error) => {
+          console.error(
+            `[clips] failed to persist ${detail.reason} AI request status`,
+            { ...aiRequest, error },
+          );
+        });
+        return;
+      }
 
       const recordingId = recordingIdFromTab(detail.tabId);
       const requestedAt = requestedAtFromTab(detail.tabId);
@@ -266,7 +284,26 @@ export function useAutoTitleBridge(): void {
               });
               continue;
             }
-            const delivery = await dispatchAiRequest(rec, request);
+            if (
+              typeof request.requestedAt !== "string" ||
+              !request.requestedAt.trim()
+            ) {
+              console.warn("[clips] queued AI request is missing requestedAt", {
+                recordingId: rec.id,
+                kind: request.kind,
+              });
+              fallbackTimer = setTimeout(() => void tick(), 1000);
+              continue;
+            }
+            const delivery = await dispatchAiRequest(
+              rec,
+              request,
+              aiRequestTabId(
+                rec.id,
+                request.kind as ClipsAiRequestKind,
+                request.requestedAt,
+              ),
+            );
             if (!delivery.delivered) {
               // Keep the request durable when the chat bridge is unavailable;
               // the next retry can deliver it after the panel mounts.
@@ -476,13 +513,13 @@ function requestedAtFromTab(tabId: string) {
 function dispatchAiRequest(
   rec: RecordingSummary,
   request: AiRequest,
-  tabId?: string,
+  tabId: string,
 ) {
   return sendToAgentChatAndConfirm(
     {
       ...buildAiRequestChatOptions(rec, request),
       chatTarget: "local",
-      ...(tabId ? { tabId } : {}),
+      tabId,
     },
     { timeoutMs: AI_REQUEST_DELIVERY_TIMEOUT_MS },
   );

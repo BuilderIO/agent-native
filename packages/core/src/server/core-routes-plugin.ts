@@ -51,6 +51,8 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
+  type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -138,6 +140,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
@@ -1637,6 +1640,14 @@ export interface CoreRoutesPluginOptions {
   googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /**
+   * Let anonymous visitors keep application state under the owner that
+   * `anonymousOwner` resolves, instead of answering them 401. For apps whose
+   * chat or pages run for visitors without a session (a guest chat): the
+   * client's navigation, URL and composer preference sync then works for them
+   * too. Off by default, since every anonymous visitor then gets state rows.
+   */
+  anonymousApplicationState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
   /** Disable the /_agent-native/embed/start iframe session launcher. */
@@ -2016,10 +2027,20 @@ export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
   app: H3AppShim = getH3App(nitroApp),
+  options: { anonymousOwner?: AppStateAnonymousOwnerResolver } = {},
 ): void {
+  // Hand the handlers the app's anonymous owner resolver; they consult it only
+  // when the request has no session.
+  const withAnonymousOwner = (event: H3Event) => {
+    if (options.anonymousOwner && event.context) {
+      event.context[APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY] =
+        options.anonymousOwner;
+    }
+  };
   app.use(
     `${routePrefix}/application-state/compose`,
     defineEventHandler(async (event: H3Event) => {
+      withAnonymousOwner(event);
       const id =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (event.context) {
@@ -2045,6 +2066,7 @@ export function mountApplicationStateRoutes(
       const key =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (key === "compose") return;
+      withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
         return;
@@ -2139,7 +2161,11 @@ export function createCoreRoutesPlugin(
         // Application state is part of the client bootstrap contract. Register
         // it before optional plugin/bootstrap work so the first localization
         // write cannot fall through to the template router on a cold start.
-        mountApplicationStateRoutes(nitroApp, P);
+        mountApplicationStateRoutes(nitroApp, P, undefined, {
+          anonymousOwner: options.anonymousApplicationState
+            ? options.anonymousOwner
+            : undefined,
+        });
       }
 
       // This response is a side-effect-free static contract used by the SSR
@@ -4805,6 +4831,14 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-engine/api-key`,
         createAgentEngineApiKeyHandler(),
+      );
+
+      // GET /_agent-native/agent-engine/ollama-models — lists the models an
+      // Ollama server actually has installed, so the provider setup form can
+      // show real options instead of only the static suggestion list.
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/ollama-models`,
+        createAgentEngineOllamaModelsHandler(),
       );
 
       // GET /_agent-native/agent-engine/status — reports whether an engine
