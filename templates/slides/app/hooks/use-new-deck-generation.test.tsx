@@ -9,12 +9,16 @@ import {
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
 
-import { useNewDeckGeneration } from "./use-new-deck-generation";
+import {
+  useNewDeckGeneration,
+  useNewDeckGenerationRun,
+} from "./use-new-deck-generation";
 
 describe("useNewDeckGeneration", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
     cleanup();
+    sessionStorage.clear();
     vi.useRealTimers();
   });
 
@@ -87,5 +91,79 @@ describe("useNewDeckGeneration", () => {
     });
     expect(result.current.phase).toBe("pending");
     expect(result.current.isNewDeckCreation).toBe(true);
+  });
+
+  it("revives only for the chat run correlated to this deck's submit", () => {
+    const submitMessageId = `submit-deck-a-${Math.random()}`;
+    const initialProps = {
+      deckId: "deck-a",
+      isNewDeckRoute: true,
+      submitMessageId,
+      waitingOnQuestions: false,
+    };
+    const { result } = renderHook(
+      (props) => {
+        const generating = useNewDeckGenerationRun(
+          props.deckId,
+          props.isNewDeckRoute,
+          props.submitMessageId,
+        );
+        return {
+          generating,
+          ...useNewDeckGeneration({
+            deckId: props.deckId,
+            isNewDeckRoute: props.isNewDeckRoute,
+            waitingOnQuestions: props.waitingOnQuestions,
+            generating,
+          }),
+        };
+      },
+      { initialProps },
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    });
+    expect(result.current.phase).toBe("abandoned");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId: "other-submit", tabId: "other-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "other-tab" },
+        }),
+      );
+    });
+    expect(result.current.phase).toBe("abandoned");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "deck-tab" },
+        }),
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "other-tab" },
+        }),
+      );
+    });
+    expect(result.current.phase).toBe("abandoned");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "deck-tab" },
+        }),
+      );
+    });
+    expect(result.current.phase).toBe("started");
+    expect(result.current.generating).toBe(true);
   });
 });

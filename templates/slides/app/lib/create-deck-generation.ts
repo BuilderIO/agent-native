@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
+import { nanoid } from "nanoid";
 import { flushSync } from "react-dom";
 
 import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckReferenceStep";
@@ -245,6 +246,7 @@ type SubmitAgent = (
     model?: PromptComposerSubmitOptions["model"];
     engine?: PromptComposerSubmitOptions["engine"];
     effort?: PromptComposerSubmitOptions["effort"];
+    submitMessageId: string;
   },
 ) => void;
 
@@ -594,14 +596,19 @@ export async function startDeckGeneration({
   ).catch(() => {});
   deleteClientAppState("guided-questions").catch(() => {});
 
-  navigate(`/deck/${deck.id}?generating=1`, {
-    replace: true,
-    flushSync: true,
-  });
+  const generationSubmitMessageId = nanoid();
+  navigate(
+    `/deck/${deck.id}?generating=1&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+    {
+      replace: true,
+      flushSync: true,
+    },
+  );
   agentSubmit(createDeckAgentMessage(prompt), context, {
     newTab: true,
     reuseEmptyTab: true,
     openSidebar: true,
+    submitMessageId: generationSubmitMessageId,
     ...getUploadedImageAgentOptions(filesForGeneration),
     attachments,
     ...modelSelection,

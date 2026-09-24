@@ -95,7 +95,11 @@ import {
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
-import { useNewDeckGeneration } from "@/hooks/use-new-deck-generation";
+import {
+  clearNewDeckGenerationRun,
+  useNewDeckGeneration,
+  useNewDeckGenerationRun,
+} from "@/hooks/use-new-deck-generation";
 import {
   useSlideComments,
   type CommentThread,
@@ -352,6 +356,12 @@ export default function DeckEditor() {
   // tracking correct across a remount.
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
+  const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
+  const newDeckGenerationGenerating = useNewDeckGenerationRun(
+    id ?? "",
+    isNewDeckGenerationRoute,
+    searchParams.get("generationSubmitId"),
+  );
   // Neither hook above is actually scoped to THIS run until its own submit()
   // call has fired: before that, `activeTabRef` inside useAgentGenerating is
   // still null, so both hooks report on ANY chat activity system-wide, same
@@ -738,16 +748,16 @@ export default function DeckEditor() {
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
     useNewDeckGeneration({
       deckId: id ?? "",
-      isNewDeckRoute: searchParams.get("generating") === "1",
-      generating,
+      isNewDeckRoute: isNewDeckGenerationRoute,
+      generating: newDeckGenerationGenerating,
       waitingOnQuestions: showQuestionFlow,
     });
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
-    generating,
+    generating: newDeckGenerationGenerating,
     isNewDeckCreation,
   });
   const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
-    generating,
+    generating: newDeckGenerationGenerating,
     isNewDeckCreation,
     slideCount,
     phase: newDeckGenerationPhase,
@@ -1003,18 +1013,54 @@ export default function DeckEditor() {
   // authoritative open deck when the run settles so a stale canvas does not
   // require a browser refresh to reveal completed slides.
   useEffect(() => {
-    if (!id || generating || newDeckGenerationPhase !== "started") {
+    if (
+      !id ||
+      newDeckGenerationGenerating ||
+      newDeckGenerationPhase !== "started"
+    ) {
       return;
     }
     void refreshOpenDeck(id);
-  }, [generating, id, newDeckGenerationPhase, refreshOpenDeck]);
+  }, [
+    newDeckGenerationGenerating,
+    id,
+    newDeckGenerationPhase,
+    refreshOpenDeck,
+  ]);
+
+  useEffect(() => {
+    const submitMessageId = searchParams.get("generationSubmitId");
+    if (
+      !id ||
+      !submitMessageId ||
+      newDeckGenerationGenerating ||
+      newDeckGenerationPhase !== "started"
+    ) {
+      return;
+    }
+    clearNewDeckGenerationRun(id, submitMessageId);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("generationSubmitId");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [
+    id,
+    newDeckGenerationGenerating,
+    newDeckGenerationPhase,
+    searchParams,
+    setSearchParams,
+  ]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
     if (
       !shouldClearNewDeckGeneratingState({
-        generating,
+        generating: newDeckGenerationGenerating,
         phase: newDeckGenerationPhase,
       })
     ) {
@@ -1030,7 +1076,12 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, newDeckGenerationPhase, searchParams, setSearchParams]);
+  }, [
+    newDeckGenerationGenerating,
+    newDeckGenerationPhase,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
