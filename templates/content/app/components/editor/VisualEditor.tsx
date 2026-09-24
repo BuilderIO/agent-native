@@ -1028,19 +1028,24 @@ const NormalizeTableAlignment = Extension.create({
             return null;
           }
 
-          const previousTables: ProseMirrorNode[] = [];
-          oldState.doc.descendants((node) => {
+          const previousTables = new Map<number, ProseMirrorNode>();
+          oldState.doc.descendants((node, position) => {
             if (node.type.name !== "table") return true;
-            previousTables.push(node);
+            let mappedPosition = position;
+            for (const transaction of transactions) {
+              const mapped = transaction.mapping.mapResult(mappedPosition, 1);
+              if (mapped.deleted) return false;
+              mappedPosition = mapped.pos;
+            }
+            previousTables.set(mappedPosition, node);
             return false;
           });
 
-          let tableIndex = 0;
           let transaction = newState.tr;
           let changed = false;
           newState.doc.descendants((table, position) => {
             if (table.type.name !== "table") return true;
-            const previous = previousTables[tableIndex++];
+            const previous = previousTables.get(position);
             if (!previous || table.childCount <= previous.childCount)
               return false;
 

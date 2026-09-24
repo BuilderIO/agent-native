@@ -166,3 +166,24 @@ it("does not impose alignment from one cell on a mixed-alignment table", () => {
     editor.state.doc.firstChild!.child(2).child(0).attrs.textAlign,
   ).toBeNull();
 });
+
+it("does not copy alignment into a table inserted before an aligned table", () => {
+  const editor = new Editor({
+    extensions: createVisualEditorExtensions(),
+    content: nfmToDoc("| Name | Price |\n| :--- | ---: |\n| A | $1 |"),
+  });
+  cleanup.push(() => editor.destroy());
+  const inserted = nfmToDoc("| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |")
+    .content[0];
+  expect(editor.commands.insertContentAt(0, inserted)).toBe(true);
+
+  const firstTable = editor.state.doc.firstChild!;
+  expect(firstTable.type.name).toBe("table");
+  expect(firstTable.childCount).toBe(3);
+  for (let rowIndex = 0; rowIndex < firstTable.childCount; rowIndex++) {
+    const row = firstTable.child(rowIndex);
+    for (let cellIndex = 0; cellIndex < row.childCount; cellIndex++) {
+      expect(row.child(cellIndex).attrs.textAlign).toBeNull();
+    }
+  }
+});
