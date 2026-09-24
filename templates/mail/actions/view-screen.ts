@@ -170,7 +170,7 @@ async function fetchEmailList(
       ? settings?.savedFilters?.find((filter) => filter.id === activeFilterId)
       : undefined;
     const effectiveSearch = activeFilterId ? savedFilter?.query : search;
-    const effectiveView = savedFilter ? "all" : view;
+    const effectiveView = savedFilter && view !== "inbox" ? "all" : view;
     const activeTriageTab =
       effectiveView === "inbox" && !effectiveSearch
         ? activeTab?.kind === "other"

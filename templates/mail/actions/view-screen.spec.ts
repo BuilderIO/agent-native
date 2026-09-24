@@ -141,6 +141,32 @@ describe("view-screen Mail preview", () => {
     ).toEqual(["important", "ordinary"]);
   });
 
+  it("keeps saved-filter inbox tab snapshots scoped to inbox mail", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      activeInboxTab: "read",
+    });
+    mocks.readSettings.mockResolvedValue({
+      savedFilters: [{ id: "read", name: "Read", query: "is:read" }],
+      pinnedLabels: ["important"],
+    });
+    const inboxMessage = { ...email("inbox-match"), labelIds: ["INBOX"] };
+    const archivedMessage = email("archived-match");
+    mocks.listGmailMessages.mockImplementation(async (query: string) => ({
+      messages: query.includes("in:inbox")
+        ? [inboxMessage]
+        : [inboxMessage, archivedMessage],
+      errors: [],
+    }));
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.listGmailMessages.mock.calls[0][0]).toBe("in:inbox is:read");
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["inbox-match"]);
+  });
+
   it("uses the visible fallback tab when hidden All is requested", async () => {
     mocks.readAppStateForCurrentTab.mockResolvedValue({
       view: "inbox",
