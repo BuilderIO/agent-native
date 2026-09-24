@@ -228,7 +228,7 @@ export default function Present() {
         setCurrentPage((p) => Math.max(p - 1, 0));
       }
     },
-    [commentMode, commentsOpen, files.length, id, navigate],
+    [commentMode, commentsOpen, files.length, id, navigate, reviewEmbed],
   );
 
   useEffect(() => {
