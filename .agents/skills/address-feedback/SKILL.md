@@ -19,10 +19,9 @@ new capability requests still need the invoking identity's `:upvote:`; praise,
 status updates, merge/review requests, bot forwards, duplicates, and noise stay
 out of scope. Do not exclude Design feedback just because it is visual or
 subjective. If another agent or owner is already handling a report, leave it
-with that owner. If a previous run
-mistakenly reacted to an out-of-scope item, release the claim with
-`:done:` (triage complete, not a fix) when reactions are available and do not
-add a compensating reply.
+with that owner. If a previous run mistakenly reacted to an out-of-scope item,
+release the claim with `:no_entry_sign:` (triage complete, not a fix) when
+reactions are available and do not add a compensating reply.
 
 ## Choose the fix altitude
 
