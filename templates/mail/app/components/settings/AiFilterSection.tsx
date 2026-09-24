@@ -203,6 +203,12 @@ function DecisionRow({
   const t = useT();
   const isSuggested = decision.disposition === "suggested";
   const isFiltered = decision.disposition === "filtered";
+  const jevMatch = /^Jev (?:confidence|match probability) (\d+)%$/.exec(
+    decision.reason ?? "",
+  );
+  const reason = jevMatch
+    ? t("mail.aiFilter.jevMatchProbability", { percent: jevMatch[1] })
+    : decision.reason;
 
   return (
     <div className="flex items-start gap-3 border-b border-border/40 py-3 last:border-0">
@@ -218,12 +224,12 @@ function DecisionRow({
         <p className="truncate text-[12px] text-muted-foreground">
           {decision.subject || t("mail.aiFilter.noSubject")}
         </p>
-        {decision.reason && (
+        {reason && (
           <p
             className="mt-1 line-clamp-1 text-[11px] leading-4 text-muted-foreground/70"
-            title={decision.reason}
+            title={reason}
           >
-            {decision.reason}
+            {reason}
           </p>
         )}
       </div>

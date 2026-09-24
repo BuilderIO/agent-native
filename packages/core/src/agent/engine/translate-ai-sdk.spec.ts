@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
+import { actionsToEngineTools } from "../production-agent.js";
 import {
   createProviderToolNameMap,
   PROVIDER_TOOL_NAME_MAX_LENGTH,
@@ -57,7 +60,7 @@ describe("engineToolsToAISDK", () => {
     expect(result.greet.inputSchema.properties).toHaveProperty("name");
   });
 
-  it("preserves full JSON Schema constraints when translating tools", () => {
+  it("preserves property constraints and flattens a root oneOf", () => {
     const tools: EngineTool[] = [
       {
         name: "write",
@@ -79,10 +82,79 @@ describe("engineToolsToAISDK", () => {
     expect(result.write.inputSchema).toMatchObject({
       type: "object",
       additionalProperties: false,
-      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+      required: [],
     });
+    expect(result.write.inputSchema).not.toHaveProperty("oneOf");
     expect(result.write.inputSchema.properties.sql.minLength).toBe(1);
     expect(result.write.inputSchema.properties.statements.pattern).toBe("^\\[");
+  });
+
+  describe("union action schemas", () => {
+    const COMPOSITIONS = ["anyOf", "oneOf", "allOf"];
+    const surfaceBranches = [
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("doc"),
+        docId: z.string(),
+      }),
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("app"),
+        appId: z.string(),
+      }),
+    ] as const;
+
+    function translate(schema: z.ZodType) {
+      const action = defineAction({
+        description: "Open a surface",
+        schema,
+        run: async () => "ok",
+      });
+      const tools = actionsToEngineTools({ probe: action });
+      expect(tools.map((tool) => tool.name)).toEqual(["probe"]);
+      return engineToolsToAISDK(tools).probe.inputSchema as Record<string, any>;
+    }
+
+    it.each([
+      ["z.union", z.union(surfaceBranches)],
+      ["z.discriminatedUnion", z.discriminatedUnion("kind", surfaceBranches)],
+    ])("flattens a %s into one object schema", (_label, schema) => {
+      const inputSchema = translate(schema);
+
+      expect(COMPOSITIONS.filter((key) => key in inputSchema)).toEqual([]);
+      expect(inputSchema.type).toBe("object");
+      expect(Object.keys(inputSchema.properties).sort()).toEqual([
+        "appId",
+        "conversationId",
+        "docId",
+        "kind",
+      ]);
+      expect([...inputSchema.required].sort()).toEqual([
+        "conversationId",
+        "kind",
+      ]);
+      expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
+        /"doc".*"app"/,
+      );
+      // Action schemas reach the engine with open branches, so the flattened
+      // root must not close over them.
+      expect(inputSchema).not.toHaveProperty("additionalProperties");
+    });
+
+    it("leaves a plain object action schema as it was", () => {
+      const schema = z.object({ q: z.string(), limit: z.number().optional() });
+      const [tool] = actionsToEngineTools({
+        probe: defineAction({
+          description: "Search",
+          schema,
+          run: async () => "ok",
+        }),
+      });
+
+      expect(engineToolsToAISDK([tool!]).probe.inputSchema).toEqual(
+        tool!.inputSchema,
+      );
+    });
   });
 
   it("aliases oversized provider names and restores them on tool events", () => {
