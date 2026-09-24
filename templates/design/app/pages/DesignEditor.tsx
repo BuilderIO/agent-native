@@ -1448,13 +1448,6 @@ function DesignEditor() {
   // ── Tool, mode, zoom, camera, and view state ───────────────────────────────
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
-  const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
-    string | null
-  >(null);
-  const overviewInteractScreenIdRef = useRef(overviewInteractScreenId);
-  useEffect(() => {
-    overviewInteractScreenIdRef.current = overviewInteractScreenId;
-  }, [overviewInteractScreenId]);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -1534,11 +1527,6 @@ function DesignEditor() {
   });
   const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
-  useEffect(() => {
-    if (viewMode !== "overview" || mode !== "edit") {
-      setOverviewInteractScreenId(null);
-    }
-  }, [mode, viewMode]);
   const viewModeRef = useRef<"single" | "overview">("overview");
   // Trusted parent origin captured from the first validated inbound message.
   // Used to restrict outgoing postMessage calls that carry user data so they
@@ -18635,31 +18623,11 @@ function DesignEditor() {
       files,
     ],
   );
-  // The single path that decides per-frame Interact entry: runModeChange
-  // guards the same way for the toolbar/single-screen path, and this is the
-  // only other caller that can flip a frame into Interact
-  // (handleFrameInteract, the locked-screen double-click, and
-  // handleOverviewEditBreakpoint all funnel through here). Leaving Interact
-  // (re-clicking the active frame) is always allowed. Reads refs rather than
-  // depending on the pending-edit arrays or overviewInteractScreenId itself
-  // so this stays the one stable callback every Screen instance shares
-  // (PF18) instead of invalidating memo(Screen) on every pending edit.
   const handleOverviewFrameAction = useCallback(
     (screenId: string) => {
-      if (overviewInteractScreenIdRef.current === screenId) {
-        setOverviewInteractScreenId(null);
-        return;
-      }
-      if (
-        pendingVisualStyleEditsRef.current.length > 0 ||
-        pendingLiveNonStyleEditsRef.current.length > 0
-      ) {
-        toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
-        return;
-      }
-      setOverviewInteractScreenId(screenId);
+      handleModeChange("interact", { targetFileId: screenId });
     },
-    [t],
+    [handleModeChange],
   );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
@@ -25458,10 +25426,8 @@ function DesignEditor() {
           fitRootBodyToFrame={metadata.heightMode !== "hug"}
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
-          editMode={mode === "edit" && overviewInteractScreenId !== screen.id}
-          interactMode={
-            mode === "interact" || overviewInteractScreenId === screen.id
-          }
+          editMode={mode === "edit"}
+          interactMode={mode === "interact"}
           readOnly={!canEditDesign && !canEditLiveScreen(screen.id)}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
@@ -25643,7 +25609,6 @@ function DesignEditor() {
       getEmbeddedFrame,
       overviewCanvasZoom,
       mode,
-      overviewInteractScreenId,
       canEditDesign,
       canEditLiveScreen,
       publicVisualEditConnectionId,
@@ -28403,7 +28368,6 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
-                        interactScreenId={overviewInteractScreenId}
                         readOnly={!canEditDesign}
                         editableScreenIds={editableLiveScreenIds}
                         activeScreenHasHoveredChild={

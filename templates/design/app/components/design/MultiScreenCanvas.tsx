@@ -615,7 +615,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   pendingReviewScreenIds = EMPTY_SCREEN_IDS,
   onReviewPendingScreen,
   interactMode = false,
-  interactScreenId = null,
   readOnly = false,
   editableScreenIds,
   activeScreenHasHoveredChild = false,
@@ -10886,7 +10885,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const protectedIds = new Set(selectedIdSet);
     if (activeId) protectedIds.add(activeId);
     if (hoverPromotedScreenId) protectedIds.add(hoverPromotedScreenId);
-    if (interactScreenId) protectedIds.add(interactScreenId);
     if (gradientEditTarget) {
       protectedIds.add(gradientEditTarget.frameOrDraftId);
     }
@@ -10900,7 +10898,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     activeId,
     gradientEditTarget,
     hoverPromotedScreenId,
-    interactScreenId,
     selectedIdSet,
     selectedLayerSelectorGroupsByScreen,
   ]);
@@ -11862,7 +11859,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               cullTier={cullTier}
               isExportPreview={isExportPreview}
               isActive={screen.id === activeId}
-              interactMode={interactMode || interactScreenId === screen.id}
+              interactMode={interactMode}
               isTopScreen={screen.id === topScreenId}
               // BP-DEEP v2 item 3 — while a breakpoint sub-frame is the
               // active edit target, IT carries the selection chrome (accent
@@ -13833,15 +13830,15 @@ const Screen = memo(function Screen({
           data-frame-full-view
           data-compact={compactFullView || undefined}
           className={cn(
-            "absolute left-1/2 top-1/2 z-40 flex h-5 shrink-0 -translate-x-1/2 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             fullViewVisible && "opacity-100",
           )}
           style={{
             maxWidth: fullViewMaxWidth,
-            transform: `translate(-50%, -50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-            transformOrigin: "center center",
+            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+            transformOrigin: "right center",
             transition: getChromeLabelTransition(
               chromeSettling && fullViewVisible,
             ),

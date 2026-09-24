@@ -1055,15 +1055,10 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     await installBridge(page);
 
     // Design has no Shift+Space preview shortcut; the closest equivalent is
-    // the per-screen Interact view, which keeps the editor rails mounted while
-    // rendering the screen live (see helpers.ts enterInteractView). The
-    // overview action is an in-place preview, so there is no responsive-mode
-    // Exit button to assert here.
+    // the per-screen Interact view, which unmounts editor chrome and renders
+    // the screen live (see helpers.ts enterInteractView doc comment).
     await enterInteractView(page);
-    await expect(page.locator("[data-screen-shell]").last()).toBeVisible();
-    await expect(
-      page.locator("iframe[data-design-preview-iframe]").last(),
-    ).toBeVisible();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   });
 
   test.afterEach(async ({ request }) => {

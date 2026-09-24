@@ -118,33 +118,4 @@ describe("DesignEditor pending live edits", () => {
     expect(publishCall).toContain("canEditDesign,");
     expect(deps).toContain("canEditDesign,");
   });
-
-  it("blocks per-frame Interact entry the same way runModeChange blocks it, but always allows leaving", () => {
-    const source = readFileSync(
-      new URL("./DesignEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handlerStart = source.indexOf(
-      "const handleOverviewFrameAction = useCallback(",
-    );
-    expect(handlerStart).toBeGreaterThan(-1);
-    const handler = source.slice(
-      handlerStart,
-      source.indexOf("[t],", handlerStart),
-    );
-    // Leaving (re-clicking the already-interacting frame) is unconditional —
-    // checked, and returned from, before the pending-edit guard below.
-    const leaveIndex = handler.indexOf(
-      "overviewInteractScreenIdRef.current === screenId",
-    );
-    const guardIndex = handler.indexOf(
-      "pendingVisualStyleEditsRef.current.length > 0",
-    );
-    expect(leaveIndex).toBeGreaterThan(-1);
-    expect(guardIndex).toBeGreaterThan(leaveIndex);
-    expect(handler).toContain("pendingLiveNonStyleEditsRef.current.length > 0");
-    expect(handler).toContain(
-      'toast.error(t("designEditor.pendingVisualStyles.interactBlocked"))',
-    );
-  });
 });

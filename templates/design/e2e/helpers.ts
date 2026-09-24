@@ -452,38 +452,27 @@ export async function enterInteractView(
         .locator("[data-frame-full-view]")
     : page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
-  const screenShell = fullView.locator("xpath=ancestor::*[@data-screen-shell]");
-  await expect(screenShell).toHaveAttribute(
-    "data-screen-interact-mode",
-    "false",
-  );
   // The screen card can extend beneath the fixed inspector at narrow canvas
   // widths; invoke the button without relying on the panel's overlapping
   // physical hit area.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
-  await expect(screenShell).toHaveAttribute(
-    "data-screen-interact-mode",
-    "true",
-  );
-  // Interact is a responsive view of the same editor. Rails and the screen
-  // shell stay mounted; assert the view's own device preview below instead.
+  // The overview screen shells are the boundary that actually unmounts; the
+  // toolbar's own Interact button stays mounted and merely becomes pressed.
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
   await expect
     .poll(
       async () =>
         (
-          await screenShell
+          await page
             .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
             .last()
             .boundingBox()
         )?.width ?? 0,
       { timeout: 10_000 },
     )
-    // The responsive preview is intentionally narrower than the overview
-    // canvas once the inspector rails are mounted; assert it is usable rather
-    // than baking in a desktop-only width.
-    .toBeGreaterThan(400);
+    .toBeGreaterThan(600);
 }
 
 /** Start capturing bridge postMessages on the parent window. */
