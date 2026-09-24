@@ -44,6 +44,10 @@ model.
 Team membership requires organization membership and has `lead` and `member`
 roles. Team membership never grants organization membership.
 
+Users may belong to multiple organizations and retain one active-organization
+selection. Each team belongs to one organization. A user may belong to zero or
+more teams across organizations where they have active membership.
+
 Organization owners and admins administer every team, including lead changes.
 Only they can invite a person to the organization or create or delete a team.
 Within their own team, a lead can add existing organization members. A lead can
@@ -76,6 +80,11 @@ organization- and team-scoped resources. There is no legacy team principal.
 
 Organization and team scope require `orgId`. Only team scope has a nonnull
 `teamId`. That team must belong to the `orgId`.
+
+A team-scoped resource is one organization-owned resource associated with that
+team. Its human owner remains separate. Team association alone does not grant
+every organization member read access; visibility and grants govern access, and
+existing organization visibility remains additive.
 
 Scope is distinct from the human owner (`owner_email` or the family equivalent).
 The creator is the initial human owner in every scope. Offboarding can transfer
@@ -129,6 +138,10 @@ silently dropping them.
 
 ## Resource Access
 
+Every list and direct access path, including by-ID access, validates resource
+scope and fails closed before evaluating human-owner, admin, public,
+organization, or share grants.
+
 Extend `accessFilter` and the share-principal model with a first-class `team`
 principal. Team membership alone gives viewer access to team-scoped resources.
 It does not grant resource ownership or administration.
@@ -143,9 +156,16 @@ membership. Team leads retain only membership-management authority and normal
 resource grants.
 
 Creator and explicit-share access to an organization or team resource requires
-current membership in its owning organization. Direct explicitly shared
-cross-team readers work. Team-principal access is re-evaluated from current
-membership. Team removal revokes team-derived access, not independent grants.
+current membership in its owning organization. All organization-derived access,
+including organization visibility and organization-principal shares, requires
+current membership in the resource's owning organization for both list and
+direct access. Direct explicitly shared cross-team readers work. Existing
+independent user-share behavior remains governed by its existing rules.
+Team-principal access is re-evaluated from current membership. It ends
+immediately when organization membership becomes inactive, including when
+`federationRemovalPendingAt` is set, even if the team-membership row remains.
+This is revocation; membership-row cleanup may happen later and does not delay
+revocation.
 
 Organization visibility gives read access to every organization member. This
 includes all team members, regardless of active team. Selected team readership
@@ -247,9 +267,10 @@ preserves existing personal and organization behavior. No deployment or
 live-server compatibility gate is required to complete this work.
 
 Incomplete migration, missing family registration, or unknown scope fails
-closed. While a family is disabled, deny access to team-scoped rows and
-team-principal grants. Also deny team-scoped creation and moves into team scope.
-Do not coerce existing rows to personal or organization scope.
+closed before grants are evaluated. While a family is disabled, deny access to
+team-scoped rows and team-principal grants. Also deny team-scoped creation and
+moves into team scope. Do not coerce existing rows to personal or organization
+scope.
 
 ## Consequences
 
