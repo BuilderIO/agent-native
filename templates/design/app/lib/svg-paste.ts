@@ -93,6 +93,7 @@ const DEF_TAGS = new Set(
 );
 const GROUP_EFFECT_ATTRIBUTES = ["clip-path", "mask", "filter"];
 const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/gi;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 function removeCssLineContinuations(value: string): string {
   return value.replace(/\\(?:\r\n|[\n\r\f])/g, "");
@@ -102,7 +103,7 @@ function normalizeCssTokens(value: string): string {
   const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
   const withoutLineContinuations = removeCssLineContinuations(uncommented);
   return withoutLineContinuations.replace(
-    /\\([\da-f]{1,6})\s?|\\(.)/gi,
+    /\\([\da-f]{1,6})(?:\r\n|\s)?|\\(.)/gi,
     (_, hex, escaped) => {
       if (!hex) return escaped;
       const codePoint = Number.parseInt(hex, 16);
@@ -219,7 +220,20 @@ function parseSvgRoot(markup: string): SVGSVGElement | null {
     /<(?:"[^"]*"|'[^']*'|[^'">])*?>/g,
     removeCssLineContinuations,
   );
-  const doc = new DOMParser().parseFromString(sanitizedMarkup, "image/svg+xml");
+  const namespacedMarkup = sanitizedMarkup.replace(
+    /<svg(?=[\s>])([^>]*)>/i,
+    (_tag, attributes: string) => {
+      const namespace = /\sxmlns\s*=\s*(["']).*?\1/i;
+      const namespacedAttributes = namespace.test(attributes)
+        ? attributes.replace(namespace, ` xmlns="${SVG_NAMESPACE}"`)
+        : `${attributes} xmlns="${SVG_NAMESPACE}"`;
+      return `<svg${namespacedAttributes}>`;
+    },
+  );
+  const doc = new DOMParser().parseFromString(
+    namespacedMarkup,
+    "image/svg+xml",
+  );
   if (
     doc.querySelector("parsererror") ||
     doc.documentElement.localName !== "svg"

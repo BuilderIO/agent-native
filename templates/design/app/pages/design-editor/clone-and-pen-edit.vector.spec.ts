@@ -410,6 +410,33 @@ describe("nested Pen path commits", () => {
 });
 
 describe("continuing a committed open Pen path", () => {
+  it("preserves authored zero fill opacity on a closed path", () => {
+    const closedPath = closePenPath({
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    });
+    const html = `<!doctype html><svg data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="authored-zero" data-an-pen-nodes="${serializePenNodes(closedPath)}"
+        d="${serializePenPath(closedPath)}" fill="#000000" fill-opacity="0" stroke="none" />
+    </svg>`;
+
+    const edited = writeBackVectorEditedPenPath(
+      html,
+      "authored-zero",
+      translatePenPath(closedPath, 1, 1),
+    );
+    const editedPath = new DOMParser()
+      .parseFromString(edited!, "text/html")
+      .querySelector("path");
+
+    expect(editedPath?.getAttribute("fill-opacity")).toBe("0");
+  });
+
   it("removes legacy synthetic zero fill opacity when closing an open path", () => {
     const openPath: PenPath = {
       closed: false,

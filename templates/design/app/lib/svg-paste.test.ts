@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildPastedSvgLayer,
@@ -208,6 +208,36 @@ describe("buildPastedSvgLayer", () => {
         "stroke: red",
       );
     }
+  });
+
+  it("removes external URLs after a hex escape with a CRLF terminator", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    buildPastedSvgLayer(
+      '<svg width="10" height="10"><rect width="10" height="10"/><style>.shape { fill: u\\72\r\nl(https://example.com/payload.svg); stroke: red }</style></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    );
+
+    const css =
+      measuredRoots[0]?.ownerDocument.querySelector("style")?.textContent;
+    expect(css).not.toContain("https://example.com/payload.svg");
+    expect(css).toContain("stroke: red");
+  });
+
+  it("imports namespace-less clipboard SVG markup into the SVG namespace", () => {
+    const importNode = vi.spyOn(document, "importNode");
+    buildPastedSvgLayer('<svg><path d="M0 0h10" /></svg>', "Logo");
+
+    const importedRoot = importNode.mock.results[0]?.value as
+      | SVGSVGElement
+      | undefined;
+    expect(importedRoot?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(importedRoot?.firstElementChild?.namespaceURI).toBe(
+      "http://www.w3.org/2000/svg",
+    );
   });
 
   it("keeps safe stylesheet declarations and rules around external URLs", () => {

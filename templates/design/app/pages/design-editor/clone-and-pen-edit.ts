@@ -23,6 +23,7 @@ import {
   createSmoothNode,
   getPenPathGeometry,
   penCornerRadiusFromAttribute,
+  parsePenNodes,
   serializePenPath,
   serializePenNodes,
   serializeRoundedPenPath,
@@ -56,7 +57,10 @@ import {
   styleHost,
 } from "./portable-style";
 
-function restoreClosedPenPathPaint(path: SVGPathElement): void {
+function restoreClosedPenPathPaint(
+  path: SVGPathElement,
+  previousPenPath: PenPath | null,
+): void {
   const originalFillOpacity = path.getAttribute(OPEN_FILL_OPACITY_MARKER);
   if (originalFillOpacity === "absent") {
     path.removeAttribute("fill-opacity");
@@ -64,6 +68,7 @@ function restoreClosedPenPathPaint(path: SVGPathElement): void {
     path.setAttribute("fill-opacity", originalFillOpacity.slice(6));
   } else if (
     originalFillOpacity === null &&
+    previousPenPath?.closed === false &&
     path.getAttribute("fill-opacity") === "0"
   ) {
     path.removeAttribute("fill-opacity");
@@ -150,6 +155,11 @@ export function writeBackVectorEditedPenPath(
       `[data-agent-native-node-id="${safeNodeId}"]`,
     );
     if (!svgElement) return null;
+    const previousPenPath = parsePenNodes(
+      svgElement.getAttribute("data-an-pen-nodes") ??
+        svgElement.querySelector("path")?.getAttribute("data-an-pen-nodes") ??
+        "",
+    );
     if (svgElement.tagName.toLowerCase() === "path") {
       const path = svgElement as SVGPathElement;
       const svg = path.ownerSVGElement;
@@ -164,7 +174,7 @@ export function writeBackVectorEditedPenPath(
       const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
       path.setAttribute("d", serializePenPath(penPath));
       if (isClosed) {
-        restoreClosedPenPathPaint(path);
+        restoreClosedPenPathPaint(path, previousPenPath);
       } else {
         hidePenPathFill(path);
         if (path.getAttribute("stroke") === "none") {
@@ -204,7 +214,7 @@ export function writeBackVectorEditedPenPath(
 
     path.setAttribute("d", d);
     if (isClosed) {
-      restoreClosedPenPathPaint(path);
+      restoreClosedPenPathPaint(path, previousPenPath);
     } else {
       hidePenPathFill(path);
       if (strokeOverlay) {
