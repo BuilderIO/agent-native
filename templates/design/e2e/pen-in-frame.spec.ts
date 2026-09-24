@@ -653,6 +653,18 @@ test("overview Pen continues a selected authored open SVG in place", async ({
     expect(before).toHaveLength(1);
     expect(before[0]!.id).toBe("authored-open-svg");
     expect(before[0]!.pathData).toBe("M10 30L70 30");
+    let authoredNodeSaveRequests = 0;
+    page.on("request", (request) => {
+      if (
+        !request.url().includes("/_agent-native/actions/update-file") ||
+        request.method() !== "POST"
+      ) {
+        return;
+      }
+      if (request.postData()?.includes(before[0]!.id)) {
+        authoredNodeSaveRequests += 1;
+      }
+    });
 
     await page.keyboard.press("p");
     await expect(
@@ -672,7 +684,7 @@ test("overview Pen continues a selected authored open SVG in place", async ({
       expect(Math.abs(actual.x - expected.x)).toBeLessThan(3);
       expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
     }
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    expect(authoredNodeSaveRequests).toBe(0);
 
     const appended = {
       x: endpoints.terminal.x + 36,
@@ -686,18 +698,25 @@ test("overview Pen continues a selected authored open SVG in place", async ({
     const extendedPreview = await penPreview(page);
     expect(extendedPreview.pathData).not.toBe(before[0]!.pathData);
     const expectedPathData = extendedPreview.pathData;
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    expect(authoredNodeSaveRequests).toBe(0);
     await page.mouse.up();
-    expect(await persistedVectors(request, designId)).toEqual(before);
+    await page.waitForTimeout(500);
+    expect(authoredNodeSaveRequests).toBe(0);
+    const saveResponse = page.waitForResponse(
+      (response) => {
+        if (
+          !response.url().includes("/_agent-native/actions/update-file") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        return response.request().postData()?.includes(before[0]!.id) ?? false;
+      },
+      { timeout: 30_000 },
+    );
     await page.keyboard.press("Enter");
-
-    await expect
-      .poll(async () => {
-        const pathData = (await persistedVectors(request, designId))[0]
-          ?.pathData;
-        return pathData && pathData !== before[0]!.pathData ? pathData : null;
-      })
-      .not.toBeNull();
+    expect((await saveResponse).ok()).toBe(true);
+    expect(authoredNodeSaveRequests).toBeGreaterThan(0);
     const after = (await persistedVectors(request, designId))[0]!;
     expect(after.id).toBe(before[0]!.id);
     const expectedCoordinates =

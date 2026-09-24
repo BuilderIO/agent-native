@@ -159,6 +159,7 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
+  outboxJournalPromise?: Promise<boolean>,
 ): Promise<FileContentSaveCompletion> {
   if (!canEditDesignRef.current) return Promise.resolve("failed");
   markPendingLocalFileContent(
@@ -168,10 +169,12 @@ export function runSaveFileContent(
     pending.identityMigrationSourceContent,
   );
   latestFileSaveForUnloadRef.current[pending.id] = pending;
-  const queuedOutboxEntry = createFileSaveOutboxEntry(
-    latestFileSaveForUnloadRef.current[pending.id],
-  );
-  if (queuedOutboxEntry) void journalOutboxEntry(queuedOutboxEntry);
+  const queuedOutboxEntry = createFileSaveOutboxEntry(pending);
+  const durableOutboxJournal =
+    outboxJournalPromise ??
+    (queuedOutboxEntry
+      ? journalOutboxEntry(queuedOutboxEntry)
+      : Promise.resolve(false));
   const previous = fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
   const current = previous
     .catch(() => {})
@@ -187,6 +190,7 @@ export function runSaveFileContent(
         return "failed";
       }
       try {
+        await durableOutboxJournal;
         const expectedVersionHash = pending.expectedVersionHash;
         const outboxEntry = createFileSaveOutboxEntry(pending);
         const result = await updateFileMutation.mutateAsync({

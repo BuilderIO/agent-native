@@ -4710,7 +4710,10 @@ function DesignEditor() {
   );
 
   const saveFileContent = useCallback(
-    (pending: FileContentSaveRequest) =>
+    (
+      pending: FileContentSaveRequest,
+      outboxJournalPromise?: Promise<boolean>,
+    ) =>
       runSaveFileContent(
         {
           acknowledgeOutboxEntry,
@@ -4729,6 +4732,7 @@ function DesignEditor() {
           warnChangesWillRetry,
         },
         pending,
+        outboxJournalPromise,
       ),
     [
       acknowledgeOutboxEntry,
@@ -4796,7 +4800,9 @@ function DesignEditor() {
       );
       latestFileSaveForUnloadRef.current[fileId] = pending;
       const outboxEntry = createFileSaveOutboxEntry(pending);
-      if (outboxEntry) void journalOutboxEntry(outboxEntry);
+      const outboxJournalPromise = outboxEntry
+        ? journalOutboxEntry(outboxEntry)
+        : Promise.resolve(false);
       if (options.immediate) {
         const timer = fileSaveTimersRef.current[fileId];
         if (timer) {
@@ -4804,7 +4810,7 @@ function DesignEditor() {
           delete fileSaveTimersRef.current[fileId];
         }
         delete pendingFileSavesRef.current[fileId];
-        return saveFileContent(pending);
+        return saveFileContent(pending, outboxJournalPromise);
       }
       pendingFileSavesRef.current[fileId] = pending;
       const timer = fileSaveTimersRef.current[fileId];
@@ -4816,7 +4822,7 @@ function DesignEditor() {
         delete pendingFileSavesRef.current[fileId];
         delete fileSaveTimersRef.current[fileId];
         if (!pending) return;
-        saveFileContent(pending);
+        saveFileContent(pending, outboxJournalPromise);
       }, 400);
     },
     [
