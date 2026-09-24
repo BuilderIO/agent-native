@@ -13451,9 +13451,12 @@ function openMatchedOAuthUrl(
         sourceContents,
         (contents) => BrowserWindow.fromWebContents(contents),
         attemptId,
-        (closedAttemptId) => {
+        (returnedAttemptId) => {
           if (!sourceContents.isDestroyed()) {
-            sourceContents.send(IPC.OAUTH_POPUP_CLOSED, closedAttemptId);
+            sourceContents.send(
+              IPC.OAUTH_SYSTEM_BROWSER_RETURNED,
+              returnedAttemptId,
+            );
           }
         },
       );

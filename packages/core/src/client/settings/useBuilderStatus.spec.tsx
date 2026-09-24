@@ -1561,6 +1561,63 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("refreshes status but keeps waiting when system-browser focus returns", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 AgentNativeDesktop/1.0");
+    let notifySystemBrowserReturned:
+      | ((attemptId: string | null) => void)
+      | null = null;
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: {
+        oauth: {
+          onSystemBrowserReturned: (
+            callback: (attemptId: string | null) => void,
+          ) => {
+            notifySystemBrowserReturned = callback;
+            return () => {
+              notifySystemBrowserReturned = null;
+            };
+          },
+          onPopupClosed: () => () => {},
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    const openedUrl = (openSpy.mock.calls[0] as unknown as [string])[0];
+    const attemptId = new URL(openedUrl).searchParams.get(
+      "_an_connect_attempt",
+    );
+    expect(attemptId).toBeTruthy();
+    const fetchCountBeforeReturn = vi.mocked(fetch).mock.calls.length;
+
+    await act(async () => {
+      notifySystemBrowserReturned?.(attemptId);
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(
+      fetchCountBeforeReturn,
+    );
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("Didn't finish connecting");
+  });
+
   it("does not cancel a real success that confirms shortly after the popup-close grace window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));

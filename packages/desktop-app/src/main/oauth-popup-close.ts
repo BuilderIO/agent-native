@@ -61,7 +61,7 @@ interface OAuthSystemBrowserWindowLike {
   ): void;
 }
 
-/** Electron cannot observe a system-browser tab closing; focus return is the proxy. */
+/** Focus return prompts a status refresh; it cannot prove the browser tab closed. */
 export function watchOAuthSystemBrowserReturn(
   win: OAuthSystemBrowserWindowLike,
   attemptId: string,
@@ -95,12 +95,13 @@ export function watchOAuthSystemBrowserReturn(
 }
 
 export function watchOAuthSystemBrowserReturnForContents<T>(
-  sourceContents: T,
+  sourceContents: T & { hostWebContents?: T | null },
   getOwnerWindow: (contents: T) => OAuthSystemBrowserWindowLike | null,
   attemptId: string,
   onReturn: (attemptId: string) => void,
 ) {
-  const ownerWindow = getOwnerWindow(sourceContents);
+  const ownerContents = sourceContents.hostWebContents ?? sourceContents;
+  const ownerWindow = getOwnerWindow(ownerContents);
   return ownerWindow
     ? watchOAuthSystemBrowserReturn(ownerWindow, attemptId, onReturn)
     : undefined;

@@ -102,30 +102,26 @@ describe("watchOAuthSystemBrowserReturn", () => {
     expect(onReturn).not.toHaveBeenCalled();
   });
 
-  it("watches the owner window for source contents when multiple windows are open", () => {
-    const firstWindow = new EventEmitter();
+  it("resolves guest contents to the host window", () => {
     const ownerWindow = new EventEmitter();
-    const sourceContents = {};
-    const getOwnerWindow = vi.fn((contents: typeof sourceContents) =>
-      contents === sourceContents ? ownerWindow : null,
+    const hostContents = {};
+    const guestContents = { hostWebContents: hostContents };
+    const getOwnerWindow = vi.fn((contents: object) =>
+      contents === hostContents ? ownerWindow : null,
     );
     const onReturn = vi.fn();
 
     const cleanup = watchOAuthSystemBrowserReturnForContents(
-      sourceContents,
+      guestContents,
       getOwnerWindow,
       "attempt-456",
       onReturn,
     );
 
-    firstWindow.emit("blur");
-    firstWindow.emit("focus");
-    expect(onReturn).not.toHaveBeenCalled();
-
     ownerWindow.emit("blur");
     ownerWindow.emit("focus");
 
-    expect(getOwnerWindow).toHaveBeenCalledWith(sourceContents);
+    expect(getOwnerWindow).toHaveBeenCalledWith(hostContents);
     expect(onReturn).toHaveBeenCalledWith("attempt-456");
     cleanup?.();
   });

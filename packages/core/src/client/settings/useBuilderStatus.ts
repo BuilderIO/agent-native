@@ -752,6 +752,9 @@ export function useBuilderConnectFlow(
       window as Window & {
         agentNativeDesktop?: {
           oauth?: {
+            onSystemBrowserReturned?: (
+              callback: (attemptId: string | null) => void,
+            ) => () => void;
             onPopupClosed: (
               callback: (attemptId: string | null) => void,
             ) => () => void;
@@ -759,10 +762,21 @@ export function useBuilderConnectFlow(
         };
       }
     ).agentNativeDesktop;
-    return desktopBridge?.oauth?.onPopupClosed((attemptId) => {
-      if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
-      popupClosedAtRef.current ??= Date.now();
-    });
+    const removeSystemBrowserReturn =
+      desktopBridge?.oauth?.onSystemBrowserReturned?.((attemptId) => {
+        if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
+        retryStatusRef.current();
+      });
+    const removePopupClosed = desktopBridge?.oauth?.onPopupClosed(
+      (attemptId) => {
+        if (!attemptId || attemptId !== connectAttemptIdRef.current) return;
+        popupClosedAtRef.current ??= Date.now();
+      },
+    );
+    return () => {
+      removeSystemBrowserReturn?.();
+      removePopupClosed?.();
+    };
   }, []);
 
   // Accepts an optional external `signal` so the connect-flow poll loop below
