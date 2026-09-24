@@ -36,6 +36,52 @@ describe("runSaveFileContent source version", () => {
     __clearVersionHistoryWarningsForTests();
   });
 
+  it("does not wait for optional outbox journaling or acknowledgment", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-outbox-stall",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("<main>original</main>"),
+    };
+    const journal = deferred<boolean>();
+    const acknowledgment = deferred<void>();
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const mutateAsync = vi.fn(async () => ({
+      updated: true,
+      versionHash: sourceContentHash(pending.content),
+    }));
+    const entry = {
+      key: "design:user:update-file:screen:tab-a",
+    } as DesignSaveOutboxEntry;
+    const acknowledgeOutboxEntry = vi.fn(() => acknowledgment.promise);
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry,
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => entry),
+      fileSaveChainsRef,
+      journalOutboxEntry: vi.fn(() => journal.promise),
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync,
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+
+    expect(mutateAsync).toHaveBeenCalledOnce();
+    expect(acknowledgeOutboxEntry).toHaveBeenCalledWith(entry);
+  });
+
   it("replays from the oldest base when a successor keepalive races a missing predecessor", async () => {
     const baseContent = "<main>original</main>";
     const predecessorContent = "<main>predecessor</main>";

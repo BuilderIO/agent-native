@@ -683,7 +683,9 @@ test("overview Pen continues a selected authored open SVG in place", async ({
     await expect
       .poll(async () => (await penPreview(page)).anchors.length)
       .toBe(3);
-    expect((await penPreview(page)).pathData).not.toBe(before[0]!.pathData);
+    const extendedPreview = await penPreview(page);
+    expect(extendedPreview.pathData).not.toBe(before[0]!.pathData);
+    const expectedPathData = extendedPreview.pathData;
     expect(await persistedVectors(request, designId)).toEqual(before);
     await page.mouse.up();
     expect(await persistedVectors(request, designId)).toEqual(before);
@@ -691,15 +693,24 @@ test("overview Pen continues a selected authored open SVG in place", async ({
 
     await expect
       .poll(async () => {
-        const vectors = await persistedVectors(request, designId);
-        return (
-          vectors.length === 1 && vectors[0]?.pathData !== before[0]!.pathData
-        );
+        const pathData = (await persistedVectors(request, designId))[0]
+          ?.pathData;
+        return pathData && pathData !== before[0]!.pathData ? pathData : null;
       })
-      .toBe(true);
+      .not.toBeNull();
     const after = (await persistedVectors(request, designId))[0]!;
     expect(after.id).toBe(before[0]!.id);
-    expect(after.pathData).not.toBe(before[0]!.pathData);
+    const expectedCoordinates =
+      expectedPathData.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    const persistedCoordinates =
+      after.pathData.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+    expect(expectedCoordinates).toHaveLength(6);
+    expect(persistedCoordinates).toHaveLength(expectedCoordinates.length);
+    for (let index = 0; index < expectedCoordinates.length; index += 1) {
+      expect(
+        Math.abs(persistedCoordinates[index]! - expectedCoordinates[index]!),
+      ).toBeLessThanOrEqual(0.5);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

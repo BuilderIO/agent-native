@@ -182,13 +182,13 @@ export function runSaveFileContent(
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] !== pending
       ) {
-        if (queuedOutboxEntry) await acknowledgeOutboxEntry(queuedOutboxEntry);
+        if (queuedOutboxEntry)
+          void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
         return "failed";
       }
       try {
         const expectedVersionHash = pending.expectedVersionHash;
         const outboxEntry = createFileSaveOutboxEntry(pending);
-        if (outboxEntry) await journalOutboxEntry(outboxEntry);
         const result = await updateFileMutation.mutateAsync({
           id: pending.id,
           content: pending.content,
@@ -204,7 +204,8 @@ export function runSaveFileContent(
           pending.identityMigrationSourceContent !== undefined &&
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
-          if (outboxEntry) await acknowledgeOutboxEntry(outboxEntry);
+          if (outboxEntry)
+            void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
           return "failed";
         }
         const resultInfo = result as
@@ -245,9 +246,8 @@ export function runSaveFileContent(
           // user edit publishes against the canonical bytes it already sees.
           markPendingLocalFileContent(pending.id, pending.content);
         }
-        if (persistedContentMatches && outboxEntry) {
-          await acknowledgeOutboxEntry(outboxEntry);
-        }
+        if (persistedContentMatches && outboxEntry)
+          void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
         if (persistedContentMatches && designId) {
           const designQueryKey = ["action", "get-design", { id: designId }];
           const persistedUpdatedAt =
@@ -344,7 +344,7 @@ export function runSaveFileContent(
           latestFileSaveForUnloadRef.current[pending.id] !== pending
         ) {
           if (queuedOutboxEntry)
-            await acknowledgeOutboxEntry(queuedOutboxEntry);
+            void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
           return "failed";
         }
         // The queued source hash stays paired with its content until the
