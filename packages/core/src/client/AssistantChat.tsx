@@ -5947,12 +5947,16 @@ const AssistantChatInner = forwardRef<
         ];
 
         // ── Body-size guard (Fix 3) ─────────────────────────────────────
-        // Estimate the total serialized attachment payload. If it exceeds the
-        // Vercel/Netlify body limit, progressively re-compress images until
-        // the payload fits, then reject the largest remaining file if still over.
+        // Estimate the prompt and attachment payload. Recompress images before
+        // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          const allPayloadStrings = getAttachmentBodyStrings(allAttachments);
+          // The request serializes the submitted prompt as both message and displayMessage.
+          const promptPayloadStrings = [submittedText, submittedText];
+          const allPayloadStrings = [
+            ...getAttachmentBodyStrings(allAttachments),
+            ...promptPayloadStrings,
+          ];
           if (
             estimateAttachmentBodyBytes(allPayloadStrings) >
             MAX_ESTIMATED_BODY_BYTES
@@ -5995,36 +5999,21 @@ const AssistantChatInner = forwardRef<
               recompressed.push(att);
             }
             // Re-estimate after recompression.
-            const recompressedPayloadStrings =
-              getAttachmentBodyStrings(recompressed);
+            const recompressedPayloadStrings = [
+              ...getAttachmentBodyStrings(recompressed),
+              ...promptPayloadStrings,
+            ];
             if (
               estimateAttachmentBodyBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
             ) {
-              // Find the largest attachment and reject it.
-              let largestIdx = -1;
-              let largestSize = 0;
-              for (let i = 0; i < recompressed.length; i++) {
-                const attachmentSize = estimateAttachmentBodyBytes(
-                  getAttachmentBodyStrings([recompressed[i]]),
-                );
-                if (attachmentSize > largestSize) {
-                  largestSize = attachmentSize;
-                  largestIdx = i;
-                }
-              }
-              if (largestIdx >= 0) {
-                const rejected = recompressed[largestIdx];
-                setComposerError(
-                  `"${rejected.name}" makes the message too large to send (combined attachments must be under ${(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024).toFixed(1)} MB). Remove it or use a smaller file.`,
-                );
-                reportAgentChatSubmitResult(
-                  submitMessageId,
-                  false,
-                  "attachment-too-large",
-                );
-                return false;
-              }
+              setComposerError(t("agentChat.composer.requestTooLarge"));
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
+              return false;
             }
             messageAttachments = recompressed;
           }

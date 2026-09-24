@@ -267,6 +267,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "描述您想要建立的技能...",
   "composer.documentTooLarge":
     "「{{name}}」的大小為 {{size}} MB——為符合訊息限制，{{label}} 上限為 {{maxSize}} MB。請縮小檔案或將其分割成較小的部分。",
+  "composer.requestTooLarge":
+    "此訊息及其附件過大，無法傳送。請移除一個附件或縮短訊息。",
   "composer.file": "檔案",
   "composer.imageModel": "圖片模型",
   "composer.imagePreview": "圖片預覽",

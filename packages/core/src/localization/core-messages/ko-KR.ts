@@ -277,6 +277,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "만들려는 스킬을 설명하세요...",
   "composer.documentTooLarge":
     '"{{name}}"의 크기는 {{size}}MB입니다. 메시지 제한을 지키기 위해 {{label}}는 {{maxSize}}MB로 제한됩니다. 파일 크기를 줄이거나 더 작은 파일로 나누세요.',
+  "composer.requestTooLarge":
+    "이 메시지와 첨부 파일은 너무 커서 보낼 수 없습니다. 첨부 파일을 삭제하거나 메시지를 줄이세요.",
   "composer.file": "파일",
   "composer.imageModel": "이미지 모델",
   "composer.imagePreview": "이미지 미리보기",

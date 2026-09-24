@@ -287,6 +287,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "作成したいスキルを説明してください...",
   "composer.documentTooLarge":
     "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、{{label}} は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
+  "composer.requestTooLarge":
+    "このメッセージと添付ファイルは大きすぎて送信できません。添付ファイルを削除するか、メッセージを短くしてください。",
   "composer.file": "ファイル",
   "composer.imageModel": "画像モデル",
   "composer.imagePreview": "画像プレビュー",

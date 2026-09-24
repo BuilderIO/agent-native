@@ -23,8 +23,8 @@ export const MAX_PDF_BYTES = 2.5 * 1024 * 1024;
 // images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Vercel/Netlify cap requests at roughly 4.5 MB. Keep 1 MB for the message,
-// bounded history, and JSON framing; attachments get the remaining 3.5 MB.
+// Vercel/Netlify cap requests at ~4.5 MB. Reserve 1 MB for history and JSON;
+// the remaining 3.5 MB covers attachments and both prompt fields.
 export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
 export const MAX_ESTIMATED_BODY_BYTES =
   4.5 * 1024 * 1024 - MAX_NON_ATTACHMENT_BODY_BYTES;
