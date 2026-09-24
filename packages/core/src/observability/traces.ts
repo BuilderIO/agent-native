@@ -1091,6 +1091,11 @@ export async function instrumentAgentLoop(opts: {
           reportedToolFailures++;
         } else successfulTools++;
 
+        const toolErrorMessage =
+          isError && config.captureToolResults
+            ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
+            : null;
+
         if (
           counter !== undefined &&
           counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
@@ -1106,10 +1111,7 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
-            error_message:
-              isError && config.captureToolResults
-                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
-                : undefined,
+            error_message: toolErrorMessage ?? undefined,
           });
         }
 
@@ -1180,7 +1182,7 @@ export async function instrumentAgentLoop(opts: {
           costCentsX100: 0,
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
-          errorMessage: isError ? event.result : null,
+          errorMessage: toolErrorMessage,
           metadata: spanMetadata,
           // The span's start, not its completion: `durationMs` is measured from
           // here, so stamping the end instead places the tool after the run
@@ -1720,13 +1722,8 @@ export async function instrumentAgentLoop(opts: {
         });
 
         for (const span of emittedToolSpans) {
-          // `span.errorMessage` is the raw tool result. It routinely contains
-          // upstream response bodies with Authorization headers and standalone
-          // API keys, so it gets the same redaction + bounding the generation
-          // event's `tools[].error_message` already applies, and the same
-          // `captureToolResults` gate — exporting it here otherwise reintroduced
-          // the leak that gate exists to prevent. `$ai_is_error` still marks the
-          // failure when the content is withheld.
+          // Tool errors can contain upstream response bodies with credentials,
+          // so gate and sanitize their analytics copy as well as the stored span.
           const toolErrorMessage =
             span.status === "error" &&
             span.errorMessage &&
@@ -1742,7 +1739,7 @@ export async function instrumentAgentLoop(opts: {
               ? undefined
               : toolErrorMessage
                 ? toAiErrorDetail(toolErrorMessage)
-                : span.errorMessage
+                : !config.captureToolResults
                   ? {
                       message:
                         "error text withheld: captureToolResults is off for this app",

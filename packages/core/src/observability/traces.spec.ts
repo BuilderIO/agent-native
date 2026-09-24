@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { observabilityConfig } from "../app-config/observability.js";
 import {
@@ -6,6 +6,7 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
+import * as traceStore from "./store.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
   type AgentSpan,
@@ -250,6 +251,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     activeClock = null;
     __resetAgentTracerCache();
     unregisterTrackingProvider("qa-ai-generation");
+    vi.restoreAllMocks();
   });
 
   // A run cut off at an `auto_continue` boundary never reaches the loop's
@@ -868,6 +870,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("redacts and gates tool failure detail on tool spans", async () => {
     const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
@@ -934,8 +941,13 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // `$ai_output_state` reads as a tool that returned nothing, which is a
     // different fact about the run than one whose answer we chose not to ship.
     expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
+    expect(
+      persistedSpans.find((span) => span.spanType === "tool_call")
+        ?.errorMessage,
+    ).toBeNull();
 
     events.length = 0;
+    persistedSpans.length = 0;
     await run(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -944,6 +956,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(serialized).toContain("REDACTED");
     expect(serialized).not.toContain("abcdef123456");
     expect(serialized).not.toContain("sk-not-a-real-key-000000000");
+    const persistedError = persistedSpans.find(
+      (span) => span.spanType === "tool_call",
+    )?.errorMessage;
+    expect(persistedError).toContain("REDACTED");
+    expect(persistedError).not.toContain("abcdef123456");
+    expect(persistedError).not.toContain("sk-not-a-real-key-000000000");
   });
 
   it("does not emit tool spans when captureLlmSpans is off", async () => {

@@ -5,12 +5,21 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockOutputReviews, mockSubmitFeedback, mockSaveInstructionUpdate } =
-  vi.hoisted(() => ({
-    mockOutputReviews: vi.fn(),
-    mockSubmitFeedback: vi.fn(),
-    mockSaveInstructionUpdate: vi.fn(),
-  }));
+const {
+  mockOutputReviews,
+  mockSubmitFeedback,
+  mockSaveInstructionUpdate,
+  mockTraces,
+  mockTraceDetail,
+  mockOpenThread,
+} = vi.hoisted(() => ({
+  mockOutputReviews: vi.fn(),
+  mockSubmitFeedback: vi.fn(),
+  mockSaveInstructionUpdate: vi.fn(),
+  mockTraces: vi.fn(),
+  mockTraceDetail: vi.fn(),
+  mockOpenThread: vi.fn(),
+}));
 
 vi.mock("./useObservability.js", () => ({
   useObservabilityOverview: () => ({
@@ -24,13 +33,13 @@ vi.mock("./useObservability.js", () => ({
     },
     isLoading: false,
   }),
-  useTraces: vi.fn(),
-  useTraceDetail: vi.fn(),
+  useTraces: (...args: unknown[]) => mockTraces(...args),
+  useTraceDetail: (...args: unknown[]) => mockTraceDetail(...args),
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useSatisfaction: vi.fn(),
   useEvalStats: vi.fn(),
-  useExperiments: vi.fn(),
+  useExperiments: () => ({ data: [], isLoading: false }),
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
   useOutputReviews: () => mockOutputReviews(),
@@ -57,6 +66,11 @@ vi.mock("./useObservability.js", () => ({
     isPending: false,
   }),
   useSubmitFeedback: () => ({ mutate: mockSubmitFeedback, isPending: false }),
+}));
+
+vi.mock("../agent-chat.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent-chat.js")>()),
+  requestAgentChatThreadOpen: mockOpenThread,
 }));
 
 import { AgentNativeI18nProvider } from "../i18n.js";
@@ -159,6 +173,144 @@ describe("ObservabilityDashboard human review", () => {
     container.remove();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("opens span details, the full conversation, and tab documentation", async () => {
+    mockTraces.mockReturnValue({
+      isLoading: false,
+      data: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          totalSpans: 2,
+          llmCalls: 1,
+          toolCalls: 1,
+          successfulTools: 1,
+          failedTools: 0,
+          totalDurationMs: 100,
+          totalCostCentsX100: 0,
+          totalInputTokens: 2,
+          totalOutputTokens: 3,
+          model: "test-model",
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    mockTraceDetail.mockReturnValue({
+      isLoading: false,
+      data: {
+        summary: {
+          runId: "run-1",
+          threadId: "thread-1",
+          totalSpans: 2,
+          llmCalls: 1,
+          toolCalls: 1,
+          successfulTools: 1,
+          failedTools: 0,
+          totalDurationMs: 100,
+          totalCostCentsX100: 0,
+          totalInputTokens: 2,
+          totalOutputTokens: 3,
+          model: "test-model",
+          createdAt: Date.now(),
+        },
+        spans: [
+          {
+            id: "span-success",
+            runId: "run-1",
+            threadId: "thread-1",
+            parentSpanId: null,
+            spanType: "tool_call",
+            name: "search",
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            costCentsX100: 0,
+            durationMs: 20,
+            status: "success",
+            errorMessage: null,
+            metadata: {
+              input: { query: "latest releases" },
+              output: "Found 3 results",
+            },
+            createdAt: Date.now(),
+          },
+          {
+            id: "span-error",
+            runId: "run-1",
+            threadId: "thread-1",
+            parentSpanId: null,
+            spanType: "tool_call",
+            name: "broken-search",
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            costCentsX100: 0,
+            durationMs: 10,
+            status: "error",
+            errorMessage: "Search provider returned 503",
+            metadata: { input: { query: "missing results" } },
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+
+    const experimentsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Experiments"));
+    await act(async () => experimentsTab?.click());
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[href*="#experiments"]'),
+    ).toBeTruthy();
+
+    const conversationsTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Conversations"));
+    await act(async () => conversationsTab?.click());
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[href*="#conversations"]'),
+    ).toBeTruthy();
+
+    const runRow = Array.from(container.querySelectorAll("tr")).find((row) =>
+      row.textContent?.includes("run-1"),
+    );
+    await act(async () => (runRow as HTMLTableRowElement | undefined)?.click());
+
+    const detailsButton = (spanName: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label="View details"]',
+        ),
+      ).find((button) => button.closest("tr")?.textContent?.includes(spanName));
+
+    await act(async () => detailsButton("search")?.click());
+    expect(container.textContent).toContain('"latest releases"');
+    expect(container.textContent).toContain("Found 3 results");
+
+    await act(async () => detailsButton("broken-search")?.click());
+    expect(container.textContent).toContain("Search provider returned 503");
+
+    await act(async () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) =>
+          button.textContent?.includes("Open full conversation"),
+        )
+        ?.click(),
+    );
+    expect(mockOpenThread).toHaveBeenCalledWith({ threadId: "thread-1" });
   });
 
   it("shows compact review thumbnails, then full output and thumbs feedback on demand", async () => {
@@ -276,7 +428,9 @@ describe("ObservabilityDashboard human review", () => {
       expect(current).toBeTruthy();
       return current!;
     });
-    expect(dialog?.querySelector("iframe")).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(dialog?.querySelector("iframe")).not.toBeNull(),
+    );
     await act(async () =>
       dialog?.querySelector('[aria-label="Add feedback"]')?.click(),
     );
