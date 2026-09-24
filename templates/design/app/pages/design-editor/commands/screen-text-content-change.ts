@@ -327,6 +327,9 @@ export function runScreenTextContentChange(
             ? bridgeSourceIdForCodeLayerNode(nextNode)
             : base.sourceId,
           selector: nextNode ? preferredCodeLayerSelector(nextNode) : selector,
+          sourceLayerIdentity: nextNode
+            ? { screenId, nodeId: nextNode.id }
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }

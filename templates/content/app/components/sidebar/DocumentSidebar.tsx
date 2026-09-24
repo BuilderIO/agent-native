@@ -1394,6 +1394,9 @@ export function DocumentSidebar({
     [localFileMode, queryClient],
   );
   const settingsActive = location.pathname.startsWith("/settings");
+  const sidebarActiveDocumentId = location.pathname.startsWith("/trash")
+    ? null
+    : activeDocumentId;
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -2291,7 +2294,7 @@ export function DocumentSidebar({
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
       createDatabasePending={createDatabase.isPending}
-      activeDocumentId={activeDocumentId}
+      activeDocumentId={sidebarActiveDocumentId}
       expandedDocumentIds={visibleExpandedDocumentIds}
       documentMetadata={documentMetadata}
       activePathDocuments={
@@ -2704,7 +2707,7 @@ export function DocumentSidebar({
                       favoritesDatabase.isLoading ||
                       favoritesPersonalView.isLoading
                     }
-                    activeDocumentId={activeDocumentId}
+                    activeDocumentId={sidebarActiveDocumentId}
                     manualReorder={{
                       labels: sidebarReorderLabels,
                       onReorder: (itemIds) =>

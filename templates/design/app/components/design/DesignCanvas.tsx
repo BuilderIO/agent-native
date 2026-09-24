@@ -30,6 +30,8 @@ import {
   createPenCuspLatch,
   createPenDragNode,
   isPenCloseTarget,
+  parsePenNodes,
+  resumePenPathAtEnd,
   serializePenPath,
   translatePenPath,
   type PenCuspLatch,
@@ -73,6 +75,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
+import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   pendingVisualStyleRouteMatches,
   runtimeStyleTarget,
@@ -1098,6 +1101,7 @@ interface DesignCanvasProps {
    * behavior — the overlay never mounts.
    */
   activeCreationTool?: CreationTool | null;
+  selectedPenPathNodeId?: string | null;
   /**
    * Fired once per completed click or drag gesture while `activeCreationTool`
    * is set. Geometry is in SCREEN-CONTENT coordinates — the screen's own
@@ -1107,7 +1111,8 @@ interface DesignCanvasProps {
    * persisted primitive (see `appendCanvasPrimitiveToHtml` /
    * `draftPrimitiveToInsert` on the overview side).
    */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
   /**
    * OS file drag-and-drop (Figma parity): fired when the user drops native
    * OS files (e.g. images dragged from Finder/Explorer) onto this single-
@@ -1571,7 +1576,9 @@ export function DesignCanvas({
   onGradientEditChange,
   statePreviewTarget,
   activeCreationTool = null,
+  selectedPenPathNodeId,
   onCreatePrimitive,
+  onUpdatePenPath,
   onDropFiles,
   handToolActive = false,
   spacePanActive = false,
@@ -4713,10 +4720,23 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
+        const svgFileError =
+          e.data.svgFileError === "too-large" ||
+          e.data.svgFileError === "unreadable"
+            ? e.data.svgFileError
+            : undefined;
+        const svg = typeof e.data.svg === "string" ? e.data.svg : undefined;
         const html = typeof e.data.html === "string" ? e.data.html : "";
         const text = typeof e.data.text === "string" ? e.data.text : "";
-        if (content || html || text) {
-          onFigmaClipboardPaste?.({ content, html, text });
+        if (content || svg || html || text || svgFileError) {
+          onFigmaClipboardPaste?.({
+            content,
+            sourceScreenId: boardSurface ? undefined : screenId,
+            svg,
+            svgFileError,
+            html,
+            text,
+          });
         }
         return;
       }
@@ -4733,12 +4753,21 @@ export function DesignCanvas({
               if (!f || typeof f !== "object") return false;
               const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
               if (typeof dataUrl !== "string") return false;
-              if (!dataUrl.startsWith("data:image/")) return false;
+              if (
+                !dataUrl.startsWith("data:image/") &&
+                !dataUrl.startsWith("data:video/")
+              )
+                return false;
               if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
               return true;
             },
           );
-        if (files.length > 0) onImagePaste?.({ files });
+        if (files.length > 0) {
+          onImagePaste?.({
+            files,
+            screenId: boardSurface ? undefined : screenId,
+          });
+        }
         return;
       }
       if (e.data.type === "element-contextmenu") {
@@ -6397,7 +6426,8 @@ export function DesignCanvas({
     if (
       runtimeReplacementKey === undefined ||
       runtimeReplacementContent === undefined ||
-      lastRuntimeReplacementKeyRef.current === runtimeReplacementKey
+      (lastRuntimeReplacementKeyRef.current === runtimeReplacementKey &&
+        lastRuntimeReplacementContentRef.current === runtimeReplacementContent)
     ) {
       return;
     }
@@ -7111,7 +7141,9 @@ export function DesignCanvas({
         <SingleScreenCreationOverlay
           tool={activeCreationTool}
           iframeRef={iframeRef}
+          selectedPenPathNodeId={selectedPenPathNodeId}
           onCreatePrimitive={onCreatePrimitive}
+          onUpdatePenPath={onUpdatePenPath}
         />
       ) : null}
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
@@ -7670,7 +7702,9 @@ const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 interface SingleScreenCreationOverlayProps {
   tool: CreationTool;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => void;
+  selectedPenPathNodeId?: string | null;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
+  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
 }
 
 /**
@@ -7692,12 +7726,57 @@ interface SingleScreenCreationOverlayProps {
 function SingleScreenCreationOverlay({
   tool,
   iframeRef,
+  selectedPenPathNodeId,
   onCreatePrimitive,
+  onUpdatePenPath,
 }: SingleScreenCreationOverlayProps) {
   const [drag, setDrag] = useState<CreationDragState | null>(null);
   const dragRef = useRef<CreationDragState | null>(null);
   const [penPath, setPenPath] = useState<PenPath | null>(null);
   const penPathRef = useRef<PenPath | null>(null);
+  const continuationPenPathRef = useRef<{
+    nodeId: string;
+    path: PenPath;
+  } | null>(null);
+
+  const seedSelectedPenContinuation = useCallback(() => {
+    if (
+      tool !== "pen" ||
+      !selectedPenPathNodeId ||
+      penPathRef.current ||
+      continuationPenPathRef.current
+    ) {
+      return;
+    }
+    const document = iframeRef.current?.contentDocument;
+    if (!document) return;
+    const element = Array.from(
+      document.querySelectorAll<SVGElement>("[data-agent-native-node-id]"),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-agent-native-node-id") ===
+        selectedPenPathNodeId,
+    );
+    const sourceElement =
+      element?.closest<SVGElement>("[data-an-pen-nodes]") ??
+      (document.querySelectorAll<SVGElement>("[data-an-pen-nodes]").length === 1
+        ? document.querySelector<SVGElement>("[data-an-pen-nodes]")
+        : null);
+    const serialized = sourceElement?.getAttribute("data-an-pen-nodes");
+    const path = serialized ? parsePenNodes(serialized) : null;
+    if (!path || path.closed || path.nodes.length < 2) return;
+    const svg = sourceElement?.closest("svg");
+    const offset = svg ? penPathScreenContentOffset(svg) : null;
+    if (!offset) return;
+    continuationPenPathRef.current = {
+      nodeId: selectedPenPathNodeId,
+      path: translatePenPath(path, offset.x, offset.y),
+    };
+  }, [iframeRef, selectedPenPathNodeId, tool]);
+
+  useEffect(() => {
+    seedSelectedPenContinuation();
+  }, [seedSelectedPenContinuation]);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -7757,22 +7836,54 @@ function SingleScreenCreationOverlay({
   const finishPenPath = useCallback(
     (
       path: PenPath | null = penPathRef.current,
-      options?: { preserveActiveTool?: boolean },
+      options?: {
+        preserveActiveTool?: boolean;
+        continueAfterCommit?: boolean;
+      },
     ) => {
       const committed = path ? clonePenPath(path) : null;
-      clearPenPath();
-      if (!committed || committed.nodes.length < 2 || !onCreatePrimitive) {
+      if (!committed || committed.nodes.length < 2) {
+        clearPenPath();
         return;
       }
-      onCreatePrimitive({
-        tool: "pen",
-        points: committed.nodes.map((node) => node.point),
-        penPath: committed,
-        fromClick: false,
-        preserveActiveTool: options?.preserveActiveTool,
-      });
+
+      const continuation = continuationPenPathRef.current;
+      if (continuation) {
+        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        if (!updated) {
+          continuationPenPathRef.current = null;
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          return;
+        }
+        continuationPenPathRef.current =
+          committed.closed || !options?.continueAfterCommit
+            ? null
+            : { ...continuation, path: committed };
+      } else {
+        if (!onCreatePrimitive) {
+          clearPenPath();
+          return;
+        }
+        clearPenPath();
+        const nodeId = onCreatePrimitive({
+          tool: "pen",
+          points: committed.nodes.map((node) => node.point),
+          penPath: committed,
+          fromClick: false,
+          preserveActiveTool: options?.preserveActiveTool,
+        });
+        continuationPenPathRef.current =
+          typeof nodeId === "string" &&
+          !committed.closed &&
+          options?.continueAfterCommit
+            ? { nodeId, path: committed }
+            : null;
+        return;
+      }
+      clearPenPath();
     },
-    [clearPenPath, onCreatePrimitive],
+    [clearPenPath, onCreatePrimitive, onUpdatePenPath, updatePenPath],
   );
 
   const getPenAnchor = useCallback(
@@ -7813,6 +7924,7 @@ function SingleScreenCreationOverlay({
     previousToolRef.current = tool;
     if (previousTool === "pen" && tool !== "pen") {
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
+      if (!penPathRef.current) continuationPenPathRef.current = null;
     }
   }, [finishPenPath, tool]);
 
@@ -7879,11 +7991,28 @@ function SingleScreenCreationOverlay({
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
+        seedSelectedPenContinuation();
         const currentPath = penPathRef.current?.closed
           ? null
           : penPathRef.current;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
+        if (!pathBefore && continuationPenPathRef.current) {
+          const continuation = continuationPenPathRef.current;
+          const resumed =
+            selectedPenPathNodeId === undefined ||
+            selectedPenPathNodeId === continuation.nodeId
+              ? resumePenPathAtEnd(continuation.path, rawPoint, penHitRadius())
+              : null;
+          if (resumed) {
+            updatePenPath(resumed);
+            setPenGesturePreview(null);
+            setPenPointer(null);
+            setPenCloseHover(false);
+            return;
+          }
+          continuationPenPathRef.current = null;
+        }
         const closing = isPenCloseTarget(pathBefore, rawPoint, penHitRadius());
         const anchor = closing
           ? pathBefore!.nodes[0]!.point
@@ -7924,6 +8053,8 @@ function SingleScreenCreationOverlay({
       finishPenPath,
       getPenAnchor,
       penHitRadius,
+      seedSelectedPenContinuation,
+      selectedPenPathNodeId,
       tool,
       toContentPoint,
       updatePenPath,
@@ -8105,7 +8236,10 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      finishPenPath(path, { preserveActiveTool: true });
+      finishPenPath(path, {
+        preserveActiveTool: true,
+        continueAfterCommit: event.key === "Enter",
+      });
     };
 
     window.addEventListener("keydown", handleKeyDown, true);

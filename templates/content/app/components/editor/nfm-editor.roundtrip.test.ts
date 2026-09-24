@@ -407,9 +407,12 @@ describe("NFM ⇄ real TipTap editor round-trip", () => {
     expect(result.endsWith("Trailing content.")).toBe(true);
   });
 
-  it("keeps an unresolved aligned table byte-exact through the live editor", () => {
+  it("keeps aligned table cells editable through the live editor", () => {
     const source = "| Left | Right |\n| :--- | ---: |\n| A | B |";
-    expect(editorRoundTrip(source)).toBe(source);
+    const result = editorRoundTrip(source);
+    expect(result).toContain('<td align="left">Left</td>');
+    expect(result).toContain('<td align="right">Right</td>');
+    expect(result).toContain('<td align="right">B</td>');
   });
 });
 
