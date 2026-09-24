@@ -657,6 +657,17 @@ export function pageEditorSessionKey({
   return `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
 }
 
+export function suggestionModeCapability(args: {
+  permission: boolean;
+  bodyReady: boolean;
+  primaryFieldAvailable: boolean;
+}) {
+  return {
+    canStart: args.permission && args.bodyReady && args.primaryFieldAvailable,
+    canContinue: args.permission,
+  };
+}
+
 export function PageEditorSurface({
   documentId,
   databaseId,
@@ -1721,6 +1732,7 @@ function PageEditorSessionBody({
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
+  const startingSuggestionRef = useRef(false);
   const [pendingSuggestionDecision, setPendingSuggestionDecision] = useState<{
     suggestion: ResourceSuggestion;
     decision: SuggestionDecision;
@@ -1787,7 +1799,41 @@ function PageEditorSessionBody({
   const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
     useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
-  const canSuggest = canComment && document.canSuggest === true;
+  const [primaryFieldAvailability, setPrimaryFieldAvailability] = useState<{
+    scope: string;
+    available: boolean;
+  } | null>(null);
+  const handlePrimaryFieldAvailabilityChange = useCallback(
+    (scope: string, available: boolean) => {
+      setPrimaryFieldAvailability((current) =>
+        current?.scope === scope && current.available === available
+          ? current
+          : { scope, available },
+      );
+    },
+    [],
+  );
+  const databaseFieldScope = document.databaseMembership
+    ? pageEditorSessionKey({
+        documentId,
+        databaseId: databaseId ?? document.databaseMembership.databaseId,
+        databaseDocumentId:
+          databaseDocumentId ?? document.databaseMembership.databaseDocumentId,
+      })
+    : null;
+  const suggestionCapability = suggestionModeCapability({
+    permission: canComment && document.canSuggest === true,
+    bodyReady:
+      !documentBodyHydrationIsPending(document) &&
+      document.bodyHydration?.hydration?.status !== "error",
+    primaryFieldAvailable:
+      databaseFieldScope === null ||
+      (primaryFieldAvailability?.scope === databaseFieldScope &&
+        primaryFieldAvailability.available),
+  });
+  const canSuggest = suggestionCapability.canStart;
+  const canStartSuggestionRef = useRef(canSuggest);
+  canStartSuggestionRef.current = canSuggest;
   const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
@@ -2277,7 +2323,7 @@ function PageEditorSessionBody({
     !collabInitializationFailed;
   const suggestionEditorIsolation = suggestedEditorIsolation({
     suggesting: isSuggesting,
-    canSuggest,
+    canSuggest: suggestionCapability.canContinue,
     canEdit: editorCanEdit,
     collaborationReady: collabEditorEnabled,
   });
@@ -3969,7 +4015,7 @@ function PageEditorSessionBody({
       suggestion?: ResourceSuggestion,
       initialSelection?: VisualEditorSelectionSnapshot | null,
     ) => {
-      if (!canSuggest || isSuggesting) return false;
+      if (!canStartSuggestionRef.current || isSuggesting) return false;
       try {
         suggestionMarkedSourceRanges(nextDocument.content);
       } catch (error) {
@@ -4009,7 +4055,7 @@ function PageEditorSessionBody({
       setIsSuggesting(true);
       return true;
     },
-    [canSuggest, isSuggesting, session?.email, t],
+    [isSuggesting, session?.email, t],
   );
 
   const prepareSuggestionDraftDocument = useCallback(async () => {
@@ -4137,13 +4183,36 @@ function PageEditorSessionBody({
   const handleSuggestionModeChange = useCallback(
     async (next: boolean) => {
       if (next) {
-        if (isStartingSuggestion) return;
+        if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
         pageActionsSelectionRef.current = null;
+        startingSuggestionRef.current = true;
         setIsStartingSuggestion(true);
         try {
+          if (document.databaseMembership) {
+            try {
+              await flushAllBlockFieldSaveControllersForDocument(documentId);
+            } catch (error) {
+              toast.error(t("editor.suggestionCreateFailed"), {
+                description:
+                  actionErrorMessage(error) ?? t("empty.genericError"),
+              });
+              restoreCapturedEditorSelection(
+                editorSelectionControllerRef.current,
+                initialSelection,
+              );
+              return;
+            }
+          }
+          if (!canStartSuggestionRef.current) {
+            restoreCapturedEditorSelection(
+              editorSelectionControllerRef.current,
+              initialSelection,
+            );
+            return;
+          }
           const readyDocument = await prepareSuggestionDraftDocument();
-          if (!readyDocument) {
+          if (!readyDocument || !canStartSuggestionRef.current) {
             restoreCapturedEditorSelection(
               editorSelectionControllerRef.current,
               initialSelection,
@@ -4171,18 +4240,22 @@ function PageEditorSessionBody({
           }
         } finally {
           setIsStartingSuggestion(false);
+          startingSuggestionRef.current = false;
         }
         return;
       }
       await flushSuggestionDraft();
     },
     [
+      canSuggest,
+      document.databaseMembership,
+      documentId,
       flushSuggestionDraft,
-      isStartingSuggestion,
       prepareSuggestionDraftDocument,
       savedSuggestions,
       selectedSuggestionId,
       startSuggestionDraft,
+      t,
     ],
   );
 
@@ -4244,9 +4317,16 @@ function PageEditorSessionBody({
     [],
   );
 
+  const permissionRevocationHandledRef = useRef(false);
   useEffect(() => {
-    if (!canSuggest && isSuggesting) setIsSuggesting(false);
-  }, [canSuggest, isSuggesting]);
+    if (suggestionCapability.canContinue || !isSuggesting) {
+      permissionRevocationHandledRef.current = false;
+      return;
+    }
+    if (permissionRevocationHandledRef.current) return;
+    permissionRevocationHandledRef.current = true;
+    void flushSuggestionDraft();
+  }, [flushSuggestionDraft, isSuggesting, suggestionCapability.canContinue]);
 
   useEffect(() => {
     setLocallyCreatedSuggestions([]);
@@ -6260,6 +6340,11 @@ function PageEditorSessionBody({
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}
+                            suggesting={isSuggesting || isStartingSuggestion}
+                            enteringSuggestion={isStartingSuggestion}
+                            onPrimaryFieldAvailabilityChange={
+                              handlePrimaryFieldAvailabilityChange
+                            }
                             primaryEditor={primaryEditorWithStarter}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange

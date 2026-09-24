@@ -50,7 +50,7 @@ afterAll(() => {
 const ownerEmail = "owner@example.com";
 let sequence = 0;
 
-async function seedSystemDatabasePage() {
+async function seedSystemDatabasePage(ordinaryMembershipCount = 0) {
   sequence += 1;
   const suffix = `${sequence}`;
   const documentId = `suggestion-system-page-${suffix}`;
@@ -106,7 +106,98 @@ async function seedSystemDatabasePage() {
     createdAt: now,
     updatedAt: now,
   });
-  return { documentId, propertyId };
+  const ordinaryPropertyIds: string[] = [];
+  for (let index = 0; index < ordinaryMembershipCount; index += 1) {
+    const ordinaryDatabaseId = `suggestion-ordinary-db-${suffix}-${index}`;
+    const ordinaryPropertyId = `suggestion-ordinary-blocks-${suffix}-${index}`;
+    ordinaryPropertyIds.push(ordinaryPropertyId);
+    await db.insert(schema.documents).values({
+      id: `suggestion-ordinary-db-page-${suffix}-${index}`,
+      title: "Collection",
+      content: "",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabases).values({
+      id: ordinaryDatabaseId,
+      ownerEmail,
+      documentId: `suggestion-ordinary-db-page-${suffix}-${index}`,
+      title: "Collection",
+      primaryBlocksPropertyId: ordinaryPropertyId,
+      blocksSeeded: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: ordinaryPropertyId,
+      ownerEmail,
+      databaseId: ordinaryDatabaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `suggestion-ordinary-item-${suffix}-${index}`,
+      ownerEmail,
+      databaseId: ordinaryDatabaseId,
+      documentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return { documentId, databaseDocumentId, propertyId, ordinaryPropertyIds };
+}
+
+async function seedMetadataOnlyDatabasePage() {
+  sequence += 1;
+  const suffix = `${sequence}`;
+  const documentId = `suggestion-metadata-page-${suffix}`;
+  const databaseId = `suggestion-metadata-db-${suffix}`;
+  const now = new Date().toISOString();
+  const db = getDb();
+  await db.insert(schema.documents).values([
+    {
+      id: documentId,
+      title: "Metadata row",
+      content: "Before",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: "rev-1",
+    },
+    {
+      id: `suggestion-metadata-db-page-${suffix}`,
+      title: "Collection",
+      content: "Before",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: "rev-1",
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail,
+    documentId: `suggestion-metadata-db-page-${suffix}`,
+    title: "Collection",
+    blocksSeeded: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: `suggestion-metadata-item-${suffix}`,
+    ownerEmail,
+    databaseId,
+    documentId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return {
+    documentId,
+    databaseId,
+    databaseDocumentId: `suggestion-metadata-db-page-${suffix}`,
+  };
 }
 
 const operation = {
@@ -181,6 +272,84 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("rejects metadata-only collection items and collection Pages at proposal and acceptance", async () => {
+    const { documentId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    for (const targetId of [documentId, databaseDocumentId]) {
+      await expect(
+        getDbExec().transaction!(async (tx) =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: targetId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
+      ).rejects.toThrow(
+        targetId === documentId
+          ? /no primary Blocks field/
+          : /Collection Pages/,
+      );
+      await expect(
+        getDbExec().transaction!(async (tx) => accept(targetId, tx)),
+      ).rejects.toThrow(
+        targetId === documentId
+          ? /no primary Blocks field/
+          : /Collection Pages/,
+      );
+    }
+    const rows = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(rows).toEqual([{ content: "Before" }]);
+  });
+
+  it("rejects acceptance if the last primary Blocks field was removed after proposal", async () => {
+    const { documentId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    const propertyId = `suggestion-metadata-primary-${sequence}`;
+    const db = getDb();
+    const now = new Date().toISOString();
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail,
+      databaseId: `suggestion-metadata-db-${sequence}`,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: propertyId })
+      .where(eq(schema.contentDatabases.documentId, databaseDocumentId));
+    await getDbExec().transaction!(async (tx) => {
+      await expect(
+        adapter.validateProposal({
+          resourceType: "document",
+          resourceId: documentId,
+          baseRevision: "rev-1",
+          operations: [operation],
+          ctx: { transaction: tx },
+        }),
+      ).resolves.toEqual([operation]);
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: null })
+      .where(eq(schema.contentDatabases.documentId, databaseDocumentId));
+    await expect(
+      getDbExec().transaction!(async (tx) => accept(documentId, tx)),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
   it("rechecks the bound comment thread inside suggestion creation", async () => {
     const { documentId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
@@ -243,8 +412,9 @@ describe("Content suggested edits Blocks transaction", () => {
     ).rejects.toThrow("comment changed");
   });
 
-  it("accepts a system database Page and reconciles its primary Blocks identity", async () => {
-    const { documentId, propertyId } = await seedSystemDatabasePage();
+  it("accepts a Page in multiple ordinary databases and reconciles every primary Blocks field", async () => {
+    const { documentId, propertyId, ordinaryPropertyIds } =
+      await seedSystemDatabasePage(2);
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
       getDocumentAction.run({ id: documentId }),
     );
@@ -299,6 +469,27 @@ describe("Content suggested edits Blocks transaction", () => {
     });
     expect(field).toMatchObject({ documentId, propertyId, revision: 1 });
     expect(blocks).toEqual([{ markdown: "After" }]);
+    for (const ordinaryPropertyId of ordinaryPropertyIds) {
+      const [ordinaryField] = await db
+        .select()
+        .from(schema.documentBlockFields)
+        .where(eq(schema.documentBlockFields.propertyId, ordinaryPropertyId));
+      const ordinaryBlocks = await db
+        .select({ markdown: schema.documentBlocks.markdown })
+        .from(schema.documentBlocks)
+        .where(eq(schema.documentBlocks.fieldId, ordinaryField!.id));
+      expect(ordinaryField).toMatchObject({
+        documentId,
+        propertyId: ordinaryPropertyId,
+        revision: 1,
+      });
+      expect(ordinaryBlocks).toEqual([{ markdown: "After" }]);
+    }
+    const versions = await db
+      .select({ content: schema.documentVersions.content })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(versions).toEqual([{ content: "Before" }]);
     expect(
       yDocToProsemirrorJSON(accepted.prepared.ydoc.doc, "default"),
     ).toMatchObject({

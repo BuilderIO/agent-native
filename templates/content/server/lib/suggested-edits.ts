@@ -20,6 +20,7 @@ import {
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
@@ -372,6 +373,46 @@ function drizzleTransactionForExec(transaction: DbExec) {
   );
 }
 
+async function assertSuggestionBodyTarget(
+  transaction: DbExec,
+  documentId: string,
+) {
+  const row = (
+    await transaction.execute({
+      sql: `SELECT
+              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ? AND d.deleted_at IS NULL) AS is_database,
+              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership,
+              EXISTS (
+                SELECT 1 FROM content_database_items i
+                INNER JOIN content_databases d ON d.id = i.database_id
+                INNER JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+                WHERE i.document_id = ? AND d.deleted_at IS NULL
+              ) AS has_primary`,
+      args: [documentId, documentId, documentId],
+    })
+  ).rows[0];
+  if (row?.is_database) {
+    fail("Collection Pages cannot receive body suggestions.", {
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
+  }
+  if (
+    !hasSuggestionBodyTarget({
+      hasDatabaseMembership: Boolean(row?.has_membership),
+      hasPrimaryBlocksField: Boolean(row?.has_primary),
+    })
+  ) {
+    fail(
+      "This database item has no primary Blocks field for body suggestions.",
+      {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      },
+    );
+  }
+}
+
 function replacePreparedCollabContent(
   lease: PreparedYDocMutationLease,
   proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
@@ -488,20 +529,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       });
     }
     const exclusions = await (transaction ?? getDbExec()).execute({
-      sql: `SELECT 'database' AS kind
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            UNION ALL
-            SELECT 'external' AS kind FROM document_sync_links WHERE document_id = ? AND state != 'unlinked'
-            LIMIT 1`,
-      args: [input.resourceId, input.resourceId],
+      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+      args: [input.resourceId],
     });
     if (exclusions.rows.length) {
-      throw new Error(
-        "Database item and externally linked Pages cannot receive suggestions yet",
-      );
+      throw new Error("Externally linked Pages cannot receive suggestions yet");
     }
+    await assertSuggestionBodyTarget(
+      transaction ?? getDbExec(),
+      input.resourceId,
+    );
     const operations = validateOperations(input.operations);
     const before = markdownPayload(operations[0]!.before, "before");
     const after = markdownPayload(operations[0]!.after, "after");
@@ -593,19 +630,6 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       currentContent,
       nextContent,
     );
-    const membership = await tx.execute({
-      sql: `SELECT i.id
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            LIMIT 1`,
-      args: [context.resourceId],
-    });
-    if (membership.rows.length) {
-      throw new Error(
-        "Database item Pages cannot receive body suggestions yet",
-      );
-    }
     if (currentContent.includes("<InlineDatabase")) {
       throw new Error(
         "Pages containing inline databases cannot accept suggestions yet",
@@ -616,6 +640,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       identityTx,
       context.resourceId,
     );
+    await assertSuggestionBodyTarget(tx, context.resourceId);
     replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
     const nextBodyRevision = currentDocument.bodyRevision + 1;

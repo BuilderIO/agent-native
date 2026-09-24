@@ -8,6 +8,7 @@ import {
   blockFieldsRenderState,
   computeFieldReorderTarget,
   isLoadedForDocument,
+  primaryBlocksFieldAvailable,
 } from "./DocumentBlockFields";
 
 function property(
@@ -310,6 +311,47 @@ describe("blockFieldsRenderState", () => {
   });
 });
 
+describe("primaryBlocksFieldAvailable", () => {
+  const primary = property({
+    id: "content",
+    type: "blocks",
+    options: { blocks: { primary: true } },
+  });
+  const secondary = property({
+    id: "outline",
+    type: "blocks",
+    options: { blocks: { primary: false } },
+  });
+
+  it("requires a loaded primary Blocks field", () => {
+    expect(primaryBlocksFieldAvailable({ kind: "loading" })).toBe(false);
+    expect(primaryBlocksFieldAvailable({ kind: "empty" })).toBe(false);
+    expect(
+      primaryBlocksFieldAvailable({
+        kind: "solo",
+        field: secondary,
+        target: "block_field_store",
+      }),
+    ).toBe(false);
+    expect(
+      primaryBlocksFieldAvailable({
+        kind: "solo",
+        field: primary,
+        target: "document_body",
+      }),
+    ).toBe(true);
+    expect(
+      primaryBlocksFieldAvailable({ kind: "multi", fields: [secondary] }),
+    ).toBe(false);
+    expect(
+      primaryBlocksFieldAvailable({
+        kind: "multi",
+        fields: [secondary, primary],
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("property-query failure UI", () => {
   it("renders an explicit retry state instead of treating a failed query as loading", () => {
     // The component owns the query because it must keep stale placeholder data
@@ -324,8 +366,11 @@ describe("property-query failure UI", () => {
     expect(source).toContain('data-block-fields-state="error"');
     expect(source).toContain("<QueryErrorState");
     expect(source).toContain("onRetry={() => globalThis.location.reload()}");
+    expect(source).toContain(
+      "const primaryAvailable = !query.isError && primaryBlocksFieldAvailable(state)",
+    );
     expect(source.indexOf("if (query.isError)")).toBeLessThan(
-      source.indexOf("const loaded = isLoadedForDocument"),
+      source.indexOf("switch (state.kind)"),
     );
   });
 });

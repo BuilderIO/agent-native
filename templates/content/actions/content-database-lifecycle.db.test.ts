@@ -2100,6 +2100,20 @@ describe("content database soft-delete actions and reads", () => {
     const db = getDb();
     const now = new Date().toISOString();
     const { databaseId } = await createDatabase({ systemRole: "files" });
+    const primaryId = nextId("files-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     const sharedDocumentId = await createDocument({
       title: "Shared Personal Page",
       content: "A Page body open to suggestions.",
@@ -2206,6 +2220,30 @@ describe("content database soft-delete actions and reads", () => {
       })
       .where(eq(schema.documents.id, inlineDocumentId));
     const fullPageDatabase = await createDatabase({});
+    const itemDatabase = await createDatabase({});
+    const itemPrimaryId = nextId("suggestion-primary");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: itemPrimaryId,
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: itemPrimaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, itemDatabase.databaseId));
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("suggestion-item"),
+      ownerEmail: OWNER,
+      databaseId: itemDatabase.databaseId,
+      documentId: ordinaryDocumentId,
+      createdAt: now,
+      updatedAt: now,
+    });
     const sourceDocumentId = await createDocument({
       title: "Source-owned suggestion exclusion",
       content: "Source-owned content.",

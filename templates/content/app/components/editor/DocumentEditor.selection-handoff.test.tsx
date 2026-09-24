@@ -30,12 +30,39 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 import {
   restoreCapturedEditorSelection,
   shouldResumeSelectedSuggestionFromPageActions,
+  suggestionModeCapability,
 } from "./DocumentEditor";
 import {
   VisualEditor,
   type VisualEditorSelectionController,
   type VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
+
+describe("suggestion mode capability", () => {
+  it("blocks entry during a field query gap but keeps an active draft isolated", () => {
+    expect(
+      suggestionModeCapability({
+        permission: true,
+        bodyReady: true,
+        primaryFieldAvailable: false,
+      }),
+    ).toEqual({ canStart: false, canContinue: true });
+    expect(
+      suggestionModeCapability({
+        permission: true,
+        bodyReady: false,
+        primaryFieldAvailable: true,
+      }),
+    ).toEqual({ canStart: false, canContinue: true });
+    expect(
+      suggestionModeCapability({
+        permission: false,
+        bodyReady: true,
+        primaryFieldAvailable: true,
+      }),
+    ).toEqual({ canStart: false, canContinue: false });
+  });
+});
 
 describe("DocumentEditor selection handoff", () => {
   let container: HTMLDivElement;

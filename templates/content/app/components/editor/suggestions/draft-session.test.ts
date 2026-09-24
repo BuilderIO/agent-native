@@ -17,6 +17,50 @@ import {
 } from "./draft-session";
 
 describe("suggestion draft session", () => {
+  it.each(["", "<empty-block/>"])(
+    "starts an empty %s body without a formatting warning and proposes its first text block",
+    (baseContent) => {
+      const session = createSuggestionDraftSession({
+        id: "empty-body",
+        baseContent,
+        baseRevision: "body:empty",
+        startedAt: "2026-09-24T00:00:00.000Z",
+      });
+      expect(previewSuggestionDraft(session, baseContent, null)).toEqual({
+        status: "ready",
+        suggestions: [],
+      });
+      expect(previewSuggestionDraft(session, "<empty-block/>", null)).toEqual({
+        status: "ready",
+        suggestions: [],
+      });
+      expect(
+        previewSuggestionDraft(session, "First paragraph", null),
+      ).toMatchObject({
+        status: "ready",
+        suggestions: [
+          {
+            operations: [
+              {
+                kind: "add_text_block",
+                before: { markdown: baseContent },
+                after: { markdown: "First paragraph" },
+                anchor: { from: 0, to: baseContent.length },
+              },
+            ],
+          },
+        ],
+      });
+      expect(
+        previewSuggestionDraft(
+          session,
+          "<span underline=true color=red>Unsupported</span>",
+          null,
+        ).status,
+      ).toBe("unsupported-formatting");
+    },
+  );
+
   it("uses the body token for new drafts and preserves only a matching legacy basis", () => {
     const document = {
       revision: "body:3:sha256:example",

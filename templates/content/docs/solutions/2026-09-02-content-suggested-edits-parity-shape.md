@@ -1317,3 +1317,34 @@ Content Beta through the separately authorized normal integration/deployment
 workflow. No runtime, deployment or production-data changes are authorized by
 this Shape. Next action is implementation of this follow-up against current
 code, followed by the frozen acceptance story above.
+
+### September 24 Work evidence
+
+The current task branch merged `origin/main` with Alice's explicit permission,
+then removed the database-row suggestion veto. Eligibility now requires a
+primary Blocks target for rows; collection containers and metadata-only rows
+remain excluded. Proposal and acceptance check that target, and acceptance
+uses the existing canonical body/primary-field/Yjs transaction. Suggesting
+keeps secondary Blocks fields read-only while allowing saves queued before
+entry to complete. An empty body can now produce its first suggested text block.
+
+Seven focused Content suites pass (135 tests), and direct Content TypeScript
+checking passes. An independent bounded review found and closed the pending
+save, draft-availability, and metadata-only/container gaps. In a task-owned
+local Content instance, an empty collection row offered Suggest edits in
+preview; submitting its first line left the canonical body empty, and accepting
+the review item populated the body. The accepted content persisted on the full
+page after navigation. The full-page menu also offered Suggest edits at an
+800-pixel viewport without clipping. The separate nonempty-row proposal and
+acceptance path also persisted after reload. These are sampled real-interface
+checks for DSI-01, DSI-02, DSI-03, and DSI-07; the remaining role, multi-field,
+multi-membership, conflict, and rejection cases have automated coverage where
+added but have not all been replayed through the UI. The disposable fixture is
+in local development data only and was not created on Content Beta.
+
+`guard:i18n-changed-copy` passes. `guard:i18n-catalogs` and
+`guard:content-product-docs` fail on repository-wide Windows path/line-ending
+baseline mismatches unrelated to this diff. The aggregate `pnpm guards`
+runner exits before checks with Node `spawn EINVAL` on this Windows host.
+Before integration, finish the full DSI-01–07 real-interface matrix and run
+the affected repository guards in a working CI environment.

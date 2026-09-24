@@ -32,6 +32,7 @@ import {
 import {
   canSuggestDocument,
   documentHasInlineDatabase,
+  hasSuggestionBodyTarget,
 } from "./_suggestion-eligibility.js";
 
 function canEditRole(role: string) {
@@ -154,8 +155,8 @@ export default defineAction({
     });
     const source = serializeDocumentSource(doc);
     const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
-    let isOrdinaryDatabaseItem = false;
     let isExternallyLinked = false;
+    let hasBodyTarget = true;
     if (
       canCommentRole(access.role) &&
       !database &&
@@ -163,25 +164,7 @@ export default defineAction({
       !hasInlineDatabase
     ) {
       const db = getDb();
-      const [ordinaryMembership, externalLink] = await Promise.all([
-        db
-          .select({ id: schema.contentDatabaseItems.id })
-          .from(schema.contentDatabaseItems)
-          .innerJoin(
-            schema.contentDatabases,
-            eq(
-              schema.contentDatabases.id,
-              schema.contentDatabaseItems.databaseId,
-            ),
-          )
-          .where(
-            and(
-              eq(schema.contentDatabaseItems.documentId, doc.id),
-              isNull(schema.contentDatabases.deletedAt),
-              isNull(schema.contentDatabases.systemRole),
-            ),
-          )
-          .limit(1),
+      const [externalLink, memberships] = await Promise.all([
         db
           .select({ documentId: schema.documentSyncLinks.documentId })
           .from(schema.documentSyncLinks)
@@ -192,14 +175,49 @@ export default defineAction({
             ),
           )
           .limit(1),
+        db
+          .select({ primaryId: schema.documentPropertyDefinitions.id })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.contentDatabases,
+            eq(
+              schema.contentDatabases.id,
+              schema.contentDatabaseItems.databaseId,
+            ),
+          )
+          .leftJoin(
+            schema.documentPropertyDefinitions,
+            and(
+              eq(
+                schema.documentPropertyDefinitions.id,
+                schema.contentDatabases.primaryBlocksPropertyId,
+              ),
+              eq(
+                schema.documentPropertyDefinitions.databaseId,
+                schema.contentDatabases.id,
+              ),
+              eq(schema.documentPropertyDefinitions.type, "blocks"),
+            ),
+          )
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.documentId, doc.id),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          ),
       ]);
-      isOrdinaryDatabaseItem = ordinaryMembership.length > 0;
       isExternallyLinked = externalLink.length > 0;
+      hasBodyTarget = hasSuggestionBodyTarget({
+        hasDatabaseMembership: memberships.length > 0,
+        hasPrimaryBlocksField: memberships.some(
+          (item) => item.primaryId !== null,
+        ),
+      });
     }
     const canSuggest = canSuggestDocument({
       canComment: canCommentRole(access.role),
       isDatabase: Boolean(database),
-      isOrdinaryDatabaseItem,
+      hasBodyTarget,
       isExternallyLinked,
       isSourceOwned: Boolean(
         doc.sourceMode || doc.sourceKind || doc.sourcePath,
