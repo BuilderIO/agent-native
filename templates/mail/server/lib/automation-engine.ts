@@ -3,6 +3,7 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
+import { resolveCredential } from "@agent-native/core/credentials";
 import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
@@ -101,6 +102,11 @@ interface RuleRecord {
 async function resolveAnthropicKey(
   ownerEmail: string,
 ): Promise<string | undefined> {
+  const credential = await resolveCredential("ANTHROPIC_API_KEY", {
+    userEmail: ownerEmail,
+  });
+  if (credential?.trim()) return credential.trim();
+
   const userKey = (await getUserSetting(ownerEmail, "anthropic-api-key")) as
     | string
     | { key?: string }

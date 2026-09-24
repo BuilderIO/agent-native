@@ -1173,6 +1173,8 @@ describe("AgentEngine registry", () => {
     ]);
   });
 
+  // Deploy credentials are allowed in local/self-hosted runtimes, not hosted
+  // multi-tenant production apps.
   describe("Builder-credits env pair", () => {
     const registerBuilderAndAnthropic = (
       registerAgentEngine: (entry: any) => void,
@@ -1229,12 +1231,12 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
-        isLocalDatabase: () => false,
+        isLocalDatabase: () => true,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
         }),
       }));
-      // A hosted visitor has no org, and the membership read must answer
+      // A visitor has no org, and the membership read must answer
       // cleanly — an unreadable one is a different case with its own tests.
       vi.doMock("../../org/context.js", () => ({
         resolveOrgIdForEmail: vi.fn().mockResolvedValue(null),
@@ -1245,7 +1247,7 @@ describe("AgentEngine registry", () => {
       vi.doUnmock("../../server/credential-provider.js");
     });
 
-    it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
+    it("selects builder from the Builder-credits pair alone on a self-hosted app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
@@ -1259,6 +1261,27 @@ describe("AgentEngine registry", () => {
 
       expect(detectEngineFromEnv()?.name).toBe("builder");
       expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("does not select builder from the Builder-credits pair in hosted production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+        getDbExec: () => ({ execute: async () => ({ rows: [] }) }),
+      }));
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
     });
 
     it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
@@ -1582,11 +1605,9 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("reports the builder engine as runnable in a Fusion preview", async () => {
+    it("does not report Builder usable from deploy credentials in a Fusion preview", async () => {
       // The preview pod is a hosted workspace runtime with a signed-in app
-      // user, which blocks the identity-lane env fallback. The credits pair
-      // still has to resolve, or the composer's model picker has nothing
-      // selectable in the one place the gateway is the only credential.
+      // user, so deployment-level model credentials must not be exposed there.
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
@@ -1602,7 +1623,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
-      ).resolves.toBe(true);
+      ).resolves.toBe(false);
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
@@ -3404,8 +3425,11 @@ describe("AgentEngine registry", () => {
         }),
       }));
 
-      const { registerAgentEngine, resolveEngine } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        resolveEngine,
+        isResolvedEngineUsableForRequest,
+      } = await import("./registry.js");
 
       const openAiEngine = {
         name: "ai-sdk:openai",
@@ -3439,8 +3463,14 @@ describe("AgentEngine registry", () => {
       const resolved = await resolveEngine({});
 
       expect(openAiCreate).not.toHaveBeenCalled();
-      expect(anthropicCreate).not.toHaveBeenCalled();
-      expect(resolved).toBeNull();
+      expect(anthropicCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: false,
+      });
+      expect(resolved).toBe(anthropicEngine);
+      await expect(isResolvedEngineUsableForRequest(resolved)).resolves.toBe(
+        false,
+      );
     });
 
     it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
