@@ -2641,10 +2641,15 @@ function RelationValueEditor({
     databaseDocumentId,
   );
   const targetDatabaseId = property.definition.options.relation?.databaseId;
-  // Every pick and removal saves at once; `saved` is the last value the
-  // server accepted, so a failed save can put the list back.
+  // Every pick and removal saves at once. Saves run one at a time and always
+  // send the latest list, so a slow or failed save can't undo a newer one.
+  // `savedRef` is the last value the server accepted, for rolling back.
   const [selected, setSelected] = useState(() => relationItems(property.value));
+  const selectedRef = useRef(selected);
   const savedRef = useRef(selected);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const changeSeqRef = useRef(0);
+  const savingRef = useRef(false);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [known, setKnown] = useState(
@@ -2656,6 +2661,8 @@ function RelationValueEditor({
         ]),
       ),
   );
+  const knownRef = useRef(known);
+  knownRef.current = known;
   const inputRef = useRef<HTMLInputElement>(null);
   const search = useContentDatabaseRowSearch(
     targetDatabaseId,
@@ -2663,6 +2670,8 @@ function RelationValueEditor({
     true,
   );
   const rows = search.data?.rows ?? [];
+  // Results kept from the previous search stay visible but can't be picked.
+  const searchIsCurrent = query === debouncedQuery && !search.isPlaceholderData;
   const addRow = useAddDatabaseItem(search.data?.databaseDocumentId ?? "");
   const rowDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -2692,55 +2701,101 @@ function RelationValueEditor({
     });
   }, [rows]);
 
-  function commit(next: string[]) {
-    setSelected(next);
-    void mutation
-      .mutateAsync({
-        documentId,
-        propertyId: property.definition.id,
-        value: next.length > 0 ? next : null,
-        relationTargets: next.flatMap((id) => {
-          const row = known.get(id);
-          return row
-            ? [
-                {
-                  documentId: id,
-                  title: row.title,
-                  icon: row.icon,
-                  databaseId: null,
-                  databaseDocumentId: null,
-                },
-              ]
-            : [];
-        }),
-      })
-      .then(() => {
-        savedRef.current = next;
-      })
-      .catch(() => {
-        // The mutation hook already shows the error; restore what is saved.
-        setSelected(savedRef.current);
+  // Adopt a newer value from the server (polling or another editor) while
+  // no save of ours is waiting to run.
+  const serverValueKey = relationItems(property.value).join("\n");
+  useEffect(() => {
+    if (savingRef.current) return;
+    const serverValue = serverValueKey ? serverValueKey.split("\n") : [];
+    if (serverValue.join("\n") === savedRef.current.join("\n")) return;
+    savedRef.current = serverValue;
+    selectedRef.current = serverValue;
+    setSelected(serverValue);
+  }, [serverValueKey]);
+
+  useEffect(() => {
+    const targets = property.relationTargets ?? [];
+    if (targets.length === 0) return;
+    setKnown((current) => {
+      const changed = targets.some((target) => {
+        const row = current.get(target.documentId);
+        return row?.title !== target.title || row?.icon !== target.icon;
       });
+      if (!changed) return current;
+      const next = new Map(current);
+      for (const target of targets) {
+        next.set(target.documentId, { title: target.title, icon: target.icon });
+      }
+      return next;
+    });
+  }, [property.relationTargets]);
+
+  function save(value: string[]) {
+    return mutation.mutateAsync({
+      documentId,
+      propertyId: property.definition.id,
+      value: value.length > 0 ? value : null,
+      relationTargets: value.flatMap((id) => {
+        const row = knownRef.current.get(id);
+        return row
+          ? [
+              {
+                documentId: id,
+                title: row.title,
+                icon: row.icon,
+                databaseId: null,
+                databaseDocumentId: null,
+              },
+            ]
+          : [];
+      }),
+    });
+  }
+
+  function commit(next: string[]) {
+    selectedRef.current = next;
+    setSelected(next);
+    const seq = ++changeSeqRef.current;
+    savingRef.current = true;
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      // A newer change is queued behind this one and will send the latest list.
+      if (seq !== changeSeqRef.current) return;
+      const value = selectedRef.current;
+      try {
+        await save(value);
+        savedRef.current = value;
+      } catch {
+        // coercion-ok: the mutation hook already shows the error.
+        if (seq === changeSeqRef.current) {
+          selectedRef.current = savedRef.current;
+          setSelected(savedRef.current);
+        }
+      } finally {
+        if (seq === changeSeqRef.current) savingRef.current = false;
+      }
+    });
   }
 
   function add(id: string) {
-    if (selected.includes(id) || selected.length >= MAX_RELATION_TARGETS) {
+    const current = selectedRef.current;
+    if (current.includes(id) || current.length >= MAX_RELATION_TARGETS) {
       return;
     }
-    commit([...selected, id]);
+    commit([...current, id]);
   }
 
   function remove(id: string) {
-    commit(selected.filter((selectedId) => selectedId !== id));
+    commit(selectedRef.current.filter((selectedId) => selectedId !== id));
   }
 
   function handleRowDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const fromIndex = selected.indexOf(String(active.id));
-    const toIndex = selected.indexOf(String(over.id));
+    const current = selectedRef.current;
+    const fromIndex = current.indexOf(String(active.id));
+    const toIndex = current.indexOf(String(over.id));
     if (fromIndex < 0 || toIndex < 0) return;
-    commit(arrayMove(selected, fromIndex, toIndex));
+    commit(arrayMove(current, fromIndex, toIndex));
   }
 
   async function createRow(title: string) {
@@ -2756,7 +2811,8 @@ function RelationValueEditor({
       const newId = result.receipt.row.documentId;
       setKnown((current) => new Map(current).set(newId, { title, icon: null }));
       setQuery("");
-      commit([...selected, newId]);
+      // Build on the latest list: other rows may have been picked meanwhile.
+      add(newId);
     } catch {
       // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
     }
@@ -2775,6 +2831,7 @@ function RelationValueEditor({
   );
   const needle = query.trim().toLowerCase();
   const canCreate =
+    searchIsCurrent &&
     !!search.data?.rowCreation &&
     !!needle &&
     selected.length < MAX_RELATION_TARGETS &&
@@ -2800,7 +2857,9 @@ function RelationValueEditor({
               event.preventDefault();
               onDone();
             }
-            if (event.key === "Enter" && unselectedRows[0]) {
+            if (!searchIsCurrent && event.key === "Enter") {
+              event.preventDefault();
+            } else if (event.key === "Enter" && unselectedRows[0]) {
               event.preventDefault();
               add(unselectedRows[0].documentId);
               setQuery("");
@@ -2892,7 +2951,9 @@ function RelationValueEditor({
                   type="button"
                   key={row.documentId}
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
-                  disabled={selected.length >= MAX_RELATION_TARGETS}
+                  disabled={
+                    !searchIsCurrent || selected.length >= MAX_RELATION_TARGETS
+                  }
                   onClick={() => add(row.documentId)}
                 >
                   <RelationRowIcon icon={row.icon} />

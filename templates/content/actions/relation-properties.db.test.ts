@@ -192,6 +192,27 @@ describe("relation properties", () => {
     ).rejects.toThrow(/different database/i);
   });
 
+  it("renames a relation without resending its target", async () => {
+    const renamed = async (name: string) => {
+      const result = await asOwner(() =>
+        configureProperty.run({
+          id: relationPropertyId,
+          documentId: tasks.documentId,
+          databaseId: tasks.id,
+          name,
+          type: "relation",
+        }),
+      );
+      return result.properties.find(
+        (property: any) => property.definition.id === relationPropertyId,
+      );
+    };
+    const property = await renamed("Client project");
+    expect(property?.definition.name).toBe("Client project");
+    expect(property?.definition.options.relation?.databaseId).toBe(projects.id);
+    await renamed("Project");
+  });
+
   it("links a task to a project and resolves its title", async () => {
     await asOwner(() =>
       setProperty.run({

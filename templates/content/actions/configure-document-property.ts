@@ -168,11 +168,35 @@ export default defineAction({
         "Properties belong to databases. Create or open a database before adding properties.",
       );
     }
+    let requestedRelationTarget = args.options?.relation?.databaseId;
+    if (type === "relation" && !requestedRelationTarget && args.id) {
+      // Metadata-only updates (rename, visibility) keep the existing target.
+      const [current] = await db
+        .select({
+          type: schema.documentPropertyDefinitions.type,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, args.id),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              document.ownerEmail,
+            ),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          ),
+        );
+      if (current?.type === "relation") {
+        requestedRelationTarget = parsePropertyOptions(current.optionsJson)
+          .relation?.databaseId;
+      }
+    }
     const relationTarget =
       type === "relation"
         ? await assertRelationTargetDatabase(db, {
             sourceDatabase: database,
-            targetDatabaseId: args.options?.relation?.databaseId,
+            targetDatabaseId: requestedRelationTarget,
           })
         : null;
     if (relationTarget) {
