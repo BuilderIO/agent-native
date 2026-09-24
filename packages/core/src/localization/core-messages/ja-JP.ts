@@ -495,7 +495,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
-  "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
+  "errorMessages.addCreditsInBuilder": "Builderでクレジットを追加",
   "feedback.inaccurate": "不正確",
   "feedback.keyboardHint": "{{shortcut}} Enter で送信",
   "feedback.notHelpful": "役に立たない",
@@ -828,6 +828,15 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "確認メールを送信できませんでした。",
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
+  "usage.builderCredits": "Builder クレジット",
+  "usage.estimatedBuilderCredits": "~{{amount}} 推定クレジット",
+  "usage.otherUsdSpend": "{{amount}} その他の USD",
+  "usage.noBuilderCredits": "Builder クレジット 0",
+  "usage.otherUnclassifiedSpend": "その他または未分類の USD 利用額",
+  "usage.providerSpendDetail":
+    "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
+  "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder クレジット / USD",
 };
 
 export default messages;

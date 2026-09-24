@@ -460,7 +460,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 供應商暫時拒絕了這個請求。這種情況通常會在一分鐘內恢復,請重試。",
   "errorMessages.startNewChat": "開始新聊天",
-  "errorMessages.upgradeAtBuilder": "在 Builder.io 升級",
+  "errorMessages.addCreditsInBuilder": "在 Builder 中新增點數",
   "feedback.inaccurate": "不準確",
   "feedback.keyboardHint": "{{shortcut}} Enter 送出",
   "feedback.notHelpful": "沒有幫助",
@@ -783,6 +783,14 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "無法傳送確認信。",
   "settings.emailNewLabel": "新電子郵件",
   "settings.emailNewPlaceholder": "輸入新電子郵件",
+  "usage.builderCredits": "Builder 點數",
+  "usage.estimatedBuilderCredits": "~{{amount}} 預估點數",
+  "usage.otherUsdSpend": "{{amount}} 其他 USD",
+  "usage.noBuilderCredits": "Builder 點數 0",
+  "usage.otherUnclassifiedSpend": "其他或未分類的 USD 支出",
+  "usage.providerSpendDetail": "Builder 計費以外的供應商使用量或舊呼叫",
+  "usage.providerSpendToday": "今日其他或未分類的使用量：{{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 點數 / USD",
 };
 
 export default messages;

@@ -26,15 +26,17 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 type UsageScope = "me" | "workspace";
+type Translation = ReturnType<typeof useT>;
 type AlertUnit = "usd" | "builder-credits" | "tokens";
 type AlertPeriod = "day" | "month";
 type AlertChannel = "in-app" | "email";
 
 interface UsageBilling {
-  unit: "usd" | "builder-credits";
+  unit: "usd" | "builder-credits" | "mixed";
   label: string;
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
@@ -47,6 +49,9 @@ interface UsageMetricBucket {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  builderCredits?: number;
+  estimatedBuilderCredits?: number;
+  otherCostCents?: number;
   activeUsers: number;
 }
 
@@ -55,6 +60,10 @@ interface UsageDailyMetric {
   costCents: number;
   calls: number;
   tokens: number;
+  builderCredits?: number;
+  estimatedBuilderCredits?: number;
+  otherCostCents?: number;
+  otherCalls?: number;
 }
 
 interface UsageRecentMetric {
@@ -87,10 +96,17 @@ interface UsageMetricsData {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
     activeUsers: number;
+    builderCredits?: number;
+    estimatedBuilderCredits?: number;
+    otherCostCents?: number;
+    otherCalls?: number;
   };
   currentDay: {
     costCents: number;
     credits: number;
+    estimatedBuilderCredits?: number;
+    otherCostCents?: number;
+    otherCalls?: number;
     calls: number;
     tokens: number;
   };
@@ -163,14 +179,80 @@ function compactNumber(value: number): string {
   return Math.round(value).toLocaleString();
 }
 
-function formatCost(cents: number, billing: UsageBilling): string {
-  if (billing.unit === "builder-credits") {
-    const credits =
+function usageAmount(
+  cents: number,
+  billing: UsageBilling,
+  builderCredits?: number,
+  estimatedBuilderCredits?: number,
+): number {
+  if (billing.unit !== "usd") {
+    if (
+      typeof builderCredits === "number" ||
+      typeof estimatedBuilderCredits === "number"
+    ) {
+      return (builderCredits ?? 0) + (estimatedBuilderCredits ?? 0);
+    }
+    if (billing.unit === "mixed") return 0;
+    return (
       (cents / 100) *
       (billing.hardCostMarginMultiplier ?? 1.25) *
-      (billing.creditsPerUsd ?? 20);
-    return `${credits.toLocaleString(undefined, { maximumFractionDigits: 1 })} credits`;
+      (billing.creditsPerUsd ?? 20)
+    );
   }
+  return cents;
+}
+
+function formatCost(
+  t: Translation,
+  cents: number,
+  billing: UsageBilling,
+  builderCredits?: number,
+  estimatedBuilderCredits?: number,
+  otherCostCents?: number,
+  includeOtherUsd = true,
+): string {
+  if (billing.unit !== "usd") {
+    const parts: string[] = [];
+    const actual = builderCredits ?? 0;
+    const estimated =
+      estimatedBuilderCredits ??
+      (typeof builderCredits === "number" || billing.unit === "mixed"
+        ? 0
+        : usageAmount(cents, billing));
+    if (actual > 0) {
+      parts.push(
+        `${actual.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${t("agentChat.usage.builderCredits", { defaultValue: "Builder credits" })}`,
+      );
+    }
+    if (estimated > 0) {
+      parts.push(
+        t("agentChat.usage.estimatedBuilderCredits", {
+          defaultValue: "~{{amount}} estimated credits",
+          amount: estimated.toLocaleString(undefined, {
+            maximumFractionDigits: 3,
+          }),
+        }),
+      );
+    }
+    if (includeOtherUsd && otherCostCents && otherCostCents > 0) {
+      parts.push(
+        t("agentChat.usage.otherUsdSpend", {
+          defaultValue: "{{amount}} other USD",
+          amount: formatUsdCost(otherCostCents),
+        }),
+      );
+    }
+    return (
+      parts.join(" · ") ||
+      t("agentChat.usage.noBuilderCredits", {
+        defaultValue: "0 Builder credits",
+      })
+    );
+  }
+  return formatUsdCost(cents);
+}
+
+function formatUsdCost(cents: number): string {
   if (cents < 100) return `${cents.toFixed(2)}¢`;
   return `$${(cents / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -213,11 +295,12 @@ function Trend({
   }
 
   const values = daily.map((day) =>
-    billing.unit === "builder-credits"
-      ? (day.costCents / 100) *
-        (billing.hardCostMarginMultiplier ?? 1.25) *
-        (billing.creditsPerUsd ?? 20)
-      : day.costCents,
+    usageAmount(
+      day.costCents,
+      billing,
+      day.builderCredits,
+      day.estimatedBuilderCredits,
+    ),
   );
   const max = Math.max(...values, 0.01);
   const points = values.map((value, index) => {
@@ -300,42 +383,87 @@ function DriverList({
   rows: UsageMetricBucket[];
   billing: UsageBilling;
 }) {
-  const max = Math.max(...rows.map((row) => row.costCents), 1);
+  const t = useT();
+  const max = Math.max(
+    ...rows.map((row) =>
+      usageAmount(
+        row.costCents,
+        billing,
+        row.builderCredits,
+        row.estimatedBuilderCredits,
+      ),
+    ),
+    1,
+  );
+  const maxOtherUsd = Math.max(
+    ...rows.map((row) => row.otherCostCents ?? 0),
+    1,
+  );
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <span className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-          Spend
+          {billing.unit === "mixed"
+            ? t("agentChat.usage.driverCreditsAndUsd", {
+                defaultValue: "Builder credits / USD",
+              })
+            : billing.unit === "builder-credits"
+              ? t("agentChat.usage.builderCredits", {
+                  defaultValue: "Builder credits",
+                })
+              : "Spend"}
         </span>
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No usage recorded yet.</p>
       ) : (
         <div className="space-y-3">
-          {rows.slice(0, 5).map((row) => (
-            <div key={row.key}>
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span
-                  className="min-w-0 truncate text-foreground"
-                  title={row.label}
-                >
-                  {row.label}
-                </span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {formatCost(row.costCents, billing)}
-                </span>
+          {rows.slice(0, 5).map((row) => {
+            const builderAmount = usageAmount(
+              row.costCents,
+              billing,
+              row.builderCredits,
+              row.estimatedBuilderCredits,
+            );
+            const otherOnly = billing.unit === "mixed" && builderAmount === 0;
+            const amount = otherOnly
+              ? (row.otherCostCents ?? 0)
+              : builderAmount;
+            const scale = otherOnly ? maxOtherUsd : max;
+            return (
+              <div key={row.key}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span
+                    className="min-w-0 truncate text-foreground"
+                    title={row.label}
+                  >
+                    {row.label}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {formatCost(
+                      t,
+                      row.costCents,
+                      billing,
+                      row.builderCredits,
+                      row.estimatedBuilderCredits,
+                      row.otherCostCents,
+                    )}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+                  {amount > 0 ? (
+                    <div
+                      className="h-full rounded-full bg-primary/70"
+                      style={{
+                        width: `${Math.max(4, (amount / scale) * 100)}%`,
+                      }}
+                    />
+                  ) : null}
+                </div>
               </div>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary/70"
-                  style={{
-                    width: `${Math.max(4, (row.costCents / max) * 100)}%`,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -375,6 +503,7 @@ function AlertEditor({
   onCancel: () => void;
   isPending: boolean;
 }) {
+  const t = useT();
   const channelCount = Number(draft.inApp) + Number(draft.email);
   return (
     <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
@@ -390,7 +519,11 @@ function AlertEditor({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="usd">Dollars</SelectItem>
-              <SelectItem value="builder-credits">Builder credits</SelectItem>
+              <SelectItem value="builder-credits">
+                {t("agentChat.usage.builderCredits", {
+                  defaultValue: "Builder credits",
+                })}
+              </SelectItem>
               <SelectItem value="tokens">Tokens</SelectItem>
             </SelectContent>
           </Select>
@@ -696,6 +829,7 @@ export function UsageSection({
   appId?: string | null;
   viewAllHref?: string;
 }) {
+  const t = useT();
   const [sinceDays, setSinceDays] = useState(30);
   const [scope, setScope] = useState<UsageScope>("me");
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(
@@ -826,13 +960,45 @@ export function UsageSection({
       {!data && query.isLoading ? <UsageLoadingState /> : null}
       {data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div
+            className={`grid gap-3 ${billing.unit === "mixed" ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3"}`}
+          >
             <MetricCard
-              label={billing.label}
-              value={formatCost(data.totals.costCents, billing)}
+              label={
+                billing.unit === "builder-credits"
+                  ? t("agentChat.usage.builderCredits", {
+                      defaultValue: "Builder credits",
+                    })
+                  : billing.unit === "mixed"
+                    ? t("agentChat.usage.builderCredits", {
+                        defaultValue: "Builder credits",
+                      })
+                    : billing.label
+              }
+              value={formatCost(
+                t,
+                data.totals.costCents,
+                billing,
+                data.totals.builderCredits,
+                data.totals.estimatedBuilderCredits,
+                data.totals.otherCostCents,
+                false,
+              )}
               detail={`${sinceDays} day lookback`}
               accent
             />
+            {billing.unit === "mixed" ? (
+              <MetricCard
+                label={t("agentChat.usage.otherUnclassifiedSpend", {
+                  defaultValue: "Other or unclassified USD spend",
+                })}
+                value={formatUsdCost(data.totals.otherCostCents ?? 0)}
+                detail={t("agentChat.usage.providerSpendDetail", {
+                  defaultValue:
+                    "Provider or older calls outside Builder billing",
+                })}
+              />
+            ) : null}
             <MetricCard
               label="Calls"
               value={data.totals.calls.toLocaleString()}
@@ -852,9 +1018,29 @@ export function UsageSection({
                   Daily trend
                 </h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {formatCost(data.currentDay.costCents, billing)} used today ·{" "}
-                  {data.currentDay.calls.toLocaleString()} calls
+                  {formatCost(
+                    t,
+                    data.currentDay.costCents,
+                    billing,
+                    data.currentDay.credits,
+                    data.currentDay.estimatedBuilderCredits,
+                    data.currentDay.otherCostCents,
+                    false,
+                  )}{" "}
+                  used today · {data.currentDay.calls.toLocaleString()} calls
                 </p>
+                {billing.unit === "mixed" &&
+                (data.currentDay.otherCalls ?? 0) > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("agentChat.usage.providerSpendToday", {
+                      defaultValue:
+                        "Other or unclassified usage: {{amount}} today",
+                      amount: formatUsdCost(
+                        data.currentDay.otherCostCents ?? 0,
+                      ),
+                    })}
+                  </p>
+                ) : null}
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 {scope === "workspace" ? (
@@ -866,7 +1052,44 @@ export function UsageSection({
               </div>
             </div>
             <div className="mt-4">
-              <Trend daily={data.daily} billing={billing} />
+              <div
+                className={
+                  billing.unit === "mixed" &&
+                  (data.totals.otherCostCents ?? 0) > 0
+                    ? "grid gap-4 md:grid-cols-2"
+                    : ""
+                }
+              >
+                <div>
+                  {billing.unit === "mixed" ? (
+                    <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+                      {t("agentChat.usage.builderCredits", {
+                        defaultValue: "Builder credits",
+                      })}
+                    </h3>
+                  ) : null}
+                  <Trend daily={data.daily} billing={billing} />
+                </div>
+                {billing.unit === "mixed" &&
+                (data.totals.otherCostCents ?? 0) > 0 ? (
+                  <div>
+                    <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+                      {t("agentChat.usage.otherUnclassifiedSpend", {
+                        defaultValue: "Other or unclassified USD spend",
+                      })}
+                    </h3>
+                    <Trend
+                      daily={data.daily.map((day) => ({
+                        date: day.date,
+                        costCents: day.otherCostCents ?? 0,
+                        calls: day.otherCalls ?? 0,
+                        tokens: 0,
+                      }))}
+                      billing={{ unit: "usd", label: "USD" }}
+                    />
+                  </div>
+                ) : null}
+              </div>
             </div>
           </section>
 
