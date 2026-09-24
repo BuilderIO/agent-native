@@ -56,7 +56,32 @@ git log origin/main --oneline -1
 
 Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
 
+## Post-merge `/ship` rotation
+
+When `/ship` activates this skill after verifying the merge commit on
+`origin/main`, use this path instead of the generic command below. In the
+current user-owned worktree, confirm there are no unpushed commits or dirty
+publishable paths using `/ship`'s existing exclusions; only `learnings.md`,
+`bridge/**`, and `data/**` may remain dirty. Fetch `origin/main`, choose a
+unique name with the Branch naming rules, and create directly from the fetched
+ref:
+
+```bash
+git fetch origin main
+git switch -c <github-username>/changes-N origin/main
+```
+
+Verify the new branch points at current `origin/main` and the excluded local
+changes are still present. Do not check out or pull a local `main`, stash,
+force, reset, or touch another worktree. If Git refuses to carry an excluded
+path, leave the current worktree intact and keep the ship goal active until a
+safe rotation is possible. Platform-assigned Builder.io and Fusion checkouts
+stay on their assigned branches and do not use this path.
+
 ## Steps
+
+For an ordinary `/new-branch`, run the generic command below. For a
+post-merge `/ship` rotation, use the dedicated path above instead.
 
 Run as a single chained command to minimize time off-branch. Resolve the
 authenticated GitHub username before choosing the branch name so concurrent

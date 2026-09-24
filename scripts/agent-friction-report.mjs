@@ -94,7 +94,7 @@ const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
     String.raw`\bwhy\s+did\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:finish(?:ed)?|stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,80}\b(?:before|without)\b[^.!?\n]{0,60}\b(?:merg(?:e|ed|ing)|PR|pull request)\b`,
     String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:reported|called|marked)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,40}\b(?:complete|done|finished)\b[^.!?\n]{0,80}\b(?:but|yet|while)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:open|unmerged|not merged)\b`,
     String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,40}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:with|while|although)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:unmerged|not merged|still open)\b`,
-    String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,120}\b(?:until|through)\b[^.!?\n]{0,60}\b(?:merge|merged)\b`,
+    String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,60}\b(?:merge|merged)\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:already|again|repeatedly|multiple times|more than once)\b[^.!?\n]{0,100}\b(?:asked|told|reminded|said)\b[^.!?\n]{0,100}\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\buntil\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:told|asked|instructed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|watchdog|babysit|left\s+(?:the\s+)?(?:PR|pull request)\s+open|unmerged)\b`,
   ].join("|"),
@@ -200,8 +200,12 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "These are all threads I told to /ship, but I still have to run /ship-watchdog every morning.",
   ],
   [
-    true,
+    false,
     "They just stop after opening the PR; keep checking CI and review until merged.",
+  ],
+  [
+    true,
+    "They just stop after opening the PR; /ship should keep checking until merged.",
   ],
   [false, "Do not stop /ship until the PR is merged."],
   [true, "I already asked: do not stop /ship until the PR is merged."],

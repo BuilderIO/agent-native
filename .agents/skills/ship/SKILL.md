@@ -279,14 +279,8 @@ repo defect; classify it before changing code.
 After the merge, verify that `origin/main` contains the merge commit. In a
 platform-managed Builder.io or Fusion checkout, keep its assigned branch and
 complete the ship goal without rotating. Otherwise, in the current user-owned
-worktree, require no dirty publishable paths or unpushed commits; only the
-`learnings.md`, `bridge/**`, and `data/**` paths excluded by `/ship` may remain
-dirty. Fetch `origin/main`, choose a unique name using `/new-branch`'s naming
-rules, then run `git switch -c <branch> origin/main` to carry those excluded
-files forward as local changes. Verify the branch and preserved paths; never
-check out or pull a possibly stale local `main`. If Git refuses to carry an
-excluded path, leave the worktree untouched and keep the ship goal active rather
-than stashing or forcing the switch. Only then mark the ship goal complete.
+worktree, use `/new-branch`'s dedicated post-merge rotation path. Do not run
+its generic local-main checkout flow. Only then mark the ship goal complete.
 
 ## Deployment boundary
 
