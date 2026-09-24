@@ -50,8 +50,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderActivateCredits": "Builder.io 무료 크레딧 활성화",
-  "onboarding.builderConnectCredits": "Builder.io 무료 크레딧 연결",
+  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
+  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
