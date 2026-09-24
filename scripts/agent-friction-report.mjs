@@ -136,12 +136,13 @@ const FEEDBACK_EYES_REGEX_CASES = [
 
 const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?:handoff|recap|summary|report|output|review)`;
 const PR_REVIEW_HANDOFF_DETAILS = [
-  String.raw`which\s+PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
-  String.raw`(?:the\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
-  String.raw`(?:(?:the|an?)\s+)?(?:drafts?\s+)?(?:(?:author[- ]facing|author)\s+)?(?:repl(?:y|ies)|comments?)(?:\s+drafts?)?`,
-  String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface))?`,
+  String.raw`which\s+(?:PRs?|pull\s+requests?)\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:(?:the|a|an)\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
+  String.raw`(?:(?:the|an?)\s+)?(?:(?:drafts?\s+)?(?:(?:author[- ]facing|author)\s+)?repl(?:y|ies)(?:\s+drafts?)?|drafts?\s+(?:(?:author[- ]facing)\s+)?comments?(?:\s+drafts?)?|author[- ]facing\s+comments?(?:\s+drafts?)?)`,
+  String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:changed\s+)?(?:UI|UX)|changes?|updated interface|changed interface))?`,
   String.raw`(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
-  String.raw`(?:whether|if)\s+(?:(?:the|a|any|all|which|these|those)\s+)?PRs?\s+(?:were|are|was|is)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:whether|if)\s+(?:(?:the|a|any|all|which|these|those)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+ready(?:\s+to\s+merge)?`,
+  String.raw`(?:the\s+)?review\s+(?:disposition|status)|(?:the\s+)?approval\s+status|(?:whether|if)\s+(?:(?:the|a)\s+)?(?:PRs?|pull\s+requests?)\s+(?:were|are|was|is)\s+(?:approved|not approved|skipped)`,
   String.raw`(?:the\s+)?screenshot(?:s)?\s+(?:availability|presence|status|disposition|evidence|available|present|attached|included)`,
 ].join("|");
 const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
@@ -180,6 +181,13 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You didn't draft author replies."],
   [true, "The handoff omitted the draft reply."],
   [true, "You forgot to draft a reply."],
+  [true, "You didn't include a merge-readiness recommendation."],
+  [true, "You failed to report a merge-readiness status."],
+  [true, "You didn't include screenshots of the changed UI."],
+  [true, "You failed to include screenshots of changed UX."],
+  [true, "The recap omitted the review disposition."],
+  [true, "You didn't report whether the PR was approved."],
+  [true, "You didn't say which pull requests were ready to merge."],
   [true, "You did not say which PRs were ready to merge."],
   [true, "You didn't say whether the UI screenshots were present."],
   [true, "You omitted whether screenshots were present."],
@@ -235,6 +243,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "Please tell me which PRs are ready to merge and draft replies."],
   [false, "This PR updates the UI and includes screenshots."],
   [false, "Please provide screenshots with your PR."],
+  [
+    false,
+    "You didn't include comments from the review thread in the issue summary.",
+  ],
   [false, "I would like screenshots for new UX changes."],
   [
     false,
