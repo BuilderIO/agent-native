@@ -5054,7 +5054,8 @@ export function DesignCanvas({
       {
         type: "embedded-canvas-gesture-mode",
         wheelEnabled: isEmbeddedFrame && !interactModeRef.current,
-        spaceKeyForwardingEnabled: interactModeRef.current || readOnly,
+        spaceKeyForwardingEnabled:
+          interactModeRef.current || isEmbeddedFrame || readOnly,
         editingSafetyEnabled: !interactModeRef.current,
       },
       "*",
@@ -5408,7 +5409,7 @@ export function DesignCanvas({
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
       wheelEnabled: isEmbeddedFrame && !interactMode,
-      spaceKeyForwardingEnabled: interactMode || readOnly,
+      spaceKeyForwardingEnabled: interactMode || isEmbeddedFrame || readOnly,
       // Interact hands the app its own native interaction back; every other
       // mode keeps the editing shield armed.
       editingSafetyEnabled: !interactMode,
