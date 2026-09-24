@@ -1,0 +1,91 @@
+---
+title: "Apresentações"
+description: "Um editor de decks de código aberto que substitui o Google Slides, o Pitch e o PowerPoint. Gere um deck a partir de um prompt, edite-o visualmente e apresente em tela inteira, com importação/exportação, sistemas de design e colaboração em tempo real integrados."
+---
+
+# Apresentações
+
+O Apresentações é um editor de decks desenvolvido por agente. Peça ao agente um deck e ele gera um a partir de um prompt, transmitindo os slides para o editor enquanto os constrói, depois edita, reestiliza ou exporta o deck sempre que você pedir, em linguagem natural ou com um clique. Ele substitui o Google Slides, o Pitch e o PowerPoint por um único aplicativo, então gerar, editar, apresentar e exportar um deck nunca são ferramentas separadas entre as quais você precisa alternar.
+
+<Cards columns={1}>
+
+### [Experimente agora →](https://slides.agent-native.com)
+
+Veja o Apresentações em funcionamento e gere um deck real.
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9815f38535264c09985a25a2accd3ea3?alt=media&token=9d3a37f9-fd8a-43bd-852a-760b304ec488&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Um breve tour pelo aplicativo de apresentações."
+  caption="Um breve tour pelo aplicativo de apresentações."
+  autoplay={true}
+  loop={true}
+/>
+
+## O que ele substitui
+
+<Comparison>
+
+### Antes
+
+- Google Slides, Pitch ou PowerPoint para construir o deck em si
+- Uma assinatura por usuário só para continuar editando e apresentando
+- Copiar e colar manualmente as cores, fontes e o logotipo da sua marca em cada novo deck
+- Converter arquivos manualmente para compartilhar um deck com pessoas que usam uma ferramenta diferente
+
+### Depois
+
+- Um único editor: gere a partir de um prompt, edite visualmente e apresente, tudo no mesmo deck
+- Seja proprietário de toda a stack, de ponta a ponta, sem assinatura
+- Um sistema de design salvo aplica sua marca automaticamente a cada novo deck
+- Importe PPTX, DOCX, PDF ou Google Docs, e exporte de volta para PPTX, Google Slides ou HTML quando quiser
+
+</Comparison>
+
+## Apresentações em um workspace com múltiplos apps
+
+Se você estiver executando o Apresentações junto com outros aplicativos sob o [Dispatch](/docs/template-dispatch), um deck deixa de ser apenas uma página que você abre manualmente. O agente pode enviar um deck para uma Biblioteca que outros aplicativos podem reutilizar, ou responder a uma solicitação em linguagem natural de um aplicativo irmão da mesma forma que responde a você no chat. Veja [Apresentações em um workspace com múltiplos apps](/docs/template-slides-integrations) para saber como essa conexão realmente funciona e quais são os mecanismos reais por trás dela.
+
+## O que você pode fazer com isso
+
+- **Gere decks a partir de um prompt.** "Gere um deck de pitch de 10 slides para um serviço de assinatura de café, o público são investidores." Veja [Funcionalidades](/docs/template-slides-features).
+- **Edite slides visualmente.** Clique duas vezes no texto para editá-lo, clique em um bloco para abrir o menu de bolha, use `/` para o menu de barra e inserir blocos. Veja [Funcionalidades](/docs/template-slides-features).
+- **Apresente em tela inteira**, comente, colabore em tempo real e compartilhe um deck com colegas de equipe específicos ou publicamente. Veja [Funcionalidades](/docs/template-slides-features).
+- **Traga conteúdo existente.** Importe um PPTX, DOCX, PDF ou Google Doc como ponto de partida. Exporte para PPTX, Google Slides ou um arquivo HTML autônomo. Veja [Funcionalidades](/docs/template-slides-features).
+- **Aplique um sistema de design construído a partir da sua marca.** Salve cores, tipografia e logotipos uma vez e reutilize-os em cada novo deck. Configure um a partir de um arquivo do Figma, um código-fonte conectado ou um site. Veja [Funcionalidades](/docs/template-slides-features).
+- **Restaure versões anteriores.** Cada mudança é capturada em um snapshot. Liste ou restaure qualquer versão anterior. Veja [Funcionalidades](/docs/template-slides-features).
+
+## Primeiros passos
+
+Quando você abre o aplicativo:
+
+1. Clique em **Novo deck**.
+2. Peça ao agente: "Gere um deck de pitch de 10 slides para um serviço de assinatura de café, o público são investidores."
+3. Assista aos slides sendo transmitidos. Clique em qualquer slide para editar, ou continue pedindo ao agente para refinar. Selecione um texto e clique em **Revisar com IA** no menu de bolha para entregar ao agente exatamente essa seleção.
+
+### Prompts úteis
+
+- "Gere um deck de pitch de 10 slides para um serviço de assinatura de café, o público são investidores."
+- "Adicione um slide de preços após o slide 3."
+- "Aumente o título deste slide e mude a cor de destaque para verde."
+- "Resuma este PDF como um deck de 6 slides." (anexe o PDF)
+
+Para criar sua própria cópia do Apresentações:
+
+```bash
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+Veja [Primeiros passos](/docs/getting-started) para o restante da configuração (`cd`, `pnpm install`, `pnpm dev`) e os fundamentos do framework.
+
+## Próximos passos
+
+- [**Funcionalidades**](/docs/template-slides-features) — prompts, edição visual, apresentação, comentários, compartilhamento, histórico de versões e sistemas de design, e importação/exportação
+- [**Conversar com o Agent**](/docs/template-slides-agent) — o que o agente vê e prompts por tarefa
+- [**Apresentações em um workspace com múltiplos apps**](/docs/template-slides-integrations) — estratégias de integração e conexão com o Dispatch
+- [**Guia do desenvolvedor**](/docs/template-slides-developers) — modelo de dados, inventário de actions, rotas e como estender o template
+- [**Templates**](/docs/cloneable-saas) — o modelo Cloneable SaaS, e todos os outros templates de domínio para começar
+- [**Primeiros passos**](/docs/getting-started) — os fundamentos do framework: actions, estado da aplicação e sincronização em tempo real
+- [**Colaboração em tempo real**](/docs/real-time-collaboration) — o pipeline Yjs que os decks compartilham com outras superfícies colaborativas
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento sobre o qual decks e sistemas de design são construídos

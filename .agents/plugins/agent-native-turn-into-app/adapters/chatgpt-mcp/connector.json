@@ -1,0 +1,14 @@
+{
+  "name": "agent-native-dispatch",
+  "title": "Turn Into App",
+  "url": "https://dispatch.agent-native.com/mcp",
+  "auth": "oauth",
+  "surfaces": [
+    {
+      "id": "workspace-app-creation",
+      "action": "start-workspace-app-creation",
+      "path": "/new-app",
+      "mediaTypes": []
+    }
+  ]
+}

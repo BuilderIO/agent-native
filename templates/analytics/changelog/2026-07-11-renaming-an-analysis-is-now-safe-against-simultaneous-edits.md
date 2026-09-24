@@ -1,0 +1,6 @@
+---
+type: fixed
+date: 2026-07-11
+---
+
+Renaming an analysis is now safe against simultaneous edits

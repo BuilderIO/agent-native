@@ -1,0 +1,45 @@
+export function deckAccessCheckKey(
+  deckId: string | undefined,
+  orgId: string | null | undefined,
+): string | null {
+  return deckId ? JSON.stringify([deckId, orgId ?? null]) : null;
+}
+
+export async function retryMissingDeck({
+  refetchOrg,
+  reloadDecks,
+  refetchAccessStatus,
+}: {
+  refetchOrg: () => Promise<unknown>;
+  reloadDecks: () => Promise<unknown>;
+  refetchAccessStatus: () => Promise<unknown>;
+}): Promise<void> {
+  await refetchOrg();
+  await reloadDecks();
+  await refetchAccessStatus();
+}
+
+export function shouldShowDeckEditorSkeleton({
+  deckFound,
+  decksLoading,
+  orgLoading,
+  accessCheckKey,
+  checkedAccessKey,
+  retrying,
+  deckAccessDeniedConfirmed,
+}: {
+  deckFound: boolean;
+  decksLoading: boolean;
+  orgLoading: boolean;
+  accessCheckKey: string | null;
+  checkedAccessKey: string | null;
+  retrying: boolean;
+  deckAccessDeniedConfirmed: boolean;
+}): boolean {
+  // The metadata-only access check is authoritative even when loading the
+  // protected deck list fails or stays pending.
+  if (deckAccessDeniedConfirmed) return false;
+  if (decksLoading) return true;
+  if (deckFound || !accessCheckKey) return false;
+  return orgLoading || checkedAccessKey !== accessCheckKey || retrying;
+}

@@ -1,0 +1,6 @@
+[build]
+command = "pnpm install && pnpm exec tsx scripts/build-retired-netlify-site.ts videos"
+publish = "templates/videos/dist"
+
+[build.environment]
+NPM_CONFIG_PRODUCTION = "false"

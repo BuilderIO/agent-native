@@ -1,0 +1,294 @@
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
+import {
+  IconCheck,
+  IconCloud,
+  IconLoader2,
+  IconServer,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+function BuilderBMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 116 130"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M115.14 39C115.14 17.36 97.58 0 76.14 0H10.27C4.58002 0 0 4.62002 0 10.27C0 20.79 22.2899 28.78 22.2899 65C22.2899 101.22 0 109.21 0 119.73C0 125.38 4.58002 130 10.27 130H76.14C97.58 130 115.14 112.64 115.14 91C115.14 75.1 105.59 65.41 105.21 65C105.58 64.59 115.14 54.9 115.14 39ZM13.58 11.1504H76.14C83.58 11.1504 90.58 14.0501 95.84 19.3101C101.1 24.5701 104 31.5703 104 39.0103C104 46.4503 101.26 53.0102 96.38 58.1602L13.59 11.1504H13.58ZM95.83 110.7C90.57 115.96 83.57 118.86 76.13 118.86H13.5699L96.36 71.8501C101.24 77.0001 103.98 83.8 103.98 91C103.98 98.2 101.08 105.44 95.8199 110.7H95.83ZM25.7 99.1602C26.36 97.7802 33.4199 84.08 33.4199 65C33.4199 45.92 26.36 32.2203 25.7 30.8403L85.86 65L25.7 99.1602Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export interface StorageSetupCardProps {
+  onConfigured: () => void | Promise<void>;
+  title?: string;
+  description?: string;
+  connectDescription?: string;
+  connectedDescription?: string;
+  /** Analytics source for the Builder connect popup. */
+  connectSource?: string;
+  /** Analytics flow for the Builder connect popup. */
+  connectFlow?: string;
+}
+
+export function StorageSetupCard({
+  onConfigured,
+  title = "Connect storage",
+  description = "Store recorded videos with Builder.io or S3-compatible storage.",
+  connectDescription = "Builder.io's free tier includes video storage and AI credits.",
+  connectedDescription = "You're all set. Starting recorder...",
+  connectSource = "clips_file_upload_storage_setup_card",
+  connectFlow = "file_upload",
+}: StorageSetupCardProps) {
+  const t = useT();
+  const [connecting, setConnecting] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const visibilityHandlerRef = useRef<(() => void) | null>(null);
+  const connectRequestedRef = useRef(false);
+
+  const stopVisibilityHandler = useCallback(() => {
+    if (visibilityHandlerRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        visibilityHandlerRef.current,
+      );
+      visibilityHandlerRef.current = null;
+    }
+  }, []);
+
+  const startFileUploadPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    stopVisibilityHandler();
+    inFlightRef.current = false;
+    setConnecting(true);
+    setErr(null);
+
+    const start = Date.now();
+    const timeoutMs = 5 * 60 * 1000;
+    const stop = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      stopVisibilityHandler();
+    };
+    const showTimeout = (): void => {
+      if (!mountedRef.current || Date.now() - start <= timeoutMs) return;
+      stop();
+      setConnecting(false);
+      setErr(t("storageSetup.builderTimeout"));
+    };
+    const tick = async () => {
+      if (document.hidden || inFlightRef.current) return;
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        Math.max(10_000, 2000 * 4),
+      );
+      try {
+        const r = await fetch(
+          new URL(
+            agentNativePath("/_agent-native/file-upload/status"),
+            window.location.origin,
+          ).toString(),
+          { signal: controller.signal },
+        );
+        if (!r.ok) {
+          showTimeout();
+          return;
+        }
+        const s = (await r.json()) as { configured: boolean };
+        if (!mountedRef.current) {
+          stop();
+          return;
+        }
+        if (s.configured) {
+          stop();
+          setConnecting(false);
+          setConnected(true);
+          setTimeout(() => void onConfigured(), 800);
+        } else {
+          showTimeout();
+        }
+      } catch {
+        showTimeout();
+      } finally {
+        clearTimeout(abortTimer);
+        inFlightRef.current = false;
+      }
+    };
+    pollRef.current = setInterval(() => void tick(), 2000);
+    visibilityHandlerRef.current = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", visibilityHandlerRef.current);
+  }, [onConfigured, stopVisibilityHandler, t]);
+
+  const handleBuilderConnected = useCallback(() => {
+    if (!connectRequestedRef.current) return;
+    connectRequestedRef.current = false;
+    startFileUploadPoll();
+  }, [startFileUploadPoll]);
+
+  const builderConnect = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: connectSource,
+    trackingFlow: connectFlow,
+    onConnected: handleBuilderConnected,
+  });
+  const handleBuilderConnect = useCallback(
+    (provisionAccount: boolean) => {
+      connectRequestedRef.current = true;
+      builderConnect.start({ provisionAccount });
+    },
+    [builderConnect.start],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      stopVisibilityHandler();
+    };
+  }, [stopVisibilityHandler]);
+
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
+      <div>
+        <div className="mb-1 flex items-center gap-2">
+          <IconCloud className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">{title}</h2>
+        </div>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+
+      {/* Builder.io — primary option, one-click Connect flow. */}
+      <BuilderConnectPopover
+        flow={builderConnect}
+        onConnect={handleBuilderConnect}
+      >
+        <button
+          type="button"
+          disabled={connecting || connected}
+          className={
+            "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
+            (connected
+              ? "border-primary/50 bg-primary/5"
+              : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
+          }
+        >
+          <div
+            className={
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+              (connected
+                ? "bg-foreground text-background"
+                : "bg-primary-foreground/15 text-primary-foreground")
+            }
+          >
+            {connected ? (
+              <IconCheck className="h-5 w-5" />
+            ) : connecting ? (
+              <IconLoader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <BuilderBMark className="h-5 w-5" />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                {connected
+                  ? t("storageSetup.builderConnected")
+                  : connecting
+                    ? t("storageSetup.waitingForBuilder")
+                    : t("storageSetup.connectBuilder")}
+              </span>
+            </div>
+            <span
+              className={
+                "mt-0.5 block text-xs " +
+                (connected
+                  ? "text-muted-foreground"
+                  : "text-primary-foreground/80")
+              }
+            >
+              {connected ? connectedDescription : connectDescription}
+            </span>
+          </div>
+        </button>
+      </BuilderConnectPopover>
+
+      {err && <p className="text-xs text-muted-foreground">{err}</p>}
+
+      {/* S3 — secondary option */}
+      {!connected && (
+        <>
+          <div className="flex items-center gap-3 border-t border-border pt-4">
+            <IconServer className="h-4 w-4 text-muted-foreground" />
+            <div className="flex-1">
+              <span className="text-sm text-muted-foreground">
+                Or{" "}
+                <a
+                  href={appPath("/settings/general#video-storage")}
+                  className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+                >
+                  {t("storageSetup.configureS3")}
+                </a>
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
+              </span>
+            </div>
+          </div>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {t("storageSetup.whyPrompt")}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="start"
+                className="max-w-80 whitespace-normal text-xs leading-relaxed"
+              >
+                {t("storageSetup.whyDescription")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </>
+      )}
+    </div>
+  );
+}

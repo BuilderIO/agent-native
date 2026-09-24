@@ -1,0 +1,149 @@
+---
+title: "中间件"
+description: "server/middleware/ 中的 Nitro 中间件——它是什么、如何编写自己的中间件，以及内置身份验证守卫的工作原理。"
+---
+
+# 中间件
+
+中间件是在每个到来的请求到达路由处理函数之前运行的代码。它位于调用方和路由之间，是处理横切关注点的合适位置：身份验证、日志记录、CORS 头、速率限制，或任何需要在所有路由上统一生效的逻辑。
+
+<Diagram id="doc-block-server-middleware-1" title="中间件运行的位置" summary="中间件会拦截每一个请求，使其在到达路由之前先经过处理。放行的请求继续流向路由处理函数；被拦截的请求会得到重定向或错误响应。">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">浏览器 / UI</div>
+    <div class="diagram-node">Agent 循环</div>
+    <div class="diagram-node">
+      外部客户端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>中间件</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">在每个请求上运行</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">放行</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>路由与处理函数</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">拦截</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>重定向 / 错误</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+`server/middleware/` 中的文件会被 Nitro 自动加载,无需注册。该目录下的每个文件都会按字母顺序对每个请求执行一次。
+
+## 编写中间件 {#writing-middleware}
+
+一个中间件文件导出一个 `defineEventHandler`。要让请求继续流转,不返回任何内容即可；要拦截请求，则抛出一个 `createError`,或使用 `sendRedirect` 返回一个重定向。
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+多个中间件文件会按文件名的字母顺序,在匹配到的路由处理函数之前依次运行。每个中间件都可以检查或修改请求、设置响应头，或者直接短路整个响应。
+
+关于更多中间件模式——条件逻辑、异步操作、响应拦截——请参见 [Nitro 中间件文档](https://nitro.build/guide/routing#middleware)和 [H3 文档](https://h3.unjs.io)。
+
+## 身份验证中间件 {#auth-middleware}
+
+每个代理本机应用都自带 `server/middleware/auth.ts`。它在所有路由上强制执行身份验证，包括公开的页面路由和自定义的 `/api/*` 路由——否则这些路由会绕过框架内置的身份验证。
+
+### 身份验证守卫 {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` 会根据[身份验证插件](/docs/server-plugins#auth-plugin)配置好的身份验证设置来检查每个请求。如果请求未经身份验证,且请求路径不在 `publicPaths` 中，它会重定向到登录页面。
+
+### 为什么用中间件，而不是插件或路由级守卫 {#why-middleware}
+
+框架处理器内置的中间件注册表只作用于 `/_agent-native/*` 路由。如果没有一个独立的中间件文件，页面路由（`/`、`/settings`）和自定义 API 路由（`/api/*`）会完全绕过身份验证。
+
+插件只在启动时运行，而不是逐请求运行，因此无法强制执行逐请求的身份验证。在每个自定义路由处理函数里各自加一个路由级守卫容易出错，也容易遗漏。`server/middleware/` 中的中间件是唯一一个不论路径如何、都会对每个请求运行的地方。
+
+### 添加公开路径 {#public-paths}
+
+要允许未经身份验证的访问特定路径，应将它们传给 `server/plugins/auth.ts` 中的 `createAuthPlugin`,而不是直接传给中间件：
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` 会在请求时从身份验证插件中读取已配置的公开路径。
+
+## 下一步 {#whats-next}
+
+- [**插件**](/docs/server-plugins)：中间件所强制执行的身份验证插件配置
+- [**路由**](/docs/server-routes)：受这个中间件保护的自定义路由
+- [**安全性**](/docs/security)：数据范围限定、访问守卫和完整的身份验证模型
+- [**Nitro 中间件文档**](https://nitro.build/guide/routing#middleware)：完整的中间件 API 与模式

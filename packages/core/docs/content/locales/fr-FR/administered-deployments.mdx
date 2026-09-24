@@ -1,0 +1,46 @@
+---
+title: Déploiements administrés
+description: Configurer un espace de travail Agent-Native avec accès sur invitation pour une organisation.
+---
+
+# Déploiements administrés
+
+Une désactivation SCIM marque l’adhésion provisionnée comme en attente et supprime immédiatement les rôles de l’application. Un administrateur doit choisir un successeur pour terminer le transfert de propriété ; l’événement d’audit immuable est alors enregistré.
+
+Utilisez un espace de travail pour les applications internes d’une organisation. L’organisation définit la limite des membres et des données. L’espace de travail regroupe la configuration de déploiement d’une ou plusieurs applications.
+
+## Fermer les inscriptions et la création d’organisations
+
+```dotenv
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Avec `AUTH_SIGNUP=invited`, un nouveau compte doit avoir une invitation en attente, un domaine de messagerie vérifié et autorisé, ou une adresse dans `AUTH_BOOTSTRAP_ADMINS`. Le contrôle couvre les inscriptions par mot de passe, lien magique et fournisseur social. L’accès par domaine n’est pas une invitation et n’attribue pas de rôle applicatif.
+
+Le premier administrateur d’amorçage qui se connecte crée l’organisation canonique et en devient propriétaire. S’il existe déjà une organisation, il en devient propriétaire. S’il en existe plusieurs, le système n’en choisit aucune. Configurez ensuite le domaine autorisé et invitez l’équipe depuis **Team settings**.
+
+Avec `ORG_CREATION=closed`, la création d’organisations est refusée tant que `AUTH_BOOTSTRAP_ADMINS` ne comporte pas au moins un administrateur vérifié, qui crée l’organisation canonique lors de sa première connexion.
+
+Conservez une adresse d’administrateur d’amorçage vérifiée pour la configuration initiale et la récupération.
+
+## Clés et rôles de l’entreprise
+
+Un propriétaire ou administrateur peut enregistrer une clé LLM pour l’organisation. La configuration du fournisseur enregistre ces clés uniquement pour l’organisation afin que tous les membres utilisent la même clé d’entreprise. Les lignes personnelles des anciennes versions sont supprimées lors de l’enregistrement d’une clé d’organisation, ou peuvent être supprimées auparavant depuis la configuration du fournisseur.
+
+Le champ de modèle propose les modèles actuels et accepte directement tout identifiant pris en charge par le fournisseur ou la passerelle.
+
+Les rôles applicatifs s’appliquent à une seule application et un membre peut en avoir plusieurs. Les administrateurs peuvent associer des permissions définies dans le code à des rôles sans redéployer.
+
+## Changement d’adresse et identité
+
+L’utilisateur modifie son adresse de connexion dans les paramètres du compte après vérification. Pour une migration administrée, exécutez `agent-native identity rekey --from old@example.com --to new@example.com` dans chaque application. Vérifiez les tables et le nombre de lignes avant `--yes`. L’historique d’audit reste inchangé. La migration vers un identifiant de principal immuable est prévue après 1.0.
+
+## SSO d’organisation et provisionnement d’annuaire
+
+Le SSO d’organisation et SCIM sont des fonctions facultatives. Activez `AUTH_SSO=1` et `AUTH_SCIM=1` pour afficher les contrôles dans les paramètres d’équipe. Définissez ces variables dans l’environnement de build et dans l’environnement d’exécution ; toute modification après déploiement nécessite un nouveau build. Configurez d’abord le domaine de messagerie de l’organisation. Ajoutez un fournisseur OIDC ou SAML avec l’émetteur, l’ID et le secret client, ou le point d’entrée SAML, l’ID d’entité et les métadonnées XML de l’IdP. Les paramètres affichent l’URI de redirection et les métadonnées SP. Créez l’enregistrement DNS TXT `_better-auth-token-<provider-id>.<organization-domain>` avec la valeur affichée, attendez la propagation DNS, puis vérifiez le domaine. Un administrateur peut ensuite exiger Google ou un fournisseur SSO vérifié. Créez une connexion SCIM et copiez le jeton, affiché une seule fois, ainsi que le point de terminaison dans le fournisseur d’identité. Dans Okta ou Microsoft Entra ID, créez une application d’entreprise OIDC ou SAML. Pour le provisionnement, configurez le client SCIM et testez la création, la mise à jour et la désactivation d’utilisateurs avec un petit groupe. Cela reste distinct de la fédération d’identité entre applications.
+
+Utilisez `accessFilter()` et `assertAccess()` pour les opérations serveur. Le SQL de l’agent utilise des vues temporaires filtrées. `pnpm guards` inclut le contrôle des requêtes non cloisonnées. RLS n’est pas actif et est prévu comme renforcement après 1.0. Choisissez un espace de travail pour plusieurs applications internes et une application autonome pour un outil indépendant ou un prototype. Consultez [application autonome ou espace de travail](/docs/multi-app-workspace#standalone-or-workspace) et [versionnement et stabilité](/docs/versioning-and-stability).

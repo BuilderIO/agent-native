@@ -1,0 +1,26 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.env
+.nitro
+.tanstack
+.wrangler
+.output
+server/*
+!server/routes/
+!server/plugins/
+!server/lib/
+.vinxi
+__unconfig*
+todos.json
+
+# Local Netlify folder
+.netlify
+
+.generated/
+
+# Generated at build time
+public/source-index.json
+public/docs-source-index.json

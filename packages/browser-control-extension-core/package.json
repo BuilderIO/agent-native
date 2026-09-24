@@ -1,0 +1,24 @@
+{
+  "name": "@agent-native/browser-control-extension-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared reviewed Chrome debugger control engine for Agent-Native browser extensions.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.2.2",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,26 @@
+---
+title: Organizaciones, equipos y permisos
+description: Administra el contexto de organización, los roles de equipo y aplicación y el acceso a recursos.
+---
+
+# Organizaciones, equipos y permisos
+
+La organización define la membresía del equipo y el límite del tenant. El espacio de trabajo agrupa aplicaciones y configuración de despliegue, pero no reemplaza a la organización. El servidor debe comprobar los permisos. Ocultar un botón no es control de acceso.
+
+## Tres ámbitos de roles
+
+- Los roles `owner`, `admin` y `member` de la organización controlan la administración del equipo.
+- Los roles de aplicación controlan las capacidades dentro de una aplicación. Un miembro puede tener varios.
+- Los roles de recurso `viewer`, `editor` y `admin` controlan el acceso a una fila.
+
+La aplicación declara los roles y las claves de permiso en el código. Un administrador puede reemplazar el conjunto de roles de una persona y asignar permisos declarados a roles desde la página del equipo. Si no hay sobrescritura, se aplican los valores predeterminados de la aplicación. Las invitaciones pueden incluir roles de aplicación. Un administrador de aplicación no obtiene permisos de administrador de organización.
+
+Consulta [Despliegues administrados](/docs/administered-deployments) para invitaciones y configuración. Consulta [Ámbito de datos](/docs/security#data-scoping) para el acceso a datos.
+
+## Grupos de usuarios {#user-groups}
+
+Las organizaciones pueden tener grupos reutilizables formados por sus miembros actuales. Los propietarios y administradores gestionan la pertenencia, y una persona puede estar en varios grupos. Las aplicaciones pueden usar un grupo para compartir un recurso que admita grupos o limitar el acceso a una conexión del espacio de trabajo.
+
+Un grupo es una lista de acceso, no un equipo secundario. No tiene roles propios de organización o aplicación, un límite de datos separado ni configuración, instrucciones, contexto, habilidades, memoria o una vista de trabajo propia del equipo. Al compartir un recurso con un grupo, todos sus miembros actuales reciben el mismo rol para ese recurso. El acceso sigue requiriendo que la persona pertenezca a la organización del recurso.
+
+Consulta [Compartir y privacidad → Concesiones a grupos](/docs/sharing#group-grants) y [Conexiones del espacio de trabajo](/docs/workspace-connections) para más detalles.

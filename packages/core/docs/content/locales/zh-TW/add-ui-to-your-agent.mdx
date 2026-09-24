@@ -1,0 +1,49 @@
+---
+title: "為 Microsoft Foundry、Gemini、Anthropic 或 OpenAI 代理程式新增 UI"
+description: "透過 A2A 或託管代理程式 API，將託管後端連接到 Agent-Native 工作區。"
+search: "為代理程式新增 UI Foundry Gemini Anthropic OpenAI A2A 代理程式目錄"
+---
+
+# 為代理程式新增 UI
+
+Agent-Native 為現有代理程式提供聊天、核准、工作流程狀態與權限工作區。推理、工具、內容與長時間執行仍由提供者負責。
+
+本頁說明如何**為 Microsoft Foundry、Gemini Enterprise、Anthropic Managed Agents 或 OpenAI 代理程式新增 UI**。
+
+## 選擇連線方式 {#choose-a-connection-path}
+
+| 後端                     | Agent-Native 連線  | 設定                               |
+| ------------------------ | ------------------ | ---------------------------------- |
+| Microsoft Foundry        | A2A 1.0            | Agent Card URL 與 Entra 密鑰       |
+| Gemini Enterprise        | A2A                | Agent Card URL 與 Google 密鑰      |
+| Anthropic Managed Agents | Managed Agents API | 代理程式 ID、環境 ID 與 Vault 金鑰 |
+| OpenAI Agents API        | 自訂 A2A 端點      | Agent Card URL 與提供者認證        |
+| 任何 A2A 代理程式        | A2A                | Agent Card URL 與選用認證          |
+
+開啟 **Settings → Agent → Agent directory** 搜尋提供者。Connect 按鈕會開啟現有的 **Connected agents** 表單。密鑰只保存在工作區 Vault。
+
+## Microsoft Foundry {#microsoft-foundry}
+
+貼上 A2A v1.0 Agent Card URL 並選擇 Entra 認證。服務對服務使用 `https://ai.azure.com/.default` 範圍與 **Foundry Agent Consumer** 角色。
+
+## Gemini Enterprise {#gemini-enterprise}
+
+貼上自訂 A2A 卡片 URL 並選擇 Vault 中的 bearer 密鑰。儲存前會驗證卡片與 JSON-RPC 介面。
+
+## Anthropic Managed Agents {#anthropic-managed-agents}
+
+選擇 **Anthropic Managed Agents**，輸入代理程式與環境 ID，再選擇 API 金鑰。工作階段與核准留在 Anthropic，並顯示於 Agent-Native 聊天。
+
+## 自訂 A2A {#custom-a2a}
+
+內部或自託管代理程式使用 **Add by URL**。系統驗證 A2A 0.3 和 1.0 卡片，並以清楚狀態顯示錯誤。
+
+如果未提供串流，連線會使用 `message/send`。
+
+## 登錄 {#registries}
+
+瀏覽 [Global A2A Registry](https://www.a2a-registry.org)。新增代理程式並使用密鑰前，請檢查卡片、主機與驗證需求。
+
+## UI 層 {#ui-layer}
+
+[A2A](/docs/a2a-protocol) 傳遞委派任務，Agent-Native 工作區管理使用者狀態。請參閱 [Connected agents](/docs/agent-mentions#mentioning-agents) 與 [External agents](/docs/external-agents)。

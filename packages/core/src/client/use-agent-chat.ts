@@ -1,0 +1,93 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+
+import {
+  AGENT_CHAT_SUBMIT_TARGET_EVENT,
+  generateAgentChatSubmitMessageId,
+  sendToAgentChat,
+  type AgentChatMessage,
+  type AgentChatSubmitTarget,
+} from "./agent-chat.js";
+
+/**
+ * Hook that wraps sendToAgentChat with a loading state.
+ *
+ * Returns [isGenerating, send, stopReason] where:
+ * - isGenerating: true after send() is called, false when the
+ *   agentNative.chatRunning event reports that the run has stopped
+ * - send: wrapper around sendToAgentChat that sets isGenerating to true
+ * - stopReason: "stopped" when the user explicitly stopped the run
+ */
+export function useAgentChatGenerating(): [
+  boolean,
+  (opts: AgentChatMessage) => string,
+  "stopped" | null,
+] {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [stopReason, setStopReason] = useState<"stopped" | null>(null);
+  const activeTabRef = useRef<string | null>(null);
+  const activeSubmitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const targetHandler = (e: Event) => {
+      const detail = (e as CustomEvent<AgentChatSubmitTarget>).detail;
+      if (
+        !detail ||
+        detail.submitMessageId !== activeSubmitRef.current ||
+        !detail.tabId
+      ) {
+        return;
+      }
+      activeTabRef.current = detail.tabId;
+    };
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail?.isRunning !== "boolean") return;
+      // Only honor events for the run this hook started. Events carrying a
+      // different tabId belong to another chat surface (sidebar, other
+      // composer, automation) and must not flip our state. Once a run has a
+      // tab identity, an unscoped event is just as unrelated as another tab.
+      const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
+      if (activeTabRef.current && !eventTabId) return;
+      if (
+        eventTabId &&
+        activeTabRef.current &&
+        eventTabId !== activeTabRef.current
+      ) {
+        return;
+      }
+      setStopReason(
+        !detail.isRunning && detail.reason === "stopped" ? "stopped" : null,
+      );
+      if (!detail.isRunning && eventTabId === activeTabRef.current) {
+        activeTabRef.current = null;
+        activeSubmitRef.current = null;
+      }
+      setIsGenerating(detail.isRunning);
+    };
+    window.addEventListener(
+      AGENT_CHAT_SUBMIT_TARGET_EVENT,
+      targetHandler as EventListener,
+    );
+    window.addEventListener("agentNative.chatRunning", handler);
+    return () => {
+      window.removeEventListener(
+        AGENT_CHAT_SUBMIT_TARGET_EVENT,
+        targetHandler as EventListener,
+      );
+      window.removeEventListener("agentNative.chatRunning", handler);
+    };
+  }, []);
+
+  const send = useCallback((opts: AgentChatMessage): string => {
+    const submitMessageId =
+      opts.submitMessageId ?? generateAgentChatSubmitMessageId();
+    activeSubmitRef.current = submitMessageId;
+    const tabId = sendToAgentChat({ ...opts, submitMessageId });
+    activeTabRef.current = tabId;
+    setStopReason(null);
+    setIsGenerating(true);
+    return tabId;
+  }, []);
+
+  return [isGenerating, send, stopReason];
+}
