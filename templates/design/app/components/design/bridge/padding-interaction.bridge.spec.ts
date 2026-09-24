@@ -31,6 +31,13 @@ const PADDING_FRAME = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const GAP_FRAME = `<!doctype html><html><body style="margin:0">
+  <div id="row" data-agent-native-node-id="row" style="position:absolute;left:100px;top:100px;width:220px;height:100px;display:flex;gap:20px;background:#333">
+    <div style="width:60px;height:40px;background:#fff"></div>
+    <div style="width:60px;height:40px;background:#fff"></div>
+  </div>
+</body></html>`;
+
 const THIN_PADDING_FRAME = `<!doctype html><html><body style="margin:0">
   <div id="card" data-agent-native-node-id="card" style="position:absolute;left:200px;top:150px;width:160px;height:100px;margin:0;padding:1px;background:#333;box-sizing:border-box"></div>
 </body></html>`;
@@ -144,6 +151,48 @@ describe("padding interaction bridge", () => {
 
       await page.mouse.up();
       await page.keyboard.up("Shift");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("Shift-dragging a gap does not write padding", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(GAP_FRAME);
+      await installBridge(page);
+
+      const row = page.locator("#row");
+      const rowBox = (await row.boundingBox())!;
+      await page.mouse.click(rowBox.x + 4, rowBox.y + 80);
+      const handle = page.locator('[data-spacing-key="gap:column:0"]');
+      await handle.waitFor();
+      const handleBox = (await handle.boundingBox())!;
+      const x = handleBox.x + handleBox.width / 2;
+      const y = handleBox.y + handleBox.height / 2;
+
+      await page.keyboard.down("Shift");
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 8, y, { steps: 4 });
+      await page.mouse.up();
+      await page.keyboard.up("Shift");
+
+      expect(
+        await row.evaluate((node) => {
+          const style = (node as HTMLElement).style;
+          return [
+            style.paddingTop,
+            style.paddingRight,
+            style.paddingBottom,
+            style.paddingLeft,
+            style.columnGap,
+          ];
+        }),
+      ).toEqual(["", "", "", "", "28px"]);
     } finally {
       await browser.close();
     }
@@ -316,9 +365,14 @@ describe("padding interaction bridge", () => {
       await page.evaluate(() => {
         const target = window as typeof window & {
           __styleChanges?: Record<string, string>[];
+          __selectedMarginLeft?: string;
         };
         target.__styleChanges = [];
         window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select") {
+            target.__selectedMarginLeft =
+              event.data.payload?.computedStyles?.marginLeft;
+          }
           if (event.data?.type === "visual-style-change") {
             target.__styleChanges?.push(event.data.styles);
           }
@@ -332,6 +386,18 @@ describe("padding interaction bridge", () => {
         itemBox.x + itemBox.width / 2,
         itemBox.y + itemBox.height / 2,
       );
+      await page.waitForFunction(
+        () =>
+          (window as typeof window & { __selectedMarginLeft?: string })
+            .__selectedMarginLeft === "auto",
+      );
+      expect(
+        await page.evaluate(
+          () =>
+            (window as typeof window & { __selectedMarginLeft?: string })
+              .__selectedMarginLeft,
+        ),
+      ).toBe("auto");
       const handle = page.locator('[data-spacing-key="margin:left"]');
       await handle.waitFor();
       const handleBox = (await handle.boundingBox())!;

@@ -59,8 +59,9 @@ describe("padding indicator tick length", () => {
 
       await page.waitForFunction(
         () =>
-          document.querySelectorAll("[data-agent-native-spacing-line]")
-            .length === 4,
+          document.querySelectorAll(
+            '[data-agent-native-spacing-line="padding"]',
+          ).length === 4,
       );
 
       // Read the exact inline style length rather than offsetWidth/Height —
@@ -68,7 +69,9 @@ describe("padding indicator tick length", () => {
       // a several-tenths-of-a-pixel mismatch.
       const geometry = await page.evaluate(() =>
         Array.from(
-          document.querySelectorAll("[data-agent-native-spacing-line]"),
+          document.querySelectorAll(
+            '[data-agent-native-spacing-line="padding"]',
+          ),
         ).map((node) => {
           const el = node as HTMLElement;
           return {

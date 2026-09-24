@@ -4635,6 +4635,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : "var(--design-editor-accent-contrast-color)";
   }
 
+  function marginValueIsAuto(
+    el: Element,
+    side: string,
+    computedValue: string,
+  ): boolean {
+    var typedElement = el as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      var typedValue = typedElement.computedStyleMap().get("margin-" + side);
+      if (String(typedValue).trim().toLowerCase() === "auto") return true;
+    }
+    var inlineValue = (el as HTMLElement).style.getPropertyValue(
+      "margin-" + side,
+    );
+    return (
+      inlineValue.trim().toLowerCase() === "auto" ||
+      computedValue.trim().toLowerCase() === "auto"
+    );
+  }
+
   function collectComputedStyles(
     cs: CSSStyleDeclaration,
     paintCs: CSSStyleDeclaration,
@@ -5031,6 +5052,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         computed.resolvedLineHeightPx = resolvedLineHeightPx;
       }
     }
+    if (marginValueIsAuto(el, "top", cs.marginTop)) computed.marginTop = "auto";
+    if (marginValueIsAuto(el, "right", cs.marginRight))
+      computed.marginRight = "auto";
+    if (marginValueIsAuto(el, "bottom", cs.marginBottom))
+      computed.marginBottom = "auto";
+    if (marginValueIsAuto(el, "left", cs.marginLeft))
+      computed.marginLeft = "auto";
     return {
       ...computed,
       "--an-vector-stroke-position":
@@ -5588,7 +5616,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     edge.setAttribute("data-agent-native-edge-handle", pos);
     var cursor = pos === "n" || pos === "s" ? "ns-resize" : "ew-resize";
     edge.style.cssText =
-      "position:absolute;pointer-events:auto;cursor:" +
+      "position:absolute;z-index:2;pointer-events:auto;cursor:" +
       cursor +
       ";background:transparent;";
     if (pos === "n") {
@@ -8240,13 +8268,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function hitRectForMarginHandle(
     line: { x: number; y: number; width: number; height: number },
     tolerance: number,
+    side: string,
+    elementRect: { width: number; height: number },
   ): { x: number; y: number; width: number; height: number } {
-    return {
+    var hit = {
       x: line.x - tolerance,
       y: line.y - tolerance,
       width: line.width + tolerance * 2,
       height: line.height + tolerance * 2,
     };
+    var inwardReach =
+      side === "top" || side === "bottom"
+        ? clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.height)
+        : clampHandleInwardReach(Number.POSITIVE_INFINITY, elementRect.width);
+    if (side === "top") {
+      var bottom = Math.min(hit.y + hit.height, inwardReach);
+      hit.y = Math.min(hit.y, bottom - 1);
+      hit.height = Math.max(1, bottom - hit.y);
+    } else if (side === "bottom") {
+      var originalBottom = hit.y + hit.height;
+      var top = Math.max(hit.y, elementRect.height - inwardReach);
+      hit.y = top;
+      hit.height = Math.max(1, originalBottom - top);
+    } else if (side === "left") {
+      var right = Math.min(hit.x + hit.width, inwardReach);
+      hit.x = Math.min(hit.x, right - 1);
+      hit.width = Math.max(1, right - hit.x);
+    } else if (side === "right") {
+      var originalRight = hit.x + hit.width;
+      var left = Math.max(hit.x, elementRect.width - inwardReach);
+      hit.x = left;
+      hit.width = Math.max(1, originalRight - left);
+    }
+    return hit;
   }
 
   function makeSpacingHandle(config: {
@@ -8259,6 +8313,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     orientation: string;
     value: number;
     valueLabel?: string;
+    elementRect?: { width: number; height: number };
     region: { x: number; y: number; width: number; height: number };
     line?: { x: number; y: number; width: number; height: number };
   }): unknown {
@@ -8281,6 +8336,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? hitRectForMarginHandle(
               config.line,
               PADDING_HANDLE_HIT_TOLERANCE_BASE * chromeLineScale(),
+              config.side || "",
+              config.elementRect || { width: 0, height: 0 },
             )
           : roundedRegion;
     return {
@@ -8470,22 +8527,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var tickLength =
       Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) *
       line;
-    var marginIsAuto = function (side: string, computedValue: string) {
-      var typedElement = el as Element & {
-        computedStyleMap?: () => StylePropertyMap;
-      };
-      if (typeof typedElement.computedStyleMap === "function") {
-        var typedValue = typedElement.computedStyleMap().get("margin-" + side);
-        if (String(typedValue).trim().toLowerCase() === "auto") return true;
-      }
-      var inlineValue = (el as HTMLElement).style.getPropertyValue(
-        "margin-" + side,
-      );
-      return (
-        inlineValue.trim().toLowerCase() === "auto" ||
-        computedValue.trim().toLowerCase() === "auto"
-      );
-    };
+    var marginHandleClearance = 6 * Math.max(1, line);
     var top = clampSpacingValue(readPx(cs.marginTop), true);
     var right = clampSpacingValue(readPx(cs.marginRight), true);
     var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
@@ -8500,7 +8542,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         side: "top",
         orientation: "horizontal",
         value: top,
-        valueLabel: marginIsAuto("top", cs.marginTop) ? "auto" : "",
+        valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+        elementRect: rect,
         region: {
           x: 0,
           y: Math.min(0, -top),
@@ -8509,7 +8552,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         line: {
           x: rect.width / 2 - tickLength / 2,
-          y: -top / 2 - line / 2,
+          y:
+            (top >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(top) / 2) -
+            line / 2,
           width: tickLength,
           height: line,
         },
@@ -8522,7 +8568,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         side: "right",
         orientation: "vertical",
         value: right,
-        valueLabel: marginIsAuto("right", cs.marginRight) ? "auto" : "",
+        valueLabel: marginValueIsAuto(el, "right", cs.marginRight)
+          ? "auto"
+          : "",
+        elementRect: rect,
         region: {
           x: rect.width + Math.min(0, right),
           y: 0,
@@ -8530,7 +8579,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           height: rect.height,
         },
         line: {
-          x: rect.width + right / 2 - line / 2,
+          x:
+            rect.width +
+            (right >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(right) / 2) -
+            line / 2,
           y: rect.height / 2 - tickLength / 2,
           width: line,
           height: tickLength,
@@ -8544,7 +8597,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         side: "bottom",
         orientation: "horizontal",
         value: bottom,
-        valueLabel: marginIsAuto("bottom", cs.marginBottom) ? "auto" : "",
+        valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom)
+          ? "auto"
+          : "",
+        elementRect: rect,
         region: {
           x: 0,
           y: rect.height + Math.min(0, bottom),
@@ -8553,7 +8609,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         },
         line: {
           x: rect.width / 2 - tickLength / 2,
-          y: rect.height + bottom / 2 - line / 2,
+          y:
+            rect.height +
+            (bottom >= 0 ? 1 : -1) *
+              Math.max(marginHandleClearance, Math.abs(bottom) / 2) -
+            line / 2,
           width: tickLength,
           height: line,
         },
@@ -8566,7 +8626,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         side: "left",
         orientation: "vertical",
         value: left,
-        valueLabel: marginIsAuto("left", cs.marginLeft) ? "auto" : "",
+        valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+        elementRect: rect,
         region: {
           x: Math.min(0, -left),
           y: 0,
@@ -8574,7 +8635,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           height: rect.height,
         },
         line: {
-          x: -left / 2 - line / 2,
+          x:
+            (left >= 0 ? -1 : 1) *
+              Math.max(marginHandleClearance, Math.abs(left) / 2) -
+            line / 2,
           y: rect.height / 2 - tickLength / 2,
           width: line,
           height: tickLength,
@@ -8837,7 +8901,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     regionNode.style.boxSizing = "border-box";
     regionNode.style.pointerEvents = "auto";
     regionNode.style.zIndex =
-      handle.kind === "padding" ? "2" : handle.kind === "margin" ? "1" : "0";
+      handle.kind === "padding" ? "3" : handle.kind === "margin" ? "1" : "0";
     regionNode.style.backgroundSize = hatchTile + " " + hatchTile;
     regionNode.style.cursor =
       handle.orientation === "vertical" ? "ew-resize" : "ns-resize";
@@ -13428,7 +13492,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ];
 
   function propertiesForSpacingHandle(handle) {
-    return handle.kind === "margin" ? marginProperties : paddingProperties;
+    if (handle.kind === "margin") return marginProperties;
+    if (handle.kind === "padding") return paddingProperties;
+    return [handle.property];
   }
 
   function applySpacingDragValue(

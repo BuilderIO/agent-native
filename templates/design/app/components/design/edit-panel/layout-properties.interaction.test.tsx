@@ -617,7 +617,7 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
-  it("shows an authored auto margin instead of its resolved pixel value", async () => {
+  it("shows a stylesheet-authored auto margin instead of its resolved pixel value", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -629,9 +629,8 @@ describe("LayoutContextProperties interactions", () => {
         display: "inline",
         width: "120px",
         height: "80px",
-        marginLeft: "240px",
+        marginLeft: "auto",
       },
-      inlineStyles: { marginLeft: "auto" },
       boundingRect: { x: 0, y: 0, width: 120, height: 80 },
       isFlexChild: false,
       isFlexContainer: false,
