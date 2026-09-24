@@ -16,6 +16,11 @@ import {
   toPostHogMessages,
 } from "./posthog-ai.js";
 import {
+  redactToolErrorMessage as redactToolErrorMessageText,
+  sanitizeToolErrorMessage,
+  TOOL_ERROR_CAPTURE_METADATA_KEY,
+} from "./trace-error.js";
+import {
   type AgentSpan,
   endAgentSpan,
   startAgentSpan,
@@ -121,11 +126,7 @@ const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
  * across this line changes what the error rate means, so move it deliberately.
  */
 const EXPECTED_CONTINUATION_REASONS = new Set(["run_timeout", "auto_continue"]);
-const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 const HTTP_STATUS_OK = 200;
-
-const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
 type GenerationToolCall = {
   name: string;
@@ -137,29 +138,11 @@ type GenerationToolCall = {
 };
 
 function truncateToolErrorMessage(value: string): string {
-  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
-    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
-    : value;
+  return sanitizeToolErrorMessage(value);
 }
 
 function redactToolErrorMessage(value: string): string {
-  const credentialName =
-    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
-  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
-  return value
-    .replace(
-      new RegExp(
-        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
-        "gi",
-      ),
-      "$1[REDACTED]",
-    )
-    .replace(
-      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
-      "$1[REDACTED]",
-    )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
-    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+  return redactToolErrorMessageText(value);
 }
 
 /**
@@ -500,7 +483,7 @@ function buildGenerationContent(args: {
  *  out of agent_trace_spans.metadata avoids long-term storage of
  *  short-lived secrets. */
 const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)$/i;
+  /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer|(?:[a-z0-9]+[_-])*(?:client[_-]?secret|private[_-]?key))$/i;
 
 /** Recursively walk a structured value and replace sensitive field
  *  values with the literal string "[REDACTED]". Pure (returns a copy);
@@ -1119,7 +1102,7 @@ export async function instrumentAgentLoop(opts: {
         // we record the result on the entry so its `.then` handler ends it.
         const otelEndResult = {
           status: (isError ? "error" : "success") as "success" | "error",
-          errorMessage: isError ? (event.result as string) : null,
+          errorMessage: toolErrorMessage,
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
@@ -1151,6 +1134,9 @@ export async function instrumentAgentLoop(opts: {
           spanMetadataFields.output = truncateToolErrorMessage(
             redactToolErrorMessage(event.result),
           );
+        }
+        if (isError && config.captureToolResults) {
+          spanMetadataFields[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
         }
         const spanMetadata = Object.keys(spanMetadataFields).length
           ? spanMetadataFields

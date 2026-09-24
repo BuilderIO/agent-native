@@ -44,6 +44,10 @@ describe("redactSensitiveFields", () => {
       apiKey: "sk-123",
       api_key: "sk-456",
       "api-key": "sk-789",
+      client_secret: "client-secret-value",
+      clientSecret: "client-secret-camel",
+      private_key: "private-key-value",
+      privateKey: "private-key-camel",
       password: "hunter2",
       secret: "shh",
       token: "tok",
@@ -60,6 +64,10 @@ describe("redactSensitiveFields", () => {
       apiKey: "[REDACTED]",
       api_key: "[REDACTED]",
       "api-key": "[REDACTED]",
+      client_secret: "[REDACTED]",
+      clientSecret: "[REDACTED]",
+      private_key: "[REDACTED]",
+      privateKey: "[REDACTED]",
       password: "[REDACTED]",
       secret: "[REDACTED]",
       token: "[REDACTED]",
@@ -894,7 +902,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      "Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000";
+      'Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -937,6 +945,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
+    expect(JSON.stringify(events[0])).not.toContain("compound-secret");
     // The output side says withheld rather than going absent: an empty
     // `$ai_output_state` reads as a tool that returned nothing, which is a
     // different fact about the run than one whose answer we chose not to ship.
@@ -962,6 +971,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(persistedError).toContain("REDACTED");
     expect(persistedError).not.toContain("abcdef123456");
     expect(persistedError).not.toContain("sk-not-a-real-key-000000000");
+    expect(persistedError).not.toContain("compound-secret");
+    expect(persistedError).not.toContain("compound-private-key");
+    expect(persistedError).toContain('client_secret="[REDACTED]"');
+    expect(persistedError).toContain("private_key=[REDACTED]");
   });
 
   it("does not emit tool spans when captureLlmSpans is off", async () => {
@@ -1838,7 +1851,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(readSpan?.ended).toBe(true);
     expect(readSpan?.parent).toBe(runSpan);
     expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(dbSpan?.status?.message).toBe("Error: boom");
+    expect(dbSpan?.status?.message).toBeUndefined();
     expect(dbSpan?.ended).toBe(true);
     expect(dbSpan?.parent).toBe(runSpan);
 
@@ -1852,6 +1865,65 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(llmSpan.ended).toBe(true);
     expect(llmSpan.parent).toBe(runSpan);
+  });
+
+  it("gates and sanitizes tool error text in exported span statuses", async () => {
+    const leakyResult =
+      "Error: client_secret=compound-secret private_key=compound-private-key";
+
+    for (const captureToolResults of [false, true]) {
+      const { spans, runtime } = createRecordingTracer();
+      __setAgentTraceRuntimeForTests(runtime as any);
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", id: "a", tool: "fetch", input: {} });
+          send({
+            type: "tool_done",
+            id: "a",
+            tool: "fetch",
+            result: leakyResult,
+            isError: true,
+          });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          };
+        },
+        loopOpts: {
+          engine: {},
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: `run-otel-error-${captureToolResults}`,
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+
+      const toolSpan = spans.find((span) => span.name === "tool.call");
+      expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+      if (captureToolResults) {
+        expect(toolSpan?.status?.message).toBe(
+          "Error: client_secret=[REDACTED] private_key=[REDACTED]",
+        );
+      } else {
+        expect(toolSpan?.status?.message).toBeUndefined();
+      }
+      expect(JSON.stringify(spans)).not.toContain("compound-secret");
+      expect(JSON.stringify(spans)).not.toContain("compound-private-key");
+    }
   });
 
   it("exports each bracketed model call as a live child span", async () => {
@@ -2092,7 +2164,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const toolSpan = spans.find((span) => span.name === "tool.call");
     expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(toolSpan?.status?.message).toContain("Invalid action parameters");
+    expect(toolSpan?.status?.message).toBeUndefined();
 
     const runSpan = spans.find((span) => span.name === "agent.run");
     expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
