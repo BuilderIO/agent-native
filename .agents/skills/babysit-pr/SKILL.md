@@ -11,9 +11,11 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
-CI and no new feedback. When invoked by `/ship`, continue through its 10-minute
-merge gate and guarded admin merge; a quiet green PR is not a stop condition
-while it remains open.
+CI and no new feedback. When invoked by `/ship`, persist and honor its
+`ship_mode` on every durable wake: `merge-authorized` continues through the
+10-minute gate and guarded admin merge; `ready-only` continues until the PR is
+ready, then leaves it open and cleans up. Never infer standalone mode from a
+resumed `/babysit-pr` prompt.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -52,7 +54,21 @@ If the user asks not to create scheduled tasks, keep this invocation in the
 foreground and do not create or resume a heartbeat. Continue ticking here with
 interruptible waits until a stop condition is reached.
 
-1. Establish a durable self-re-arming tick loop before yielding. Do ONE tick
+1. Carry the parent `/ship` authorization into every durable wake-up. When
+   invoked under `/ship`, put exactly one explicit mode marker in the
+   task-scoped heartbeat prompt and preserve it on every update:
+   `ship_mode=merge-authorized` (the normal `/ship` default) or
+   `ship_mode=ready-only` (after the user explicitly declines merge). Also
+   state that the inherited mode survives resumed ticks and name its endpoint.
+   Do not rely on the parent transcript alone. On every wake, read this marker
+   before applying any stop rule. If an older `/ship` watcher has no marker,
+   recover the mode from the active ship goal and parent transcript; never
+   downgrade an authorized shipment to standalone. If the mode cannot be
+   recovered, stay foreground-only and do not merge or stop under the
+   standalone timer. A user changing the merge decision updates both the ship
+   goal and this persisted marker before the next scheduled wake.
+
+   Establish a durable self-re-arming tick loop before yielding. Do ONE tick
    (see "Each tick"), then schedule the next one with the host's durable
    wake-up facility using this same `/babysit-pr <number> …` invocation. In
    Codex, derive a task-scoped watcher name
@@ -62,7 +78,11 @@ interruptible waits until a stop condition is reached.
    `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
    `targetThreadId: <this task's threadId>`, and
    `notificationPolicy: failed_runs_only`; update that exact task-scoped
-   automation on later ticks. The task-scoped name prevents different
+   automation on later ticks. For example, a merge-authorized prompt must say
+   `ship_mode=merge-authorized; continue this /ship through guarded merge,
+   origin/main proof, and branch disposition; never use the standalone quiet
+   stop`. A ready-only prompt names the open, ready-PR gate and explicitly says
+   to leave it open and not rotate. The task-scoped name prevents different
    invocations from overwriting the same record, but it does not select one
    durable babysitter for the PR. Immediately before any create/resume/update
    that sets `ACTIVE`, re-query the PR and require `OPEN`; a terminal state or
@@ -147,9 +167,15 @@ interruptible waits until a stop condition is reached.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
 3. For standalone `/babysit-pr` without inherited `/ship` authorization, after
    30 minutes of no new actionable items with GitHub Actions CI green, cancel
-   the loop and report "All clear". Under `/ship`, this is not a stop
-   condition: the 10-minute clean merge gate is a trigger to merge, and the
-   task-scoped watcher remains active until the PR merges or closes.
+   the loop and report "All clear". In `ship_mode=merge-authorized`, this is
+   not a stop condition: the 10-minute clean merge gate is a trigger to merge,
+   and the watcher remains active until merge or terminal PR state. In
+   `ship_mode=ready-only`, keep fixing CI/review feedback until the PR is open,
+   required checks are green, every review item is addressed, GitHub reports
+   `MERGEABLE`, no new actionable feedback arrived since the final review scan,
+   the worktree is clean, and no commits are unpushed. Revalidate that gate
+   once, then leave the PR open and clean up the watcher and lease; do not
+   merge, rotate, or wait for the 10-minute merge soak.
 
 After an actionable fix or push, reset the applicable clock: the 30-minute
 quiet-green timer for standalone babysitting, or `/ship`'s 10-minute merge soak.
@@ -436,13 +462,17 @@ If the head-match guard rejects the merge, restart the soak for the new head.
 
 - For standalone `/babysit-pr` only: no new actionable feedback and GitHub
   Actions green for 30 consecutive minutes
+- In `ship_mode=ready-only`: the verified ready-PR endpoint above
 - PR is merged or closed
 
-Under `/ship`, never stop at the 30-minute quiet-green condition. Keep checking
-and fixing CI/review feedback, merge as soon as the 10-minute gate holds, then
-complete watcher cleanup and return to `/ship` for `origin/main` verification
-and branch rotation. A closed but unmerged PR is a terminal PR state, not a
-successful ship; report it without marking the ship goal complete.
+In `ship_mode=merge-authorized`, never stop at the 30-minute quiet-green
+condition. Keep checking and fixing CI/review feedback, merge as soon as the
+10-minute gate holds, then complete watcher cleanup and return to `/ship` for
+`origin/main` verification and branch disposition. A closed but unmerged PR is
+a terminal PR state, not a successful merge-authorized ship; report it without
+marking the goal complete. In `ship_mode=ready-only`, stop only at the verified
+ready-PR endpoint above, leave the PR open, and complete cleanup without a
+merge or branch rotation. Never stop because a resumed wake lost its mode.
 
 Cleanup has two mutually exclusive paths. If this invocation claimed the PR
 lease but did not create or resume its task-scoped heartbeat, release that lease

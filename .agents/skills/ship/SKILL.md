@@ -2,8 +2,9 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. Matching beta and docs
+  babysit it, merge when clean unless the user asks to leave it open, then
+  create a fresh branch. Use when the user asks to ship, publish, or hand off
+  local changes. Matching beta and docs
   paths publish automatically after merge; other production promotion is manual.
 user-invocable: true
 scope: dev
@@ -15,8 +16,8 @@ metadata:
 
 Use /ship only when the user asks to ship, publish, or hand off the current
 work. It means: publish the requested current-branch snapshot, open a ready
-PR, monitor it, merge it when the gates hold, and leave the worktree ready for
-the next task.
+PR, and monitor it through merge unless the user explicitly asks to leave the
+PR open. A merged shipment also leaves the worktree ready for the next task.
 
 ## Contract
 
@@ -24,8 +25,11 @@ the next task.
   branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
-- /ship authorizes the merge once the gates below pass, unless the user says
-  not to merge.
+- `/ship` starts in `ship_mode=merge-authorized`: merge once the gates below
+  pass unless the user explicitly says to leave the PR open. If they opt out,
+  switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
+  PR is ready, then leave it open, clean up the watcher, and do not rotate the
+  branch.
 - That `/ship` request also authorizes one post-merge branch rotation in a
   user-owned checkout, after the merge commit is verified on `origin/main`.
   Platform-assigned Builder.io and Fusion branches stay in place. Apply
@@ -38,8 +42,11 @@ the next task.
   user-owned checkout; preserve platform-assigned branches), while checking and
   fixing CI/review feedback and using the guarded squash-admin merge. If the user explicitly
   opts out of merging, make the goal match that endpoint. Reuse an existing goal
-  only when it covers this shipment; never replace an unrelated goal. Complete
-  the ship goal with `update_goal` only after its stated endpoint is reached.
+  only when it covers this shipment; never replace an unrelated goal. For
+  `ship_mode=ready-only`, set the endpoint to an open PR with green required
+  checks, addressed review feedback with no new actionable item at final
+  revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
+  Complete the ship goal only after its stated endpoint is reached.
   The goal records the objective; `/babysit-pr` owns the checks and durable
   wake-ups.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
@@ -50,10 +57,12 @@ the next task.
   platform-assigned Builder.io and Fusion branches unchanged. A bare `/ship`
   cannot set this native goal on Claude's behalf. Do
   not replace an unrelated active goal; Claude Code permits one per session.
-  The invocation condition is: `Run /ship through the guarded admin merge,
+  The `merge-authorized` invocation condition is: `Run /ship through the guarded admin merge,
   verify origin/main contains the merge commit, then rotate only if the checkout
   is user-owned; keep platform-assigned Builder.io and Fusion branches unchanged.
   Keep fixing CI and review feedback until then.`
+  If the user explicitly opts out of merge, replace that goal with the
+  `ready-only` endpoint above; leave the PR open and do not rotate.
   The goal evaluator reads the transcript, so report the live PR state, merge
   SHA, ancestry proof, and rotation result as they happen. If Claude clears the
   goal after judging it impossible or an unrecoverable error, or pauses it
@@ -79,13 +88,16 @@ the next task.
 1. Preflight the worktree and ownership.
 2. Run focused validation and publish the first coherent snapshot.
 3. Open or update the ready PR immediately.
-4. Run /babysit-pr <number> and keep the watcher or foreground loop active
-   through merge. Its 30-minute green-and-quiet stop applies only to standalone
-   babysitting; it never ends an authorized /ship lifecycle.
-5. Merge only after the live gates hold continuously for 10 minutes.
-6. Verify the merge reached origin/main, then rotate to a fresh branch.
-7. Report source checks, PR, merge, branch rotation, and deployment boundaries
-   separately.
+4. Run `/babysit-pr <number>` with the persisted `ship_mode` and keep the
+   watcher or foreground loop active through the mode's endpoint. The
+   standalone 30-minute stop never ends a `/ship` lifecycle.
+5. In `merge-authorized` mode, merge only after the live gates hold for 10
+   minutes. In `ready-only` mode, stop at the verified ready-PR gate, leave the
+   PR open, and clean up its watcher and lease.
+6. After a merge, verify it reached `origin/main`, then rotate only in a
+   user-owned checkout. `ready-only` shipments do not rotate.
+7. Report source checks, PR, merge or intentional open state, branch
+   disposition, and deployment boundaries separately.
 
 ## Existing PR backlog
 
@@ -104,19 +116,18 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
   keep the watcher quiet until a meaningful state change. Do not send repeated
   "continue" prompts that only renew a lease or restate CI status.
 
-The scheduler is a trigger, not the work. A ship task must inspect, fix,
-publish, merge, verify `origin/main`, and rotate the branch in the same
-lifecycle; it must not stop at a progress report while an actionable PR state
-is available. The original task that received the ship request owns this tail:
-once the gates hold, it captures the final live `headRefOid` and runs
-`gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`
-without waiting for the user or a separate watcher to perform the routine
-merge.
-Under `/ship`, `reviewDecision: REVIEW_REQUIRED` is not a user handoff: once
-required checks are green, the live PR is `MERGEABLE`, and every review item
-has a verified fix, reply, or terminal disposition, the owning task must
-perform the guarded admin merge after the unchanged soak. Never ask the user
-to click Merge for that routine authorized step.
+The scheduler is a trigger, not the work. The original task that received the
+ship request owns its endpoint; it must not stop at a progress report while an
+actionable PR state is available. In `merge-authorized` mode, that endpoint is
+merge, `origin/main` proof, and branch disposition; once the gates hold, the
+owning task captures the final live `headRefOid` and performs the guarded admin
+merge without waiting for the user or a separate watcher. In `ready-only` mode,
+the endpoint is the verified ready-PR gate with the PR intentionally left open.
+Under `merge-authorized`, `reviewDecision: REVIEW_REQUIRED` is not a user
+handoff: once required checks are green, the live PR is `MERGEABLE`, and every
+review item has a verified fix, reply, or terminal disposition, the owning task
+must perform the guarded admin merge after the unchanged soak. Never ask the
+user to click Merge for that routine authorized step.
 
 ## 1. Preflight
 
@@ -204,12 +215,20 @@ review handling, conflict recovery, and cadence. Do not duplicate its lease
 protocol here or end the task after opening the PR without either its watcher
 or a foreground loop.
 
-Under `/ship`, `/babysit-pr` is a blocking subworkflow, not a terminal handoff.
-Do not return "All clear," stop the task, or pause its watcher while the PR is
-open. A green, review-clean, mergeable unchanged head that passes the 10-minute
-gate is an immediate guarded-merge trigger. After the PR merges, continue in
-this task through `origin/main` verification and branch rotation before
-completing the ship goal.
+Under `/ship` with `ship_mode=merge-authorized`, `/babysit-pr` is a blocking
+subworkflow, not a terminal handoff. Do not return "All clear," stop the task,
+or pause its watcher while the PR is open. A green, review-clean, mergeable
+unchanged head that passes the 10-minute gate is an immediate guarded-merge
+trigger. After merge, continue in this task through `origin/main` verification
+and branch disposition before completing the ship goal.
+
+With `ship_mode=ready-only`, continue fixing CI and review feedback until the
+PR is open, required checks are green, all review items are addressed, GitHub
+reports `MERGEABLE`, no new actionable feedback arrived since the final review
+scan, the worktree is clean, and no commits are unpushed. Then leave the PR
+open, pause this task's watcher, release its lease, and return to the parent
+`/ship` goal without merging or rotating. This is the no-merge endpoint, not
+the standalone 30-minute quiet stop.
 
 If a live PR is CONFLICTING, let babysit-pr recover it only after:
 
