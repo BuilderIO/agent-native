@@ -74,6 +74,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
     const bridgeUrl = `http://127.0.0.1:${iframePort}`;
     const onBootReady = vi.fn();
+    const onRoutePathChange = vi.fn();
     let resolveRegistration!: (response: Response) => void;
     const registration = new Promise<Response>((resolve) => {
       resolveRegistration = resolve;
@@ -93,6 +94,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
           onBootReady={onBootReady}
+          onRoutePathChange={onRoutePathChange}
           zoom={100}
           deviceFrame="none"
           editMode
@@ -138,6 +140,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           data: {
             type: "agent-native:editor-chrome-ready",
             routePath: "/account",
+            documentId: "document-account",
           },
           origin: bridgeUrl,
           source: liveIframe?.contentWindow,
@@ -167,6 +170,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
           onBootReady={onBootReady}
+          onRoutePathChange={onRoutePathChange}
           zoom={100}
           deviceFrame="none"
           editMode
@@ -194,6 +198,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           data: {
             type: "agent-native:editor-chrome-ready",
             routePath: "/account",
+            documentId: "document-account",
           },
           origin: bridgeUrl,
           source: liveIframe?.contentWindow,
@@ -210,6 +215,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           data: {
             type: "agent-native:editor-chrome-ready",
             routePath: "/settings",
+            documentId: "document-settings",
           },
           origin: bridgeUrl,
           source: liveIframe?.contentWindow,
@@ -217,6 +223,77 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     expect(onBootReady).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/profile",
+            documentId: "document-profile",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "screen-account",
+      "/profile",
+    );
+    expect(container.textContent).toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          previewUrlOverride="http://localhost:5173/profile"
+          bridgeUrl={bridgeUrl}
+          previewToken="registration-preview-token"
+          onBootReady={onBootReady}
+          onRoutePathChange={onRoutePathChange}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      const currentUrl = new URL(liveIframe!.src);
+      expect(currentUrl.searchParams.get("url")).toBe(
+        "http://localhost:5173/profile",
+      );
+    });
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      liveIframe,
+    );
+    expect(container.textContent).not.toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/settings",
+            documentId: "document-settings",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onRoutePathChange).toHaveBeenCalledTimes(3);
     expect(container.textContent).not.toContain("Preparing live editor");
     expect(liveIframe?.style.pointerEvents).toBe("");
   });

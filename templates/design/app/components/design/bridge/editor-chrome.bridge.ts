@@ -120,6 +120,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:editor-chrome-ready",
         routePath: window.location.pathname + window.location.search,
+        documentId: runtimeDocumentId,
       },
       "*",
     );
