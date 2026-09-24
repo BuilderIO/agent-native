@@ -161,9 +161,10 @@ const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`(?:post|draft|send|leave)\s+(?:(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|a\s+follow[- ]?up)[^.!?\n]{0,120}(?:until|while)[^.!?\n]{0,100}(?:contributor|author|they)[^.!?\n]{0,80}(?:update|respond|reply|address)[^.!?\n]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
   String.raw`(?:wait(?:ed)?|another\s+comment|another\s+reply)[^.!?\n]{0,100}(?:contributor|author|their)[^.!?\n]{0,100}(?:update|respond|reply|address)`,
 ].join("|");
+const PR_REVIEW_HANDOFF_OMISSION_LOOKAHEAD = String.raw`(?:[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b|[^.!?\n]{1,280}[.!?]\s*(?=[^.!?\n]{0,120}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)`;
 const PR_REVIEW_HANDOFF_ANCHORS = String.raw`(?:you|we|the handoff|the (?:recap|summary|report|output)|(?:do not|don't|never|avoid)(?=[^.!?\n]{0,220}\b(?:prior|previous|earlier|outstanding|unanswered)\b)(?=[^.!?\n]{0,220}\b(?:request|comment|ask)\b))`;
 const PR_REVIEW_HANDOFF_RE = new RegExp(
-  String.raw`\b${PR_REVIEW_HANDOFF_ANCHORS}\b(?![^.!?\n]{0,32}\b(?:should|could|would|may|can)\s+(?:post|draft|send|leave)\b)(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=(?:[^.!?\n]{1,280}[.!?]\s*)?[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  String.raw`\b${PR_REVIEW_HANDOFF_ANCHORS}\b(?![^.!?\n]{0,48}\b(?:should|could|would|may|can|must|will|need(?:s)?\s+to|want(?:s)?\s+to|plan(?:s)?\s+to|ought\s+to)\s+(?:post|draft|send|leave)\b)(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=${PR_REVIEW_HANDOFF_OMISSION_LOOKAHEAD})[^.!?\n]{1,280}`,
   "i",
 );
 
@@ -220,6 +221,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "You should draft a follow-up after the contributor addresses Steve's prior request and include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You need to draft a follow-up after the contributor addresses Steve's request. Include screenshot status in the recap.",
+  ],
+  [
+    false,
+    "You didn't fix the failing test. Please tell me which PRs are ready to merge.",
   ],
   [
     false,
