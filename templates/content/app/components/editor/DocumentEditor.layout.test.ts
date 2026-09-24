@@ -421,9 +421,9 @@ describe("document editor layout", () => {
       "app/components/editor/DocumentEditor.tsx",
       "utf8",
     );
-    expect(source).toContain('result.suggestion.status !== "stale"');
+    expect(source).toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /result\.suggestion\.status !== "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+      /result\.suggestion\.status === "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
