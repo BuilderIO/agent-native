@@ -46,9 +46,14 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 Before creating or resuming a heartbeat, query the live PR with
 `gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid`.
-If it is merged or closed, do not create or resume a watcher; if this task
-already owns one, run the stop cleanup below. If the query fails or is
-ambiguous, stay foreground-only until the PR state is known.
+If it is closed but unmerged, do not create or resume a watcher; if this task
+already owns one, clean it up and report the unsuccessful shipment. If it is
+already merged under inherited `ship_mode=merge-authorized`, do not create or
+reactivate a watcher: continue the post-merge path in the foreground, leaving
+an existing owned watcher active until ancestry proof and branch disposition
+finish. Standalone and ready-only invocations clean up and report an unexpected
+merge without rotating. If the query fails or is ambiguous, stay
+foreground-only until the PR state is known.
 
 If the user asks not to create scheduled tasks, keep this invocation in the
 foreground and do not create or resume a heartbeat. Continue ticking here with
@@ -457,16 +462,30 @@ entire gate for the still-open PR: current `headRefOid`, `MERGEABLE` state,
 required checks green, all review items addressed, no new actionable feedback,
 clean worktree, and no unpushed commits. If any condition changed or cannot be
 verified, reset the soak and continue monitoring. Capture the head oid from
-that final check, then run:
+that final check. Before merging under `/ship`, persist it as
+`ship_merge_head_oid=<verified-head-oid>` in Codex's active task-scoped
+heartbeat prompt. Update the complete stored heartbeat definition, changing
+only its prompt, and verify the marker was saved before continuing. In Claude
+Code or a foreground-only run, state the same marker in the active `/goal`
+transcript before merging. Preserve this exact value on every later prompt or
+goal update; never replace it with a live `headRefOid` read after merge. If
+persistence fails, keep the watcher and lease active, continue foreground-only,
+and do not merge until the marker is saved. When no heartbeat is used, do not
+yield before post-merge disposition; if the OID becomes unavailable, retain the
+source branch rather than guessing.
+
+Then run:
 
 ```bash
 gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
 ```
 
-If the head-match guard rejects the merge, restart the soak for the new head.
-When running under `/ship`, return this exact verified PR head OID to the
-parent with the merge SHA so `/new-branch` can safely check for commits added
-after the merged snapshot, even if GitHub has deleted the source branch.
+If the head-match guard rejects the merge, restart the soak for the new head
+and replace the saved head marker only after final revalidation. When the merge
+succeeds under `/ship`, return the saved head marker and immutable
+`mergeCommit.oid` to the parent. A resumed wake may recover the merge SHA from
+the PR's immutable `mergeCommit.oid`; never recover the merged head from the
+mutable live head ref.
 
 ## Stop conditions
 
@@ -489,17 +508,24 @@ branch rotation. Never stop because a resumed wake lost its mode.
 ### Post-merge `/ship` continuation
 
 When a durable wake finds the PR merged under inherited
-`ship_mode=merge-authorized`, capture `mergeCommit.oid` and the exact verified
-`headRefOid`, then continue the parent `/ship` endpoint before pausing the
-watcher or releasing its lease:
+`ship_mode=merge-authorized`, use the immutable `ship_merge_head_oid` saved
+before merge and `mergeCommit.oid` from GitHub or the merge result. Never use
+the current live `headRefOid` as the merged head. If the saved head marker is
+missing, preserve the source branch. Continue the parent `/ship` endpoint
+before pausing the watcher or releasing its lease:
 
 1. Fetch origin and verify `mergeCommit.oid` is an ancestor of `origin/main`.
-   If it has not arrived yet, keep the watcher and lease active and retry on the
-   next tick.
-2. Complete `/ship`'s authorized post-merge branch disposition, passing the
-   verified PR head OID to `/new-branch`. Rotate only when its safety checks
-   pass; otherwise retain the source branch and report the reason.
-3. Re-run the final inline-thread and review-summary audits below.
+   If it has not arrived yet, keep the existing watcher and lease active and
+   retry on its already-scheduled next tick; do not create or reactivate a
+   watcher after the PR is terminal. A foreground-only run continues here.
+2. Re-run the final inline-thread and review-summary audits below before
+   rotating. If new actionable feedback appears after merge, record it as a
+   post-merge follow-up, retain the source branch, and do not restart this PR's
+   merge soak.
+3. Complete `/ship`'s authorized post-merge branch disposition, passing the
+   saved `ship_merge_head_oid` to `/new-branch`. Compare both local and remote
+   source-branch tips. Rotate only when its safety checks pass; otherwise
+   retain the source branch and report why.
 4. Only after ancestry proof, branch disposition, and both audits are complete,
    clean up the watcher and lease.
 
@@ -523,7 +549,9 @@ inline thread. New review feedback resets the merge soak. Do not stop in
 thread audit and review-body audit are clear. "I replied earlier" is not
 sufficient; bots may have posted new rounds since. If either final audit finds
 new actionable feedback, keep the watcher and lease, fix it, and restart the
-soak. Pause/release ownership only after the endpoint is reached and both
+soak while the PR is still open. If it is already merged, record a
+post-merge follow-up, retain the source branch, and do not restart the merged
+PR's soak. Pause/release ownership only after the endpoint is reached and both
 audits pass.
 
 ## Cleanup

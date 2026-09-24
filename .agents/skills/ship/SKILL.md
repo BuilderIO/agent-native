@@ -30,10 +30,12 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
   PR is ready, then leave it open, clean up the watcher, and do not rotate the
   branch.
-- Retain the exact PR head OID captured by the guarded merge through
-  post-merge branch disposition; `/new-branch` uses it to distinguish the
-  merged snapshot from later unpushed commits, even if GitHub deletes the PR
-  source branch.
+- Before the guarded merge in Codex, persist its exact verified PR head OID as
+  `ship_merge_head_oid` in the task-scoped watcher prompt. In Claude Code,
+  report that exact OID in the active `/goal` transcript before merging and keep
+  the session foregrounded through post-merge disposition. Carry the immutable
+  value through `/new-branch`; never replace it with a live PR head read after
+  merge, because the source branch may advance or be deleted.
 - That `/ship` request also authorizes one post-merge branch rotation in a
   user-owned checkout, after the merge commit is verified on `origin/main`.
   Platform-assigned Builder.io and Fusion branches stay in place. Apply

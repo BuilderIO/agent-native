@@ -64,31 +64,75 @@ current user-owned worktree, confirm there are no unpushed commits on any path
 and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
 may remain dirty. If any unpushed commit remains, keep the source branch checked
 out and report the commit hashes instead of rotating. This preserves commits
-excluded from `/ship:push`. Use the exact PR head OID captured immediately
-before the guarded merge; this remains verifiable if GitHub deletes the source
-branch after squash merge. Fetch origin, choose a unique name with the Branch
-naming rules, and create directly from `origin/main` only after this check:
+excluded from `/ship:push`. Use the immutable `ship_merge_head_oid` captured
+before the guarded merge (from the Codex watcher prompt or Claude `/goal`
+transcript); never substitute the live `headRefOid` after merge. This remains
+verifiable if GitHub deletes the source branch after squash merge. Fetch origin
+and inspect both local and remote source-branch tips before choosing a name and
+creating directly from `origin/main`:
 
 ```bash
-git fetch origin
-ship_head=<verified-pr-head-oid>
-if ! git cat-file -e "$ship_head^{commit}" || ! git merge-base --is-ancestor "$ship_head" HEAD; then
-  echo "Cannot verify the merged PR head in this branch; keep the source branch." >&2
+if ! git fetch --no-prune origin; then
+  echo "Cannot refresh origin; keep the source branch." >&2
   exit 1
 fi
-if ! unpublished=$(git log --oneline "$ship_head"..HEAD); then
-  echo "Cannot verify unpublished commits; keep the source branch." >&2
+branch=$(git branch --show-current)
+if [ -z "$branch" ]; then
+  echo "Detached checkout; keep the current worktree unchanged." >&2
   exit 1
 fi
-if [ -n "$unpublished" ]; then
-  printf '%s\n' "$unpublished"
+ship_head="<persisted-ship_merge_head_oid>"
+if ! git cat-file -e "$ship_head^{commit}"; then
+  echo "Cannot verify the immutable merged PR head; keep the source branch." >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$ship_head" HEAD; then
+  echo "Local HEAD does not contain the merged PR head; keep the source branch." >&2
+  git log --oneline HEAD --not "$ship_head"
+  exit 1
+fi
+remote_line=$(git ls-remote --heads origin "refs/heads/$branch") || {
+  echo "Cannot inspect the remote source branch; keep the source branch." >&2
+  exit 1
+}
+remote_ref="refs/remotes/origin/$branch"
+if [ -n "$remote_line" ] && ! git fetch --no-prune origin "refs/heads/$branch:$remote_ref"; then
+  echo "Cannot refresh the remote source branch; keep the source branch." >&2
+  exit 1
+fi
+local_unpublished=$(git log --oneline "$ship_head"..HEAD) || {
+  echo "Cannot inspect local commits; keep the source branch." >&2
+  exit 1
+}
+remote_unpublished=
+if git show-ref --verify --quiet "$remote_ref"; then
+  if ! git merge-base --is-ancestor "$ship_head" "$remote_ref"; then
+    echo "Remote source branch diverged from the merged PR head; keep the source branch." >&2
+    git log --oneline "$remote_ref" --not "$ship_head"
+    exit 1
+  fi
+  remote_unpublished=$(git log --oneline "$ship_head".."$remote_ref") || {
+    echo "Cannot inspect remote commits; keep the source branch." >&2
+    exit 1
+  }
+fi
+if [ -n "$local_unpublished" ] || [ -n "$remote_unpublished" ]; then
+  if [ -n "$local_unpublished" ]; then
+    printf 'Local commits after the merged PR head:\n%s\n' "$local_unpublished"
+  fi
+  if [ -n "$remote_unpublished" ]; then
+    printf 'Remote commits after the merged PR head:\n%s\n' "$remote_unpublished"
+  fi
   echo "Keeping the source branch; report these commits instead of rotating."
 else
-  git switch -c <github-username>/changes-N origin/main
+  # Replace with a unique name following the Branch naming rules above.
+  new_branch="<github-username>/changes-N"
+  git switch -c "$new_branch" origin/main
 fi
 ```
 
-This checks all paths; do not use `/ship`'s excluded-path filter for rotation.
+These unfiltered checks cover local and remote commits on every path; do not
+use `/ship`'s excluded-path filter for rotation.
 
 Verify the new branch points at current `origin/main` and the excluded local
 changes are still present. Do not check out or pull a local `main`, stash,
