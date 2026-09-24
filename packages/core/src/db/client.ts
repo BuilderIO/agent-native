@@ -1230,12 +1230,21 @@ export class HostedRuntimeLocalDatabaseError extends Error {
  * still allowed to touch PGlite under `withMigrationRuntime()` — that path is
  * guarded separately by `assertReleaseMigrationTargetsRemoteDatabase()`.
  *
- * `isEmbeddedRuntimeAuthorized()` is checked next: `createAgentNativeEmbeddedPlugin()`
- * hosts (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
- * and — unlike the `NODE_ENV=test` integration-suite case `isServerRuntimeStarted()`'s
- * own gate below assumed — a real packaged install runs with `NODE_ENV=production`,
- * so that gate alone does not exempt it. `configureAgentNativeEmbeddedEnvironment()`
- * claims this duty whenever the embedding host supplies an explicit `databaseUrl`.
+ * A real hosted function invocation (`isHostedFunctionInvocationRuntime()`)
+ * always refuses next, before `isEmbeddedRuntimeAuthorized()` is even
+ * consulted: Netlify/Vercel/Lambda/Cloudflare are never a legitimate context
+ * for "this is an intentionally embedded desktop app," regardless of
+ * whether the local database was deliberately configured — an embedded host
+ * that ends up actually running as one of those ephemeral, multi-instance
+ * platforms hits the exact per-instance-PGlite failure the guard exists to
+ * prevent either way. `isEmbeddedRuntimeAuthorized()` only exempts the
+ * bare Node/Docker branch below: `createAgentNativeEmbeddedPlugin()` hosts
+ * (packaged/desktop installs) deliberately pass a `pglite:` `databaseUrl`,
+ * and — unlike the `NODE_ENV=test` integration-suite case
+ * `isServerRuntimeStarted()`'s own gate assumed — a real packaged install
+ * runs with `NODE_ENV=production`, so that gate alone does not exempt it.
+ * `configureAgentNativeEmbeddedEnvironment()` claims this duty whenever the
+ * embedding host supplies an explicit `databaseUrl`.
  *
  * `isServerRuntimeStarted()` is additionally gated on `NODE_ENV === "production"`
  * here, unlike `isHostedFunctionInvocationRuntime()`'s Cloudflare branch:
@@ -1244,13 +1253,12 @@ export class HostedRuntimeLocalDatabaseError extends Error {
  */
 export function assertHostedRuntimeDatabase(): void {
   if (isMigrationAuthorizedRuntime()) return;
+  if (!isLocalDatabase()) return;
+  if (isHostedFunctionInvocationRuntime()) {
+    throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
+  }
   if (isEmbeddedRuntimeAuthorized()) return;
-  const isLiveNodeServer =
-    process.env.NODE_ENV === "production" && isServerRuntimeStarted();
-  if (
-    (isHostedFunctionInvocationRuntime() || isLiveNodeServer) &&
-    isLocalDatabase()
-  ) {
+  if (process.env.NODE_ENV === "production" && isServerRuntimeStarted()) {
     throw new HostedRuntimeLocalDatabaseError(getRuntimeDatabaseSource());
   }
 }

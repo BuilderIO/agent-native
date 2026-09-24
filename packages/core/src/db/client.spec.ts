@@ -477,12 +477,17 @@ describe("initClient hosted-runtime local database guard", () => {
     vi.resetModules();
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
-    // markServerRuntimeStarted() is permanent by design (mirrors a real
-    // server's whole-process lifetime) — a test that calls it must undo it
-    // itself, or it silently stays true for every later test in the file.
+    // markServerRuntimeStarted() / markEmbeddedRuntimeAuthorized() are
+    // permanent by design (mirror a real process's whole lifetime) — a test
+    // that calls either must undo it itself, or it silently stays true for
+    // every later test in the file.
     Reflect.deleteProperty(
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_EMBEDDED_RUNTIME__",
     );
   });
 
@@ -604,6 +609,33 @@ describe("initClient hosted-runtime local database guard", () => {
     await withMigrationRuntime(async () => {
       expect(() => assertHostedRuntimeDatabase()).not.toThrow();
     });
+  });
+
+  // Regression: isEmbeddedRuntimeAuthorized() used to be checked before
+  // isHostedFunctionInvocationRuntime(), so it exempted a real serverless
+  // invocation too — an embedded host that actually ends up running as a
+  // Netlify/Vercel/Lambda/Cloudflare function would silently keep its local
+  // PGlite, recreating the exact per-instance-fallback bug this guard exists
+  // to prevent. The embedded exemption must only cover the bare Node/Docker
+  // branch.
+  it("still throws on a real hosted function invocation even when embedded-runtime authorized", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markEmbeddedRuntimeAuthorized } =
+      await import("./embedded-runtime.js");
+    markEmbeddedRuntimeAuthorized();
+    vi.stubEnv("DATABASE_URL", "pglite:./data/embedded");
+
+    expect(() => assertHostedRuntimeDatabase()).toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
   });
 });
 
