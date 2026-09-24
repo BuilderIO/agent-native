@@ -1106,9 +1106,8 @@ async function rotateTwoFactorSession(
     );
   }
   if (replacement.token === session.token) return;
-  await addSession(replacement.token, replacement.email);
+  await replaceSession(session.token, replacement.token, replacement.email);
   setFrameworkSessionCookie(event, replacement.token);
-  await removeSession(session.token);
 }
 
 function betterAuthApiBody(result: unknown): Record<string, any> {
@@ -1902,6 +1901,31 @@ export async function addSession(token: string, email?: string): Promise<void> {
   );
   // The upsert can REBIND an existing token to a different email, so a cached
   // resolution for it is now wrong.
+  invalidateSessionEmailCache();
+}
+
+async function replaceSession(
+  oldToken: string,
+  newToken: string,
+  email?: string,
+): Promise<void> {
+  await ensureSessionTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Session rotation requires database transactions.");
+  }
+  await retryIfSessionsMissing(() =>
+    client.transaction!(async (tx) => {
+      await tx.execute({
+        sql: `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`,
+        args: [newToken, email ?? null, Date.now()],
+      });
+      await tx.execute({
+        sql: `DELETE FROM sessions WHERE token = ?`,
+        args: [oldToken],
+      });
+    }),
+  );
   invalidateSessionEmailCache();
 }
 

@@ -1352,11 +1352,14 @@ describe("server/auth", () => {
       const betterAuthSessions = new Set(["current-session-token"]);
       let failBetterAuthSessionLookup = false;
       let failLegacySessionMirror = false;
+      let failLegacySessionRemoval = false;
+      let transactionSessions: Map<string, string> | undefined;
       const execute = vi.fn(
         async (query: { sql: string; args?: unknown[] }) => {
           const token = query.args?.[0] as string | undefined;
+          const sessions = transactionSessions ?? legacySessions;
           if (query.sql.includes("SELECT email, created_at FROM sessions")) {
-            const rowEmail = token ? legacySessions.get(token) : undefined;
+            const rowEmail = token ? sessions.get(token) : undefined;
             return {
               rows: rowEmail
                 ? [{ email: rowEmail, created_at: Date.now() }]
@@ -1364,12 +1367,13 @@ describe("server/auth", () => {
             };
           }
           if (query.sql.startsWith("DELETE FROM sessions WHERE token = ?")) {
-            if (token) legacySessions.delete(token);
+            if (failLegacySessionRemoval) throw new Error("connection reset");
+            if (token) sessions.delete(token);
             return { rows: [] };
           }
           if (query.sql.startsWith("INSERT INTO sessions")) {
             if (failLegacySessionMirror) throw new Error("connection reset");
-            if (token) legacySessions.set(token, query.args?.[1] as string);
+            if (token) sessions.set(token, query.args?.[1] as string);
             return { rows: [] };
           }
           if (query.sql.includes('FROM "session" s JOIN "user"')) {
@@ -1383,7 +1387,24 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute }),
+        getDbExec: () => ({
+          execute,
+          transaction: async (
+            run: (tx: { execute: typeof execute }) => unknown,
+          ) => {
+            transactionSessions = new Map(legacySessions);
+            try {
+              const result = await run({ execute });
+              legacySessions.clear();
+              for (const [token, rowEmail] of transactionSessions) {
+                legacySessions.set(token, rowEmail);
+              }
+              return result;
+            } finally {
+              transactionSessions = undefined;
+            }
+          },
+        }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
@@ -1486,9 +1507,10 @@ describe("server/auth", () => {
         expect(issueReplacementSession).toHaveBeenCalledTimes(callCount);
       }
 
-      for (const [path, failLookup, failMirror] of [
-        ["/_agent-native/auth/two-factor/enable", true, false],
-        ["/_agent-native/auth/two-factor/disable", false, true],
+      for (const [path, failLookup, failMirror, failRemoval] of [
+        ["/_agent-native/auth/two-factor/enable", true, false, false],
+        ["/_agent-native/auth/two-factor/disable", false, true, false],
+        ["/_agent-native/auth/two-factor/enable", false, false, true],
       ] as const) {
         legacySessions.clear();
         legacySessions.set("current-session-token", email);
@@ -1496,6 +1518,7 @@ describe("server/auth", () => {
         betterAuthSessions.add("current-session-token");
         failBetterAuthSessionLookup = failLookup;
         failLegacySessionMirror = failMirror;
+        failLegacySessionRemoval = failRemoval;
 
         const handler = app.use.mock.calls.find(
           (call: any[]) => call[0] === path,
