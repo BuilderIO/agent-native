@@ -74,6 +74,11 @@ export default defineAction({
     console.log(
       `Delegation queued: remove-filler-words for ${args.recordingId}`,
     );
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      kind: "remove-filler-words",
+      requestedAt,
+      recordingId: args.recordingId,
+    };
   },
 });

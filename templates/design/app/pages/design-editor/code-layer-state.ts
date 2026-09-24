@@ -625,7 +625,10 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
 }
 
 export function camelCaseCssProperty(property: string): string {
-  return property.replace(/-([a-z])/g, (_, letter: string) =>
+  const normalized = property.startsWith("-webkit-")
+    ? property.slice(1)
+    : property;
+  return normalized.replace(/-([a-z])/g, (_, letter: string) =>
     letter.toUpperCase(),
   );
 }

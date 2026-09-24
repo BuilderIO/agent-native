@@ -161,30 +161,6 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
-/** Show the first-click hint only for plain pointer picks on containers. */
-export function shouldShowDeepSelectGuidance(
-  info: ElementInfo | null | undefined,
-  intent: ElementSelectionIntent | undefined,
-): boolean {
-  return Boolean(
-    info &&
-    intent?.source === "pointer" &&
-    !intent.additive &&
-    !intent.range &&
-    !intent.shiftKey &&
-    !intent.metaKey &&
-    !intent.ctrlKey &&
-    !isScreenRootElementInfo(info) &&
-    !isLeafLayerElementInfo(info) &&
-    (info.childElementCount ?? 0) > 0,
-  );
-}
-
-/** Text spans and SVG paths are DOM children, not layers a deep pick reaches. */
-function isLeafLayerElementInfo(info: ElementInfo): boolean {
-  return info.primitiveKind === "text" || info.tagName?.toUpperCase() === "SVG";
-}
-
 /**
  * MultiScreenCanvas keeps the owning screen in `selectedIds` while an element
  * inside it is selected, so every overview command reading that array (Delete,

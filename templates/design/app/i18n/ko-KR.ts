@@ -587,11 +587,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "{{modifier}}를 누른 채 클릭하면 내부 레이어를 선택할 수 있습니다.",
-      dismiss: "레이어 선택 팁 닫기",
-    },
     autoLayoutSuggestion: {
       menuLabel: "오토 레이아웃 제안…",
       title: "오토 레이아웃 제안",

@@ -5,6 +5,20 @@ export function deckAccessCheckKey(
   return deckId ? JSON.stringify([deckId, orgId ?? null]) : null;
 }
 
+export async function retryMissingDeck({
+  refetchOrg,
+  reloadDecks,
+  refetchAccessStatus,
+}: {
+  refetchOrg: () => Promise<unknown>;
+  reloadDecks: () => Promise<unknown>;
+  refetchAccessStatus: () => Promise<unknown>;
+}): Promise<void> {
+  await refetchOrg();
+  await reloadDecks();
+  await refetchAccessStatus();
+}
+
 export function shouldShowDeckEditorSkeleton({
   deckFound,
   decksLoading,
@@ -12,7 +26,7 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey,
   checkedAccessKey,
   retrying,
-  privateDeckAccessConfirmed,
+  deckAccessDeniedConfirmed,
 }: {
   deckFound: boolean;
   decksLoading: boolean;
@@ -20,13 +34,11 @@ export function shouldShowDeckEditorSkeleton({
   accessCheckKey: string | null;
   checkedAccessKey: string | null;
   retrying: boolean;
-  privateDeckAccessConfirmed: boolean;
+  deckAccessDeniedConfirmed: boolean;
 }): boolean {
-  // A private deck intentionally returns 404 from the content action. The
-  // metadata-only access check is the source of truth for this state, so do
-  // not leave the user on the editor skeleton while that protected fetch
-  // settles.
-  if (privateDeckAccessConfirmed) return false;
+  // The metadata-only access check is authoritative even when loading the
+  // protected deck list fails or stays pending.
+  if (deckAccessDeniedConfirmed) return false;
   if (decksLoading) return true;
   if (deckFound || !accessCheckKey) return false;
   return orgLoading || checkedAccessKey !== accessCheckKey || retrying;

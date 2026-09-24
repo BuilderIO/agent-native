@@ -692,10 +692,6 @@ export default {
       zoomToPreset: "縮放至 {{percent}}%",
       exit: "結束響應式預覽",
     },
-    deepSelectGuidance: {
-      message: "按住 {{modifier}} 並點擊以選取內部圖層。",
-      dismiss: "關閉圖層選取提示",
-    },
     askAgent: "詢問代理",
     designNotFoundDescription: "此設計不存在，或已被刪除。",
     requestAccessTitle: "請求存取此設計",

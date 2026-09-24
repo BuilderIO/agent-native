@@ -3,7 +3,6 @@ import { screenToCanvasPoint } from "@shared/canvas-math";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
-import { getScreenContentPointFromClient } from "@/components/design/design-canvas/coordinate-transforms";
 import { SURFACE_PADDING } from "@/components/design/multi-screen/overview-layout";
 import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
@@ -64,19 +63,16 @@ export function pngDensityScale(bytes: Uint8Array): number {
 async function pastedImageDisplaySize(
   file: File,
 ): Promise<{ width: number; height: number } | null> {
-  const url = URL.createObjectURL(file);
-  const image = new Image();
-  image.src = url;
+  let width: number;
+  let height: number;
   try {
-    await image.decode();
-    // coercion-ok: null is "undecodable"; the caller reports it and skips the file
+    ({ width, height } = await readPastedImageDimensions(
+      file,
+      previewUrl ?? URL.createObjectURL(file),
+    ));
   } catch {
     return null;
-  } finally {
-    URL.revokeObjectURL(url);
   }
-  const { naturalWidth: width, naturalHeight: height } = image;
-  if (!width || !height) return null;
   const scale =
     file.type === "image/png"
       ? pngDensityScale(
@@ -138,18 +134,110 @@ export async function pastedFileLayerHtml(
   };
 }
 
-export function replacePastedImageSource(
+type PastedImageDimensions = { width: number; height: number };
+
+function validDimensions(
+  width: number,
+  height: number,
+): PastedImageDimensions | null {
+  return Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0
+    ? { width, height }
+    : null;
+}
+
+async function readPastedImageDimensions(
+  file: File,
+  previewUrl: string | null,
+): Promise<PastedImageDimensions> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const dimensions = validDimensions(bitmap.width, bitmap.height);
+      bitmap.close();
+      if (dimensions) return dimensions;
+    } catch (error) {
+      if (!previewUrl || typeof Image === "undefined") throw error;
+      // Fall back to the browser image decoder below.
+    }
+  }
+
+  if (previewUrl && typeof Image !== "undefined") {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const dimensions = validDimensions(
+          image.naturalWidth,
+          image.naturalHeight,
+        );
+        if (dimensions) resolve(dimensions);
+        else reject(new Error("Pasted image has invalid dimensions"));
+      };
+      image.onerror = () => reject(new Error("Pasted image could not decode"));
+      image.src = previewUrl;
+    });
+  }
+
+  throw new Error("Could not decode pasted image dimensions");
+}
+
+async function readPastedVideoDimensions(
+  previewUrl: string | null,
+): Promise<PastedImageDimensions> {
+  if (!previewUrl || typeof document === "undefined") {
+    throw new Error("Could not decode pasted video dimensions");
+  }
+  return await new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const timeout = window.setTimeout(() => {
+      finish(new Error("Pasted video metadata timed out"));
+    }, 15_000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeAttribute("src");
+      video.load();
+    };
+    const finish = (error?: Error) => {
+      const dimensions = error
+        ? null
+        : validDimensions(video.videoWidth, video.videoHeight);
+      cleanup();
+      if (error) reject(error);
+      else if (dimensions) resolve(dimensions);
+      else reject(new Error("Pasted video has invalid dimensions"));
+    };
+    video.preload = "metadata";
+    video.addEventListener("loadedmetadata", () => finish(), { once: true });
+    video.addEventListener(
+      "error",
+      () => finish(new Error("Pasted video could not decode")),
+      { once: true },
+    );
+    video.src = previewUrl;
+    video.load();
+  });
+}
+
+function pastedImageStyle({ width, height }: PastedImageDimensions): string {
+  return `position:absolute;width:${width}px;height:${height}px;`;
+}
+
+export function replacePastedMediaSource(
   content: string,
   nodeId: string,
   source: string | null,
 ): string {
   const document = new DOMParser().parseFromString(content, "text/html");
-  const image = Array.from(
-    document.querySelectorAll<HTMLImageElement>("img"),
+  const media = Array.from(
+    document.querySelectorAll<HTMLImageElement | HTMLVideoElement>(
+      "img, video",
+    ),
   ).find((candidate) => candidate.dataset.agentNativeNodeId === nodeId);
-  if (!image) return content;
-  if (source) image.setAttribute("src", source);
-  else image.remove();
+  if (!media) return content;
+  if (source) media.setAttribute("src", source);
+  else media.remove();
   return `<!DOCTYPE html>\n${document.documentElement.outerHTML}`;
 }
 
@@ -205,9 +293,44 @@ export interface PastedImageFilesArgs {
     rootNodeIds: string[],
   ) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
-  uploadImageFileForHtml: (file: File) => Promise<string>;
+  uploadMediaFileForHtml: (file: File) => Promise<string>;
   viewModeRef: RefObject<"single" | "overview">;
   zoom: number;
+}
+
+export function getOverviewCanvasCenter(container: HTMLDivElement | null): {
+  x: number;
+  y: number;
+} {
+  const fallback = { x: 120, y: 120 };
+  const rect = container?.getBoundingClientRect();
+  const world = container?.querySelector<HTMLElement>(
+    "[data-multi-screen-canvas-world]",
+  );
+  if (!rect || !world || typeof DOMMatrixReadOnly === "undefined") {
+    return fallback;
+  }
+
+  const transform = getComputedStyle(world).transform;
+  const matrix = new DOMMatrixReadOnly(
+    transform === "none" ? undefined : transform,
+  );
+  const zoom = matrix.a * 100;
+  if (
+    !Number.isFinite(matrix.e) ||
+    !Number.isFinite(matrix.f) ||
+    !Number.isFinite(zoom) ||
+    zoom <= 0
+  ) {
+    return fallback;
+  }
+
+  return screenToCanvasPoint(
+    { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    { x: matrix.e, y: matrix.f, zoom },
+    { x: rect.left, y: rect.top },
+    SURFACE_PADDING,
+  );
 }
 
 export function runPastedImageFiles(
@@ -229,7 +352,7 @@ export function runPastedImageFiles(
     replacePreviewContent,
     selectInsertedLayers,
     t,
-    uploadImageFileForHtml,
+    uploadMediaFileForHtml,
     viewModeRef,
     zoom,
   }: PastedImageFilesArgs,
@@ -295,8 +418,8 @@ export function runPastedImageFiles(
     void (async () => {
       for (const file of files) {
         if (isSvgFile(file) && (await insertSvgFile(file))) continue;
-        const size = await pastedImageDisplaySize(file);
-        if (!size) {
+        const isVideo = file.type.toLowerCase().startsWith("video/");
+        if (!isVideo && !file.type.toLowerCase().startsWith("image/")) {
           toast.error(t("common.genericError"));
           continue;
         }
@@ -306,19 +429,35 @@ export function runPastedImageFiles(
           targetFileId === activeFile?.id
             ? getFreshActiveContent()
             : (getScreenContent(targetFileId) ?? "");
-        const position = topLeftFor(size);
         const nodeId = uniqueLayerId("pasted-image");
-        const imageHtml = (src: string) =>
-          pastedImageHtml(src, file, size, nodeId);
         const previewUrl =
           typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
             : null;
-        const previewContent = cloneHtmlLayerAtPosition(
-          baseContent,
-          imageHtml(previewUrl ?? ""),
-          position,
-        );
+        let dimensions: PastedImageDimensions;
+        try {
+          dimensions = isVideo
+            ? await readPastedVideoDimensions(previewUrl)
+            : await readPastedImageDimensions(file, previewUrl);
+        } catch {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+          toast.error(t("common.genericError"));
+          continue;
+        }
+        const position = topLeftFor(dimensions);
+        const mediaStyle = pastedImageStyle(dimensions);
+        const mediaName = escapeHtmlAttributeValue(file.name);
+        const positionedStyle = `${mediaStyle}left:${position.x}px;top:${position.y}px;`;
+        const html = isVideo
+          ? `<video src="${escapeHtmlAttributeValue(previewUrl ?? "")}" controls playsinline preload="metadata" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="${mediaName}" style="${positionedStyle}"></video>`
+          : pastedImageHtml(previewUrl ?? "", file, dimensions, nodeId).replace(
+              mediaStyle,
+              positionedStyle,
+            );
+        const previewContent = cloneHtmlLayerAtPosition(baseContent, html, {
+          x: position.x,
+          y: position.y,
+        });
         if (!previewContent) {
           if (previewUrl) URL.revokeObjectURL(previewUrl);
           toast.error(t("designEditor.toasts.duplicateElementFailed"));
@@ -331,8 +470,10 @@ export function runPastedImageFiles(
             : (Array.from(
                 new DOMParser()
                   .parseFromString(previewContent, "text/html")
-                  .querySelectorAll<HTMLImageElement>("img"),
-              ).find((image) => image.getAttribute("src") === previewUrl)
+                  .querySelectorAll<HTMLImageElement | HTMLVideoElement>(
+                    "img, video",
+                  ),
+              ).find((media) => media.getAttribute("src") === previewUrl)
                 ?.dataset.agentNativeNodeId ?? nodeId);
         if (previewUrl && targetFileId === activeFile?.id) {
           replacePreviewContent(previewContent, null, {
@@ -342,20 +483,15 @@ export function runPastedImageFiles(
         selectInsertedLayers(targetFileId, previewContent, [insertedNodeId]);
 
         try {
-          const imageUrl = await uploadImageFileForHtml(file);
+          const imageUrl = await uploadMediaFileForHtml(file);
           const durableContent =
             targetFileId === activeFile?.id
               ? getFreshActiveContent()
               : (getScreenContent(targetFileId) ?? "");
-          const durableImageUrl =
+          const durableMediaUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
           // The preview node reaches durable content only if an edit during
           // the upload persisted it; otherwise insert it now under the same id.
-          const withSource = replacePastedImageSource(
-            durableContent,
-            insertedNodeId,
-            durableImageUrl,
-          );
           const activePreviewContent =
             targetFileId === activeFile?.id
               ? (getFreshActivePreviewContent?.() ?? null)
@@ -363,30 +499,37 @@ export function runPastedImageFiles(
           const deletedWhilePending =
             activePreviewContent !== null &&
             !activePreviewContent.includes(`"${insertedNodeId}"`);
+          const currentContent = activePreviewContent ?? durableContent;
+          const replacedContent = replacePastedMediaSource(
+            currentContent,
+            insertedNodeId,
+            durableMediaUrl,
+          );
           const nextContent =
-            withSource === durableContent &&
-            durableImageUrl &&
-            !deletedWhilePending
-              ? (insertClonedHtmlLayers(
+            replacedContent !== currentContent ||
+            !durableMediaUrl ||
+            deletedWhilePending
+              ? replacedContent
+              : (insertClonedHtmlLayers(
                   durableContent,
                   [
-                    pastedImageHtml(
-                      durableImageUrl,
-                      file,
-                      size,
-                      insertedNodeId,
-                    ),
+                    isVideo
+                      ? `<video src="${escapeHtmlAttributeValue(durableMediaUrl)}" controls playsinline preload="metadata" data-agent-native-node-id="${insertedNodeId}" data-agent-native-layer-name="${mediaName}" style="${mediaStyle}"></video>`
+                      : pastedImageHtml(
+                          durableMediaUrl,
+                          file,
+                          dimensions,
+                          insertedNodeId,
+                        ),
                   ],
                   {
                     positions: [{ ...position, space: "visual" }],
                     preserveIncomingNodeIds: true,
                   },
-                )?.content ?? durableContent)
-              : withSource;
-          if (nextContent !== durableContent) {
-            applyDurableContent(nextContent);
-          } else if (targetFileId === activeFile?.id) {
-            replacePreviewContent(durableContent, null, {
+                )?.content ?? durableContent);
+          if (nextContent !== durableContent) applyDurableContent(nextContent);
+          if (!durableMediaUrl && targetFileId === activeFile?.id) {
+            replacePreviewContent(currentContent, null, {
               forceFullDocument: true,
             });
           }
@@ -486,7 +629,7 @@ export function runPastedImageFiles(
           x: visible.x + visible.width / 2,
           y: visible.y + visible.height / 2,
         }
-      : { x: 120, y: 120 };
+      : getOverviewCanvasCenter(canvasContainerRef.current);
   })();
   const hitFrame = findScreenFrameAtCanvasPoint(
     anchorCanvasPoint,
@@ -529,12 +672,13 @@ export function canvasPointFromClient(
       const [scaleX, skewY, skewX, scaleY, panX, panY] = matrixValues;
       if (scaleX !== 0 && scaleX === scaleY && skewY === 0 && skewX === 0) {
         const rect = surface.getBoundingClientRect();
-        return screenToCanvasPoint(
+        const point = screenToCanvasPoint(
           { x: clientX, y: clientY },
           { x: panX!, y: panY!, zoom: scaleX! * 100 },
           { x: rect.left, y: rect.top },
           SURFACE_PADDING,
         );
+        return point;
       }
     }
   }

@@ -7,6 +7,7 @@ export type {
   FeedbackEntry,
   InstructionUpdateStatus,
   InstructionUpdate,
+  OutputReviewListRow,
   OutputReviewRow,
   SatisfactionScore,
   EvalType,

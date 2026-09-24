@@ -1689,7 +1689,7 @@ export function AuthPage(props: AuthPageProps) {
       } else {
         window.location.href = data.url;
       }
-    } catch (error) {
+    } catch {
       try {
         popup?.close();
       } catch {
@@ -1699,7 +1699,7 @@ export function AuthPage(props: AuthPageProps) {
       setGoogleBusy(false);
       setNotice("google", {
         kind: "error",
-        text: error instanceof Error ? error.message : t("failedToConnect"),
+        text: t("failedToConnect"),
       });
     }
   }, [

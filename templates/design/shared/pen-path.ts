@@ -13,12 +13,6 @@ export interface PenNode {
   mirroring?: PenMirroring;
 }
 
-const MIRRORING_CODES: readonly PenMirroring[] = [
-  "none",
-  "angle",
-  "angleAndLength",
-];
-
 function copyVertexMeta(from: PenNode, to: PenNode): PenNode {
   if (from.cornerRadius !== undefined) to.cornerRadius = from.cornerRadius;
   if (from.mirroring !== undefined) to.mirroring = from.mirroring;
@@ -110,6 +104,22 @@ export function appendPenNode(path: PenPath | null, node: PenNode): PenPath {
     nodes: [...(path?.nodes ?? []), clonePenNode(node)],
     closed: false,
   };
+}
+
+export function resumePenPathAtEnd(
+  path: PenPath,
+  point: PenPoint,
+  hitRadius: number,
+): PenPath | null {
+  if (path.closed || path.nodes.length < 2) return null;
+  const end = path.nodes[path.nodes.length - 1];
+  if (
+    !end ||
+    Math.hypot(end.point.x - point.x, end.point.y - point.y) > hitRadius
+  ) {
+    return null;
+  }
+  return clonePenPath(path);
 }
 
 export function clonePenPath(path: PenPath): PenPath {
@@ -384,33 +394,23 @@ function cubicBezierValue(
  * for vector edit mode.
  *
  * Format: `JSON.stringify([closedFlag, ...nodeTuples])` where each node
- * tuple is `[px, py, hix, hiy, hox, hoy]` and a missing handle is encoded as
- * `null` for both of its coordinates. This is plain JSON (no raw `"`, `<`,
+ * tuple is `[px, py, hix, hiy, hox, hoy, radius]`; missing handles and
+ * radii are encoded as `null` for both handle coordinates / the radius. This is plain JSON (no raw `"`, `<`,
  * `>`, or `&`), so it round-trips safely through `Element.setAttribute` /
  * `getAttribute` without any additional escaping, and stays compact because
  * every node is a flat numeric array rather than an object with repeated
  * key names.
  */
 export function serializePenNodes(path: PenPath): string {
-  const tuples: PenNodeTuple[] = path.nodes.map((node) => {
-    const tuple: PenNodeTuple = [
-      node.point.x,
-      node.point.y,
-      node.handleIn ? node.handleIn.x : null,
-      node.handleIn ? node.handleIn.y : null,
-      node.handleOut ? node.handleOut.x : null,
-      node.handleOut ? node.handleOut.y : null,
-    ];
-    if (node.mirroring !== undefined) {
-      tuple.push(
-        node.cornerRadius ?? null,
-        MIRRORING_CODES.indexOf(node.mirroring),
-      );
-    } else if (node.cornerRadius !== undefined) {
-      tuple.push(node.cornerRadius);
-    }
-    return tuple;
-  });
+  const tuples: PenNodeTuple[] = path.nodes.map((node) => [
+    node.point.x,
+    node.point.y,
+    node.handleIn ? node.handleIn.x : null,
+    node.handleIn ? node.handleIn.y : null,
+    node.handleOut ? node.handleOut.x : null,
+    node.handleOut ? node.handleOut.y : null,
+    node.cornerRadius ?? null,
+  ]);
   return JSON.stringify([path.closed ? 1 : 0, ...tuples]);
 }
 
@@ -441,21 +441,28 @@ export function parsePenNodes(serialized: string): PenPath | null {
     nodes.push(node);
   }
 
-  return { nodes, closed: closedFlag === 1 };
+  const path = { nodes, closed: closedFlag === 1 };
+  if (
+    nodes.some(
+      (node, index) =>
+        node.cornerRadius !== undefined &&
+        node.cornerRadius > 0 &&
+        maxPenCornerRadius(path, index) === null,
+    )
+  )
+    return null;
+  return path;
 }
 
 function parsePenNodeTuple(tuple: unknown): PenNode | null {
-  if (!Array.isArray(tuple) || tuple.length < 6 || tuple.length > 8) {
+  if (!Array.isArray(tuple) || (tuple.length !== 6 && tuple.length !== 7)) {
     return null;
   }
-  const [px, py, hix, hiy, hox, hoy, radius, mirroringCode] = tuple;
-  const radiusValid = isFiniteNumber(radius) && radius >= 0;
-  if (tuple.length === 7 && !radiusValid) return null;
-  const mirroring =
-    tuple.length === 8 ? MIRRORING_CODES[mirroringCode as number] : undefined;
-  if (tuple.length === 8 && (!mirroring || (radius !== null && !radiusValid))) {
+  const [px, py, hix, hiy, hox, hoy, radius] = tuple;
+  if (radius !== undefined && radius !== null && !isFiniteNumber(radius))
     return null;
-  }
+  if (typeof radius === "number" && radius < 0) return null;
+  const radiusValid = typeof radius === "number";
   if (!isFiniteNumber(px) || !isFiniteNumber(py)) return null;
   if (!isNullOrFiniteNumber(hix) || !isNullOrFiniteNumber(hiy)) return null;
   if (!isNullOrFiniteNumber(hox) || !isNullOrFiniteNumber(hoy)) return null;
@@ -470,11 +477,18 @@ function parsePenNodeTuple(tuple: unknown): PenNode | null {
     handleOut: hox === null || hoy === null ? undefined : { x: hox, y: hoy },
   };
   if (radiusValid) node.cornerRadius = radius as number;
-  if (mirroring) node.mirroring = mirroring;
   return node;
 }
 
-type PenNodeTuple = (number | null)[];
+type PenNodeTuple = [
+  number,
+  number,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+];
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -638,7 +652,11 @@ export function setPenNodeType(
   const node = path.nodes[nodeIndex];
 
   if (type === "corner") {
-    return replaceNode(path, nodeIndex, { point: { ...node.point } });
+    return replaceNode(
+      path,
+      nodeIndex,
+      copyVertexMeta(node, { point: { ...node.point } }),
+    );
   }
 
   if (node.handleIn || node.handleOut) {
@@ -648,11 +666,15 @@ export function setPenNodeType(
     const source = node.handleOut ?? node.handleIn!;
     const handleOut = node.handleOut ?? mirrorPoint(node.point, source);
     const handleIn = node.handleIn ?? mirrorPoint(node.point, handleOut);
-    return replaceNode(path, nodeIndex, {
-      point: { ...node.point },
-      handleIn: { ...handleIn },
-      handleOut: { ...handleOut },
-    });
+    return replaceNode(
+      path,
+      nodeIndex,
+      copyVertexMeta(node, {
+        point: { ...node.point },
+        handleIn: { ...handleIn },
+        handleOut: { ...handleOut },
+      }),
+    );
   }
 
   // Plain corner with no handles yet: synthesize a symmetric handle pair
@@ -764,24 +786,87 @@ function replaceNode(path: PenPath, nodeIndex: number, node: PenNode): PenPath {
   return { nodes, closed: path.closed };
 }
 
-export function serializePenPath(path: PenPath, decimals = 1): string {
-  const [first, ...rest] = path.nodes;
+export function serializePenPath(path: PenPath): string {
+  const first = path.nodes[0];
   if (!first) return "";
 
-  const commands = [`M ${formatPoint(first.point, decimals)}`];
-  rest.forEach((node, index) => {
-    const previous = path.nodes[index];
-    commands.push(serializeSegment(previous, node, decimals));
-  });
-
-  if (path.closed && path.nodes.length > 1) {
-    commands.push(
-      serializeSegment(path.nodes[path.nodes.length - 1], first, decimals),
-    );
-    commands.push("Z");
-  }
+  const commands = roundedPenCommands(path);
+  if (path.closed && path.nodes.length > 1) commands.push("Z");
 
   return commands.join(" ");
+}
+
+function roundedPenCommands(path: PenPath): string[] {
+  const { nodes, closed } = path;
+  const count = nodes.length;
+  const rounded = nodes.map((node, index) => {
+    const radius = node.cornerRadius ?? 0;
+    if (radius <= 0) return null;
+    const maximum = maxPenCornerRadius(path, index);
+    if (maximum === null) return null;
+    const previous = nodes[index > 0 ? index - 1 : count - 1]!;
+    const next = nodes[index < count - 1 ? index + 1 : 0]!;
+    const incoming = {
+      x: previous.point.x - node.point.x,
+      y: previous.point.y - node.point.y,
+    };
+    const outgoing = {
+      x: next.point.x - node.point.x,
+      y: next.point.y - node.point.y,
+    };
+    const inLength = Math.hypot(incoming.x, incoming.y);
+    const outLength = Math.hypot(outgoing.x, outgoing.y);
+    const cosine = Math.max(
+      -1,
+      Math.min(
+        1,
+        (incoming.x * outgoing.x + incoming.y * outgoing.y) /
+          (inLength * outLength),
+      ),
+    );
+    if (cosine <= -0.9999999 || cosine >= 0.9999999) return null;
+    const tangent = Math.tan(Math.acos(cosine) / 2);
+    const actualRadius = Math.min(radius, maximum);
+    const trim = actualRadius / tangent;
+    return {
+      entry: {
+        x: node.point.x + (incoming.x / inLength) * trim,
+        y: node.point.y + (incoming.y / inLength) * trim,
+      },
+      exit: {
+        x: node.point.x + (outgoing.x / outLength) * trim,
+        y: node.point.y + (outgoing.y / outLength) * trim,
+      },
+      radius: actualRadius,
+      sweep: incoming.x * outgoing.y - incoming.y * outgoing.x < 0 ? 1 : 0,
+    };
+  });
+  const commands = [`M ${formatPoint(rounded[0]?.exit ?? nodes[0]!.point)}`];
+  for (let index = 1; index < count; index++) {
+    const node = nodes[index]!;
+    const corner = rounded[index];
+    commands.push(
+      corner
+        ? `L ${formatPoint(corner.entry)}`
+        : serializeSegment(nodes[index - 1]!, node),
+    );
+    if (corner)
+      commands.push(
+        `A ${roundCoord(corner.radius)} ${roundCoord(corner.radius)} 0 0 ${corner.sweep} ${formatPoint(corner.exit)}`,
+      );
+  }
+  if (closed && count > 1) {
+    const firstCorner = rounded[0];
+    if (firstCorner) {
+      commands.push(`L ${formatPoint(firstCorner.entry)}`);
+      commands.push(
+        `A ${roundCoord(firstCorner.radius)} ${roundCoord(firstCorner.radius)} 0 0 ${firstCorner.sweep} ${formatPoint(firstCorner.exit)}`,
+      );
+    } else {
+      commands.push(serializeSegment(nodes[count - 1]!, nodes[0]!));
+    }
+  }
+  return commands;
 }
 
 /**
@@ -796,7 +881,7 @@ export function serializeRoundedPenPath(
   const { nodes, closed } = path;
   const radiusAt = (node: PenNode) => node.cornerRadius ?? radius;
   if (nodes.length < 3 || !nodes.some((node) => radiusAt(node) > 0)) {
-    return serializePenPath(path, decimals);
+    return serializePenPath(path);
   }
   const count = nodes.length;
   const segmentCount = closed ? count : count - 1;
@@ -1040,25 +1125,62 @@ export function withoutVertexRadii(path: PenPath): PenPath {
   };
 }
 
-/** Reads `data-an-corner-radius`; anything but a non-negative number is 0. */
-export function penCornerRadiusFromAttribute(
-  value: string | null | undefined,
-): number {
-  const radius = Number(value);
-  return value != null && Number.isFinite(radius) && radius > 0 ? radius : 0;
+/** Maximum circular radius supported for a straight-sided corner anchor. */
+export function maxPenCornerRadius(
+  path: PenPath,
+  nodeIndex: number,
+): number | null {
+  if (!path.closed) return null;
+  if (!isValidNodeIndex(path, nodeIndex)) return null;
+  const count = path.nodes.length;
+  const node = path.nodes[nodeIndex]!;
+  if (node.handleIn || node.handleOut) return null;
+  const previousIndex =
+    nodeIndex > 0 ? nodeIndex - 1 : path.closed ? count - 1 : -1;
+  const nextIndex =
+    nodeIndex < count - 1 ? nodeIndex + 1 : path.closed ? 0 : -1;
+  if (previousIndex < 0 || nextIndex < 0 || previousIndex === nextIndex)
+    return null;
+  const previous = path.nodes[previousIndex]!;
+  const next = path.nodes[nextIndex]!;
+  if (previous.handleOut || next.handleIn) return null;
+  const incoming = {
+    x: previous.point.x - node.point.x,
+    y: previous.point.y - node.point.y,
+  };
+  const outgoing = {
+    x: next.point.x - node.point.x,
+    y: next.point.y - node.point.y,
+  };
+  const incomingLength = Math.hypot(incoming.x, incoming.y);
+  const outgoingLength = Math.hypot(outgoing.x, outgoing.y);
+  if (incomingLength === 0 || outgoingLength === 0) return null;
+  const cosine = Math.max(
+    -1,
+    Math.min(
+      1,
+      (incoming.x * outgoing.x + incoming.y * outgoing.y) /
+        (incomingLength * outgoingLength),
+    ),
+  );
+  if (cosine <= -0.9999999 || cosine >= 0.9999999) return null;
+  const halfAngleTangent = Math.tan(Math.acos(cosine) / 2);
+  if (!Number.isFinite(halfAngleTangent) || halfAngleTangent <= 1e-6)
+    return null;
+  return Math.min(incomingLength, outgoingLength) * 0.5 * halfAngleTangent;
 }
 
-/** Sets (or, with `undefined`, clears) one vertex's own corner radius. */
+/** Set a circular radius on a straight-sided Pen anchor; unsupported geometry fails closed. */
 export function setPenNodeCornerRadius(
   path: PenPath,
   nodeIndex: number,
-  radius: number | undefined,
-): PenPath {
-  if (!isValidNodeIndex(path, nodeIndex)) return clonePenPath(path);
-  const node = clonePenNode(path.nodes[nodeIndex]!);
-  if (radius === undefined) delete node.cornerRadius;
-  else node.cornerRadius = Math.max(0, radius);
-  return replaceNode(path, nodeIndex, node);
+  radius: number,
+): PenPath | null {
+  const maximum = maxPenCornerRadius(path, nodeIndex);
+  if (maximum === null || !Number.isFinite(radius) || radius < 0) return null;
+  const nodes = path.nodes.map(clonePenNode);
+  nodes[nodeIndex]!.cornerRadius = Math.min(radius, maximum);
+  return { nodes, closed: path.closed };
 }
 
 /** A straight segment's implicit control points sit a third of the way along. */

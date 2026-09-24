@@ -3,13 +3,15 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import {
   buildSlidesAgentContext,
-  hasCurrentSlideSelection,
+  getSlidesAgentScopeLabel,
   readPublishedSlidesSelection,
+  SLIDES_SELECTION_CHANGED_EVENT,
+  type SlidesAgentSelection,
 } from "@/lib/slide-agent-context";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -35,16 +37,19 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const t = useT();
   const deckId = new URLSearchParams(location.search).get("deckId");
-  const slidesSelection = readPublishedSlidesSelection();
+  const [slidesSelection, setSlidesSelection] =
+    useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
+  const scopeLabel = deckId
+    ? getSlidesAgentScopeLabel(slidesSelection, deckId)
+    : null;
   const scope = deckId
     ? {
         type: "deck" as const,
         id: deckId,
-        label: t(
-          hasCurrentSlideSelection(slidesSelection, deckId)
-            ? "agent.currentSelection"
-            : "agent.thisSlide",
-        ),
+        label:
+          scopeLabel?.key === "agent.slideNumber"
+            ? t(scopeLabel.key, { number: scopeLabel.number })
+            : t(scopeLabel?.key ?? "agent.thisSlide"),
         contextKey: "slides-current-context",
         ...buildSlidesAgentContext(slidesSelection, deckId),
       }
@@ -68,6 +73,20 @@ export default function ChatRoute() {
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     return () =>
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
+  useEffect(() => {
+    const onSelectionChanged = (event: Event) => {
+      setSlidesSelection(
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
+      );
+    };
+    window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);
+    return () =>
+      window.removeEventListener(
+        SLIDES_SELECTION_CHANGED_EVENT,
+        onSelectionChanged,
+      );
   }, []);
 
   return (

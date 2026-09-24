@@ -851,12 +851,6 @@
 }
 
 /* Tables */
-.notion-editor table colgroup,
-.notion-editor table col {
-  display: none !important;
-  width: auto !important;
-}
-
 .tableWrapper {
   overflow-x: auto;
   margin: 1.5em 0;
@@ -1174,6 +1168,14 @@ div[data-notion-column] > :last-child {
   font-size: 0.92rem;
   color: hsl(var(--foreground));
   word-break: break-word;
+}
+
+.notion-editor table [data-alignment="center"] {
+  text-align: center;
+}
+
+.notion-editor table [data-alignment="right"] {
+  text-align: right;
 }
 
 .notion-page-reference {

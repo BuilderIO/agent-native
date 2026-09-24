@@ -671,6 +671,66 @@ describe("selectionColorValues", () => {
     ).toEqual([{ property: "color", value: "#0066ff" }]);
   });
 
+  it("reads and replaces SVG presentation colors only inside the selected subtree", () => {
+    const content = [
+      '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+      '<path fill="#f97316" d="M0 0h30v30z"/>',
+      '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+      "</svg>",
+      '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+    ].join("");
+    const scopes = [{ fileId: "screen", content, sourceId: "logo" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#111111" },
+      { property: "color", value: "#f97316" },
+      { property: "color", value: "#16a34a" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#f97316", "#8b5cf6"),
+    ).toBe(
+      [
+        '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+        '<path fill="#8b5cf6" d="M0 0h30v30z"/>',
+        '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+        "</svg>",
+        '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+      ].join(""),
+    );
+  });
+
+  it("preserves SVG ancestry while scanning nested selected groups and paths", () => {
+    const content =
+      '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#f97316"/></g></svg>';
+
+    for (const sourceId of ["group", "path"]) {
+      const scopes = [{ fileId: "screen", content, sourceId }];
+      expect(selectionColorValues([], scopes)).toEqual([
+        { property: "color", value: "#f97316" },
+      ]);
+      expect(
+        replaceSelectionColorsInHtml(content, scopes, "#f97316", "#2563eb"),
+      ).toBe(
+        '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#2563eb"/></g></svg>',
+      );
+    }
+  });
+
+  it("does not treat SVG gradient references as colors but edits stop colors", () => {
+    const content =
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#123456"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>';
+    const scopes = [{ fileId: "screen", content, sourceId: "gradient" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#123456" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#123456", "#ef4444"),
+    ).toBe(
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#ef4444"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>',
+    );
+  });
+
   it("scans every descendant in a selected source range and counts reuse", () => {
     const content = [
       '<section data-agent-native-node-id="root" style="color:#0066ff">',

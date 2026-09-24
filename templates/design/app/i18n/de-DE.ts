@@ -596,11 +596,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Halte {{modifier}} gedrückt und klicke, um eine innere Ebene auszuwählen.",
-      dismiss: "Tipp zur Ebenenauswahl schließen",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Auto-Layout vorschlagen…",
       title: "Auto-Layout vorschlagen",

@@ -594,11 +594,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message:
-        "Mantén presionada la tecla {{modifier}} y haz clic para seleccionar una capa interna.",
-      dismiss: "Descartar el consejo de selección de capas",
-    },
     autoLayoutSuggestion: {
       menuLabel: "Sugerir diseño automático…",
       title: "Sugerir diseño automático",

@@ -350,11 +350,9 @@ export function runTextContentChange(
           selector: selectedNode
             ? preferredCodeLayerSelector(selectedNode)
             : selector,
-          // The bridge payload carries no host layer identity; without it the
-          // inspector cannot resolve the layer's measured size.
           sourceLayerIdentity: selectedNode
             ? { screenId: activeFile.id, nodeId: selectedNode.id }
-            : (base.sourceLayerIdentity ?? previous?.sourceLayerIdentity),
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }

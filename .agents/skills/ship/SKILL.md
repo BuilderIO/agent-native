@@ -26,6 +26,8 @@ the next task.
   overwrite, rebase, or force-push it.
 - /ship authorizes the merge once the gates below pass, unless the user says
   not to merge.
+- If the user asks not to create scheduled tasks, keep ship and babysitting in
+  the foreground; do not create a separate recurring automation.
 - For a linked GitHub issue, a verified source fix in the merged shipping
   snapshot is enough to close it. Thank the reporter, link the fix, and close
   immediately; do not leave it open waiting for publication, beta, or live

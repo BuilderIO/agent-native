@@ -11,14 +11,14 @@ import {
   IconMessage,
   IconPhotoVideo,
   IconPointer,
-  IconResize,
+  IconScale,
   IconScribble,
   IconSquare,
   IconStar,
   IconTransformPoint,
   IconTriangle,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import type { DesignToolbarOption } from "@/components/design/editor/toolbar-controls";
 import {
@@ -52,12 +52,12 @@ export function DesignBottomToolbar({
   frameToolDraws,
   onFrameToolDrawsChange,
   onShape,
-  onImageVideo,
   onText,
   onPen,
   onHand,
   onDraw,
   onScale,
+  onMediaFiles,
   onCommentPin,
   onModeChange,
   shortcutsPanelOpen,
@@ -76,19 +76,19 @@ export function DesignBottomToolbar({
   frameToolDraws: "screen" | "frame";
   onFrameToolDrawsChange: (value: "screen" | "frame") => void;
   onShape: (tool: ShapeTool) => void;
-  /** Opens the image file picker; omitted when the design is not editable. */
-  onImageVideo?: () => void;
   onText: () => void;
   onPen: () => void;
   onHand: () => void;
   onDraw: () => void;
   onScale: () => void;
+  onMediaFiles: (files: File[]) => void;
   onCommentPin: () => void;
   onModeChange: (mode: EditorMode) => void;
   shortcutsPanelOpen: boolean;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const shapeTools = new Set<DesignTool>([
     "rect",
     "line",
@@ -168,9 +168,7 @@ export function DesignBottomToolbar({
       key: "image-video",
       label: t("designEditor.tools.imageVideo"),
       icon: <IconPhotoVideo className="size-4" />,
-      shortcut: formatShortcutLabel("$mod+shift+k", applePlatform),
-      disabled: !onImageVideo,
-      onSelect: () => onImageVideo?.(),
+      onSelect: () => mediaInputRef.current?.click(),
     },
   ];
   const activeShapeOption =
@@ -209,7 +207,7 @@ export function DesignBottomToolbar({
         activeTool === "hand" ? (
           <IconHandStop className="size-[18px]" />
         ) : activeTool === "scale" ? (
-          <IconResize className="size-[18px]" />
+          <IconScale className="size-[18px]" />
         ) : (
           <IconPointer className="size-[18px]" />
         ),
@@ -237,7 +235,7 @@ export function DesignBottomToolbar({
         {
           key: "scale",
           label: t("designEditor.tools.scale"),
-          icon: <IconResize className="size-4" />,
+          icon: <IconScale className="size-4" />,
           shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut,
           active: activeTool === "scale",
           onSelect: onScale,
@@ -389,6 +387,19 @@ export function DesignBottomToolbar({
       className="fixed left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none md:max-w-[calc(100%-2rem)] md:overflow-visible"
       style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
     >
+      <input
+        ref={mediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const input = event.currentTarget;
+          const files = Array.from(input.files ?? []);
+          input.value = "";
+          if (files.length > 0) onMediaFiles(files);
+        }}
+      />
       <div className="flex min-w-0 items-center gap-0.5">
         {tools.map((tool) => (
           <DesignToolbarTool

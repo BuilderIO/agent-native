@@ -88,6 +88,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       backgroundRepeat?: string;
       backgroundPosition?: string;
       supportsLayeredFills?: boolean;
+      singlePaint?: boolean;
       supportedPaintTypes?: string[];
     }) =>
       createElement("div", {
@@ -100,6 +101,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
         "data-supports-layered-fills": String(
           props.supportsLayeredFills ?? false,
         ),
+        "data-single-paint": String(props.singlePaint ?? false),
         "data-supported-paint-types":
           props.supportedPaintTypes?.join(",") ?? "",
       }),
@@ -158,48 +160,7 @@ describe("baseFillLayerSourceProps", () => {
     });
   });
 
-  it("shows a vector's gradient fill right after a swap, before the authored fill is known", () => {
-    const markup = renderToStaticMarkup(
-      createElement(FillProperties, {
-        element: element({
-          tagName: "svg",
-          primitiveKind: "path",
-          computedStyles: {
-            fill: 'url("#v-fill-gradient")',
-            fillOpacity: "0",
-            "--an-vector-fill-gradient":
-              "linear-gradient(180deg, #782f2f 50%, #666666 100%)",
-          },
-        }),
-        onStyleChange: vi.fn(),
-        onStylesChange: vi.fn(),
-      }),
-    );
-    expect(markup).toContain('data-inspector-layout="paint-row"');
-    expect(markup).toContain('aria-label="editPanel.labels.removeLayer"');
-    expect(markup).toContain('aria-label="editPanel.labels.hideLayer"');
-  });
-
-  it("reads a vector gradient as hidden from its stops, not fill-opacity", () => {
-    const hidden = renderToStaticMarkup(
-      createElement(FillProperties, {
-        element: element({
-          tagName: "svg",
-          primitiveKind: "path",
-          computedStyles: {
-            fill: 'url("#v-fill-gradient")',
-            "--an-vector-fill-gradient":
-              "linear-gradient(180deg, color-mix(in srgb, #782f2f 0%, transparent) 0%, color-mix(in srgb, #666666 0%, transparent) 100%)",
-          },
-        }),
-        onStyleChange: vi.fn(),
-        onStylesChange: vi.fn(),
-      }),
-    );
-    expect(hidden).toContain('aria-label="editPanel.labels.showLayer"');
-  });
-
-  it("keeps SVG shape fills solid-only", () => {
+  it("keeps SVG shape fills out of the CSS background layer stack", () => {
     expect(
       baseFillLayerSourceProps(
         {
@@ -220,6 +181,31 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("offers native linear and radial fill paints for SVG shapes", () => {
+    const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: element({
+          tagName: "svg",
+          primitiveKind: "path",
+          computedStyles: {
+            fill: "url(#vector-fill-gradient)",
+          },
+          inlineStyles: { "--an-vector-fill-gradient": gradient },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain(`data-value="${gradient}"`);
+    expect(markup).toContain('data-background-image=""');
+    expect(markup).toContain(
+      'data-supported-paint-types="solid,linear,radial"',
+    );
+    expect(markup).toContain('data-supports-layered-fills="false"');
+    expect(markup).toContain('data-single-paint="true"');
+  });
+
   it("omits the empty base picker but keeps the converted gradient row", () => {
     const el = element({
       computedStyles: {
@@ -450,22 +436,6 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(markup).toContain('aria-label="editPanel.labels.addFill"');
     expect(markup).toContain("Click + to replace mixed content");
-  });
-
-  it("keeps the replace action for a mixed text-only selection that hides add", () => {
-    const markup = renderToStaticMarkup(
-      createElement(FillProperties, {
-        element: element({
-          tagName: "span",
-          computedStyles: { color: "Mixed" },
-        }),
-        onStyleChange: vi.fn(),
-        onStylesChange: vi.fn(),
-        hideAddFill: true,
-      }),
-    );
-
-    expect(markup).toContain('aria-label="editPanel.labels.addFill"');
   });
 });
 

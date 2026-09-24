@@ -3,14 +3,204 @@ import { describe, expect, it } from "vitest";
 
 import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedded-wheel.generated";
 
-function editingSafetyBridgeScript(enabled = true): string {
+function editingSafetyBridgeScript(
+  enabled = true,
+  spaceKeyForwardingEnabled = false,
+): string {
   return embeddedWheelBridgeScript
     .replace("__EMBEDDED_WHEEL_FORWARDING_ENABLED__", "false")
-    .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "false")
+    .replace(
+      "__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__",
+      String(spaceKeyForwardingEnabled),
+    )
     .replace("__EDITING_SAFETY_ENABLED__", String(enabled));
 }
 
 describe("editing safety bridge", () => {
+  it(
+    "captures Space-drag in the iframe without forwarding host hotkeys unless enabled",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<iframe id="preview" style="width:640px;height:480px;border:0"></iframe>
+          <script>
+            window.__bridgeMessages = [];
+            window.addEventListener('message', event => window.__bridgeMessages.push(event.data));
+          </script>`);
+        const iframe = page.frames()[1];
+        await iframe.setContent(
+          `<button id="target" style="margin:80px;width:180px;height:80px">Drag</button>`,
+        );
+        await iframe.evaluate(() => {
+          (window as any).__appPointerDowns = 0;
+          (window as any).__appClicks = 0;
+          document
+            .querySelector("#target")
+            ?.addEventListener(
+              "pointerdown",
+              () => (window as any).__appPointerDowns++,
+            );
+          document
+            .querySelector("#target")
+            ?.addEventListener("click", () => (window as any).__appClicks++);
+        });
+        await iframe.addScriptTag({ content: editingSafetyBridgeScript() });
+
+        await iframe.evaluate(() => window.focus());
+        const box = await page
+          .frameLocator("#preview")
+          .locator("#target")
+          .boundingBox();
+        expect(box).not.toBeNull();
+        const x = box!.x + box!.width / 2;
+        const y = box!.y + box!.height / 2;
+
+        await page.mouse.move(x, y);
+        await page.keyboard.down("Space");
+        await page.mouse.down();
+        await page.mouse.move(x + 48, y + 24, { steps: 3 });
+        await page.mouse.up();
+        await page.keyboard.up("Space");
+        await page.waitForTimeout(50);
+
+        const editModeMessages = await page.evaluate(
+          () => (window as any).__bridgeMessages,
+        );
+        const appInteractions = await iframe.evaluate(() => ({
+          pointerDowns: (window as any).__appPointerDowns,
+          clicks: (window as any).__appClicks,
+        }));
+        expect(
+          editModeMessages
+            .filter((message: any) => message.type === "embedded-canvas-pan")
+            .map((message: any) => message.phase),
+        ).toEqual(["start", "move", "move", "move", "end"]);
+        expect(
+          editModeMessages.some(
+            (message: any) => message.type === "design-hotkey",
+          ),
+        ).toBe(false);
+        expect(appInteractions.pointerDowns).toBe(0);
+        expect(appInteractions.clicks).toBe(0);
+
+        await page.evaluate(() => {
+          document
+            .querySelector<HTMLIFrameElement>("#preview")
+            ?.contentWindow?.postMessage(
+              {
+                type: "embedded-canvas-gesture-mode",
+                wheelEnabled: false,
+                spaceKeyForwardingEnabled: true,
+              },
+              "*",
+            );
+        });
+        await page.waitForTimeout(0);
+        await page.keyboard.down("Space");
+        await page.mouse.down();
+        await page.mouse.move(x + 72, y + 24, { steps: 2 });
+        await page.mouse.up();
+        await page.keyboard.up("Space");
+        await page.waitForFunction(() =>
+          (window as any).__bridgeMessages.some(
+            (message: any) => message.type === "design-hotkey-up",
+          ),
+        );
+        const forwarded = await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter((message: any) =>
+              ["design-hotkey", "design-hotkey-up"].includes(message.type),
+            )
+            .map((message: any) => message.type),
+        );
+        expect(forwarded).toEqual(["design-hotkey", "design-hotkey-up"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "releases Space-pan ownership when switching into Interact",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(
+          `<button id="target" style="margin:80px;width:180px;height:80px">App action</button>
+          <script>
+            window.__bridgeMessages = [];
+            window.addEventListener('message', event => window.__bridgeMessages.push(event.data));
+            window.__appPointerDowns = 0;
+            window.__appClicks = 0;
+            document.querySelector('#target').addEventListener('pointerdown', () => window.__appPointerDowns++);
+            document.querySelector('#target').addEventListener('click', () => window.__appClicks++);
+          </script>`,
+        );
+        await page.addScriptTag({
+          content: editingSafetyBridgeScript(true, true),
+        });
+        await page.evaluate(() => {
+          const chromeHost = document.createElement("div");
+          chromeHost.setAttribute("data-agent-native-editor-chrome-host", "");
+          document.body.append(chromeHost);
+        });
+
+        const box = await page.locator("#target").boundingBox();
+        expect(box).not.toBeNull();
+        const x = box!.x + box!.width / 2;
+        const y = box!.y + box!.height / 2;
+        await page.mouse.move(x, y);
+        await page.keyboard.down("Space");
+        await page.mouse.down();
+        await page.mouse.move(x + 24, y + 8);
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "embedded-canvas-gesture-mode",
+              wheelEnabled: false,
+              spaceKeyForwardingEnabled: true,
+              editingSafetyEnabled: false,
+            },
+            "*",
+          );
+        });
+        await page.mouse.up();
+        await page.evaluate(() => {
+          (window as any).__appPointerDowns = 0;
+          (window as any).__appClicks = 0;
+        });
+        await page.mouse.click(x, y);
+        await page.keyboard.up("Space");
+
+        const result = await page.evaluate(() => ({
+          panPhases: (window as any).__bridgeMessages
+            .filter((message: any) => message.type === "embedded-canvas-pan")
+            .map((message: any) => message.phase),
+          pointerDowns: (window as any).__appPointerDowns,
+          clicks: (window as any).__appClicks,
+        }));
+        expect(result.panPhases).toEqual(["start", "move", "cancel"]);
+        expect(
+          await page.evaluate(() =>
+            (window as any).__bridgeMessages
+              .filter((message: any) =>
+                ["design-hotkey", "design-hotkey-up"].includes(message.type),
+              )
+              .map((message: any) => message.type),
+          ),
+        ).toEqual(["design-hotkey", "design-hotkey-up"]);
+        expect(result.pointerDowns).toBe(1);
+        expect(result.clicks).toBe(1);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "freezes authored motion, blocks link/form navigation, and reports full reloads",
     { timeout: 30_000 },

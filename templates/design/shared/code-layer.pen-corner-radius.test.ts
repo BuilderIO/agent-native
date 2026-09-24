@@ -57,12 +57,12 @@ describe("corner radius on a pen vector", () => {
 
   it("replaces per-vertex radii with the vector radius", () => {
     const html = penSvg(
-      "[0,[0,0,null,null,null,null],[100,0,null,null,null,null,30],[100,100,null,null,null,null]]",
-      "M 0 0 L 100 0 L 100 100",
+      "[1,[0,0,null,null,null,null,null],[100,0,null,null,null,null,30],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]",
+      "M 0 0 L 100 0 L 100 100 L 0 100 L 0 0 Z",
     );
     const result = setRadius(html, "10px");
     expect(result.content).toContain(
-      'data-an-pen-nodes="[0,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,100,null,null,null,null]]"',
+      'data-an-pen-nodes="[1,[0,0,null,null,null,null,null],[100,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]"',
     );
     expect(result.content).toContain("A 10 10 0 0 1 100 10");
   });

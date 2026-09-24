@@ -7,7 +7,6 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import type { LayoutGrid } from "@shared/layout-grid";
-import type { PenMirroring } from "@shared/pen-path";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -104,6 +103,7 @@ import {
 } from "./edit-panel/element-classification";
 import {
   deriveLockedAspectSize,
+  elementStableKey,
   interactionStateSelectionKey,
 } from "./edit-panel/element-identity";
 import {
@@ -125,6 +125,7 @@ import {
 } from "./edit-panel/fill-gradient-helpers";
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
+import { ImageProperties } from "./edit-panel/image-properties";
 import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
 import { SectionIconButton } from "./edit-panel/inspector-controls";
 import {
@@ -162,10 +163,6 @@ import {
   textStrokeIsVisible,
 } from "./edit-panel/position-helpers";
 import { PositionLayoutProperties } from "./edit-panel/position-layout-properties";
-import {
-  ScaleProperties,
-  type ScaleToolControls,
-} from "./edit-panel/scale-properties";
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
@@ -189,11 +186,11 @@ import {
   sortFontFamilyOptions,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
-import { VectorVertexMirroring } from "./edit-panel/vector-vertex-mirroring";
 import {
   ExportSettingsPanel,
   DesignColorPicker,
   SizingField,
+  type ScrubInputChangeMeta,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -218,6 +215,13 @@ import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo, TextEditingState } from "./types";
+
+function elementInspectorKey(
+  element: ElementInfo,
+  scope: string | null | undefined,
+): string {
+  return `${scope || "selection"}:${elementStableKey(element)}`;
+}
 
 // guard:allow-raw-color — authored selections need a concrete CSS color fallback.
 const DEFAULT_AUTHORED_COLOR = "#000000";
@@ -303,13 +307,6 @@ const EMPTY_SCREEN_SIZE_CONSTRAINTS: ScreenSizeConstraints = {
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
-  /** The vertex selected in vector edit: Figma's Vector section (X/Y, mirroring). */
-  vectorVertexMirroring?: {
-    mirroring: PenMirroring;
-    onChange: (mirroring: PenMirroring) => void;
-    point: { x: number; y: number };
-    onPointChange: (point: { x: number; y: number }) => void;
-  };
   textEditingState?: TextEditingState;
   selectionHidden?: boolean;
   onToggleSelectionHidden?: () => void;
@@ -371,6 +368,12 @@ interface EditPanelProps {
    *  properties at once; without this they degrade to one-at-a-time writes
    *  that each rebuild from the same stale projection. */
   onSelectedScreenStylesChange?: StylesChangeHandler;
+  vectorPointRadius?: { value: number; max: number } | null;
+  vectorPointSelected?: boolean;
+  onVectorPointRadiusChange?: (
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   /** Source ranges covered by the current selection for Figma-style color
    *  replacement. Multiple scopes may belong to one file or several screens. */
   selectionColorScopes?: SelectionColorScope[];
@@ -536,8 +539,6 @@ interface EditPanelProps {
    * type without EditPanel importing it.
    */
   activeTool?: string;
-  /** Drives the Scale section shown while `activeTool` is "scale". */
-  scaleTool?: ScaleToolControls;
   /**
    * Creates a new screen sized to the clicked preset. Only takes effect while
    * `activeTool === "frame"`; when omitted the frame tool falls back to the
@@ -2510,6 +2511,9 @@ export const EditPanel = memo(function EditPanel({
   selectedScreenElement,
   onSelectedScreenStyleChange,
   onSelectedScreenStylesChange,
+  vectorPointRadius,
+  vectorPointSelected,
+  onVectorPointRadiusChange,
   selectionColorScopes = [],
   onSelectionColorChange: onSelectionColorChangeProp,
   onSelectionColorTarget,
@@ -2565,7 +2569,6 @@ export const EditPanel = memo(function EditPanel({
   inspectCode,
   aiActions,
   activeTool,
-  scaleTool,
   onCreateScreenFromPreset,
   onAlignSelection,
   alignSelectionDisabled = false,
@@ -2577,7 +2580,6 @@ export const EditPanel = memo(function EditPanel({
   motionKeyframeState,
   onToggleMotionKeyframe,
   breakpointContext,
-  vectorVertexMirroring,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
   const t = useT();
@@ -2743,9 +2745,6 @@ export const EditPanel = memo(function EditPanel({
     effectiveSelectedElements.every((element) => isTextElement(element));
   const selectionIsGroup =
     selectedCount === 1 && inspectorElement?.isGroup === true;
-  // Figma swaps the paint sections for Scale while K is active.
-  const scaleSectionActive =
-    activeTool === "scale" && Boolean(scaleTool) && selectedCount === 1;
   const selectionHasContainerElement = effectiveSelectedElements.some(
     (element) => isContainerElement(element),
   );
@@ -2864,6 +2863,15 @@ export const EditPanel = memo(function EditPanel({
         : null,
     [activeInteractionStateStyles, inspectorElement],
   );
+
+  const inspectorElementForSections =
+    stateResolvedInspectorElement ?? inspectorElement;
+  const inspectorElementSectionKey = inspectorElementForSections
+    ? elementInspectorKey(inspectorElementForSections, fileId)
+    : "inspector";
+  const selectedScreenElementSectionKey = selectedScreenElement
+    ? elementInspectorKey(selectedScreenElement, selectedScreenGeometry?.id)
+    : "selected-screen";
 
   // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
   // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
@@ -3256,6 +3264,7 @@ export const EditPanel = memo(function EditPanel({
                   {selectedScreenElement && onSelectedScreenStyleChange ? (
                     <>
                       <LayoutContextProperties
+                        key={`layout-context:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3264,6 +3273,7 @@ export const EditPanel = memo(function EditPanel({
                         showContainerSizing={false}
                       />
                       <AppearanceProperties
+                        key={`appearance:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3271,17 +3281,20 @@ export const EditPanel = memo(function EditPanel({
                         onToggleHidden={onToggleSelectionHidden}
                       />
                       <FillProperties
+                        key={`fill:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
                       />
                       <StrokeProperties
+                        key={`stroke:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                       />
                       <EffectsProperties
+                        key={`effects:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3349,156 +3362,134 @@ export const EditPanel = memo(function EditPanel({
 
               {inspectorElement && (
                 <>
-                  {/* Figma swaps Position/Layout for the Vector section while a point is selected. */}
-                  {vectorVertexMirroring ? (
-                    <VectorVertexMirroring {...vectorVertexMirroring} />
-                  ) : (
-                    <>
-                      <PositionLayoutProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        onAlignSelection={onAlignSelection}
-                        alignSelectionDisabled={alignSelectionDisabled}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                      <LayoutContextProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        onDisableAutoLayout={onDisableAutoLayout}
-                        onApplyLayoutFlow={onApplyLayoutFlow}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                    </>
-                  )}
-                  {scaleTool && scaleSectionActive ? (
-                    <ScaleProperties
-                      key={inspectorElement.selector}
-                      element={inspectorElement}
-                      controls={scaleTool}
+                  <PositionLayoutProperties
+                    key={`position:${inspectorElementSectionKey}`}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={onStylesChange}
+                    onAlignSelection={onAlignSelection}
+                    alignSelectionDisabled={alignSelectionDisabled}
+                    motionKeyframeContext={motionKeyframeFieldContext}
+                    breakpointOverrideContext={breakpointOverrideFieldContext}
+                  />
+                  <LayoutContextProperties
+                    key={`layout-context:${inspectorElementSectionKey}`}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={onStylesChange}
+                    onDisableAutoLayout={onDisableAutoLayout}
+                    onApplyLayoutFlow={onApplyLayoutFlow}
+                    motionKeyframeContext={motionKeyframeFieldContext}
+                    breakpointOverrideContext={breakpointOverrideFieldContext}
+                  />
+                  <AppearanceProperties
+                    key={`appearance:${inspectorElementSectionKey}`}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={
+                      onStylesChangeProp ? onStylesChange : undefined
+                    }
+                    hidden={selectionHidden}
+                    onToggleHidden={onToggleSelectionHidden}
+                    motionKeyframeContext={motionKeyframeFieldContext}
+                    breakpointOverrideContext={breakpointOverrideFieldContext}
+                    vectorPointRadius={vectorPointRadius}
+                    vectorPointSelected={vectorPointSelected}
+                    onVectorPointRadiusChange={onVectorPointRadiusChange}
+                  />
+                  {inspectorElement.tagName.toLowerCase() === "img" ? (
+                    <ImageProperties
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                    />
+                  ) : null}
+                  {selectionHasTextElement ? (
+                    <TypographyProperties
+                      key={`typography:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={
+                        onStylesChangeProp ? onStylesChange : undefined
+                      }
+                      designId={designId}
+                      onFontUploaded={onFontUploaded}
+                    />
+                  ) : null}
+                  {selectionIsGroup ? (
+                    <GroupFillProperties
+                      key={`group-fill:${inspectorElementSectionKey}`}
+                      scopes={selectionColorScopes}
+                      documentColors={documentColorPalette}
+                      disabled={readOnly || Boolean(interactionState)}
+                      onStylesChange={
+                        readOnly || interactionState
+                          ? undefined
+                          : onGroupFillStylesChange
+                      }
+                      mostRecentFillColor={recentFillColorRef.current}
                     />
                   ) : (
-                    <>
-                      <AppearanceProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={
-                          onStylesChangeProp ? onStylesChange : undefined
-                        }
-                        hidden={selectionHidden}
-                        onToggleHidden={onToggleSelectionHidden}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                      {selectionHasTextElement ? (
-                        <TypographyProperties
-                          element={
-                            stateResolvedInspectorElement ?? inspectorElement
-                          }
-                          onStyleChange={onStyleChange}
-                          onStylesChange={
-                            onStylesChangeProp ? onStylesChange : undefined
-                          }
-                          designId={designId}
-                          onFontUploaded={onFontUploaded}
-                        />
-                      ) : null}
-                      {selectionIsGroup ? (
-                        <GroupFillProperties
-                          scopes={selectionColorScopes}
-                          documentColors={documentColorPalette}
-                          disabled={readOnly || Boolean(interactionState)}
-                          onStylesChange={
-                            readOnly || interactionState
-                              ? undefined
-                              : onGroupFillStylesChange
-                          }
-                          mostRecentFillColor={recentFillColorRef.current}
-                        />
-                      ) : (
-                        <FillProperties
-                          element={
-                            stateResolvedInspectorElement ?? inspectorElement
-                          }
-                          onStyleChange={onStyleChange}
-                          onStylesChange={onStylesChange}
-                          capturedStyleTargets={capturedStyleTargets}
-                          documentColorPalette={documentColorPalette}
-                          glslShaderContext={glslShaderContext}
-                          motionKeyframeContext={motionKeyframeFieldContext}
-                          breakpointOverrideContext={
-                            breakpointOverrideFieldContext
-                          }
-                          hideAddFill={selectionIsTextOnly}
-                        />
-                      )}
-                      <StrokeProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                        breakpointOverrideContext={
-                          breakpointOverrideFieldContext
-                        }
-                      />
-                      <EffectsProperties
-                        element={
-                          stateResolvedInspectorElement ?? inspectorElement
-                        }
-                        onStyleChange={onStyleChange}
-                        onStylesChange={onStylesChange}
-                        glslShaderContext={glslShaderContext}
-                        motionKeyframeContext={motionKeyframeFieldContext}
-                      />
-                      <SelectionColorsProperties
-                        elements={effectiveSelectedElements}
-                        scopes={selectionColorScopes}
-                        onColorTarget={onSelectionColorTarget}
-                        canSelectColorTarget={canSelectSelectionColorTarget}
-                        onColorPickerOpenChange={
-                          onSelectionColorPickerOpenChange
-                        }
-                        onColorChange={
-                          readOnly || interactionState
-                            ? undefined
-                            : onSelectionColorChange
-                        }
-                      />
-                      {selectionHasContainerElement ? (
-                        <LayoutGuideProperties
-                          element={
-                            stateResolvedInspectorElement ?? inspectorElement
-                          }
-                          onStyleChange={onStyleChange}
-                        />
-                      ) : null}
-                    </>
+                    <FillProperties
+                      key={`fill:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      capturedStyleTargets={capturedStyleTargets}
+                      documentColorPalette={documentColorPalette}
+                      glslShaderContext={glslShaderContext}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                      hideAddFill={selectionIsTextOnly}
+                    />
                   )}
+                  <StrokeProperties
+                    key={`stroke:${inspectorElementSectionKey}`}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={onStylesChange}
+                    motionKeyframeContext={motionKeyframeFieldContext}
+                    breakpointOverrideContext={breakpointOverrideFieldContext}
+                  />
+                  <EffectsProperties
+                    key={`effects:${inspectorElementSectionKey}`}
+                    element={stateResolvedInspectorElement ?? inspectorElement}
+                    onStyleChange={onStyleChange}
+                    onStylesChange={onStylesChange}
+                    glslShaderContext={glslShaderContext}
+                    motionKeyframeContext={motionKeyframeFieldContext}
+                  />
+                  <SelectionColorsProperties
+                    elements={effectiveSelectedElements}
+                    scopes={selectionColorScopes}
+                    onColorTarget={onSelectionColorTarget}
+                    canSelectColorTarget={canSelectSelectionColorTarget}
+                    onColorPickerOpenChange={onSelectionColorPickerOpenChange}
+                    onColorChange={
+                      readOnly || interactionState
+                        ? undefined
+                        : onSelectionColorChange
+                    }
+                  />
+                  {selectionHasContainerElement ? (
+                    <LayoutGuideProperties
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                    />
+                  ) : null}
                 </>
               )}
               {/* Export acts on a selection. With nothing selected there is
                   nothing to export, so the section was pure chrome on the
                   empty-canvas panel. */}
-              {onExport &&
-              !scaleSectionActive &&
-              (inspectorElement || selectedScreenGeometry) ? (
+              {onExport && (inspectorElement || selectedScreenGeometry) ? (
                 <PanelSection title={t("editPanel.sections.export")}>
                   <ExportSettingsPanel
                     key={selectedElementKey}

@@ -124,6 +124,7 @@ export interface CanvasPrimitiveInsert {
   geometry: FrameGeometry;
   points?: Point[];
   pathData?: string;
+  penPath?: PenPath;
   text?: string;
   fill?: string;
   stroke?: string;
@@ -136,6 +137,7 @@ export interface CanvasPrimitiveInsert {
 export interface PersistedDraftPrimitive {
   frameId: string;
   nodeId: string;
+  sourceNodeId?: string;
   preparedTargetNodeId?: string;
   preparedTargetIdentity?: ScreenProjectionNodeIdentity;
 }
@@ -196,6 +198,8 @@ export interface MultiScreenCanvasProps {
    * fitted outline + resize handles around the real element, so drawing the
    * frame-sized box on top of it would be wrong, not just redundant. */
   selectedElementScreenId?: string | null;
+  /** Stable source id for the currently selected canvas layer. */
+  selectedPenPathNodeId?: string | null;
   /** Hidden screen/file rows retain geometry but do not render or participate
    * in overview hit testing, fit, or selection until shown again. */
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
@@ -289,6 +293,11 @@ export interface MultiScreenCanvasProps {
     nodeId: string,
     options?: { nextTool?: "move" | "pen" },
   ) => void;
+  onUpdatePenPath?: (
+    screenId: string,
+    nodeId: string,
+    path: PenPath,
+  ) => boolean;
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
@@ -768,16 +777,6 @@ export interface MultiScreenCanvasProps {
    */
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
-  /** Receives a reader for the canvas-space rect visible between the chrome
-   * insets, read at call time by commands that place new content. */
-  visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
-}
-
-export interface VisibleCanvasRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 export interface FrameGeometry {
@@ -840,11 +839,8 @@ export interface Point {
 export interface VectorEditOverlayState {
   path: PenPath;
   originCanvas: Point;
-  /** The vertex the inspector's corner radius applies to, as in Figma. */
-  selectedNodeIndex: number | null;
-  /** The vector's own corner radius, so the edit path shows the real shape. */
-  cornerRadius: number;
-  onSelectNode: (nodeIndex: number | null) => void;
+  selectedAnchorIndex: number | null;
+  onSelectedAnchorChange: (nodeIndex: number | null) => void;
   onChange: (nextPath: PenPath, phase: "preview" | "commit") => void;
   onExit: () => void;
 }
@@ -1096,17 +1092,6 @@ export interface VectorEditAnchorDragState {
   hasMoved: boolean;
 }
 
-/** Dragging a segment of a `vectorEdit` overlay path bends it (Figma). */
-export interface VectorEditSegmentDragState {
-  type: "vector-segment";
-  originClient: Point;
-  originLocal: Point;
-  segmentIndex: number;
-  t: number;
-  pathBefore: PenPath;
-  hasMoved: boolean;
-}
-
 /** Dragging a control-handle circle of a `vectorEdit` overlay path (P-VE1).
  *  Alt/Option held during the drag breaks handle symmetry into a cusp
  *  (movePenHandle's breakSymmetry), matching the pen tool's own alt
@@ -1141,8 +1126,7 @@ export type DragState =
   | DraftCreateDragState
   | PenNodeDragState
   | VectorEditAnchorDragState
-  | VectorEditHandleDragState
-  | VectorEditSegmentDragState;
+  | VectorEditHandleDragState;
 
 export type PendingWheelGesture =
   | {

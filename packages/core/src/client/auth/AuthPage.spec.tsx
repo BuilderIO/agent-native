@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -25,6 +27,24 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("does not show raw Google OAuth exceptions to users", () => {
+    const source = readFileSync(
+      new URL("./AuthPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const startGoogle = React.useCallback");
+    const end = source.indexOf(
+      "  }, [\n    apiPath,\n    googleAuthUrlPath",
+      start,
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const googleOAuthCatch = source.slice(start, end);
+
+    expect(googleOAuthCatch).toContain('text: t("failedToConnect")');
+    expect(googleOAuthCatch).not.toContain("error.message");
+  });
+
   it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
     expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
     expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);

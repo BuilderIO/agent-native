@@ -1208,6 +1208,7 @@ const messages = {
     transcript: "전사",
     comment: "댓글",
     titleOrDescription: "제목 또는 설명",
+    matchAt: "동영상 내 {{time}}에서 일치",
   },
   organizationSwitcher: {
     noOrganization: "조직 없음",

@@ -7,6 +7,8 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ElementInfo } from "@/components/design/types";
+import { elementInfoForOwnedCodeLayerNode } from "@/pages/design-editor/code-layer-state";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -105,6 +107,65 @@ describe("runTextContentChange default text-layer naming", () => {
       "Label",
     );
     expect(nextNode.textSnippet?.trim()).toBe("Sign up");
+  });
+});
+
+describe("runTextContentChange selected live element", () => {
+  it("retains the host layer identity and mixed style snapshot after the source commit", () => {
+    const content = `<body><div data-agent-native-node-id="t1">Before</div></body>`;
+    const { args, getContent } = buildArgs(content, false);
+    const selectedElement: { current: ElementInfo | null } = { current: null };
+    const liveElementInfo: ElementInfo = {
+      tagName: "div",
+      sourceId: "t1",
+      selector: '[data-agent-native-node-id="t1"]',
+      classes: [],
+      computedStyles: { fontSize: "Mixed" },
+      boundingRect: { x: 0, y: 0, width: 100, height: 24 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      portableStyleSnapshot: {
+        version: 1,
+        rootSourceId: "t1",
+        nodes: [{ path: [], styles: { fontSize: "Mixed" } }],
+      },
+    };
+    const selectionArgs: TextContentChangeArgs = {
+      ...args,
+      setSelectedElement: (update) => {
+        selectedElement.current =
+          typeof update === "function"
+            ? update(selectedElement.current)
+            : update;
+      },
+    };
+
+    expect(
+      runTextContentChange(
+        selectionArgs,
+        liveElementInfo.selector!,
+        "After",
+        liveElementInfo,
+      ),
+    ).toBe("accepted");
+
+    const node = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "t1",
+    )!;
+    expect(selectedElement.current?.sourceLayerIdentity).toEqual({
+      screenId: "index.html",
+      nodeId: node.id,
+    });
+    expect(
+      elementInfoForOwnedCodeLayerNode({
+        info: selectedElement.current,
+        node,
+        ownerFileId: "index.html",
+      }).computedStyles.fontSize,
+    ).toBe("Mixed");
   });
 });
 

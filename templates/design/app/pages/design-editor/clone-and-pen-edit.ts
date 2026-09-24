@@ -113,7 +113,40 @@ export function writeBackVectorEditedPenPath(
     const svgElement = doc.querySelector(
       `[data-agent-native-node-id="${safeNodeId}"]`,
     );
-    if (svgElement?.tagName.toLowerCase() !== "svg") return null;
+    if (!svgElement) return null;
+    if (svgElement.tagName.toLowerCase() === "path") {
+      const path = svgElement as SVGPathElement;
+      const svg = path.ownerSVGElement;
+      if (
+        !svg ||
+        svg.getAttribute("data-an-primitive") !== "pasted-svg" ||
+        !path.hasAttribute("data-an-pen-nodes")
+      ) {
+        return null;
+      }
+
+      const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
+      path.setAttribute("d", serializePenPath(penPath));
+      if (isClosed) {
+        if (path.getAttribute("fill") === "none") {
+          path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+        }
+        if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
+          path.setAttribute("stroke", "none");
+          path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
+        }
+      } else {
+        path.setAttribute("fill", "none");
+        if (path.getAttribute("stroke") === "none") {
+          path.setAttribute("stroke", DEFAULT_LINE_STROKE);
+          path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
+        }
+      }
+      path.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
+      svg.style.overflow = "visible";
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    }
+    if (svgElement.tagName.toLowerCase() !== "svg") return null;
     const svg = svgElement as SVGSVGElement;
     const path = svg.querySelector("path");
     if (!path) return null;
@@ -236,7 +269,11 @@ export function writeBackVectorEditedPenPath(
  * Returns the translation between an SVG PenPath's authored coordinates and
  * its current screen-content position. Vector edit handles use screen-content
  * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
- * the path data or its viewBox.
+ * the path data or its viewBox. Non-translation transforms remain unsupported:
+ * the editor currently stores edited anchors in screen-content coordinates,
+ * while writeBackVectorEditedPenPath expects authored SVG coordinates. Accepting
+ * scale/rotation/skew here without carrying the inverse matrix through commit
+ * would serialize displaced anchors and change the rendered geometry.
  */
 export function penPathScreenContentOffset(svg: SVGSVGElement): {
   x: number;
