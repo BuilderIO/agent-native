@@ -249,6 +249,31 @@ describe("buildPastedSvgLayer", () => {
     );
   });
 
+  it("keeps a multiline default namespace when the root has quoted greater-than attributes", () => {
+    const importNode = vi.spyOn(document, "importNode");
+    let importedRoot: SVGSVGElement | undefined;
+    try {
+      buildPastedSvgLayer(
+        '<svg data-title="a > b"\n  xmlns\n    = "http://www.w3.org/2000/svg"><path d="M0 0h10" /></svg>',
+        "Logo",
+      );
+      importedRoot = importNode.mock.results[0]?.value as
+        | SVGSVGElement
+        | undefined;
+    } finally {
+      importNode.mockRestore();
+    }
+
+    expect(importedRoot?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(importedRoot?.getAttribute("xmlns")).toBe(
+      "http://www.w3.org/2000/svg",
+    );
+    expect(importedRoot?.getAttribute("data-title")).toBe("a > b");
+    expect(importedRoot?.firstElementChild?.namespaceURI).toBe(
+      "http://www.w3.org/2000/svg",
+    );
+  });
+
   it("measures namespace-less clipboard shapes as SVG elements", () => {
     let measuredShape: Element | undefined;
     const layer = buildPastedSvgLayer(

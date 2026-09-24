@@ -410,6 +410,38 @@ describe("nested Pen path commits", () => {
 });
 
 describe("continuing a committed open Pen path", () => {
+  it("preserves authored zero fill opacity when closing an open path", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="authored-open" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-an-pen-nodes="${serializePenNodes(openPath)}" d="${serializePenPath(openPath)}"
+        fill="#000000" fill-opacity="0" stroke="#000000" />
+    </svg>`;
+
+    for (const content of [
+      html,
+      writeBackVectorEditedPenPath(html, "authored-open", openPath)!,
+    ]) {
+      const closed = writeBackVectorEditedPenPath(
+        content,
+        "authored-open",
+        closePenPath(openPath),
+      );
+      const closedPath = new DOMParser()
+        .parseFromString(closed!, "text/html")
+        .querySelector("path");
+
+      expect(closedPath?.getAttribute("fill-opacity")).toBe("0");
+    }
+  });
+
   it("preserves authored zero fill opacity on a closed path", () => {
     const closedPath = closePenPath({
       closed: false,
@@ -437,7 +469,7 @@ describe("continuing a committed open Pen path", () => {
     expect(editedPath?.getAttribute("fill-opacity")).toBe("0");
   });
 
-  it("removes legacy synthetic zero fill opacity when closing an open path", () => {
+  it("preserves ambiguous markerless zero fill opacity when closing an open path", () => {
     const openPath: PenPath = {
       closed: false,
       nodes: [
@@ -461,7 +493,7 @@ describe("continuing a committed open Pen path", () => {
       .parseFromString(closed!, "text/html")
       .querySelector("path");
 
-    expect(closedPath?.getAttribute("fill-opacity")).toBeNull();
+    expect(closedPath?.getAttribute("fill-opacity")).toBe("0");
     expect(closedPath?.getAttribute("stroke")).toBe("#000000");
   });
 

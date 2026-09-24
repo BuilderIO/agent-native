@@ -153,6 +153,15 @@ describe("parsePastedSvg", () => {
     ).toMatchObject({ width: 17, height: 9 });
   });
 
+  it("parses quoted self-closing text without mistaking it for an SVG tag", () => {
+    const pasted = parsePastedSvg(
+      '<svg width="17" height="9" data-note="/>"><path d="M0 0h17"/></svg>',
+    );
+
+    expect(pasted).toMatchObject({ width: 17, height: 9 });
+    expect(pasted?.svg).toContain('<path d="M0 0h17"');
+  });
+
   it("removes executable content and external references", () => {
     const pasted = parsePastedSvg(
       '<svg width="17" height="9" onload="bad()"><script>bad()</script><foreignObject><div>bad</div></foreignObject><image href="https://example.com/a.png"/><path d="M0 0h17" fill="url(https://example.com/a.svg#paint)"/></svg>',

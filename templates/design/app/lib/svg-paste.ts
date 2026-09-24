@@ -223,7 +223,7 @@ function parseSvgRoot(markup: string): SVGSVGElement | null {
   const namespacedMarkup = sanitizedMarkup.replace(
     /<svg(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
     (_tag, attributes: string) => {
-      const namespace = /\sxmlns\s*=\s*(["']).*?\1/i;
+      const namespace = /\sxmlns\s*=\s*(["'])[\s\S]*?\1/i;
       const namespacedAttributes = namespace.test(attributes)
         ? attributes.replace(namespace, ` xmlns="${SVG_NAMESPACE}"`)
         : `${attributes} xmlns="${SVG_NAMESPACE}"`;
