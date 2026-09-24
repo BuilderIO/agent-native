@@ -21,6 +21,8 @@ const requestString = (value: unknown) =>
         ? value.url
         : testString(value);
 
+import { toast } from "sonner";
+
 import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 const orgQueryState = vi.hoisted(() => ({
@@ -638,6 +640,123 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
       normalizeSlidePadding('<div class="fmd-slide"><h1>After</h1></div>'),
     );
+  });
+
+  describe("updateSlide save boundary", () => {
+    const styled =
+      '<div class="fmd-slide"><style>.fmd-slide { padding: 32px; }</style><p>Before</p></div>';
+    const patchContents = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls
+        .filter(([url]) =>
+          requestString(url).includes("/_agent-native/actions/patch-deck"),
+        )
+        .flatMap(([, init]) =>
+          (
+            actionCallBody(init).operations as Array<{
+              fields?: { content?: string };
+            }>
+          ).map((operation) => operation.fields?.content),
+        );
+
+    async function openStyledDeck(deckId: string) {
+      window.history.pushState({}, "", `/deck/${deckId}`);
+      const fetch = setupFetch();
+      const hook = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(hook.result.current.loading).toBe(false));
+      fetch.setAccessibleDeck({
+        id: deckId,
+        title: "Styled deck",
+        createdAt: "2026-09-24T00:00:00.000Z",
+        updatedAt: "2026-09-24T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: styled, notes: "", layout: "blank" },
+        ],
+      });
+      await act(async () => {
+        await hook.result.current.reloadDecks();
+      });
+      return { ...fetch, result: hook.result };
+    }
+
+    it("does not enqueue a write whose content is unchanged", async () => {
+      const { fetchMock, result } = await openStyledDeck("unchanged-deck");
+      let stored: string | undefined;
+      act(() => {
+        stored = result.current.updateSlide(
+          "unchanged-deck",
+          "slide-1",
+          { content: styled },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("unchanged-deck");
+      });
+      expect(stored).toBe(styled);
+      expect(patchContents(fetchMock)).toEqual([]);
+    });
+
+    it("pads the slide root only when the write changed it", async () => {
+      const { fetchMock, result } = await openStyledDeck("padding-deck");
+      const edited = styled.replace("Before", "After");
+      const restyled = edited.replace(
+        '<div class="fmd-slide">',
+        '<div class="fmd-slide" style="color: red">',
+      );
+      act(() => {
+        result.current.updateSlide(
+          "padding-deck",
+          "slide-1",
+          { content: edited },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("padding-deck");
+      });
+      act(() => {
+        result.current.updateSlide(
+          "padding-deck",
+          "slide-1",
+          { content: restyled },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("padding-deck");
+      });
+      expect(patchContents(fetchMock)).toEqual([
+        edited,
+        normalizeSlidePadding(restyled),
+      ]);
+    });
+
+    it("refuses a write that adds rendered markup, loudly", async () => {
+      const { fetchMock, result } = await openStyledDeck("artifact-deck");
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const toastSpy = vi.spyOn(toast, "error");
+      const flattened = styled.replace(
+        ".fmd-slide {",
+        '[data-slide-content-scope="slide-r1"] .fmd-slide {',
+      );
+      expect(() =>
+        result.current.updateSlide(
+          "artifact-deck",
+          "slide-1",
+          { content: flattened },
+          { persistence: "immediate" },
+        ),
+      ).toThrow(/data-slide-content-scope/);
+      await act(async () => {
+        await result.current.flushDeckSave("artifact-deck");
+      });
+      expect(patchContents(fetchMock)).toEqual([]);
+      expect(result.current.getDeck("artifact-deck")?.slides[0].content).toBe(
+        styled,
+      );
+      expect(toastSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalled();
+    });
   });
 
   it("merges revisions returned by add-slide and save-deck", async () => {
@@ -2114,8 +2233,9 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
-    const normalizedMovedContent = normalizeSlidePadding(movedContent);
-    const normalizedResizedContent = normalizeSlidePadding(resizedContent);
+    // Moves leave the `.fmd-slide` start tag alone, so no padding is added.
+    const normalizedMovedContent = movedContent;
+    const normalizedResizedContent = resizedContent;
     setAccessibleDeck({
       id: "gesture-deck",
       title: "Gesture deck",
@@ -2197,7 +2317,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
     expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
-      normalizeSlidePadding(resizedContent),
+      resizedContent,
     );
 
     act(() => result.current.undo());

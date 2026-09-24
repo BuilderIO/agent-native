@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeSlideFitTransform,
+  getRenderedSlideSource,
   prepareImportedFonts,
   resolveImportedFont,
   slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import { mergeRenderedEdits, SOURCE_STAMP_ATTR } from "@/lib/slide-source-map";
 
 vi.mock("./MermaidRenderer", () => ({
   MermaidRenderer: () => <div data-mermaid-diagram="true" />,
@@ -155,6 +157,58 @@ describe("computeSlideFitTransform", () => {
       verticalOverflow: 0,
       horizontalOverflow: 0,
     });
+  });
+});
+
+describe("SlideInner source stamps", () => {
+  afterEach(() => cleanup());
+
+  const content =
+    '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px"><p>Caption</p></div>';
+
+  it("stamps and registers only the editable canvas", () => {
+    const slide = { id: "slide-a", content, layout: "blank" } as Slide;
+    const { unmount } = render(<SlideInner slide={slide} />);
+    const plain = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(plain.innerHTML).not.toContain(SOURCE_STAMP_ATTR);
+    expect(getRenderedSlideSource(plain)).toBeUndefined();
+    unmount();
+
+    render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(root.querySelector("p")!.getAttribute(SOURCE_STAMP_ATTR)).toMatch(
+      /\.slide-a:2$/,
+    );
+    expect(getRenderedSlideSource(root)?.stored).toBe(content);
+  });
+
+  it("re-registers the new source after an in-place image swap", async () => {
+    const slide = { id: "slide-b", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    rerender(
+      <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(root.querySelector("img")).toBe(image);
+    const source = getRenderedSlideSource(root)!;
+    expect(source.stored).toBe(uploaded);
+    image.style.left = "80px";
+    expect(
+      mergeRenderedEdits({
+        ...source,
+        live: root.cloneNode(true) as Element,
+      }).html,
+    ).toBe(
+      uploaded.replace(
+        "position:absolute;left:40px;top:24px",
+        "position:absolute; top:24px; left: 80px",
+      ),
+    );
   });
 });
 

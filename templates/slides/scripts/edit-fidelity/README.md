@@ -93,6 +93,15 @@ Each case is one file, `corpus/<case-id>.json`:
     },
   ],
   "targets": { "0": 6 }, // optional: max text targets per slide, keyed by 0-based slide index
+  "expectStyles": [
+    // optional: computed styles that must hold on a fresh load and after reload
+    {
+      "slide": 0,
+      "selector": ".card .value",
+      "property": "font-size",
+      "value": "28px",
+    },
+  ],
 }
 ```
 
@@ -180,6 +189,14 @@ deltas for editing/after, the html diff, and the violation count.
   - `noop` / `typedelete` / `clickout` must add 0 style or geometry deltas, 0
     missing or added elements, and must not change the visible text.
   - `append` / `enter3` must add 0 style deltas outside the edited element.
+- **Writes.** Every `patch-deck`, `save-deck` or `update-slide` request from
+  entering edit to the end of the scenario (the `typedelete` rerun included)
+  is recorded in `result.json`. `noop` / `typedelete` / `clickout` must send
+  none.
+- **Saved bytes.** For `append` / `enter3`, the edited element is located in
+  the stored source by tag, text and occurrence, and the saved string must
+  start with every stored byte before it and end with every stored byte after
+  it. `bytes-outside.txt` shows the first difference.
 - **Saved HTML.** Both versions are parsed in the page and canonicalized:
   attributes and classes sorted, style declarations parsed by the CSSOM (which
   normalizes colors and units) and sorted, whitespace collapsed.
@@ -190,7 +207,8 @@ deltas for editing/after, the html diff, and the violation count.
     must match.
 - **Hard failures** in the saved HTML, counted against the stored HTML:
   - `data-slide-content-scope`, `visibility:hidden`, `data-editing-block`,
-    `contenteditable`, `data-builder-id` or `ProseMirror` appearing more often;
+    `contenteditable`, `data-builder-id`, `ProseMirror` or `data-src-i`
+    appearing more often;
   - changed `<style>` text;
   - fewer `<svg>` or `<img>`.
 - **Inventory.** Counts of elements, visible and hidden styled elements, svg,

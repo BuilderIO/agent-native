@@ -1,3 +1,8 @@
+/** A fresh global regex: callers iterate it, so the lastIndex must not be shared. */
+export function mermaidBlockPattern(): RegExp {
+  return /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi;
+}
+
 /**
  * Extracts `<div class="mermaid">...</div>` blocks from raw slide HTML and
  * replaces them with `data-mermaid-index="N"` placeholders, BEFORE any
@@ -17,11 +22,20 @@ export function extractMermaidBlocks(content: string): {
 } {
   const blocks: string[] = [];
   const contentWithPlaceholders = content.replace(
-    /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
+    mermaidBlockPattern(),
     (_, definition) => {
       blocks.push(String(definition).trim());
       return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
     },
   );
   return { blocks, contentWithPlaceholders };
+}
+
+/**
+ * The HTML between mermaid placeholders, as the renderer mounts it: each part
+ * is parsed on its own, so an element that spans a placeholder is split.
+ * Whitespace-only parts are not mounted.
+ */
+export function splitMermaidFragments(html: string): string[] {
+  return html.split(/(<div data-mermaid-index="\d+"><\/div>)/);
 }

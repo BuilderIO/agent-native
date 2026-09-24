@@ -1,3 +1,4 @@
+import { captureError } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   createLocalOpUndoController,
@@ -9,6 +10,7 @@ import {
   callActionWithRetry,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
   REALTIME_CAP_POLL_LIVE,
@@ -34,11 +36,16 @@ import {
   useSyncExternalStore,
   ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
-import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "../lib/normalize-slide-padding";
+import { renderArtifactGrowth } from "../lib/slide-source-map";
 
 // ---------------------------------------------------------------------------
 // Granular persistence types
@@ -301,12 +308,16 @@ interface DeckContextType {
     options?: { persistence?: "debounced" | "immediate" },
   ) => string;
   flushDeckSave: (deckId: string) => Promise<void>;
+  /**
+   * Returns the content that was stored (padding applied), or undefined when
+   * the update carried no content or was refused.
+   */
   updateSlide: (
     deckId: string,
     slideId: string,
     updates: Partial<Omit<Slide, "id">>,
     options?: UpdateSlideOptions,
-  ) => void;
+  ) => string | undefined;
   updateSlides: (
     deckId: string,
     slideUpdates: {
@@ -1823,8 +1834,33 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
   blank: `<div class="fmd-slide" style="padding: 80px 110px; position: relative; font-family: 'Poppins', sans-serif;"></div>`,
 };
 
+/**
+ * A content write that adds renderer or editor markup (scoped selectors,
+ * source stamps, editor attributes) serialized the rendered DOM instead of
+ * the stored slide. Storing it would flatten the slide, so refuse it loudly.
+ */
+function refuseRenderArtifactWrite(
+  markers: string[],
+  target: { deckId: string; slideId: string },
+  message: string,
+) {
+  const error = new Error(
+    `Refused a slide write that adds rendered markup: ${markers.join(", ")}`,
+  );
+  console.error(error, target);
+  captureError(error, {
+    tags: { area: "slides-save-boundary" },
+    extra: { ...target, markers },
+  });
+  toast.error(message);
+  if (import.meta.env.DEV) throw error;
+}
+
 export function DeckProvider({ children }: { children: ReactNode }) {
   const { data: org, isLoading: orgLoading } = useOrg();
+  const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const activeOrgId = org?.orgId ?? null;
   const [decks, setDecks] = useState<Deck[]>([]);
   const [deckScopeOrgId, setDeckScopeOrgId] = useState<
@@ -3653,11 +3689,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       slideId: string,
       updates: Partial<Omit<Slide, "id">>,
       options?: UpdateSlideOptions,
-    ) => {
-      const normalizedUpdates =
-        typeof updates.content === "string"
-          ? { ...updates, content: normalizeSlidePadding(updates.content) }
-          : updates;
+    ): string | undefined => {
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -3669,6 +3701,27 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const previousSlide = before?.slides.find(
         (slide) => slide.id === slideId,
       );
+      let normalizedUpdates = updates;
+      if (typeof updates.content === "string") {
+        const content = normalizeSlidePaddingForWrite(
+          previousSlide?.content,
+          updates.content,
+        );
+        const markers = renderArtifactGrowth(
+          previousSlide?.content ?? "",
+          content,
+        );
+        if (markers.length > 0) {
+          refuseRenderArtifactWrite(
+            markers,
+            { deckId, slideId },
+            tRef.current("deckEditor.editorMarkupNotSaved"),
+          );
+          return undefined;
+        }
+        normalizedUpdates = { ...updates, content };
+      }
+      const storedContent = normalizedUpdates.content;
       const optimisticSlideFitChange =
         !options?.preserveLocalState &&
         !options?.recordUndoOnly &&
@@ -3690,7 +3743,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         !deriveInverseOp(before, op) &&
         !options?.preserveLocalState
       ) {
-        return;
+        return storedContent;
       }
       if (options?.recordUndoOnly) {
         if (before) {
@@ -3713,7 +3766,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               .join(",")}`,
           });
         }
-        return;
+        return storedContent;
       }
       // A preserved editor draft already has an explicit granular op queued.
       // Marking it dirty also arms the legacy full-replace fallback, which can
@@ -3751,6 +3804,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             .join(",")}`,
         });
       }
+      return storedContent;
     },
     [markDeckDirty, recordUndo, reconcilePersistedLayoutFit, setDecksLocal],
   );

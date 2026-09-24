@@ -18,6 +18,8 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
+
 import {
   pick,
   resolvePnpmEntry,
@@ -133,6 +135,13 @@ interface CorpusSlide {
   layout?: string;
   notes?: string;
 }
+interface ExpectedStyle {
+  /** 0-based slide index. */
+  slide: number;
+  selector: string;
+  property: string;
+  value: string;
+}
 interface CorpusCase {
   id: string;
   title: string;
@@ -140,6 +149,8 @@ interface CorpusCase {
   aspectRatio?: string;
   slides: CorpusSlide[];
   targets?: Record<string, number>;
+  /** Computed styles that must hold on a fresh load and after reload. */
+  expectStyles?: ExpectedStyle[];
 }
 
 function loadCorpus(): CorpusCase[] {
@@ -387,14 +398,16 @@ async function openSlide(
   slideId: string,
 ) {
   for (let attempt = 0; ; attempt++) {
-    await page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
-      waitUntil: "domcontentloaded",
-    });
     try {
+      await page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 90_000,
+      });
       await page.waitForSelector(canvasSelector(slideId), { timeout: 45_000 });
       break;
     } catch (error) {
-      // A first load can 504 "Outdated Optimize Dep" and full-reload.
+      // A first load can 504 "Outdated Optimize Dep" and full-reload, and a
+      // loaded dev server can miss the navigation deadline.
       if (attempt >= 2) throw error;
     }
   }
@@ -524,6 +537,76 @@ async function listTargets(page: Page, slideId: string): Promise<TextTarget[]> {
   );
 }
 
+async function checkExpectedStyles(
+  page: Page,
+  slideId: string,
+  expected: ExpectedStyle[],
+  when: string,
+): Promise<string[]> {
+  const actual: Array<string | null> = await page.evaluate(
+    ({ sel, expected }: any) => {
+      const root = document.querySelector(sel);
+      return expected.map((e: ExpectedStyle) => {
+        const el = root?.querySelector(e.selector);
+        return el ? getComputedStyle(el).getPropertyValue(e.property) : null;
+      });
+    },
+    { sel: canvasSelector(slideId), expected },
+  );
+  return expected.flatMap((e, i) =>
+    actual[i] === e.value
+      ? []
+      : [
+          `${when}: ${e.selector} ${e.property} is ${actual[i] ?? "missing"}, expected ${e.value}`,
+        ],
+  );
+}
+
+/** Writes the editor sends when it persists slide content. */
+const WRITE_ACTION =
+  /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/;
+
+const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
+
+/**
+ * The edited element's byte range in the stored source, found the way the
+ * in-page helpers find it: by tag, text and occurrence. Text inside elements
+ * the renderer drops (style, svg, script) is not visible, so it is skipped.
+ */
+function sourceRangeOf(
+  stored: string,
+  target: { tag: string; text: string; occurrence: number },
+): { start: number; end: number } | null {
+  const hidden = new Set(["style", "script", "svg", "template", "math"]);
+  const textOf = (node: P5.Node): string =>
+    node.nodeName === "#text"
+      ? (node as P5.TextNode).value
+      : "childNodes" in node && !hidden.has((node as P5.Element).tagName ?? "")
+        ? (node as P5.ParentNode).childNodes.map(textOf).join("")
+        : "";
+  const want = stripSpace(target.text);
+  const matches: P5.Element[] = [];
+  const visit = (parent: P5.ParentNode) => {
+    for (const child of parent.childNodes) {
+      if (!("tagName" in child)) continue;
+      const have = stripSpace(textOf(child));
+      if (
+        child.tagName === target.tag.toLowerCase() &&
+        child.sourceCodeLocation?.startTag &&
+        (have === want ||
+          (target.text.length >= 400 && have.startsWith(want.slice(0, 300))))
+      ) {
+        matches.push(child);
+      }
+      visit(child);
+    }
+  };
+  visit(parse(stored, { sourceCodeLocationInfo: true }));
+  const el = matches[target.occurrence] ?? null;
+  const loc = el?.sourceCodeLocation;
+  return loc ? { start: loc.startOffset, end: loc.endOffset } : null;
+}
+
 async function makeSheet(
   sheetPage: Page,
   dir: string,
@@ -585,10 +668,14 @@ interface ScenarioResult {
     saved: boolean;
     canonicalEqual: boolean;
     outsideEqual: boolean | null;
+    /** Stored bytes before and after the edited element are unchanged. */
+    outsideBytesEqual: boolean | null;
     diffLines: number;
     hardFailures: string[];
     idempotent?: boolean;
   };
+  /** Content-writing requests the editor sent, from entering edit to the end. */
+  writes?: string[];
   enterSteps?: EnterStep[];
   violations: string[];
   /** Set when a transient (dev-server reload) error forced one retry. */
@@ -638,6 +725,7 @@ interface SlideCtx {
   stored: string;
   noisePct: number;
   dir: string;
+  expectStyles: ExpectedStyle[];
 }
 
 async function runScenario(
@@ -666,6 +754,14 @@ async function runScenario(
   const tol = Math.max(0.02, ctx.noisePct * 2);
   const write = (file: string, data: Buffer | string) =>
     writeFileSync(path.join(dir, file), data);
+  const writes: string[] = [];
+  let countingWrites = false;
+  const onRequest = (request: any) => {
+    if (!countingWrites || request.method() !== "POST") return;
+    const match = WRITE_ACTION.exec(request.url());
+    if (match) writes.push(match[1]);
+  };
+  page.on("request", onRequest);
 
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
@@ -682,7 +778,14 @@ async function runScenario(
     const snapView = await snapshot(page, slideId, {
       targetIndex: target.index,
     });
+    const styleProblems = await checkExpectedStyles(
+      page,
+      slideId,
+      ctx.expectStyles,
+      "fresh load",
+    );
 
+    countingWrites = true;
     result.gesture = await enterEdit(page, slideId, current.point);
     if (!result.gesture) {
       result.status = "no-edit";
@@ -769,6 +872,9 @@ async function runScenario(
     const reload = await shot(page, slideId);
     write("reload.png", reload);
     const snapReload = await snapshot(page, slideId, { text: expectedText });
+    styleProblems.push(
+      ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
+    );
 
     // ---- pixels
     const rects = (...rs: Array<Rect | null | undefined>) =>
@@ -846,7 +952,35 @@ async function runScenario(
     );
     const diff = lineDiff(storedLines, savedLines);
     let outsideEqual: boolean | null = null;
+    let outsideBytesEqual: boolean | null = null;
     if (!NET_NOOP.has(scenario)) {
+      const range = sourceRangeOf(ctx.stored, {
+        tag: state0.sourceTag ?? target.tag,
+        text: editedText,
+        occurrence: state0.sourceText
+          ? state0.sourceOccurrence
+          : target.occurrence,
+      });
+      if (!range) {
+        result.violations.push(
+          "could not locate the edited element in the stored source",
+        );
+      } else {
+        const before = ctx.stored.slice(0, range.start);
+        const after = ctx.stored.slice(range.end);
+        outsideBytesEqual =
+          saved.length >= before.length + after.length &&
+          saved.startsWith(before) &&
+          saved.endsWith(after);
+        if (!outsideBytesEqual) {
+          let head = 0;
+          while (head < before.length && saved[head] === before[head]) head++;
+          write(
+            "bytes-outside.txt",
+            `stored element range [${range.start}, ${range.end})\nfirst differing byte before it: ${head < before.length ? head : "none"}\nstored: ${JSON.stringify(ctx.stored.slice(Math.max(0, head - 80), head + 160))}\nsaved:  ${JSON.stringify(saved.slice(Math.max(0, head - 80), head + 160))}\n`,
+          );
+        }
+      }
       const outside = await page.evaluate(
         ({ a, b, t }: any) => window.__editFidelity.canonicalOutside(a, b, t),
         {
@@ -880,6 +1014,7 @@ async function runScenario(
       saved: didSave,
       canonicalEqual: diff.length === 0,
       outsideEqual,
+      outsideBytesEqual,
       diffLines: diff.length,
       hardFailures: hard,
     };
@@ -909,7 +1044,14 @@ async function runScenario(
     }
 
     // ---- invariants
+    countingWrites = false;
+    result.writes = [...writes];
     const v = result.violations;
+    v.push(...styleProblems);
+    if (NET_NOOP.has(scenario) && writes.length)
+      v.push(
+        `${writes.length} content write(s) for a net no-op edit (${writes.join(", ")})`,
+      );
     const px = result.pixels;
     const netNoop = NET_NOOP.has(scenario);
     if (px.editing.outside.pct > tol)
@@ -963,6 +1105,8 @@ async function runScenario(
         );
       if (outsideEqual === false)
         v.push("saved HTML changed outside the edited element");
+      if (outsideBytesEqual === false)
+        v.push("stored bytes changed outside the edited element");
     }
     for (const h of hard) v.push(`hard fail: ${h}`);
     if (result.html.idempotent === false)
@@ -972,6 +1116,7 @@ async function runScenario(
     result.status = "error";
     result.error = String((error as Error).stack ?? error).slice(0, 2000);
   } finally {
+    page.off("request", onRequest);
     result.metrics = metricsOf(result);
     write("result.json", JSON.stringify(result, null, 2));
     await makeSheet(ctx.sheetPage, dir, [
@@ -1101,6 +1246,7 @@ async function runCase(
         stored,
         noisePct: noise.pct,
         dir,
+        expectStyles: (c.expectStyles ?? []).filter((e) => e.slide === i),
       };
       const expected = new Set<string>();
       envelope.set(`${c.id}/s${pad2(i + 1)}`, expected);
@@ -1234,7 +1380,9 @@ async function main() {
     await context.addInitScript(installInPageHelpers, CHROME_SELECTOR);
 
     const warm = await context.newPage();
-    await warm.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+    // `/` serves the sign-in shell to a cookieless request and the client,
+    // already signed in, keeps replacing it with itself; `/home` is stable.
+    await warm.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
     await warm.close();
@@ -1248,7 +1396,7 @@ async function main() {
       Array.from({ length: Math.min(concurrency, cases.length) }, async () => {
         const page = await context.newPage();
         const sheetPage = await browser.newPage();
-        await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+        await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
         for (let c = queue.shift(); c; c = queue.shift()) {
           try {
             await runCase(c, page, sheetPage, base!, results, slides, envelope);

@@ -158,17 +158,52 @@ describe("SlideEditor render-phase safety", () => {
     const disposeBody = source.slice(disposeStart, disposeEnd);
 
     expect(serializeBody).toContain(
-      "activeOriginalStyle: string | null | undefined = undefined",
-    );
-    expect(serializeBody).toContain("if (activeOriginalStyle !== undefined)");
-    expect(serializeBody).toContain(
       'activeClone.style.removeProperty("visibility")',
     );
     expect(serializeBody).toContain('getPropertyValue("visibility")');
     expect(serializeBody).not.toContain(
-      'activeClone.setAttribute("style", activeOriginalStyle)',
+      'activeClone.setAttribute("style", active.originalStyle)',
     );
-    expect(disposeBody).toContain("session.originalStyle,");
+    // A multi-block restore copies the element's attributes onto a new DIV,
+    // so the editing-only `visibility: hidden` must be gone before it runs.
+    expect(
+      serializeBody.indexOf('activeClone.style.removeProperty("visibility")'),
+    ).toBeLessThan(serializeBody.indexOf("restoreSlideTextContainerContent("));
+    expect(disposeBody).toContain("activeTextEdit(session)");
+  });
+
+  it("saves raw slides by merging into the stored source, never the rendered DOM", () => {
+    const serializeStart = source.indexOf("const serializeSlideContentHtml");
+    const serializeEnd = source.indexOf(
+      "const readCurrentSlideContentHtml",
+      serializeStart,
+    );
+    const serializeBody = source.slice(serializeStart, serializeEnd);
+    const mergeAt = serializeBody.indexOf("mergeRenderedEdits(");
+    const domAt = serializeBody.indexOf("stripBuilderIds(clone.innerHTML)");
+
+    expect(mergeAt).toBeGreaterThan(-1);
+    // The DOM is stored only for Markdown roots, which have no source map.
+    expect(
+      serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
+    ).toContain('hasAttribute("data-slide-autofit-root")');
+    expect(serializeBody).toContain("return null;");
+    expect(source).toContain("stampSource\n");
+  });
+
+  it("writes nothing for a click in and out", () => {
+    const enterStart = source.indexOf("const enterInlineEdit");
+    const enterEnd = source.indexOf("// Exit edit mode", enterStart);
+    const enterBody = source.slice(enterStart, enterEnd);
+
+    // The baseline is the stored string, not a capture of the editor's
+    // normalized markup, so an untouched edit merges back to it exactly.
+    expect(enterBody).not.toContain("captureInlineEditDraft(");
+    expect(enterBody).toContain("content: renderedSource.stored");
+    expect(source).toContain(
+      "session.baselineHtml === null || html === session.baselineHtml",
+    );
+    expect(source).toContain("session.baselineHtml ??= editor.getHTML();");
   });
 
   it("scales the portalled editor with the transformed canvas", () => {
@@ -550,7 +585,9 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "pending"');
     expect(pasteBody).toContain('clipboard.nativeClipboardMode === "failed"');
     expect(pasteBody).not.toContain("clipboard.clipboardText");
-    expect(source).toContain("pasteSlideObjects(copySlideObjects(selection)");
+    expect(source).toContain(
+      "copySlideObjects(selection, storedFormOfCopy),\n      selection[0],",
+    );
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

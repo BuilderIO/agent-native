@@ -21,6 +21,7 @@ import patchDeckAction from "./patch-deck";
 // ---------------------------------------------------------------------------
 vi.mock("../app/lib/normalize-slide-padding.js", () => ({
   normalizeSlidePadding: (html: string) => html,
+  normalizeSlidePaddingForWrite: (_previous: string, html: string) => html,
 }));
 
 // ---------------------------------------------------------------------------
@@ -145,6 +146,47 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe("<p>New</p>");
     expect(deck.slides[0].notes).toBe("note"); // unchanged
     expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
+  });
+
+  it("refuses content that adds editor-rendered markup", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: '<div class="fmd-slide"><p>Old</p></div>' },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="false">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+        details: {
+          slideId: "s1",
+          markers: ["data-slide-content-scope", "contenteditable"],
+        },
+      }),
+    );
+    expect(deck.slides[0].content).toBe(
+      '<div class="fmd-slide"><p>Old</p></div>',
+    );
+  });
+
+  it("still saves content that already carried rendered markup", () => {
+    const flattened =
+      '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>';
+    const deck = { slides: [{ id: "s1", content: flattened }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: flattened.replace("Old", "New") },
+    });
+    expect(deck.slides[0].content).toBe(flattened.replace("Old", "New"));
   });
 
   it("ignores the op when the slide has been concurrently deleted", () => {

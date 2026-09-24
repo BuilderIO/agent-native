@@ -205,6 +205,7 @@ export const HARD_FAIL_PATTERNS: Record<string, RegExp> = {
   contenteditable: /contenteditable/gi,
   "data-builder-id": /data-builder-id/g,
   ProseMirror: /ProseMirror/g,
+  "data-src-i": /data-src-i/g,
 };
 
 const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;

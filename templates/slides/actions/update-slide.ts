@@ -16,7 +16,7 @@ import type {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { normalizeSlidePaddingForWrite } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyClients } from "../server/handlers/decks.js";
 import {
@@ -44,6 +44,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoRenderArtifacts } from "./_render-artifacts.js";
 import {
   getCurrentRequestBrowserTabId,
   readAppStateForCurrentTab,
@@ -729,6 +730,7 @@ export default defineAction({
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
       const validateNextContent = (nextContent: string) => {
+        assertNoRenderArtifacts(previousContent, nextContent, slideId);
         assertNoNewUnresolvedPlaceholders(previousContent, nextContent);
         if (styleOnly) {
           assertStyleOnlyEdit(previousContent, nextContent);
@@ -742,7 +744,10 @@ export default defineAction({
       };
 
       if (fullContent !== undefined) {
-        const nextContent = normalizeSlidePadding(fullContent);
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          fullContent,
+        );
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = nextContent !== previousContent;
@@ -757,7 +762,7 @@ export default defineAction({
         );
         const nextContent = styleOnly
           ? patched.content
-          : normalizeSlidePadding(patched.content);
+          : normalizeSlidePaddingForWrite(previousContent, patched.content);
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
@@ -772,7 +777,10 @@ export default defineAction({
           [{ objectId, replace: replace! }],
           format,
         );
-        const nextContent = normalizeSlidePadding(patched.content);
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          patched.content,
+        );
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;

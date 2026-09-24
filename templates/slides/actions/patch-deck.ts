@@ -24,7 +24,10 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
@@ -55,6 +58,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoRenderArtifacts } from "./_render-artifacts.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -446,7 +450,13 @@ export function applyOperation(
         excalidrawData: slide.excalidrawData,
       };
       if (fields.content !== undefined) {
-        const nextContent = normalizeSlidePadding(fields.content);
+        const previousContent =
+          typeof slide.content === "string" ? slide.content : undefined;
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          fields.content,
+        );
+        assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
@@ -1012,7 +1022,10 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : normalizeSlidePadding(op.fields.content),
+                : normalizeSlidePaddingForWrite(
+                    contentsBeforeOperations.get(op.slideId),
+                    op.fields.content,
+                  ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });
