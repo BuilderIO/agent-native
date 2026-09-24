@@ -449,7 +449,8 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith("packages/core/src/client/mcp-apps/") ||
       normalized.startsWith("packages/core/src/mcp/embed-app.") ||
-      normalized.startsWith("packages/core/src/shared/mcp-embed-headers.") ||
+      normalized.startsWith("packages/core/src/mcp/mount-mcp.") ||
+      normalized.startsWith("packages/core/src/mcp/build-server.") ||
       normalized.startsWith(
         "packages/core/src/client/blocks/library/sanitize-html.",
       ) ||
@@ -458,7 +459,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       /(^|\/)(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(?:\.yml)?|turbo\.jsonc?|nx\.json|lerna\.json|dockerfile(?:\..*)?|docker-compose(?:\..*)?|\.nvmrc|\.node-version|vite\.config\..*|webpack\.config\..*|rollup\.config\..*|esbuild\.config\..*|tsconfig(?:\..*)?\.json|makefile)$/i.test(
         normalized,
       ) ||
-      /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
+      /(^|[\/_-])(?:auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?|oauth|embed(?:ded)?|iframeembed|agentnativeembedded|mcp-app-host)([\/_-]|\.|$)/.test(
         normalized,
       )
     );
