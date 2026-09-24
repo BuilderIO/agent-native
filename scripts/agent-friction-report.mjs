@@ -144,7 +144,9 @@ const PR_REVIEW_HANDOFF_CORRECTIONS = [
 ].join("|");
 const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness(?:\s+recommendation)?`,
+  String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?PR|it|this)\s+(?:was|is|were|are)\s+ready\s+to\s+merge`,
   String.raw`(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:repl(?:y|ies)|comments?)|(?:author\s+)?(?:repl(?:y|ies)|comments?)\s+drafts?`,
+  String.raw`(?:provide|include|attach|request|ask\s+for)\s+(?:the\s+)?screenshots?`,
   String.raw`(?:request|include|ask(?:ing)?\s+for)\s+(?:a\s+)?screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
   String.raw`(?:include|ask(?:ing)?|request(?:ed|ing)?)[^.!?\n]{0,60}(?:(?:the|UI|UX)\s+)*(?:UI|UX)?\s*screenshots?`,
   String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
@@ -201,12 +203,15 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You commented again even though my prior ask was still unaddressed."],
   [true, "You forgot to include the UI screenshots."],
   [true, "You didn't ask for UI screenshots."],
+  [true, "You didn't provide screenshots."],
+  [true, "You forgot to say whether the PR was ready to merge."],
   [true, "You failed to report screenshot availability."],
   [true, "The recap omitted the merge-readiness recommendation."],
   [true, "The recap did not say whether screenshots were present."],
   [true, "You didn't explain the blocker. The screenshot status was omitted."],
   [false, "Please tell me which PRs are ready to merge and draft replies."],
   [false, "This PR updates the UI and includes screenshots."],
+  [false, "Please provide screenshots with your PR."],
   [false, "I would like screenshots for new UX changes."],
   [
     false,
