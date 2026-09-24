@@ -1519,6 +1519,19 @@ export async function recordSessionReplayChunks(
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
 
+  // Reserve before the slow blob upload: the budget check sums this table, so
+  // concurrent admissions only see each other's bytes once this row exists.
+  const ingestId = replayId("sri");
+  await db.insert(schema.sessionReplayIngests).values({
+    id: ingestId,
+    publicKeyId: key.id,
+    recordingId: recording.id,
+    byteLength: replayIngestByteLength(clampedInput, context),
+    createdAt: ingestedAt,
+    ownerEmail: key.ownerEmail,
+    orgId: key.orgId,
+  });
+
   try {
     for (const rawChunk of clampedInput.chunks) {
       const existing = existingBySeq.get(rawChunk.seq);
@@ -1585,6 +1598,12 @@ export async function recordSessionReplayChunks(
     uploadedBlobHandles.length = 0;
   } catch (error) {
     await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.id, ingestId))
+      .catch(() => {
+        // Best-effort rollback cleanup; the original ingest error is more useful.
+      });
     if (wasEmptyRecording) {
       await deleteEmptyReplayRecordingPlaceholder(db, {
         id: recording.id,
@@ -1594,16 +1613,6 @@ export async function recordSessionReplayChunks(
     }
     throw error;
   }
-
-  await db.insert(schema.sessionReplayIngests).values({
-    id: replayId("sri"),
-    publicKeyId: key.id,
-    recordingId: recording.id,
-    byteLength: replayIngestByteLength(clampedInput, context),
-    createdAt: ingestedAt,
-    ownerEmail: key.ownerEmail,
-    orgId: key.orgId,
-  });
 
   const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
     clampReplayChunkTiming(chunk, ingestedAt),

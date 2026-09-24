@@ -37,6 +37,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 
+import { schema } from "../db/index.js";
 import {
   assertReplayKeyBudget,
   compactSessionRecordingSummary,
@@ -1463,8 +1464,11 @@ describe("session replay ingest parsing", () => {
         statusCode: 503,
       });
 
-      expect(deletes).toHaveLength(1);
-      const cleanupCondition = conditionText(deletes[0]?.where);
+      // The reserved usage row is deleted first (rollback of the pre-upload
+      // reservation), then the empty-recording placeholder.
+      expect(deletes).toHaveLength(2);
+      expect(deletes[0]?.table).toBe(schema.sessionReplayIngests);
+      const cleanupCondition = conditionText(deletes[1]?.where);
       expect(cleanupCondition).toContain("chunk_count");
       expect(cleanupCondition).toContain("event_count");
       expect(cleanupCondition).toContain("not exists");
@@ -1510,7 +1514,7 @@ describe("session replay ingest parsing", () => {
       visibility: "private",
       status: "active",
     };
-    const { db, inserts } = createReplayDbMock([
+    const { db, inserts, deletes } = createReplayDbMock([
       [
         {
           id: "key_1",
@@ -1530,7 +1534,10 @@ describe("session replay ingest parsing", () => {
     db.insert.mockImplementation((table: unknown) => ({
       values: vi.fn((values: unknown) => {
         inserts.push({ table, values });
-        throw new Error("chunk insert failed");
+        if (table === schema.sessionReplayChunks) {
+          throw new Error("chunk insert failed");
+        }
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
       }),
     }));
     getDbMock.mockReturnValue(db);
@@ -1551,6 +1558,17 @@ describe("session replay ingest parsing", () => {
     ).rejects.toThrow("chunk insert failed");
 
     expect(deletePrivateBlobMock).toHaveBeenCalledWith(handle);
+
+    const reservation = inserts.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    const reservedId = (reservation?.values as { id: string } | undefined)?.id;
+    expect(reservedId).toBeTruthy();
+    const reservationDelete = deletes.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    expect(reservationDelete).toBeDefined();
+    expect(conditionText(reservationDelete?.where)).toContain(reservedId);
   });
 
   // --- Regression coverage for the prod "empty Sessions list" root causes. ---
@@ -1751,5 +1769,75 @@ describe("session replay ingest parsing", () => {
     ).rejects.toMatchObject({ statusCode: 429 });
 
     expect(inserts).toHaveLength(0);
+  });
+
+  it("reserves usage before uploading chunk blobs or inserting chunk rows", async () => {
+    // Regression coverage for the admission race: the usage row must land
+    // before the slow blob upload, not after, or concurrent first chunks can
+    // all read the same pre-reservation total and overshoot the budget.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const order: string[] = [];
+    putPrivateBlobMock.mockImplementation(async () => {
+      order.push("blob-upload");
+      return { opaque: "blob_1", provider: "test" };
+    });
+    const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
+    db.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: unknown) => {
+        if (table === schema.sessionReplayIngests) order.push("reserve-usage");
+        if (table === schema.sessionReplayChunks) order.push("insert-chunks");
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
+      }),
+    }));
+    (db as { update?: unknown }).update = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      })),
+    }));
+    getDbMock.mockReturnValue(db);
+
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      });
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    expect(order).toEqual(["reserve-usage", "blob-upload", "insert-chunks"]);
+  });
+
+  it("deletes the reserved usage row when a chunk upload fails", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockRejectedValue(new Error("upload failed"));
+    const { db, inserts, deletes } = createReplayDbMock(
+      replayIngestKeyDbResults("org_123"),
+    );
+    getDbMock.mockReturnValue(db);
+
+    try {
+      await expect(
+        recordSessionReplayChunks(replayIngestPayload(), {
+          origin: "https://app.example.com",
+          requestBytes: 100,
+        }),
+      ).rejects.toThrow("upload failed");
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+
+    const reservation = inserts.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    const reservedId = (reservation?.values as { id: string } | undefined)?.id;
+    expect(reservedId).toBeTruthy();
+    const reservationDelete = deletes.find(
+      (entry) => entry.table === schema.sessionReplayIngests,
+    );
+    expect(reservationDelete).toBeDefined();
+    expect(conditionText(reservationDelete?.where)).toContain(reservedId);
   });
 });
