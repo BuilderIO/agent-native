@@ -90,6 +90,8 @@ const SHIP_AFFIRMATIVE_OPT_OUT_RE = new RegExp(
   String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*|^\s*(?:please\s+)?(?:don['’]?t|do\s+not)\s+merge\s+.{0,40}\b(?:PR|pull request)\s*#?\d+|^\s*(?:please\s+)?keep\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged))\b`,
   "i",
 );
+const SHIP_DIRECT_LEAVE_OPEN_RE =
+  /^\s*(?:please\s+)?leave\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged)\b/i;
 const SHIP_FALSE_OPT_OUT_BEFORE_RE = new RegExp(
   String.raw`\b(?:i|we)\s+(?:didn['’]?t|did not|never)\s+(?:ask|tell|say|request)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
   "i",
@@ -103,6 +105,8 @@ const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
 
 const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   String.raw`(?:${[
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)\b`,
+    String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50}\b(?:stopp?ed|ended|quit|returned)\b[^.!?\n]{0,50}\bwithout\s+merg(?:e|ing)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\s*#?\d+\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
     String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
@@ -187,9 +191,9 @@ function shipStopPrNumbers(text, stopMatch) {
   if (direct.size > 0) return direct;
 
   const stopEnd = stopMatch.index + stopMatch[0].length;
-  const optOut = [
-    ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
-  ].find((match) => match.index >= stopEnd);
+  const optOut = shipOptOutMatches(text)
+    .map(({ match }) => match)
+    .find((match) => match.index >= stopEnd);
   const stopContext = optOut === undefined ? text : text.slice(0, optOut.index);
   const beforeOptOut = prNumbersNearMatch(stopContext, stopMatch);
   if (beforeOptOut.size > 0 || optOut === undefined) return beforeOptOut;
@@ -199,9 +203,11 @@ function shipStopPrNumbers(text, stopMatch) {
 }
 
 function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
-  return [
+  const matches = [
     ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
-  ].map((match) => {
+    ...text.matchAll(new RegExp(SHIP_DIRECT_LEAVE_OPEN_RE.source, "gi")),
+  ].sort((left, right) => left.index - right.index);
+  return matches.map((match) => {
     const prs = prNumbersNearMatch(text, match);
     const mentionsDifferentWork =
       /\b(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
@@ -221,13 +227,7 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
   });
 }
 
-function hasFalseOptOutDenial(
-  sentence,
-  nextSentence,
-  followingSentence,
-  fourthSentence,
-  optOut,
-) {
+function hasFalseOptOutDenial(optOut) {
   const { match: optOutMatch, sentence: optOutSentence } = optOut;
   const denials = [
     ...optOutSentence.matchAll(
@@ -245,12 +245,7 @@ function hasFalseOptOutDenial(
   const denialTail = optOutSentence.slice(
     optOutMatch.index + optOutMatch[0].length,
   );
-  const afterOptOut =
-    optOutSentence === sentence
-      ? nextSentence
-      : optOutSentence === nextSentence
-        ? followingSentence
-        : fourthSentence;
+  const afterOptOut = optOut.afterSentence;
   const afterOptOutPrs = prNumbers(afterOptOut);
   return (
     SHIP_FALSE_OPT_OUT_AFTER_RE.test(denialTail) ||
@@ -266,6 +261,9 @@ function isShipStoppedBeforeMerge(text) {
   for (const match of text.matchAll(SHIP_STOPPED_BEFORE_MERGE_ALL_RE)) {
     const [start, end] = sentenceBoundsAt(text, match.index);
     const sentence = text.slice(start, end);
+    const previousSentenceStart =
+      start > 0 ? sentenceBoundsAt(text, start - 1)[0] : start;
+    const previousSentence = text.slice(previousSentenceStart, start).trim();
     let nextStart = end < text.length ? end + 1 : end;
     while (/\s/.test(text[nextStart] ?? "")) nextStart++;
     const [nextSentenceStart, nextSentenceEnd] = sentenceBoundsAt(
@@ -294,26 +292,34 @@ function isShipStoppedBeforeMerge(text) {
     const stopPrs = shipStopPrNumbers(sentence, stopMatch);
 
     const optOutMatch = [
-      ...shipOptOutMatches(sentence),
-      ...shipOptOutMatches(nextSentence, prNumbers(sentence)),
-      ...shipOptOutMatches(followingSentence).filter(
-        (optOut) =>
-          stopPrs.size > 0 &&
-          optOut.prs.size > 0 &&
-          sameShipment(stopPrs, optOut.prs),
-      ),
+      ...shipOptOutMatches(previousSentence)
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: sentence })),
+      ...shipOptOutMatches(sentence).map((optOut) => ({
+        ...optOut,
+        afterSentence: nextSentence,
+      })),
+      ...shipOptOutMatches(nextSentence, prNumbers(sentence)).map((optOut) => ({
+        ...optOut,
+        afterSentence: followingSentence,
+      })),
+      ...shipOptOutMatches(followingSentence)
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: fourthSentence })),
     ].find((optOut) => sameShipment(stopPrs, optOut.prs));
 
     if (!optOutMatch) return true;
-    if (
-      hasFalseOptOutDenial(
-        sentence,
-        nextSentence,
-        followingSentence,
-        fourthSentence,
-        optOutMatch,
-      )
-    ) {
+    if (hasFalseOptOutDenial(optOutMatch)) {
       return true;
     }
   }
@@ -587,6 +593,12 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "They just stop after opening the PR; /ship should keep checking until merged.",
   ],
   [false, "Do not stop /ship until the PR is merged."],
+  [true, "I told /ship to merge the pull request, but it never did."],
+  [true, "/ship stopped without merging PR #123."],
+  [
+    false,
+    "/ship stopped without merging PR #123 because I asked to leave PR #123 open.",
+  ],
   [
     true,
     "I asked /ship to merge PR #123, but it merely opened the PR and returned.",
@@ -681,7 +693,19 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [
     false,
+    "The agent stopped /ship with PR #123 unmerged. Please leave PR #123 open.",
+  ],
+  [
+    false,
     "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    false,
+    "I asked to leave PR #123 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    true,
+    "I asked to leave PR #456 open. The agent stopped /ship with PR #123 unmerged.",
   ],
   [
     false,
