@@ -364,7 +364,7 @@ export default function DeckEditor() {
   const {
     generating: newDeckGenerationGenerating,
     questionContinuationPending,
-    expectQuestionContinuation,
+    submitQuestionContinuation: submitTrackedQuestionContinuation,
   } = useNewDeckGenerationRun(
     id ?? "",
     isNewDeckGenerationRoute,
@@ -376,11 +376,9 @@ export default function DeckEditor() {
         sendToAgentChat({ message, context, submit: true });
         return;
       }
-      const submitMessageId = nanoid();
-      expectQuestionContinuation(submitMessageId);
-      sendToAgentChat({ message, context, submit: true, submitMessageId });
+      submitTrackedQuestionContinuation({ message, context });
     },
-    [expectQuestionContinuation, generationSubmitId],
+    [generationSubmitId, submitTrackedQuestionContinuation],
   );
   // Neither useAgentGenerating instance is scoped to its run until submit()
   // fires: before then, its active tab ref is null and it reports on any chat

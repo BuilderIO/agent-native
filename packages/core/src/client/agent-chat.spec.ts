@@ -170,6 +170,18 @@ describe("sendToAgentChat", () => {
     expect(parsed?.usageLabel).toBe("crm:enrich");
   });
 
+  it("carries an explicit existing chat target through the bridge", () => {
+    sendToAgentChat({
+      message: "Continue the original run",
+      targetTabId: "generation-tab",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.targetTabId).toBe("generation-tab");
+    expect(parsed?.targetTabId).toBe("generation-tab");
+  });
+
   it("carries a bounded action scope through the postMessage payload", () => {
     sendToAgentChat({
       message: "Draft a reply",

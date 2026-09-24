@@ -347,6 +347,24 @@ function dispatchSubmitChat(data: Record<string, unknown>) {
   );
 }
 
+function ensureLocalStorage() {
+  if (window.localStorage) return;
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+    } satisfies Storage,
+  });
+}
+
 describe("MultiTabAssistantChat postMessage bridge", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -354,6 +372,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     resetThreadMocks();
+    ensureLocalStorage();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json({ value: null })),
@@ -399,6 +418,70 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("routes a correlated continuation to its original tab after focus changes", async () => {
+    const generationThread = {
+      id: "generation-thread",
+      title: "Generation thread",
+      preview: "Create a presentation",
+      messageCount: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    threadMocks.activeThreadId = "other-thread";
+    threadMocks.threads = [...threadMocks.threads, generationThread];
+    window.localStorage.setItem(
+      openTabsStorageKey("bridge-test"),
+      JSON.stringify(["thread-1", "generation-thread", "other-thread"]),
+    );
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "other-thread",
+        title: "Other thread",
+        preview: "Unrelated chat",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+    });
+    chatHandleMocks.sendMessage.mockClear();
+    threadMocks.switchThread.mockClear();
+
+    const targetEvents: Event[] = [];
+    const onTarget = (event: Event) => targetEvents.push(event);
+    window.addEventListener("agentNative.chatSubmitTarget", onTarget);
+    act(() => {
+      dispatchSubmitChat({
+        message: "Here are my answers.",
+        context: "Continue deck generation.",
+        submit: true,
+        targetTabId: "generation-thread",
+        submitMessageId: "guided-answer-submit",
+      });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Here are my answers.\n\n<context>\nContinue deck generation.\n</context>",
+      undefined,
+      { submitMessageId: "guided-answer-submit" },
+    );
+    expect((targetEvents[0] as CustomEvent).detail).toEqual({
+      submitMessageId: "guided-answer-submit",
+      tabId: "generation-thread",
+    });
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+    window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
   });
 
   it("defaults effort to high", () => {

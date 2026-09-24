@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -23,11 +24,16 @@ import {
   useNewDeckGenerationRun,
 } from "./use-new-deck-generation";
 
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: vi.fn(),
+}));
+
 describe("useNewDeckGeneration", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
     cleanup();
     sessionStorage.clear();
+    vi.mocked(sendToAgentChat).mockReset();
     vi.useRealTimers();
   });
 
@@ -299,6 +305,68 @@ describe("useNewDeckGeneration", () => {
       }),
     ).toBe(true);
   });
+
+  it.each(["answer", "skip"])(
+    "targets the original generation tab for a guided-question %s",
+    (choice) => {
+      const initialProps = {
+        deckId: `deck-guided-${choice}`,
+        isNewDeckRoute: true,
+        submitMessageId: `submit-guided-${choice}`,
+      };
+      const { result } = renderHook(() =>
+        useNewDeckGenerationRun(
+          initialProps.deckId,
+          initialProps.isNewDeckRoute,
+          initialProps.submitMessageId,
+        ),
+      );
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitTarget", {
+            detail: {
+              submitMessageId: initialProps.submitMessageId,
+              tabId: "original-generation-tab",
+            },
+          }),
+        );
+      });
+      act(() => {
+        result.current.submitQuestionContinuation({
+          message: `Guided question ${choice}`,
+          context: "Continue the original deck generation.",
+        });
+      });
+
+      const request = vi.mocked(sendToAgentChat).mock.calls[0][0];
+      expect(request).toMatchObject({
+        message: `Guided question ${choice}`,
+        context: "Continue the original deck generation.",
+        submit: true,
+        targetTabId: "original-generation-tab",
+      });
+      expect(result.current.questionContinuationPending).toBe(true);
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitTarget", {
+            detail: {
+              submitMessageId: request.submitMessageId,
+              tabId: "original-generation-tab",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: true, tabId: "original-generation-tab" },
+          }),
+        );
+      });
+
+      expect(result.current.questionContinuationPending).toBe(false);
+    },
+  );
 
   it("captures the synchronous submit target in the flushSync route commit", () => {
     const deckId = "deck-sync-target";

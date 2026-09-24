@@ -1,3 +1,5 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { nanoid } from "nanoid";
 import {
   useCallback,
   useEffect,
@@ -149,6 +151,10 @@ export function useNewDeckGenerationRun(
   generating: boolean;
   questionContinuationPending: boolean;
   expectQuestionContinuation: (submitMessageId: string) => void;
+  submitQuestionContinuation: (input: {
+    message: string;
+    context: string;
+  }) => void;
 } {
   const [run, setRun] = useState<NewDeckGenerationRun>(() =>
     createRun(deckId, isNewDeckRoute, submitMessageId),
@@ -199,6 +205,20 @@ export function useNewDeckGenerationRun(
       });
     },
     [runKey],
+  );
+  const submitQuestionContinuation = useCallback(
+    ({ message, context }: { message: string; context: string }) => {
+      const submitMessageId = nanoid();
+      expectQuestionContinuation(submitMessageId);
+      sendToAgentChat({
+        message,
+        context,
+        submit: true,
+        submitMessageId,
+        ...(currentRun.tabId ? { targetTabId: currentRun.tabId } : {}),
+      });
+    },
+    [currentRun.tabId, expectQuestionContinuation],
   );
 
   useEffect(() => {
@@ -318,6 +338,7 @@ export function useNewDeckGenerationRun(
     generating: activeRun.runKey === runKey && activeRun.generating,
     questionContinuationPending: currentContinuation.submitMessageId !== null,
     expectQuestionContinuation,
+    submitQuestionContinuation,
   };
 }
 

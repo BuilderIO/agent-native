@@ -62,6 +62,8 @@ export interface AgentChatMessage {
   attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
+  /** Existing chat tab that should receive this submit, regardless of focus. */
+  targetTabId?: string;
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
@@ -988,6 +990,7 @@ export interface ParsedSubmitChat {
   reuseEmptyTab?: boolean;
   background?: boolean;
   tabId?: string;
+  targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
@@ -1085,6 +1088,7 @@ export function parseSubmitChatMessage(
     background:
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
+    targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
@@ -1180,7 +1184,12 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     // label. Use the normal wrapper transport when either needs to reach the
     // chat thread — a label silently downgraded to `chat` is exactly the run
     // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel || actionScope) {
+    if (
+      opts.attachments?.length ||
+      opts.usageLabel ||
+      actionScope ||
+      opts.targetTabId
+    ) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",
