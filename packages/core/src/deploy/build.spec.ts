@@ -59,6 +59,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
+  shimCloudflarePagesModuleTimers,
   isAwsAmplifyPreset,
   configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
@@ -1166,6 +1167,64 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       await worker.fetch(new Request("https://app.test/"), bindings, {});
 
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+    });
+
+    // Regression: the Pages entry's __cfRestoreModuleTimers() call used to be
+    // dead code. buildCloudflarePages()'s own post-build patch shimmed every
+    // file with a separate, per-file `var __origSetInterval`, never the
+    // globalThis.__cfModuleOrigSetInterval key the Pages entry's restore
+    // function actually reads — so the restore never did anything. Proven
+    // with shimCloudflarePagesModuleTimers(), the exact function
+    // buildCloudflarePages()'s per-file loop now calls instead of its own
+    // disconnected shim — not a stand-in for it.
+    it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "keep-alive-action.mjs");
+      const rawAction = `
+// A module-scope timer, the same shape a real Pages dependency chunk gets
+// shimmed into by buildCloudflarePages()'s post-build patch loop.
+setInterval(() => {}, 60_000).unref?.();
+
+export default { run: async () => ({ ok: true }) };
+`;
+      // Applies the exact function buildCloudflarePages()'s per-file loop now
+      // calls (unified onto cloudflareModuleTimerShimPrefix() /
+      // CF_MODULE_ORIG_SET_INTERVAL_KEY), not a stand-in for it.
+      fs.writeFileSync(actionPath, shimCloudflarePagesModuleTimers(rawAction));
+
+      const entrySource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "keep-alive", absPath: actionPath, method: "post" }],
+        null,
+        [],
+        "",
+        { includeReactRouterSsr: false },
+      );
+      const entryPath = path.join(dir, "entry.mjs");
+      fs.writeFileSync(entryPath, entrySource);
+
+      const realSetIntervalBefore = globalThis.setInterval;
+      try {
+        const worker = (
+          await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+        ).default;
+
+        // Statically importing the entry above also imported the action
+        // fixture, which ran the shared shim before any fetch() call.
+        expect(globalThis.setInterval).not.toBe(realSetIntervalBefore);
+
+        await worker.fetch(new Request("https://app.test/"), {}, {});
+
+        expect(globalThis.setInterval).toBe(realSetIntervalBefore);
+      } finally {
+        globalThis.setInterval = realSetIntervalBefore;
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          "__cfModuleOrigSetInterval",
+        );
+      }
     });
   });
 

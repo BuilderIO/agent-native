@@ -471,6 +471,36 @@ function cloudflareModuleTimerShimPrefix(): string {
   );
 }
 
+/**
+ * Shims one already-read Cloudflare Pages output file's module-scope
+ * `setInterval` calls, sharing the Module preset's globalThis-keyed capture
+ * (`cloudflareModuleTimerShimPrefix` / `CF_MODULE_ORIG_SET_INTERVAL_KEY`)
+ * instead of a disconnected per-file mechanism.
+ *
+ * Pages used to prepend its own shim keyed on a per-file `var
+ * __origSetInterval`, captured independently by every chunk. Since the
+ * generated entry statically imports routes, actions, and plugins (they
+ * evaluate before the entry's own top-level code runs, same as any ES
+ * module's imports), a dependency chunk's shim neutered
+ * `globalThis.setInterval` before the entry's own `var` ever captured
+ * it — so the entry's "original" was already the neutered stub, and its
+ * restore call restored nothing. Sharing this capture with the Module
+ * preset's `__cfRestoreModuleTimers()` (already emitted into the generated
+ * entry by `cloudflareModuleTimerRestoreScript` — see `generateWorkerEntry`)
+ * fixes both: whichever chunk evaluates first captures the one true
+ * original, and every later chunk (including the entry) sees it's already
+ * captured and skips straight to neutering.
+ */
+export function shimCloudflarePagesModuleTimers(code: string): string {
+  if (
+    code.includes("setInterval") &&
+    !code.includes(CF_MODULE_TIMER_SHIM_MARKER)
+  ) {
+    return cloudflareModuleTimerShimPrefix() + code;
+  }
+  return code;
+}
+
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
@@ -3193,7 +3223,6 @@ async function buildCloudflarePages() {
   const allJsFiles = getAllJsFiles(workerOutDir);
   for (const jsFile of allJsFiles) {
     let code = fs.readFileSync(jsFile, "utf-8");
-    const isEntry = path.basename(jsFile) === "index.js";
 
     // Strip "node:" prefix from all imports/requires. Cloudflare Pages
     // Functions runs under nodejs_compat v1, which exposes builtins as
@@ -3247,24 +3276,7 @@ async function buildCloudflarePages() {
     );
 
     // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-    // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
-    // With code splitting, chunks evaluate before the entry, so the shim must be in every file.
-    // The restore only happens in the entry's fetch() handler.
-    if (!code.includes("__origSetInterval")) {
-      const timerShim = [
-        "var __origSetInterval=globalThis.setInterval;",
-        "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
-      ].join("");
-      code = timerShim + code;
-    }
-    if (isEntry) {
-      const timerRestore =
-        "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
-      code = code.replace(
-        /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
-        (match) => match + timerRestore,
-      );
-    }
+    code = shimCloudflarePagesModuleTimers(code);
 
     assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
