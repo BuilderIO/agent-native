@@ -1678,6 +1678,10 @@ function PageEditorSessionBody({
     [documentId, canEdit, isSuggesting],
   );
   const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
+  const [decidingSuggestionIds, setDecidingSuggestionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const decidingSuggestionIdsRef = useRef(new Set<string>());
   const [suggestionAmendmentConflict, setSuggestionAmendmentConflict] =
     useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
@@ -5113,48 +5117,54 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
-      decidingSuggestion={decideSuggestion.isPending}
+      decidingSuggestion={(suggestionId) =>
+        decidingSuggestionIds.has(suggestionId)
+      }
       onDecideSuggestion={async (suggestion, decision) => {
-        if (decideSuggestion.isPending || isSubmittingSuggestions) return;
+        if (decidingSuggestionIdsRef.current.has(suggestion.id)) return;
         let observedSuggestion = suggestion;
         if (decision === "accepted" && suggestion.id === editingSuggestionId) {
+          if (isSubmittingSuggestions) return;
           const persisted = await flushSuggestionDraft();
           if (!persisted) return;
           observedSuggestion = [...persisted.values()][0] ?? suggestion;
         }
-        decideSuggestion.mutate(
-          {
+        if (decidingSuggestionIdsRef.current.has(observedSuggestion.id)) return;
+        decidingSuggestionIdsRef.current.add(observedSuggestion.id);
+        setDecidingSuggestionIds(new Set(decidingSuggestionIdsRef.current));
+        try {
+          const result = await decideSuggestion.mutateAsync({
             id: observedSuggestion.id,
             decision,
             idempotencyKey: globalThis.crypto.randomUUID(),
             observedBase: observedSuggestion.baseRevision,
             observedRevision: observedSuggestion.revision,
-          },
-          {
-            onSuccess: (result) => {
-              if (
-                result.suggestion.id === editingSuggestionId &&
-                result.suggestion.status !== "pending"
-              ) {
-                setIsSuggesting(false);
-                suggestionBaseRef.current = null;
-                setEditingSuggestionId(null);
-                setSuggestionInitialSelection(null);
-                suggestionAmendmentKeysRef.current.clear();
-              }
-              if (result.suggestion.status !== "stale") return;
-              toast.error(t("editor.toolbar.conflict"));
-              setSelectedSuggestionId(result.suggestion.id);
-              setUtilityPanel("comments");
-              setCommentsBrowseOpen(true);
-            },
-            onError: (error) => {
-              toast.error(t("empty.genericError"), {
-                description: error.message,
-              });
-            },
-          },
-        );
+          });
+          if (
+            result.suggestion.id === editingSuggestionId &&
+            result.suggestion.status !== "pending"
+          ) {
+            setIsSuggesting(false);
+            suggestionBaseRef.current = null;
+            setEditingSuggestionId(null);
+            setSuggestionInitialSelection(null);
+            suggestionAmendmentKeysRef.current.clear();
+          }
+          if (result.suggestion.status === "stale") {
+            toast.error(t("editor.toolbar.conflict"));
+            setSelectedSuggestionId(result.suggestion.id);
+            setUtilityPanel("comments");
+            setCommentsBrowseOpen(true);
+          }
+        } catch (error) {
+          toast.error(t("empty.genericError"), {
+            description:
+              error instanceof Error ? error.message : t("empty.genericError"),
+          });
+        } finally {
+          decidingSuggestionIdsRef.current.delete(observedSuggestion.id);
+          setDecidingSuggestionIds(new Set(decidingSuggestionIdsRef.current));
+        }
       }}
       canSuggest={canSuggest}
       commentAi={commentAi}
