@@ -1,10 +1,9 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native human pull requests, approve eligible
-  PRs from liamdebeasi and other safe internal fixes under the internal-author
-  and owner exceptions, skip bots, steve8708, and drafts, and recap every
-  human disposition. Use for scheduled or manual PR review sweeps.
+  Review recent BuilderIO/agent-native human pull requests, apply internal
+  auto-approval exceptions, and assess other PRs for merge readiness, requested
+  updates, and UI screenshot evidence. Use for scheduled or manual PR sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -239,6 +238,53 @@ inspected and recapped, but never approved or auto-merged. If GitHub or
 organization membership is unavailable, preserve the no-approval outcome and
 name the missing check.
 
+## Non-auto-approved PR handoff
+
+For every human PR that does not receive an approval under the policies above,
+including external PRs, provide a maintainer handoff in addition to the approval
+disposition. A merge-readiness recommendation is separate from a GitHub
+approval or merge action: this skill never merges a PR, and external authors
+remain ineligible for approval.
+
+Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
+**Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
+ready only when the current head looks sound, every required check has passed,
+and actionable automated review findings have a verified fix or an evidence-
+backed terminal disposition. Do not treat missing human approval or
+`reviewDecision: REVIEW_REQUIRED` alone as a blocker to Steve's readiness
+recommendation. Report separately if GitHub's branch protection still blocks
+the actual merge. Conflicts, pending or failed required checks, active
+actionable bot findings, credible safety concerns, or an otherwise material
+code issue mean **Needs updates** or **Cannot assess**. Report skipped,
+unknown, and non-required checks accurately; never describe them as passing.
+
+For every PR needing an update, draft a concise reply that names the concrete
+change or evidence requested and links the relevant review thread or check when
+useful. Inspect the PR's conversation and review threads for prior comments by
+the exact login `steve8708`: if this would be Steve's first comment on that PR,
+begin the draft by thanking the contributor. Do not repeat a thank-you on a
+follow-up. Do not draft a duplicate request when an existing Steve comment
+already covers it; link or summarize that request instead. Drafts are for the
+user to review and are never posted by this skill unless the current invocation
+explicitly authorizes posting.
+
+For UX evidence, inspect the actual diff for new or changed user-facing UI,
+including visible copy, layout, navigation, controls, settings, interaction,
+loading states, accessibility behavior, and user-facing defaults. Check the PR
+body and conversation for screenshots of the changed product UI. Report which
+surface changed and whether screenshots are present. If UI changed and no
+product screenshot is available, mark the screenshot as requested and include
+a request in the draft reply so Steve can review the change. A generated recap
+graphic or demo clip does not count as a screenshot of the changed UI. If the
+PR has no user-facing UI change, say so rather than requesting screenshots.
+
+Do not apply these extra author-reply and screenshot asks to PRs that were
+auto-approved under an explicit exception; keep their existing recap and
+approval behavior unchanged.
+
+This handoff is measured by `pr-review-handoff`; first-contact thanks also
+contribute to the existing `feedback-reply-tone` measure.
+
 ## Worktrees and PR provenance
 
 A worktree-created branch is a normal, valid PR source. Do not ask an agent to
@@ -254,25 +300,33 @@ explicit authorization.
 
 Every run ends with a succinct row for every human PR that entered the evidence
 sweep, including approved, flagged, external, duplicate, already handled, and
-unavailable cases. Include the PR link, author and membership result, decision,
-the relevant issue or source link, checks or review links, and the reason. Do
-not add rows for bots, `steve8708`, drafts, or human PRs excluded because they
-already had an approval; those are ignored completely.
+unavailable cases. Include the PR link, author and membership result, review
+disposition, merge-readiness recommendation, UX/screenshot status, relevant
+issue or source link, checks or review links, and the reason. For each
+non-auto-approved PR that needs an update or screenshot, include its draft
+reply in a separate section or state that an existing Steve comment already
+covers the request. Do not add rows for bots, `steve8708`, drafts, or human PRs
+excluded because they already had an approval; those are ignored completely.
 
 Use this shape:
 
 ```md
 ## PR review
 
-| PR | Author / org status | Decision | Why and evidence |
-| --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Flagged / Skipped | ... |
+| PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Why and evidence |
+| --- | --- | --- | --- | --- | --- |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Needs updates / Cannot assess | No UI / UI; screenshot present or requested | ... |
 
 Unavailable or unverified: ...
 ```
 
 Keep the recap short, link every claim, and distinguish “not approved because
-external” from “not reviewed because GitHub was unavailable.”
+external” from “not reviewed because GitHub was unavailable.” Also distinguish
+the review disposition from merge readiness, and distinguish product-code or
+CI blockers from a repository rule requiring human approval. A PR can be
+**Ready to merge by Steve's bar** while GitHub still reports a human-review
+requirement; state that restriction without treating it as a required review
+for Steve's recommendation.
 
 ## Related skills
 

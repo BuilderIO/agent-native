@@ -134,6 +134,21 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
+const PR_REVIEW_HANDOFF_RE =
+  /\b(?:you|we)\s+(?:didn['’]?t|missed|forgot|failed to|left out|left off)\b[^.!?\n]{0,160}\b(?:which PRs? (?:were|are) (?:ready|ready to merge)|merge[- ]readiness|(?:draft|write|prepare) (?:a )?(?:reply|comment)|(?:reply|comment) drafts?|(?:user[- ]facing )?(?:UI|UX) screenshots?|screenshots? of (?:the )?(?:UI|UX|changes?|updated interface)|ask(?:ed)? for (?:a )?screenshot)\b/i;
+
+const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "You didn't say which PRs were ready to merge or draft replies for the updates.",
+  ],
+  [true, "You missed asking for screenshots of the UI changes."],
+  [true, "You left out screenshots of the UX."],
+  [false, "Please tell me which PRs are ready to merge and draft replies."],
+  [false, "This PR updates the UI and includes screenshots."],
+  [false, "I would like screenshots for new UX changes."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -209,12 +224,17 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
+      ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -369,8 +389,20 @@ const PATTERNS = [
     key: "feedback-reply-tone",
     label:
       "Reported duplicate feedback clarification or missing thank-first reply",
-    fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
+    fixedBy:
+      ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    // Added 2026-09-24 to measure omissions in non-auto-approved PR handoffs.
+    // Match corrective feedback only; ordinary first-time review requests are
+    // not user friction.
+    key: "pr-review-handoff",
+    label:
+      "Had to ask for PR readiness, update drafts, or UI screenshot dispositions",
+    fixedBy:
+      ".agents/skills/review-prs (non-auto-approved PR handoff, 2026-09-24)",
+    re: PR_REVIEW_HANDOFF_RE,
   },
   {
     key: "feedback-eyes-missed",
