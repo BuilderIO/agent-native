@@ -9,6 +9,10 @@ governingArtifactRevision: content-suggested-edits-shape-r1
 
 # Content Suggested Edits parity
 
+The September 24 database-item follow-up is recorded at the end of this document.
+It governs that bounded repair; the original first-release plan below remains
+historical context, not a request to rebuild the shipped feature.
+
 ## Summary
 
 Add **Suggested Edits** to Agent Native Content with behavioral parity to Notion's observed feature: a commenter, editor, admin, owner, or authorized agent can propose page-body text changes without changing the canonical page; reviewers inspect each proposal in place, discuss it, and accept or reject it durably. The first shipped slice deliberately matches Notion's narrow page-body boundary rather than prematurely implementing Content's broader typed-diff roadmap.
@@ -301,3 +305,103 @@ status: active
 ## Next step
 
 Invoke `/work templates/content/docs/solutions/2026-09-02-content-suggested-edits-parity-shape.md` to implement the frozen first release. Work should begin with Slice 1 and preserve the exact parity boundary; discovering that the operation model cannot maintain canonical isolation or safe stale detection is a return-to-shape condition rather than permission to degrade silently.
+
+## September 24 follow-up: suggestions on database-item Pages
+
+Revision: database-item-suggestions-r1. Status: shaped; implementation and acceptance pending.
+
+### Outcome and scope
+
+A person opening an ordinary, locally owned database-item Page can choose
+**Suggest edits**, propose supported changes to its primary page body, and
+review those changes just as on a standalone Page. Collection membership alone
+must not remove this capability. The same shared Actions support agent proposals.
+
+This follow-up covers the full-page editor and database preview. It reuses the
+existing supported text/block/inline-format operations and review lifecycle.
+Secondary Blocks fields and collection properties do not gain suggestions;
+secondary body editors must be read-only while suggesting. A collection context
+with no available primary body must not offer a misleading suggesting mode.
+Collection container Pages, inline-database bodies, externally linked/source-owned
+Pages, and existing access restrictions retain their current boundaries.
+No new feature flag or schema is planned. This repair does not inherit the
+historical first-release default-off rollout plan above.
+
+Product context: `content.object.page`, `content.revision.suggestions`, and
+`content.feature.review-changes-in-place`. A collection row is a Page; this is
+a repair to that shared behavior, not a new document type.
+
+### Evidence and implementation approach
+
+Source inspected: `origin/main` at `d4d91eb159d56d03b8f0a79a10bd7f64bdc67008`
+(September 24). The current worktree HEAD is older and lacks the implementation.
+Before Work, recheck the current upstream implementation and current branch;
+do not implement against the September 3 feature scaffold. Branch switching,
+rebasing, and other branch movement require the user's explicit authorization.
+
+1. Remove the ordinary-membership veto from `_suggestion-eligibility.ts` and its
+   `get-document.ts` / `list-documents.ts` callers. Remove only the now-unused
+   membership checks; preserve access, source, collection-container and body
+   restrictions. Keep get/list eligibility consistent.
+2. Remove the same veto from proposal validation and acceptance in
+   `server/lib/suggested-edits.ts`. Retain external-link checks, exact revision
+   checks, structural validation, stale handling, and access enforcement.
+   Reuse the existing transaction: it already locks primary Blocks fields for
+   all memberships, persists their identities, writes body/history, and persists
+   Yjs and sync state together. Prove this on ordinary memberships rather than
+   introducing a parallel mutation path or granting collection-schema access.
+3. Wire suggesting state through `DocumentEditor` / `DocumentBlockFields` so
+   secondary editors cannot save canonical body changes in this mode. Today
+   `editorCanEdit` is independent of suggesting, and secondary fields save directly.
+   Resolve the visible primary-body target before enabling mode; handle loading,
+   unavailable properties, missing primary fields and collection-context changes
+   explicitly. Preserve pre-existing pending saves when entering mode without
+   treating subsequent typing as a direct edit. Reuse the shared toolbar and
+   primary suggestion editor in full-page and preview; do not add a second composer.
+4. Update targeted regression coverage, the relevant Content product evidence,
+   and the app changelog. Update localized copy together if any copy changes.
+   Scope should stay in Content; a necessary Core change needs a changeset and
+   proportional independent technical review.
+
+### Acceptance story
+
+Use disposable native Pages and a collection with a primary Content field, an
+extra Blocks field, and a normal property. Include a Page in two collections,
+an equivalent standalone Page, and commenter/editor/viewer sessions. Do not
+modify the user's article to prove acceptance.
+
+| ID | Observable assertion |
+| --- | --- |
+| DSI-01 | An eligible row opened from its collection, direct link, or preview offers Suggest edits. Owner/editor/commenter can propose; viewer cannot. Reload and navigation preserve correct eligibility. |
+| DSI-02 | Enter suggesting and perform the existing supported text insertion, deletion, replacement, block and inline-format operations. Proposals are reviewable; canonical content in another session stays unchanged until acceptance. |
+| DSI-03 | Accept one proposal and reject another. Exactly the accepted change appears in the Page and its primary Content representation across both memberships and live clients; comments, decisions and history survive reload. Properties and secondary body values remain unchanged. |
+| DSI-04 | During suggesting, secondary Blocks fields cannot directly save typed changes. Entering mode with a pending direct save preserves that prior edit. Missing/unavailable primary body, failed property loads, and context changes never expose an editable wrong target or falsely active mode. |
+| DSI-05 | Agent creation through suggest-document-edit uses the same proposal and review path. Duplicate requests/decisions apply once; overlapping edits and permission changes give an explicit conflict/denial without overwriting newer content. Failed acceptance leaves body, field identities, disposition and history consistent. |
+| DSI-06 | Standalone-page suggestions still work. Collection containers, inline-database bodies and source-owned/externally linked Pages retain their existing exclusions. Ordinary direct editing resumes after leaving suggesting. |
+| DSI-07 | The complete full-page and preview flow works through visible controls and keyboard, with correct focus and no clipped review controls at desktop and a supported narrow viewport. |
+
+### Proof and handoff
+
+Extend `actions/content-database-lifecycle.db.test.ts` for matching get/list
+eligibility; `actions/suggest-document-edit.db.test.ts` for agent proposal parity;
+`server/lib/suggested-edits.db.test.ts` and `.spec.ts` for ordinary and multiple
+memberships, atomic application, history, conflicts and retries. Extend existing
+`DocumentBlockFields`, toolbar and suggestion-isolation tests for DSI-04. Run
+the explicit database suites (the fast suite does not include them), Content
+typechecking, formatting and applicable repository guards. Reuse existing tests
+where they already prove an unaffected invariant.
+
+Before integration, execute DSI-01 through DSI-07 through the real Content UI
+under the human-qa skill, with supporting Action/database assertions where needed.
+Independence is preferred; same-context custody is allowed. Obtain bounded
+independent technical review of authorization and transactional/body isolation.
+Record the tested build, fixture cleanup, representative final UI evidence and
+any failed assertions here. API success alone does not establish UI acceptance.
+If pre-integration proof cannot be established, surface the missing decision;
+do not silently defer required acceptance until after merge.
+
+Destination: this repository's current task branch for implementation, then
+Content Beta through the separately authorized normal integration/deployment
+workflow. No runtime, deployment or production-data changes are authorized by
+this Shape. Next action is implementation of this follow-up against current
+code, followed by the frozen acceptance story above.
