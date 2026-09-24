@@ -181,20 +181,31 @@ function sameShipment(leftPrs, rightPrs) {
   return [...leftPrs].some((number) => rightPrs.has(number));
 }
 
-function shipOptOutMatches(text) {
+function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
   return [
     ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
-  ].map((match) => ({
-    match,
-    sentence: text,
-    prs: prNumbersNearMatch(text, match),
-  }));
+  ].map((match) => {
+    const prs = prNumbersNearMatch(text, match);
+    const refersBackToShipment =
+      previousShipmentPrs.size === 1 &&
+      /\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b/i.test(
+        match[0],
+      );
+    const inferredFromPrevious = prs.size === 0 && refersBackToShipment;
+    return {
+      match,
+      sentence: text,
+      prs: inferredFromPrevious ? previousShipmentPrs : prs,
+      inferredFromPrevious,
+    };
+  });
 }
 
 function hasFalseOptOutDenial(
   sentence,
   nextSentence,
   followingSentence,
+  fourthSentence,
   optOut,
 ) {
   const { match: optOutMatch, sentence: optOutSentence } = optOut;
@@ -215,11 +226,17 @@ function hasFalseOptOutDenial(
     optOutMatch.index + optOutMatch[0].length,
   );
   const afterOptOut =
-    optOutSentence === sentence ? nextSentence : followingSentence;
+    optOutSentence === sentence
+      ? nextSentence
+      : optOutSentence === nextSentence
+        ? followingSentence
+        : fourthSentence;
+  const afterOptOutPrs = prNumbers(afterOptOut);
   return (
     SHIP_FALSE_OPT_OUT_AFTER_RE.test(denialTail) ||
     SHIP_FALSE_OPT_OUT_CLAIM_RE.test(denialTail) ||
-    (sameShipment(prNumbers(afterOptOut), optOut.prs) &&
+    ((sameShipment(afterOptOutPrs, optOut.prs) ||
+      (optOut.inferredFromPrevious && afterOptOutPrs.size === 0)) &&
       SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(afterOptOut))
   );
 }
@@ -242,6 +259,13 @@ function isShipStoppedBeforeMerge(text) {
     const followingSentence = text
       .slice(followingStart, followingSentenceEnd)
       .trim();
+    let fourthStart =
+      followingSentenceEnd < text.length
+        ? followingSentenceEnd + 1
+        : followingSentenceEnd;
+    while (/\s/.test(text[fourthStart] ?? "")) fourthStart++;
+    const [, fourthSentenceEnd] = sentenceBoundsAt(text, fourthStart);
+    const fourthSentence = text.slice(fourthStart, fourthSentenceEnd).trim();
     const stopPrs = prNumbersNearMatch(sentence, {
       0: match[0],
       index: match.index - start,
@@ -249,7 +273,13 @@ function isShipStoppedBeforeMerge(text) {
 
     const optOutMatch = [
       ...shipOptOutMatches(sentence),
-      ...shipOptOutMatches(nextSentence),
+      ...shipOptOutMatches(nextSentence, prNumbers(sentence)),
+      ...shipOptOutMatches(followingSentence).filter(
+        (optOut) =>
+          stopPrs.size > 0 &&
+          optOut.prs.size > 0 &&
+          sameShipment(stopPrs, optOut.prs),
+      ),
     ].find((optOut) => sameShipment(stopPrs, optOut.prs));
 
     if (!optOutMatch) return true;
@@ -258,6 +288,7 @@ function isShipStoppedBeforeMerge(text) {
         sentence,
         nextSentence,
         followingSentence,
+        fourthSentence,
         optOutMatch,
       )
     ) {
@@ -584,15 +615,23 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [
     true,
-    "The agent stopped /ship with the PR unmerged. I explicitly asked to leave PR #456 open.",
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #456 open.",
   ],
   [
     true,
+    "The agent stopped /ship with the PR unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    false,
     "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open.",
   ],
   [
     false,
     "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #123 open.",
   ],
   [
     false,

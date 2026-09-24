@@ -527,14 +527,19 @@ before pausing the watcher or releasing its lease:
    fails or ownership changed, stop audits, branch disposition, and cleanup;
    wait read-only until this invocation can safely reacquire the lease under
    the normal claim rules. Never mutate another owner's lease.
-2. Re-run the final inline-thread and review-summary audits below before
-   rotating. If new actionable feedback appears after merge, record it as a
+2. Before the final inline-thread and review-summary audits below, fetch origin
+   and renew/verify this invocation's lease with the observed-version
+   compare-and-swap. If renewal fails, do no audits or checkout mutations;
+   wait read-only and resume only after safely reacquiring under the normal
+   lease rules. If new actionable feedback appears after merge, record it as a
    post-merge follow-up, retain the source branch, and do not restart this PR's
    merge soak.
 3. Complete `/ship`'s authorized post-merge branch disposition, passing the
    saved `ship_merge_head_oid` to `/new-branch`. Compare both local and remote
-   source-branch tips. Rotate only when its safety checks pass; otherwise
-   retain the source branch and report why.
+   source-branch tips. Renew and verify the lease immediately before any
+   branch mutation, including a checkout switch. If fencing fails, keep the
+   source checkout unchanged; otherwise rotate only when its safety checks
+   pass, retaining the source branch and reporting why when they do not.
 4. Once ancestry proof and branch disposition are complete and both audits have
    been run, clean up the watcher and lease. A recorded post-merge follow-up
    with the source branch retained is a terminal disposition for this shipment;
