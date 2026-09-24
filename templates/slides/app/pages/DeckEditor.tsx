@@ -95,6 +95,7 @@ import {
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useNewDeckGeneration } from "@/hooks/use-new-deck-generation";
 import {
   useSlideComments,
   type CommentThread,
@@ -120,13 +121,10 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
-  NEW_DECK_GENERATION_START_TIMEOUT_MS,
-  nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
-  type NewDeckGenerationPhase,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { normalizeSlidePadding } from "@/lib/normalize-slide-padding";
@@ -385,14 +383,6 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
-  // Generation intent can arrive after this route mounts because the user
-  // answers pre-generation questions from the empty editor.
-  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const [newDeckGenerationPhase, setNewDeckGenerationPhase] =
-    useState<NewDeckGenerationPhase>("pending");
-  if (searchParams.get("generating") === "1") {
-    wasNewDeckCreation.current = true;
-  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -705,16 +695,6 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
-    generating,
-    isNewDeckCreation: wasNewDeckCreation.current,
-  });
-  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
-    generating,
-    isNewDeckCreation: wasNewDeckCreation.current,
-    slideCount,
-    phase: newDeckGenerationPhase,
-  });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
   );
@@ -753,34 +733,25 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
-
-  // A run promised by `?generating=1` that never starts — reload, a
-  // bookmark, a shared link, or a dead run — must stop blocking the editor
-  // once the start window lapses, but not while a live run or the question
-  // flow above is the reason nothing has happened yet.
-  useEffect(() => {
-    if (!wasNewDeckCreation.current) return;
-    setNewDeckGenerationPhase((phase) =>
-      nextNewDeckGenerationPhase({
-        phase,
-        generating,
-        waitingOnQuestions: showQuestionFlow,
-        waitExpired: false,
-      }),
-    );
-    if (generating || showQuestionFlow) return;
-    const timer = setTimeout(() => {
-      setNewDeckGenerationPhase((phase) =>
-        nextNewDeckGenerationPhase({
-          phase,
-          generating: false,
-          waitingOnQuestions: false,
-          waitExpired: true,
-        }),
-      );
-    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [generating, showQuestionFlow]);
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
+  const { isNewDeckCreation, phase: newDeckGenerationPhase } =
+    useNewDeckGeneration({
+      deckId: id ?? "",
+      isNewDeckRoute: searchParams.get("generating") === "1",
+      generating,
+      waitingOnQuestions: showQuestionFlow,
+    });
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating,
+    isNewDeckCreation,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
+    generating,
+    isNewDeckCreation,
+    slideCount,
+    phase: newDeckGenerationPhase,
+  });
   const fillingPlaceholderSlideId = slideBeingFilledInPlace({
     addSlideGenerating,
     addSlideTargetId,
@@ -1032,13 +1003,7 @@ export default function DeckEditor() {
   // authoritative open deck when the run settles so a stale canvas does not
   // require a browser refresh to reveal completed slides.
   useEffect(() => {
-    if (
-      !id ||
-      !shouldClearNewDeckGeneratingState({
-        generating,
-        phase: newDeckGenerationPhase,
-      })
-    ) {
+    if (!id || generating || newDeckGenerationPhase !== "started") {
       return;
     }
     void refreshOpenDeck(id);
@@ -1055,7 +1020,6 @@ export default function DeckEditor() {
     ) {
       return;
     }
-    wasNewDeckCreation.current = false;
     if (searchParams.get("generating")) {
       setSearchParams(
         (prev) => {

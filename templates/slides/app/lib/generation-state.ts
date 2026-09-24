@@ -1,9 +1,8 @@
 /** "pending" covers both "about to start" and "waiting to start" — the two
  *  states a boolean `generationStarted` could never tell apart, which is why
  *  a run that died before its first event looked identical to one still
- *  warming up and stayed stuck forever. It only leaves "pending" for
- *  "started" (a run was observed) or "abandoned" (the start window lapsed
- *  with nothing observed); both are terminal for the deck's mount. */
+ *  warming up and stayed stuck forever. A late run can still revive an
+ *  "abandoned" route while its editor remains mounted. */
 export type NewDeckGenerationPhase = "pending" | "started" | "abandoned";
 
 /** How long we wait, after `?generating=1` promises a run, for that run to
@@ -24,8 +23,8 @@ export function nextNewDeckGenerationPhase({
   waitingOnQuestions: boolean;
   waitExpired: boolean;
 }): NewDeckGenerationPhase {
-  if (phase !== "pending") return phase;
   if (generating) return "started";
+  if (phase !== "pending") return phase;
   // Pre-generation questions answered from the empty editor are a
   // legitimate reason nothing has started yet; never expire underneath them.
   if (waitingOnQuestions) return "pending";
@@ -92,5 +91,5 @@ export function shouldClearNewDeckGeneratingState({
   generating: boolean;
   phase: NewDeckGenerationPhase;
 }): boolean {
-  return (phase === "started" && !generating) || phase === "abandoned";
+  return !generating && (phase === "started" || phase === "abandoned");
 }

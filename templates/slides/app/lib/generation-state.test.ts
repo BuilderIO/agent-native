@@ -252,11 +252,25 @@ describe("new deck generation state", () => {
       ).toBe(true);
     });
 
-    it("leaves an already-abandoned or already-started phase untouched", () => {
+    it("revives an abandoned route when a run starts late", () => {
       expect(
         nextNewDeckGenerationPhase({
           phase: "abandoned",
           generating: true,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("started");
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          phase: "abandoned",
+        }),
+      ).toBe(false);
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "abandoned",
+          generating: false,
           waitingOnQuestions: false,
           waitExpired: false,
         }),
