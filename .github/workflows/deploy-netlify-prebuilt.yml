@@ -1410,6 +1410,49 @@ jobs:
             }
             core.setOutput('current', 'true');
 
+      - name: Place Content functions near Neon
+        if: >-
+          inputs.deploy &&
+          steps.target.outputs.source_template == 'content' &&
+          (inputs.target == 'beta' || inputs.target == 'production') &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          const target = process.env.TARGET;
+          const expectedName = target === "beta" ? "beta-agent-native-content" : "agent-native-content";
+          const url = `https://api.netlify.com/api/v1/sites/${siteId}`;
+          const headers = { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` };
+          async function siteRequest(method, body) {
+            const response = await requestNetlifyApi(url, {
+              method,
+              headers: body ? { ...headers, "Content-Type": "application/json" } : headers,
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            });
+            if (!response.ok) throw new Error(`Netlify Content region ${method} failed: HTTP ${response.status}`);
+            return response.json();
+          }
+          const site = await siteRequest("GET");
+          if (site.id !== siteId || site.name !== expectedName || site.account_slug !== "builder-io") {
+            throw new Error(`Refusing to change region for unexpected Netlify site ${siteId}`);
+          }
+          if (site.functions_region !== "us-east-1") {
+            await siteRequest("PATCH", { functions_region: "us-east-1" });
+          }
+          const verified = await siteRequest("GET");
+          if (verified.functions_region !== "us-east-1") {
+            throw new Error(`Netlify Content region did not persist for ${siteId}`);
+          }
+          console.log(`Content site ${siteId} functions region: ${verified.functions_region}`);
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: >-
@@ -1554,6 +1597,36 @@ jobs:
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
           });
+          NODE
+
+      - name: Verify Content functions deployed near Neon
+        if: >-
+          inputs.deploy &&
+          steps.target.outputs.source_template == 'content' &&
+          (inputs.target == 'beta' || inputs.target == 'production') &&
+          steps.deploy.outputs.deploy_id != '' &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+
+          const response = await requestNetlifyApi(
+            `https://api.netlify.com/api/v1/deploys/${process.env.DEPLOY_ID}`,
+            { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+          );
+          if (!response.ok) throw new Error(`Netlify Content deploy lookup failed: HTTP ${response.status}`);
+          const deploy = await response.json();
+          for (const name of ["server", "server-agent-background"]) {
+            const fn = deploy.available_functions?.find((item) => (item.n ?? item.name) === name);
+            if ((fn?.rg ?? fn?.region) !== "us-east-1") {
+              throw new Error(`Content function ${name} is not deployed in us-east-1`);
+            }
+          }
+          console.log(`Content deploy ${process.env.DEPLOY_ID} functions are in us-east-1.`);
           NODE
 
       - name: Verify first beta deploy source immediately before publish

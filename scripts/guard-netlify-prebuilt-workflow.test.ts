@@ -50,7 +50,7 @@ const manageScript = String(
 const reusableSource = readFileSync(
   ".github/workflows/deploy-netlify-prebuilt.yml",
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 const nodeHeredocs = [
   ...reusableSource.matchAll(
     /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
@@ -1125,11 +1125,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 15);
+    assert.equal(nodeHeredocs.length, 17);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      15,
+      17,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1150,6 +1150,56 @@ describe("production Netlify site concurrency guard", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("places only Content beta and production Functions before upload and verifies the deployed region", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const steps = (
+      (workflow.jobs as Record<string, Workflow>).deploy
+        .steps as Array<Workflow>
+    ).filter(Boolean);
+    const placeIndex = steps.findIndex(
+      (step) => step.name === "Place Content functions near Neon",
+    );
+    const uploadIndex = steps.findIndex(
+      (step) => step.name === "Upload the prebuilt deploy",
+    );
+    const waitIndex = steps.findIndex(
+      (step) => step.name === "Wait for the Netlify deploy to publish",
+    );
+    const verifyIndex = steps.findIndex(
+      (step) => step.name === "Verify Content functions deployed near Neon",
+    );
+    assert(placeIndex >= 0 && placeIndex < uploadIndex);
+    assert(waitIndex < verifyIndex);
+    for (const index of [placeIndex, verifyIndex]) {
+      assert.match(String(steps[index]?.if), /source_template == 'content'/);
+      assert.match(String(steps[index]?.if), /target == 'beta'/);
+      assert.match(String(steps[index]?.if), /target == 'production'/);
+      assert.match(
+        String(steps[index]?.if),
+        /beta_freshness\.outputs\.current/,
+      );
+    }
+    assert.match(
+      String(steps[placeIndex]?.run),
+      /site\.account_slug !== "builder-io"/,
+    );
+    assert.match(
+      String(steps[placeIndex]?.run),
+      /method: "PATCH"|siteRequest\("PATCH"/,
+    );
+    assert.match(
+      String(steps[placeIndex]?.run),
+      /verified\.functions_region !== "us-east-1"/,
+    );
+    assert.match(
+      String(steps[verifyIndex]?.run),
+      /deploy\.available_functions/,
+    );
+    assert.match(String(steps[verifyIndex]?.run), /"server-agent-background"/);
   });
 
   it("purges the published cache after smoke and before relocking the deploy", () => {
