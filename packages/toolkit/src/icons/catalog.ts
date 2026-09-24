@@ -64,15 +64,6 @@ export interface TablerCatalogEntry {
 
 let metadataPromise: Promise<TablerCatalogEntry[]> | undefined;
 
-function assertBrowser() {
-  if (
-    (import.meta as ViteImportMeta).env.SSR &&
-    (import.meta as ViteImportMeta).env.MODE !== "test"
-  ) {
-    throw new Error("Tabler icons are available only in the browser");
-  }
-}
-
 export function tablerExportName(name: string): string {
   return `Icon${name
     .split("-")
@@ -84,7 +75,12 @@ export function tablerExportName(name: string): string {
 export async function loadTablerIcon(
   name: string,
 ): Promise<TablerIconComponent | null> {
-  assertBrowser();
+  if (
+    (import.meta as ViteImportMeta).env.SSR &&
+    (import.meta as ViteImportMeta).env.MODE !== "test"
+  ) {
+    throw new Error("Tabler icons are available only in the browser");
+  }
   const initial = name.charAt(0).toLowerCase();
   const { default: loaders } = await import("./tabler-chunk-loaders.js");
   const loadChunk = (
@@ -111,7 +107,12 @@ export async function searchTablerIcons(
 }
 
 export function loadTablerCatalog(): Promise<TablerCatalogEntry[]> {
-  assertBrowser();
+  if (
+    (import.meta as ViteImportMeta).env.SSR &&
+    (import.meta as ViteImportMeta).env.MODE !== "test"
+  ) {
+    throw new Error("Tabler catalog is available only in the browser");
+  }
   metadataPromise ??= import("./tabler-catalog-data.js")
     .then(({ default: metadata }) => {
       return metadata

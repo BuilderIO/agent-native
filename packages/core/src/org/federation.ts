@@ -351,7 +351,7 @@ async function registerWithIdentityHub(
   const { hub, response } = sent;
   if (!response.ok) {
     if (response.status === 409) {
-      const conflict = await response.json().catch(() => null);
+      const conflict = await response.json();
       if (
         conflict?.code === "icon-revision-conflict" &&
         Number.isSafeInteger(conflict.iconRevision) &&

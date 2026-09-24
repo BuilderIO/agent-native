@@ -44,15 +44,15 @@ const EXPORT_BORDER = "#d4d4d4"; // guard:allow-raw-color - standalone export do
 const EXPORT_RULE = "#e5e5e5"; // guard:allow-raw-color - standalone export document, no theme tokens
 const EXPORT_SURFACE = "#f6f6f6"; // guard:allow-raw-color - standalone export document, no theme tokens
 const EXPORT_ICON_COLORS: Record<IconColor, string> = {
-  gray: "#787774",
-  brown: "#9f6b53",
-  orange: "#c76c24",
-  yellow: "#a78317",
-  green: "#448361",
-  blue: "#337ea9",
-  purple: "#9065b0",
-  pink: "#b64c7d",
-  red: "#c4554d",
+  gray: "#787774", // guard:allow-raw-color - standalone export has no theme tokens
+  brown: "#9f6b53", // guard:allow-raw-color - standalone export has no theme tokens
+  orange: "#c76c24", // guard:allow-raw-color - standalone export has no theme tokens
+  yellow: "#a78317", // guard:allow-raw-color - standalone export has no theme tokens
+  green: "#448361", // guard:allow-raw-color - standalone export has no theme tokens
+  blue: "#337ea9", // guard:allow-raw-color - standalone export has no theme tokens
+  purple: "#9065b0", // guard:allow-raw-color - standalone export has no theme tokens
+  pink: "#b64c7d", // guard:allow-raw-color - standalone export has no theme tokens
+  red: "#c4554d", // guard:allow-raw-color - standalone export has no theme tokens
 }; // guard:allow-raw-color - standalone export document, no theme tokens
 
 /** Stylesheet rules the exported document needs for NFM container blocks. */
@@ -423,12 +423,9 @@ function renderCalloutIcon(
   if (value.kind === "emoji") return renderers.escapeHtml(value.emoji);
   if (value.kind === "image") {
     if (value.authority !== "url" && value.authority !== "notion") return "";
-    try {
-      const url = new URL(value.assetId);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-    } catch {
-      return "";
-    }
+    if (!URL.canParse(value.assetId)) return "";
+    const url = new URL(value.assetId);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
     return `<img src="${renderers.escapeHtml(value.assetId)}" alt="${renderers.escapeHtml(value.alt ?? "")}" />`;
   }
 
