@@ -55,6 +55,16 @@ import {
   styleHost,
 } from "./portable-style";
 
+function restoreClosedPenPathPaint(path: SVGPathElement): void {
+  path.removeAttribute("fill-opacity");
+  if (!path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) return;
+  if (path.getAttribute("fill") === "none") {
+    path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+  }
+  path.setAttribute("stroke", "none");
+  path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
+}
+
 /**
  * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
  * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
@@ -129,15 +139,9 @@ export function writeBackVectorEditedPenPath(
       const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
       path.setAttribute("d", serializePenPath(penPath));
       if (isClosed) {
-        if (path.getAttribute("fill") === "none") {
-          path.setAttribute("fill", DEFAULT_SHAPE_FILL);
-        }
-        if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
-          path.setAttribute("stroke", "none");
-          path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
-        }
+        restoreClosedPenPathPaint(path);
       } else {
-        path.setAttribute("fill", "none");
+        path.setAttribute("fill-opacity", "0");
         if (path.getAttribute("stroke") === "none") {
           path.setAttribute("stroke", DEFAULT_LINE_STROKE);
           path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -174,20 +178,10 @@ export function writeBackVectorEditedPenPath(
     const strokePosition = svg.getAttribute("data-an-vector-stroke-position");
 
     path.setAttribute("d", d);
-    if (isClosed) path.removeAttribute("fill-opacity");
-    else path.setAttribute("fill-opacity", "0");
     if (isClosed) {
-      // Reopening added that stroke to keep a filled shape visible; closing
-      // again restores the shape instead of keeping it as if chosen.
-      if (path.getAttribute("fill") === "none") {
-        path.setAttribute("fill", DEFAULT_SHAPE_FILL);
-      }
-      if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
-        path.setAttribute("stroke", "none");
-        path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
-      }
+      restoreClosedPenPathPaint(path);
     } else {
-      path.setAttribute("fill", "none");
+      path.setAttribute("fill-opacity", "0");
       if (strokeOverlay) {
         const overlayStyle = strokeOverlay.style;
         for (const property of [

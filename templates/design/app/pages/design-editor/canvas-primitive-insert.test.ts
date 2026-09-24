@@ -751,9 +751,15 @@ describe("reopening and reclosing a pen path", () => {
     );
     if (!reopened) throw new Error("pen path reopen did not commit");
     expect(pathAttributes(reopened)).toEqual({
-      fill: "none",
+      fill: "rgb(218 218 218)",
       stroke: "#000000",
     });
+    expect(
+      new DOMParser()
+        .parseFromString(reopened, "text/html")
+        .querySelector("path")
+        ?.getAttribute("fill-opacity"),
+    ).toBe("0");
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -762,7 +768,7 @@ describe("reopening and reclosing a pen path", () => {
     );
     if (!reclosed) throw new Error("pen path reclose did not commit");
     expect(pathAttributes(reclosed)).toEqual({
-      fill: "rgb(217 217 217)",
+      fill: "rgb(218 218 218)",
       stroke: "none",
     });
   });
