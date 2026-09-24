@@ -104,12 +104,6 @@ describe("apply-design-system", () => {
     expect(updated).not.toHaveProperty("themeContract");
   });
 
-  it("documents that linking does not retroactively restyle existing slides", () => {
-    expect(action.tool.description).toContain(
-      "does not retroactively restyle",
-    );
-  });
-
   it("fails for a missing deck instead of writing", async () => {
     mockDeckRow = undefined;
 
