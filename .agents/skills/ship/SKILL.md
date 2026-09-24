@@ -187,11 +187,11 @@ fi
 The behind count is information, not a reason to merge or rebase. Check
 GitHub's live mergeability before updating from origin/main.
 
-If git branch --show-current is empty, inspect git worktree list --porcelain
-and existing changes-\* refs, then create an unused shipping branch in this
-worktree only. Never use main, attach a branch checked out elsewhere, or move
-another worktree. This branch creation is authorized by the explicit /ship
-request.
+If `git branch --show-current` is empty, inspect `git worktree list
+--porcelain` and existing `changes-*` refs. Do not create or switch to a
+shipping branch based only on `/ship`; preserve the detached checkout and get
+explicit authorization for that branch operation before publishing. After
+authorization, follow `/new-branch` and start from fetched `origin/main`.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing
