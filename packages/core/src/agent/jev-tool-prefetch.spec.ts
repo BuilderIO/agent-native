@@ -97,6 +97,7 @@ describe("preloadJevTools", () => {
 
     const result = await preloadJevTools({
       apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
       request: "Write a poem",
       registry: { "search-customers": action("Search customer records") },
       initialTools,
@@ -130,6 +131,7 @@ describe("preloadJevTools", () => {
 
     const result = await preloadJevTools({
       apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
       request: "Find a customer record",
       registry: {
         "search-customers": action("Search customer records"),
@@ -430,7 +432,16 @@ describe("preloadJevTools", () => {
       vi.fn().mockResolvedValue(new Response("blocked", { status: 403 })),
     );
     systemOne.mockResolvedValue({
-      answers: { best_tool: { choice: "search-customers" } },
+      answers: {
+        best_tool: {
+          choice: "search-customers",
+          probabilities: {
+            "search-customers": 0.9,
+            "list-customers": 0,
+            __no_match__: 0.1,
+          },
+        },
+      },
     });
 
     await expect(
