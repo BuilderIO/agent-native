@@ -324,6 +324,18 @@ export default {
       customTransform:
         "Transformación personalizada — no se puede editar como rotación X/Y/Z",
       shaderEffectType: "Shader",
+      imageScaleMode: "Modo de escala de imagen",
+      imageAdjustments: "Ajustes de imagen",
+      imageExposure: "Exposición",
+      imageContrast: "Contraste",
+      imageSaturation: "Saturación",
+      imageScaleFill: "Rellenar",
+      imageScaleFit: "Ajustar",
+      imageScaleCrop: "Recortar",
+      noMirroring: "Sin simetría",
+      vector: "Vector",
+      mirrorAngle: "Simetría de ángulo",
+      mirrorAngleAndLength: "Simetría de ángulo y longitud",
     },
     shaders: {
       fillsTitle: "Rellenos de shader",
@@ -547,6 +559,22 @@ export default {
         socialMedia: "Redes sociales",
         adUnit: "Unidad de anuncio",
       },
+    },
+    scale: {
+      title: "Escala",
+      exit: "Salir de la escala",
+      factor: "Factor de escala",
+      presets: "Preajustes de escala",
+      anchor: "Punto de anclaje",
+      topLeft: "Arriba a la izquierda",
+      topCenter: "Arriba al centro",
+      topRight: "Arriba a la derecha",
+      middleLeft: "Centro a la izquierda",
+      center: "Centro",
+      middleRight: "Centro a la derecha",
+      bottomLeft: "Abajo a la izquierda",
+      bottomCenter: "Abajo al centro",
+      bottomRight: "Abajo a la derecha",
     },
   },
   designEditor: {
@@ -783,6 +811,8 @@ export default {
       figmaPasteTarget: "Pega en el lienzo",
       figmaPasteApiKeyHint:
         "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
+      figmaPasteAccessDenied:
+        'El token de Figma conectado no puede acceder a este archivo. Comprueba tus permisos y que el token incluya el alcance "File content".',
       figmaPasteMatchGuidance:
         "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
       figmaPasteUnreadable:
@@ -1080,6 +1110,7 @@ export default {
         ungroup: "Desagrupar",
         frameSelection: "Enmarcar selección",
         autoLayout: "Diseño automático",
+        imageVideo: "Imagen/video...",
       },
     },
     undo: "Deshacer",
@@ -1367,6 +1398,10 @@ export default {
       screenSourceUpdateFailed: "No se pudo actualizar la fuente de pantalla",
       vectorEditUnsupported:
         "La edición vectorial no está disponible para esta forma o transformación.",
+      imageUploading: "Subiendo imagen…",
+      pasteReplaceFailed: "No se pudo reemplazar esa capa",
+      swapFillStrokeLayeredFill:
+        "Los rellenos múltiples o de imagen aún no pueden pasar a un trazo",
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Puede ver y añadir comentarios de revisión",

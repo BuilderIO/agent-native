@@ -28,7 +28,7 @@ import {
   IconLogin2,
   IconMoodSmile,
 } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
 import {
   useCallback,
@@ -366,6 +366,8 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
+const MISSING_SHARE_RETRY_LIMIT = 8;
+const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
 function AgentDiscovery({
   recording,
@@ -574,6 +576,7 @@ export default function ShareRoute() {
     return query ? `${path}?${query}` : path;
   }, [attribution, recordingId, startAt, panelParam]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
+  const queryClient = useQueryClient();
 
   const submitAccessRequest = useCallback(
     (email?: string) => {
@@ -632,14 +635,15 @@ export default function ShareRoute() {
     [requesterEmail, submitAccessRequest, t],
   );
 
+  const shareQueryKey = [
+    "public-recording",
+    shareId,
+    password,
+    agentAccessToken,
+    session?.email ?? null,
+  ] as const;
   const dataQ = useQuery({
-    queryKey: [
-      "public-recording",
-      shareId,
-      password,
-      agentAccessToken,
-      session?.email ?? null,
-    ],
+    queryKey: shareQueryKey,
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -659,6 +663,12 @@ export default function ShareRoute() {
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
+      const status = (q.state.data as { status?: number } | undefined)?.status;
+      const updateCount =
+        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
+      if (status === 404 && updateCount < MISSING_SHARE_RETRY_LIMIT) {
+        return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
+      }
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -1151,7 +1161,16 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
+  const retryingMissingShare =
+    dataQ.data?.status === 404 &&
+    (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
+      MISSING_SHARE_RETRY_LIMIT;
+
+  if (
+    dataQ.isLoading ||
+    retryingMissingShare ||
+    (sessionNeedsRetry && shareNeedsSession)
+  ) {
     return (
       <>
         {agentDiscovery}
@@ -1763,33 +1782,39 @@ export default function ShareRoute() {
         <RecordingSidePanel
           className={cn(
             "lg:col-start-2 lg:row-start-2",
-            sidePanelCollapsed && "h-10 lg:me-0 lg:h-10 lg:w-10",
+            sidePanelCollapsed &&
+              "lg:me-0 lg:h-10 lg:w-10 lg:border-0 lg:bg-transparent lg:shadow-none",
           )}
           tabs={
-            <div className="flex min-w-0 items-center border-b border-border">
-              {!sidePanelCollapsed ? (
-                <ViewerTabsList>
-                  {recording.enableComments ? (
-                    <ViewerTabsTrigger
-                      value="comments"
-                      className="px-0 data-[state=active]:after:inset-x-0"
-                    >
-                      {t("sharePage.comments")}
-                    </ViewerTabsTrigger>
-                  ) : null}
-                  <ViewerTabsTrigger value="transcript">
-                    {t("sharePage.transcript")}
+            <div
+              className={cn(
+                "flex min-w-0 items-center border-b border-border",
+                sidePanelCollapsed && "lg:border-0",
+              )}
+            >
+              <ViewerTabsList
+                className={sidePanelCollapsed ? "lg:hidden" : undefined}
+              >
+                {recording.enableComments ? (
+                  <ViewerTabsTrigger
+                    value="comments"
+                    className="px-0 data-[state=active]:after:inset-x-0"
+                  >
+                    {t("sharePage.comments")}
                   </ViewerTabsTrigger>
-                  <ViewerTabsTrigger value="agent">
-                    {t("sharePage.agent")}
-                  </ViewerTabsTrigger>
-                </ViewerTabsList>
-              ) : null}
+                ) : null}
+                <ViewerTabsTrigger value="transcript">
+                  {t("sharePage.transcript")}
+                </ViewerTabsTrigger>
+                <ViewerTabsTrigger value="agent">
+                  {t("sharePage.agent")}
+                </ViewerTabsTrigger>
+              </ViewerTabsList>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <ViewerIconButton
                     variant="ghost"
-                    className="ms-auto me-1 size-8 shrink-0"
+                    className="ms-auto me-1 hidden size-8 shrink-0 border-0 shadow-none lg:inline-flex"
                     aria-label={t(
                       sidePanelCollapsed
                         ? "navigation.expandSidebar"
@@ -1821,7 +1846,7 @@ export default function ShareRoute() {
         >
           <div
             id="clip-share-side-panel-content"
-            className={sidePanelCollapsed ? "hidden" : "contents"}
+            className={cn("contents", sidePanelCollapsed && "lg:hidden")}
           >
             {recording.enableComments ? (
               <TabsContent

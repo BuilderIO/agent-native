@@ -58,6 +58,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
 
+  function clipboardScreenContext() {
+    return !designCanvasBoardSurface && designCanvasScreenId
+      ? { screenId: designCanvasScreenId }
+      : {};
+  }
+
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
   // re-injecting this script into a document where a previous instance's
   // listeners, overlays, and observers are still alive (e.g. a head-only
@@ -114,6 +120,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:editor-chrome-ready",
         routePath: window.location.pathname + window.location.search,
+        documentId: runtimeDocumentId,
       },
       "*",
     );
@@ -147,6 +154,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     host.style.zIndex = readOnly ? "2147483000" : "2147483647";
     host.style.pointerEvents = "none";
     host.style.overflow = "visible";
+    var themeVars = (window as any).__anEditorBridgeThemeVars;
+    if (themeVars && typeof themeVars === "object") {
+      Object.keys(themeVars).forEach(function (name) {
+        if (typeof themeVars[name] === "string") {
+          host.style.setProperty(name, themeVars[name]);
+        }
+      });
+    }
   }
 
   function appendEditorChromeNode(node: HTMLElement): void {
@@ -322,6 +337,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
+      "[data-agent-native-drawn-caret]{caret-color:transparent!important}" +
+      // Figma hides a styled range's highlight while its inspector controls
+      // have focus; an unfocused frame would paint it as an opaque grey block.
+      "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       // A selection SWITCHING to a different element must not ease the
       // handle spans through their old target's geometry: the singleton
@@ -593,7 +612,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (signature) {
         var existing = findHeadNodeBySignature(signature);
         if (existing) {
+          var nextAnchor = existing.nextSibling;
           document.head.replaceChild(document.importNode(node, true), existing);
+          if (anchor === existing) anchor = nextAnchor;
           return;
         }
       }
@@ -2187,6 +2208,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return root;
   }
 
+  function pastedSvgShapeForHit(
+    hit: Element,
+    svgRoot: Element,
+  ): Element | null {
+    if (
+      !svgRoot.getAttribute ||
+      svgRoot.getAttribute("data-an-primitive") !== "pasted-svg"
+    ) {
+      return null;
+    }
+    var target: Element | null = hit;
+    while (target && target !== svgRoot) {
+      var tag = (target.tagName || "").toLowerCase();
+      if (
+        tag === "path" ||
+        tag === "polygon" ||
+        tag === "polyline" ||
+        tag === "ellipse" ||
+        tag === "circle" ||
+        tag === "rect" ||
+        tag === "line" ||
+        tag === "use"
+      ) {
+        return target;
+      }
+      target = target.parentElement;
+    }
+    return null;
+  }
+
   function isBoardRootMarqueeSurface(el: Element | null): boolean {
     if (!designCanvasBoardSurface || !el) return false;
     if (isDocumentRootElement(el)) return true;
@@ -2489,7 +2540,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // for a horizontal line, and only the outermost <svg> carries the id and a
     // layout box.
     var svgRoot = outermostSvgAncestor(hit);
-    if (svgRoot) return svgRoot;
+    if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
     var target = unwrapTextOverlay(hit);
     var textPrimitive = nativeTextPrimitiveForHit(target);
     if (textPrimitive) target = textPrimitive;
@@ -2561,9 +2612,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       // Falling back out of a stale/unrelated scope IS exiting drill mode.
       selectionContainerScope = null;
-      scope = document.body;
+      scope = topLevelBoardFrameOwning(resolved) || document.body;
     }
     return containerScopeAncestor(resolved, scope);
+  }
+
+  // Figma treats a top-level frame like an artboard: its direct children are
+  // picked by a plain click, while nested frames still need a drill-in.
+  function topLevelBoardFrameOwning(el: Element): Element | null {
+    if (!designCanvasBoardSurface) return null;
+    var node: Element | null = el;
+    while (node && node.parentElement && node.parentElement !== document.body) {
+      node = node.parentElement;
+    }
+    return node &&
+      node !== el &&
+      node.parentElement === document.body &&
+      node.getAttribute("data-an-primitive") === "frame"
+      ? node
+      : null;
   }
 
   /*
@@ -2606,7 +2673,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // data-agent-native-group-wrapper marker as a Group, so that promotion
     // would resolve straight back to selectedEl and click-through would
     // never descend into a selected Frame's children.
-    var raw = outermostSvgAncestor(hit) || unwrapTextOverlay(hit);
+    var svgRoot = outermostSvgAncestor(hit);
+    var raw =
+      (svgRoot && pastedSvgShapeForHit(hit, svgRoot)) ||
+      svgRoot ||
+      unwrapTextOverlay(hit);
     raw = nativeTextPrimitiveForHit(raw) || raw;
     if (!raw || raw === selectedEl || !selectedEl.contains(raw)) {
       return null;
@@ -4026,6 +4097,118 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
+  var PORTABLE_TEXT_PROPERTIES: Record<string, boolean> = {
+    color: true,
+    font: true,
+    fontFamily: true,
+    fontSize: true,
+    fontStyle: true,
+    fontWeight: true,
+    letterSpacing: true,
+    lineHeight: true,
+    textAlign: true,
+    textDecoration: true,
+    textDecorationColor: true,
+    textDecorationLine: true,
+    textDecorationStyle: true,
+    textShadow: true,
+    textTransform: true,
+    whiteSpace: true,
+    wordBreak: true,
+  };
+
+  function portableBorderSidePaints(
+    cs: CSSStyleDeclaration,
+    side: string,
+  ): boolean {
+    var style = cs.getPropertyValue("border-" + side + "-style");
+    return (
+      style !== "none" &&
+      style !== "hidden" &&
+      parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0
+    );
+  }
+
+  function portableValueRendersNothing(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+  ): boolean {
+    var sides = ["top", "right", "bottom", "left"];
+    if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+      var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+      var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+      return !checked.some(function (side) {
+        return portableBorderSidePaints(cs, side);
+      });
+    }
+    if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+      return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+    }
+    if (property === "boxSizing") {
+      return (
+        !sides.some(function (side) {
+          return portableBorderSidePaints(cs, side);
+        }) &&
+        !sides.some(function (side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        })
+      );
+    }
+    if (property === "display") {
+      return (
+        cs.display === "block" &&
+        (cs.position === "absolute" || cs.position === "fixed")
+      );
+    }
+    if (property === "transformOrigin") {
+      return (
+        cs.transform === "none" &&
+        (cs.rotate || "none") === "none" &&
+        (cs.scale || "none") === "none"
+      );
+    }
+    if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+    var tag = el.tagName.toLowerCase();
+    if (tag === "img") return true;
+    if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+      return false;
+    }
+    if (property !== "color") return true;
+    return !/currentcolor/i.test(
+      (el.getAttribute("fill") || "") +
+        (el.getAttribute("stroke") || "") +
+        ((el as SVGElement).style.cssText || ""),
+    );
+  }
+
+  function portableSizeIsLayoutResolved(
+    el: Element,
+    property: string,
+    cs: CSSStyleDeclaration,
+  ): boolean {
+    if ((el as HTMLElement).style?.getPropertyValue(property)) return false;
+    if (property !== "width" || cs.position !== "static") return false;
+    var parent = el.parentElement;
+    if (!parent) return false;
+    var parentStyle = window.getComputedStyle(parent);
+    if (/^(inline-)?flex$/.test(parentStyle.display)) {
+      return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+    }
+    if (/^(inline-)?grid$/.test(parentStyle.display)) {
+      return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+    }
+    if (cs.display !== "block" && cs.display !== "flow-root") return false;
+    var parentContentWidth =
+      parent.clientWidth -
+      parseFloat(parentStyle.paddingLeft || "0") -
+      parseFloat(parentStyle.paddingRight || "0");
+    return (
+      parentContentWidth > 0 &&
+      Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1
+    );
+  }
+
   function collectPortableComputedStyles(
     el: Element | null,
     cache?: PortableStyleComputedStylesCache,
@@ -4057,27 +4240,39 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var typedElement = el as Element & {
       computedStyleMap?: () => StylePropertyMap;
     };
+    var typedStyles: StylePropertyMap | null = null;
     if (typeof typedElement.computedStyleMap !== "function") {
       dndLog("style:typed-om-unavailable", { tag: el.tagName });
-      return cacheFailure();
+      // CSSStyleDeclaration can expose used pixel sizes for auto or percentage
+      // sizing, so omit only these fields rather than freezing layout geometry.
+    } else {
+      try {
+        typedStyles = typedElement.computedStyleMap();
+      } catch (_error) {
+        dndLog("style:typed-om-read-failed", { tag: el.tagName });
+        return cacheFailure();
+      }
+      if (!typedStyles) return cacheFailure();
     }
-    try {
-      var typedStyles = typedElement.computedStyleMap();
+    if (typedStyles) {
       for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
         var typedValue = typedStyles.get(property);
-        if (typedValue == null || !String(typedValue).trim()) {
-          dndLog("style:typed-om-value-missing", { property: property });
+        if (typedValue == null) {
+          dndLog("style:typed-om-value-unavailable", {
+            tag: el.tagName,
+            property,
+          });
           return cacheFailure();
         }
         var size = String(typedValue).trim();
-        // Explicit auto must replace a losing inline size in the moved markup.
-        if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+        if (
+          size &&
+          (size !== "auto" || hostStyle?.getPropertyValue(property)) &&
+          !portableSizeIsLayoutResolved(el, property, cs)
+        ) {
           styles[property] = size;
         }
       }
-    } catch (_error) {
-      dndLog("style:typed-om-read-failed", { tag: el.tagName });
-      return cacheFailure();
     }
     PORTABLE_STYLE_PROPERTIES.forEach(function (property) {
       if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property]) return;
@@ -4094,7 +4289,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         typeof value === "string" &&
         value.trim() &&
-        (inlineValue || value !== defaults[property])
+        (inlineValue ||
+          (value !== defaults[property] &&
+            !portableValueRendersNothing(el, property, cs)))
       ) {
         styles[property] = value;
       }
@@ -4251,10 +4448,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "--agent-native-truncate-original-overflow",
     "--an-vector-start-point",
     "--an-vector-end-point",
+    "--an-vector-fill-gradient",
+    "--an-vector-stroke-gradient",
+    "--an-css-border-gradient",
+    "--an-css-border-solid-color",
+    "border",
+    "borderWidth",
+    "borderStyle",
+    "borderColor",
+    "borderTop",
+    "borderRight",
+    "borderBottom",
+    "borderLeft",
+    "borderTopWidth",
+    "borderRightWidth",
+    "borderBottomWidth",
+    "borderLeftWidth",
+    "borderTopStyle",
+    "borderRightStyle",
+    "borderBottomStyle",
+    "borderLeftStyle",
+    "borderTopColor",
+    "borderRightColor",
+    "borderBottomColor",
+    "borderLeftColor",
+    "borderImageSource",
     "whiteSpace",
     "backgroundImage",
     "backgroundColor",
     "color",
+    "objectFit",
     "fill",
     "borderRadius",
     "borderTopLeftRadius",
@@ -4267,13 +4490,62 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var styles: Record<string, string> = {};
     var inline = (el as HTMLElement).style;
     if (!inline) return styles;
+    var authoredProperties = new Set<string>();
+    var styleText = el.getAttribute("style") || "";
+    var declarationStart = 0;
+    var propertyEnd = -1;
+    var quote = "";
+    var nesting = 0;
+    var escaped = false;
+    for (var index = 0; index <= styleText.length; index++) {
+      var character = styleText.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (quote) {
+        if (character === "\\") escaped = true;
+        else if (character === quote) quote = "";
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        quote = character;
+        continue;
+      }
+      if (character === "(" || character === "[") nesting++;
+      else if ((character === ")" || character === "]") && nesting > 0)
+        nesting--;
+      else if (character === ":" && nesting === 0 && propertyEnd < 0)
+        propertyEnd = index;
+      if ((character === ";" && nesting === 0) || index === styleText.length) {
+        if (propertyEnd >= declarationStart) {
+          authoredProperties.add(
+            styleText.slice(declarationStart, propertyEnd).trim().toLowerCase(),
+          );
+        }
+        declarationStart = index + 1;
+        propertyEnd = -1;
+      }
+    }
     INLINE_STYLE_PROPERTIES.forEach(function (property) {
       var cssProperty =
         property === "webkitBoxOrient"
           ? "-webkit-box-orient"
           : property === "webkitLineClamp"
             ? "-webkit-line-clamp"
-            : property;
+            : normalizeInteractionStateProperty(property);
+      if (
+        /^border(?:Top|Right|Bottom|Left)(?:Width|Style|Color)?$/.test(
+          property,
+        ) &&
+        !authoredProperties.has(cssProperty.toLowerCase())
+      ) {
+        return;
+      }
       var value =
         property.indexOf("--") === 0 || property.indexOf("webkit") === 0
           ? inline.getPropertyValue(cssProperty)
@@ -4439,6 +4711,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       borderWidth: cs.borderWidth,
       borderStyle: cs.borderStyle,
       borderColor: cs.borderColor,
+      borderTopWidth: cs.borderTopWidth,
+      borderRightWidth: cs.borderRightWidth,
+      borderBottomWidth: cs.borderBottomWidth,
+      borderLeftWidth: cs.borderLeftWidth,
+      borderTopStyle: cs.borderTopStyle,
+      borderRightStyle: cs.borderRightStyle,
+      borderBottomStyle: cs.borderBottomStyle,
+      borderLeftStyle: cs.borderLeftStyle,
+      borderTopColor: cs.borderTopColor,
+      borderRightColor: cs.borderRightColor,
+      borderBottomColor: cs.borderBottomColor,
+      borderLeftColor: cs.borderLeftColor,
       borderRadius: cs.borderRadius,
       borderTopLeftRadius: cs.borderTopLeftRadius,
       borderTopRightRadius: cs.borderTopRightRadius,
@@ -4708,6 +4992,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // A multi-shape pasted SVG has no single paint target. Its wrapper's
+    // computed `fill` is the SVG initial value (black), not an authored fill.
+    // Keep authored wrapper fills visible, while leaving child paints to the
+    // Selection colors inspector.
+    if (
+      el.tagName.toLowerCase() === "svg" &&
+      el.getAttribute("data-an-primitive") === "pasted-svg" &&
+      !vectorPaintTarget(el) &&
+      !el.hasAttribute("fill") &&
+      !(el as HTMLElement).style.getPropertyValue("fill")
+    ) {
+      computed.fill = "";
+    }
     if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
       computed.strokeWidth =
         strokeTarget.getAttribute("data-an-vector-logical-width") ||
@@ -10335,28 +10632,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     measurementOverlay.innerHTML = "";
   }
 
-  function addMeasurementLine(x1, y1, x2, y2, label) {
-    var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+  function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+    var horizontal = y1 === y2;
     var line = document.createElement("div");
-    var labelEl = document.createElement("div");
-    // Constant-screen-size chrome: line thickness, label font/padding, and
-    // label offsets all compensate for the host's iframe scale so the
-    // measurement readout looks identical at any canvas zoom.
     var scale = chromeLineScale();
-    var lineWidth = 1 * chromeLineScale();
-    var labelChrome =
-      "transform-origin:center;border-radius:" +
-      3 * scale +
-      "px;background:var(--design-editor-measure-color);color:white;padding:" +
-      1 * scale +
+    var border =
+      scale +
       "px " +
-      4 * scale +
-      "px;font-size:" +
-      11 * scale +
-      "px;";
+      (dashed ? "dashed" : "solid") +
+      " var(--design-editor-measure-color);";
     if (horizontal) {
       var left = Math.min(x1, x2);
-      var width = Math.max(1, Math.abs(x2 - x1));
+      var width = Math.abs(x2 - x1);
       line.style.cssText =
         "position:fixed;left:" +
         left +
@@ -10365,18 +10652,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;width:" +
         width +
         "px;border-top:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (left + width / 2) +
-        "px;top:" +
-        (y1 - 9 * scale) +
-        "px;transform:translateX(-50%);" +
-        labelChrome;
+        border;
     } else {
       var top = Math.min(y1, y2);
-      var height = Math.max(1, Math.abs(y2 - y1));
+      var height = Math.abs(y2 - y1);
       line.style.cssText =
         "position:fixed;left:" +
         x1 +
@@ -10385,19 +10664,101 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         "px;height:" +
         height +
         "px;border-left:" +
-        lineWidth +
-        "px dashed var(--design-editor-measure-color);";
-      labelEl.style.cssText =
-        "position:fixed;left:" +
-        (x1 + 5 * scale) +
-        "px;top:" +
-        (top + height / 2) +
-        "px;transform:translateY(-50%);" +
-        labelChrome;
+        border;
     }
-    labelEl.textContent = label;
     measurementOverlay.appendChild(line);
+    if (!label) return;
+    var labelEl = document.createElement("div");
+    labelEl.style.cssText =
+      "position:fixed;left:" +
+      (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) +
+      "px;top:" +
+      (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) +
+      "px;transform:" +
+      (horizontal ? "translateX(-50%)" : "translateY(-50%)") +
+      ";border-radius:" +
+      3 * scale +
+      "px;background:var(--design-editor-measure-color);color:white;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font-size:" +
+      11 * scale +
+      "px;";
+    labelEl.textContent = label;
     measurementOverlay.appendChild(labelEl);
+  }
+
+  // Figma measures both axes: single gaps when boxes are apart and separate
+  // edge distances while they overlap. Dashed runs only connect off-axis gaps.
+  function measurementSegments(s, t) {
+    var segments: Array<{
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      label: string;
+      dashed: boolean;
+    }> = [];
+    function add(x1, y1, x2, y2, dashed) {
+      var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+      if (length < 0.5) return;
+      segments.push({
+        x1: x1,
+        y1: y1,
+        x2: x2,
+        y2: y2,
+        label: dashed ? "" : String(Math.round(length)),
+        dashed: dashed,
+      });
+    }
+    var apartX = t.left >= s.right || t.right <= s.left;
+    var apartY = t.top >= s.bottom || t.bottom <= s.top;
+    var intersect = !apartX && !apartY;
+    var sCx = (s.left + s.right) / 2;
+    var sCy = (s.top + s.bottom) / 2;
+    var y = intersect
+      ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2
+      : sCy;
+    var x = intersect
+      ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2
+      : sCx;
+    var tNearY = t.top >= sCy ? t.top : t.bottom;
+    var tNearX = t.left >= sCx ? t.left : t.right;
+    var yMissesT = y < t.top || y > t.bottom;
+    var xMissesT = x < t.left || x > t.right;
+
+    if (apartX) {
+      var gapEdge = t.left >= s.right ? t.left : t.right;
+      add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+      if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+    } else {
+      var sFarY = tNearY === t.top ? s.top : s.bottom;
+      if (intersect || t.left < s.left) {
+        add(t.left, y, s.left, y, false);
+        if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+      }
+      if (intersect || t.right > s.right) {
+        add(s.right, y, t.right, y, false);
+        if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+      }
+    }
+    if (apartY) {
+      var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+      add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+      if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+    } else {
+      var sFarX = tNearX === t.left ? s.left : s.right;
+      if (intersect || t.top < s.top) {
+        add(x, t.top, x, s.top, false);
+        if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+      }
+      if (intersect || t.bottom > s.bottom) {
+        add(x, s.bottom, x, t.bottom, false);
+        if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+      }
+    }
+    return segments;
   }
 
   function showMeasurements(a, b) {
@@ -10405,8 +10766,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       hideMeasurements();
       return;
     }
-    var selectedRect = a.getBoundingClientRect();
-    var hoverRect = b.getBoundingClientRect();
     // A content re-render can rebuild document.body and drop this overlay;
     // re-attach it before drawing so the lines always render.
     if (!measurementOverlay.isConnected) {
@@ -10414,79 +10773,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
-
-    if (hoverRect.right <= selectedRect.left) {
-      var yLeft = Math.max(
-        hoverRect.top,
-        Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2),
-      );
+    measurementSegments(
+      a.getBoundingClientRect(),
+      b.getBoundingClientRect(),
+    ).forEach(function (segment) {
       addMeasurementLine(
-        hoverRect.right,
-        yLeft,
-        selectedRect.left,
-        yLeft,
-        Math.round(selectedRect.left - hoverRect.right) + "px",
+        segment.x1,
+        segment.y1,
+        segment.x2,
+        segment.y2,
+        segment.label,
+        segment.dashed,
       );
-      return;
-    }
-    if (selectedRect.right <= hoverRect.left) {
-      var yRight = Math.max(
-        selectedRect.top,
-        Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2),
-      );
-      addMeasurementLine(
-        selectedRect.right,
-        yRight,
-        hoverRect.left,
-        yRight,
-        Math.round(hoverRect.left - selectedRect.right) + "px",
-      );
-      return;
-    }
-    if (hoverRect.bottom <= selectedRect.top) {
-      var xTop = Math.max(
-        hoverRect.left,
-        Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2),
-      );
-      addMeasurementLine(
-        xTop,
-        hoverRect.bottom,
-        xTop,
-        selectedRect.top,
-        Math.round(selectedRect.top - hoverRect.bottom) + "px",
-      );
-      return;
-    }
-    if (selectedRect.bottom <= hoverRect.top) {
-      var xBottom = Math.max(
-        selectedRect.left,
-        Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2),
-      );
-      addMeasurementLine(
-        xBottom,
-        selectedRect.bottom,
-        xBottom,
-        hoverRect.top,
-        Math.round(hoverRect.top - selectedRect.bottom) + "px",
-      );
-      return;
-    }
-    addMeasurementLine(
-      selectedRect.left + selectedRect.width / 2,
-      selectedRect.top + selectedRect.height / 2,
-      hoverRect.left + hoverRect.width / 2,
-      hoverRect.top + hoverRect.height / 2,
-      Math.round(
-        Math.hypot(
-          hoverRect.left +
-            hoverRect.width / 2 -
-            (selectedRect.left + selectedRect.width / 2),
-          hoverRect.top +
-            hoverRect.height / 2 -
-            (selectedRect.top + selectedRect.height / 2),
-        ),
-      ) + "px",
-    );
+    });
   }
 
   function dragEventNames(e) {
@@ -11002,6 +11301,72 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
   }
 
+  // Native caret width scales with the canvas. Draw one screen pixel at every zoom.
+  var textCaretOverlay: HTMLElement | null = null;
+
+  function hideTextCaretOverlay(target: Element): void {
+    target.removeAttribute("data-agent-native-drawn-caret");
+    if (textCaretOverlay) textCaretOverlay.style.display = "none";
+  }
+
+  function positionTextCaretOverlay(target: HTMLElement): void {
+    var selection = window.getSelection ? window.getSelection() : null;
+    var range =
+      selection &&
+      selection.isCollapsed &&
+      selectionBelongsToElement(selection, target)
+        ? selection.getRangeAt(0)
+        : null;
+    var rect = range ? range.getClientRects()[0] : undefined;
+    if (!range || !rect || rect.height <= 0) {
+      hideTextCaretOverlay(target);
+      return;
+    }
+    if (!textCaretOverlay) {
+      textCaretOverlay = document.createElement("div");
+      textCaretOverlay.setAttribute(
+        "data-agent-native-edit-overlay",
+        "text-caret",
+      );
+      textCaretOverlay.style.cssText =
+        "position:fixed;pointer-events:none;z-index:99999;display:none;";
+      appendEditorChromeNode(textCaretOverlay);
+    }
+    var caretHost =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as Element)
+        : range.startContainer.parentElement || target;
+    var width = chromeLineScale();
+    var moved =
+      textCaretOverlay.style.display === "none" ||
+      textCaretOverlay.style.left !== rect.left - width / 2 + "px" ||
+      textCaretOverlay.style.top !== rect.top + "px";
+    textCaretOverlay.style.left = rect.left - width / 2 + "px";
+    textCaretOverlay.style.top = rect.top + "px";
+    textCaretOverlay.style.width = width + "px";
+    textCaretOverlay.style.height = rect.height + "px";
+    textCaretOverlay.style.background =
+      window.getComputedStyle(caretHost).color;
+    textCaretOverlay.style.display = "block";
+    if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+      target.setAttribute("data-agent-native-drawn-caret", "");
+    }
+    if (moved && textCaretOverlay.animate) {
+      textCaretOverlay.getAnimations().forEach(function (animation) {
+        animation.cancel();
+      });
+      textCaretOverlay.animate(
+        [
+          { opacity: 1 },
+          { opacity: 1, offset: 0.5 },
+          { opacity: 0, offset: 0.5 },
+          { opacity: 0 },
+        ],
+        { duration: 1060, iterations: Infinity, delay: 500 },
+      );
+    }
+  }
+
   function updateTextEditingChrome(
     target: HTMLElement,
     originalMinWidth: string,
@@ -11020,8 +11385,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.style.minHeight = originalMinHeight;
       positionOverlay(selectionOverlay, target);
       setSelectionOverlayResizeChromeVisible(false);
+      positionTextCaretOverlay(target);
       return;
     }
+    hideTextCaretOverlay(target);
     target.style.minWidth = originalMinWidth || "1px";
     target.style.minHeight = originalMinHeight || "1em";
     document.documentElement.setAttribute(
@@ -13677,9 +14044,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       kind !== "rect" &&
       kind !== "rectangle" &&
       kind !== "ellipse" &&
-      kind !== "circle"
+      kind !== "circle" &&
+      kind !== "pasted-svg"
     ) {
       return null;
+    }
+    // A pasted SVG may wrap its sole editable shape in <g>. Walk groups only;
+    // never search <defs>, where an arrowhead or gradient geometry can live.
+    if (kind === "pasted-svg") {
+      var pendingShapes = Array.from(el.children);
+      var pastedShape: Element | null = null;
+      while (pendingShapes.length) {
+        var candidate = pendingShapes.pop();
+        if (!candidate) continue;
+        var candidateTag = candidate.tagName.toLowerCase();
+        if (
+          [
+            "path",
+            "polygon",
+            "ellipse",
+            "circle",
+            "rect",
+            "line",
+            "polyline",
+            "use",
+          ].includes(candidateTag)
+        ) {
+          if (pastedShape) return null;
+          pastedShape = candidate;
+        } else if (candidateTag === "g") {
+          Array.from(candidate.children).forEach(function (child) {
+            pendingShapes.push(child);
+          });
+        }
+      }
+      return pastedShape;
     }
     // Direct children only: an arrow's marker <path> sits inside <defs>
     // ahead of the shaft, so a descendant search paints the arrowhead. Keeps
@@ -13981,6 +14380,440 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function pastedSvgPaintShapes(root: SVGSVGElement): Element[] {
+    var shapes: Element[] = [];
+    function visit(parent: Element): void {
+      Array.from(parent.children).forEach(function (child) {
+        var tag = child.tagName.toLowerCase();
+        if (tag === "defs") return;
+        if (
+          /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)
+        ) {
+          shapes.push(child);
+        } else if (tag === "g") {
+          visit(child);
+        }
+      });
+    }
+    visit(root);
+    return shapes;
+  }
+
+  function vectorGradientPaintTargets(
+    el: Element,
+    paintProperty: "fill" | "stroke",
+  ): {
+    root: SVGSVGElement;
+    targets: Element[];
+    metadataTarget: Element;
+  } | null {
+    var root =
+      el.tagName.toLowerCase() === "svg"
+        ? (el as SVGSVGElement)
+        : (el.closest("svg[data-an-primitive]") as SVGSVGElement | null);
+    if (!root) return null;
+    var target =
+      paintProperty === "stroke"
+        ? vectorStrokeTarget(root)
+        : vectorPaintTarget(root);
+    if (
+      !target &&
+      el !== root &&
+      /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)
+    ) {
+      target = el;
+    }
+    var targets = target ? [target] : [];
+    if (
+      !targets.length &&
+      el === root &&
+      root.getAttribute("data-an-primitive") === "pasted-svg"
+    ) {
+      targets = pastedSvgPaintShapes(root);
+    }
+    if (!targets.length) return null;
+    var shapeCount = pastedSvgPaintShapes(root).length;
+    return {
+      root: root,
+      targets: targets,
+      metadataTarget: shapeCount === 1 || el === root ? root : targets[0]!,
+    };
+  }
+
+  function vectorGradientDefAttribute(paintProperty: "fill" | "stroke") {
+    return "data-an-vector-" + paintProperty + "-gradient";
+  }
+
+  function vectorGradientMetadataProperty(paintProperty: "fill" | "stroke") {
+    return "--an-vector-" + paintProperty + "-gradient";
+  }
+
+  function normalizeVectorGradientDefs(
+    root: SVGSVGElement,
+    paintProperty: "fill" | "stroke",
+  ): SVGDefsElement | null {
+    var containers = Array.from(
+      root.querySelectorAll(
+        ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
+      ),
+    );
+    var canonical = containers[0] || null;
+    if (!canonical) return null;
+    var seenIds: Record<string, boolean> = Object.create(null);
+    Array.from(canonical.children).forEach(function (child) {
+      var id = child.getAttribute("id");
+      if (id) seenIds[id] = true;
+    });
+    containers.slice(1).forEach(function (duplicate) {
+      Array.from(duplicate.children).forEach(function (child) {
+        var id = child.getAttribute("id");
+        if (!id || !seenIds[id]) {
+          canonical!.appendChild(child);
+          if (id) seenIds[id] = true;
+        }
+      });
+      duplicate.remove();
+    });
+    return canonical;
+  }
+
+  function removeVectorGradientPreview(
+    root: SVGSVGElement,
+    targets: Element[],
+    paintProperty: "fill" | "stroke",
+  ): void {
+    var gradientIds: Record<string, boolean> = Object.create(null);
+    var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+    var rootMetadata = root.style.getPropertyValue(metadataProperty);
+    targets.forEach(function (target) {
+      var style = (target as HTMLElement).style.getPropertyValue(paintProperty);
+      var reference = style.match(/^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)$/i);
+      if (reference?.[1]) gradientIds[reference[1]] = true;
+      (target as HTMLElement).style.removeProperty(metadataProperty);
+    });
+    var defsContainers = Array.from(
+      root.querySelectorAll(
+        ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]",
+      ),
+    );
+    defsContainers.forEach(function (defs) {
+      Array.from(defs.children).forEach(function (gradient) {
+        var id = gradient.getAttribute("id");
+        var remainingReferences = id
+          ? Array.from(root.querySelectorAll("[style]")).filter(function (el) {
+              if (targets.indexOf(el) >= 0) return false;
+              var reference = (el as HTMLElement).style
+                .getPropertyValue(paintProperty)
+                .match(/^url\(\s*['\"]?#([^)'\"\s]+)['\"]?\s*\)$/i);
+              return reference?.[1] === id;
+            })
+          : [];
+        if (id && gradientIds[id] && !remainingReferences.length) {
+          gradient.remove();
+        } else if (rootMetadata && gradientIds[id || ""]) {
+          remainingReferences.forEach(function (el) {
+            (el as HTMLElement).style.setProperty(
+              metadataProperty,
+              rootMetadata,
+            );
+          });
+        }
+      });
+    });
+    var normalizedDefs = normalizeVectorGradientDefs(root, paintProperty);
+    if (normalizedDefs && normalizedDefs.children.length === 0) {
+      normalizedDefs.remove();
+    }
+    root.style.removeProperty(metadataProperty);
+  }
+
+  function appendSvgGradientStops(
+    gradient: SVGLinearGradientElement | SVGRadialGradientElement,
+    stops: Array<{ color: string; position: number }>,
+  ): boolean {
+    var svgNs = "http://www.w3.org/2000/svg";
+    var appended = 0;
+    stops.forEach(function (stop) {
+      var color = document.createElement("span");
+      color.style.color = stop.color;
+      color.style.position = "absolute";
+      color.style.visibility = "hidden";
+      document.body.appendChild(color);
+      var resolved = window.getComputedStyle(color).color;
+      color.remove();
+      if (!resolved || resolved === "") return;
+      var rgba = resolved.match(/^rgba?\(([^)]+)\)$/i);
+      var colorParts = rgba ? rgba[1]!.split(/[\s,\/]+/).filter(Boolean) : [];
+      if (colorParts.length < 3) return;
+      var svgStop = document.createElementNS(svgNs, "stop");
+      svgStop.setAttribute(
+        "offset",
+        String(Math.max(0, Math.min(100, stop.position))) + "%",
+      );
+      svgStop.setAttribute(
+        "stop-color",
+        // guard:allow-raw-color — serialize the resolved user-selected SVG stop color
+        "rgb(" + colorParts.slice(0, 3).join(" ") + ")",
+      );
+      var alpha = colorParts.length > 3 ? Number(colorParts[3]) : 1;
+      if (Number.isFinite(alpha) && alpha < 1) {
+        svgStop.setAttribute("stop-opacity", String(Math.max(0, alpha)));
+      }
+      gradient.appendChild(svgStop);
+      appended += 1;
+    });
+    return appended >= 2;
+  }
+
+  function applyVectorGradientPreview(
+    el: Element,
+    value: string,
+    paintProperty: "fill" | "stroke",
+  ): boolean {
+    var paint = vectorGradientPaintTargets(el, paintProperty);
+    if (!paint) return false;
+    var linear = parseLinearGradientCss(value);
+    var radialMatch = String(value || "")
+      .trim()
+      .match(/^radial-gradient\s*\(([\s\S]*)\)$/i);
+    var radialParts = radialMatch ? splitGradientTopLevel(radialMatch[1]!) : [];
+    var radialHeader = radialParts[0] || "";
+    var radialStopStart =
+      /^(?:(?:circle|ellipse)\b|(?:closest|farthest)-(?:side|corner)\b|(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)(?:\s|$))|at\s)/i.test(
+        radialHeader,
+      )
+        ? 1
+        : 0;
+    var radialStops = radialParts
+      .slice(radialStopStart)
+      .map(function (segment, index, segments) {
+        var position = segment.match(/(-?\d+(?:\.\d+)?)%\s*$/);
+        return {
+          color: position
+            ? segment.slice(0, position.index).trim()
+            : segment.trim(),
+          position: position
+            ? Number(position[1])
+            : (index / Math.max(1, segments.length - 1)) * 100,
+        };
+      })
+      .filter(function (stop) {
+        return !!stop.color;
+      });
+    var isRadial = !!radialMatch && radialStops.length >= 2;
+    if (!linear && !isRadial) return false;
+    var stops = linear ? linear.stops : radialStops;
+
+    removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
+    var baseId =
+      (paint.root.getAttribute("data-agent-native-node-id") || "vector") +
+      "-" +
+      paintProperty +
+      "-gradient";
+    var gradientId = baseId;
+    var suffix = 2;
+    while (document.getElementById(gradientId)) {
+      gradientId = baseId + "-" + suffix;
+      suffix += 1;
+    }
+    var svgNs = "http://www.w3.org/2000/svg";
+    var gradient: SVGLinearGradientElement | SVGRadialGradientElement;
+    if (linear) {
+      var viewBox = paint.root.viewBox.baseVal;
+      var rect = paint.root.getBoundingClientRect();
+      var width = viewBox.width || rect.width;
+      var height = viewBox.height || rect.height;
+      if (viewBox.width && viewBox.height && rect.width && rect.height) {
+        var scaleX = viewBox.width / rect.width;
+        var scaleY = viewBox.height / rect.height;
+        if (Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * 0.001) {
+          return false;
+        }
+      }
+      var segments = splitGradientTopLevel(
+        String(value)
+          .trim()
+          .slice(String(value).indexOf("(") + 1, -1),
+      );
+      var header = segments[0] || "";
+      var angleDegrees = linear.angle;
+      if (/^to\s+/i.test(header)) {
+        var sides =
+          header.toLowerCase().match(/\b(top|bottom|left|right)\b/g) || [];
+        var vertical = sides.find(function (side) {
+          return side === "top" || side === "bottom";
+        });
+        var horizontal = sides.find(function (side) {
+          return side === "left" || side === "right";
+        });
+        if (vertical && horizontal) {
+          var cornerDx = (horizontal === "right" ? 1 : -1) * width;
+          var cornerDy = (vertical === "top" ? -1 : 1) * height;
+          angleDegrees =
+            ((Math.atan2(cornerDx, -cornerDy) * 180) / Math.PI + 360) % 360;
+        } else if (vertical) {
+          angleDegrees = vertical === "top" ? 0 : 180;
+        } else if (horizontal) {
+          angleDegrees = horizontal === "right" ? 90 : 270;
+        }
+      } else if (!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:deg)?$/i.test(header)) {
+        angleDegrees = 180;
+      }
+      var angle = (angleDegrees * Math.PI) / 180;
+      var dx = Math.sin(angle);
+      var dy = -Math.cos(angle);
+      var length = Math.abs(width * dx) + Math.abs(height * dy);
+      var x = viewBox.width ? viewBox.x : 0;
+      var y = viewBox.height ? viewBox.y : 0;
+      var cx = width / 2;
+      var cy = height / 2;
+      gradient = document.createElementNS(svgNs, "linearGradient");
+      gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+      gradient.setAttribute("x1", String(x + cx - (dx * length) / 2));
+      gradient.setAttribute("y1", String(y + cy - (dy * length) / 2));
+      gradient.setAttribute("x2", String(x + cx + (dx * length) / 2));
+      gradient.setAttribute("y2", String(y + cy + (dy * length) / 2));
+    } else {
+      var viewBox = paint.root.viewBox.baseVal;
+      var rect = paint.root.getBoundingClientRect();
+      var width = viewBox.width || rect.width;
+      var height = viewBox.height || rect.height;
+      if (!(width > 0 && height > 0)) return false;
+      var x = viewBox.width ? viewBox.x : 0;
+      var y = viewBox.height ? viewBox.y : 0;
+      var header = radialStopStart ? radialHeader.trim() : "";
+      var atIndex = header.toLowerCase().indexOf(" at ");
+      var shapeAndSize = (
+        atIndex < 0 ? header : header.slice(0, atIndex)
+      ).trim();
+      var position = atIndex < 0 ? "" : header.slice(atIndex + 4).trim();
+      var isCircle = /^circle\b/i.test(shapeAndSize);
+      shapeAndSize = shapeAndSize.replace(/^(?:circle|ellipse)\b/i, "").trim();
+      var sizeKeyword =
+        shapeAndSize
+          .match(
+            /^(closest-side|farthest-side|closest-corner|farthest-corner)$/i,
+          )?.[1]
+          ?.toLowerCase() || "farthest-corner";
+      var explicitSizes = shapeAndSize.match(
+        /^([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)?)(?:\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|%)?))?$/i,
+      );
+      var positionParts = position ? position.split(/\s+/) : [];
+      var positionValue = function (axis: "x" | "y"): number {
+        var size = axis === "x" ? width : height;
+        var start = axis === "x" ? x : y;
+        var candidates = positionParts.filter(function (part) {
+          return axis === "x"
+            ? /^(left|right|center|[-+\d.]+%|[-+\d.]+px)$/i.test(part)
+            : /^(top|bottom|center|[-+\d.]+%|[-+\d.]+px)$/i.test(part);
+        });
+        var token =
+          candidates[axis === "x" ? 0 : candidates.length - 1] || "center";
+        if (/^(right|bottom)$/i.test(token)) return start + size;
+        if (/^(left|top)$/i.test(token)) return start;
+        if (/^center$/i.test(token)) return start + size / 2;
+        var number = parseFloat(token);
+        return start + (/%$/.test(token) ? (number / 100) * size : number);
+      };
+      var cx = positionValue("x");
+      var cy = positionValue("y");
+      var left = cx - x;
+      var right = x + width - cx;
+      var top = cy - y;
+      var bottom = y + height - cy;
+      var closestX = Math.max(0, Math.min(left, right));
+      var farthestX = Math.max(left, right);
+      var closestY = Math.max(0, Math.min(top, bottom));
+      var farthestY = Math.max(top, bottom);
+      var rx: number;
+      var ry: number;
+      if (explicitSizes) {
+        var parseRadius = function (
+          raw: string | undefined,
+          axis: "x" | "y",
+        ): number {
+          if (!raw) return 0;
+          var dimension = axis === "x" ? width : height;
+          var number = parseFloat(raw);
+          return /%$/.test(raw) ? (number / 100) * dimension : number;
+        };
+        rx = parseRadius(explicitSizes[1], "x");
+        ry = explicitSizes[2] ? parseRadius(explicitSizes[2], "y") : rx;
+      } else if (
+        sizeKeyword === "closest-side" ||
+        sizeKeyword === "farthest-side"
+      ) {
+        var horizontalRadius =
+          sizeKeyword === "closest-side" ? closestX : farthestX;
+        var verticalRadius =
+          sizeKeyword === "closest-side" ? closestY : farthestY;
+        if (isCircle) {
+          rx = ry =
+            sizeKeyword === "closest-side"
+              ? Math.min(horizontalRadius, verticalRadius)
+              : Math.max(horizontalRadius, verticalRadius);
+        } else {
+          rx = horizontalRadius;
+          ry = verticalRadius;
+        }
+      } else if (isCircle) {
+        var cornerX = sizeKeyword === "closest-corner" ? closestX : farthestX;
+        var cornerY = sizeKeyword === "closest-corner" ? closestY : farthestY;
+        rx = ry = Math.hypot(cornerX, cornerY);
+      } else {
+        rx = sizeKeyword === "closest-corner" ? closestX : farthestX;
+        ry = sizeKeyword === "closest-corner" ? closestY : farthestY;
+      }
+      if (!(rx > 0 && ry > 0)) return false;
+      gradient = document.createElementNS(svgNs, "radialGradient");
+      gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+      gradient.setAttribute("cx", String(cx));
+      gradient.setAttribute("cy", String(cy));
+      if (Math.abs(rx - ry) < 0.001) {
+        gradient.setAttribute("r", String(rx));
+      } else {
+        gradient.setAttribute("r", "1");
+        gradient.setAttribute(
+          "gradientTransform",
+          "translate(" +
+            cx +
+            " " +
+            cy +
+            ") scale(" +
+            rx +
+            " " +
+            ry +
+            ") translate(" +
+            -cx +
+            " " +
+            -cy +
+            ")",
+        );
+      }
+    }
+    gradient.setAttribute("id", gradientId);
+    if (!appendSvgGradientStops(gradient, stops)) return false;
+    var defs = normalizeVectorGradientDefs(paint.root, paintProperty);
+    if (!defs) {
+      defs = document.createElementNS(svgNs, "defs") as SVGDefsElement;
+      defs.setAttribute(vectorGradientDefAttribute(paintProperty), "");
+      paint.root.insertBefore(defs, paint.root.firstChild);
+    }
+    defs.appendChild(gradient);
+    recordSourceSubtree(defs);
+    paint.targets.forEach(function (target) {
+      (target as HTMLElement).style.setProperty(
+        paintProperty,
+        "url(#" + gradientId + ")",
+      );
+    });
+    (paint.metadataTarget as HTMLElement).style.setProperty(
+      vectorGradientMetadataProperty(paintProperty),
+      value.trim(),
+    );
+    return true;
+  }
+
   function applyInlineStyleProperty(
     el: HTMLElement | null,
     property: unknown,
@@ -13989,6 +14822,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
+    if (cssProperty === "fill" && typeof value === "string") {
+      if (applyVectorGradientPreview(el, value, "fill")) return true;
+    }
+    if (cssProperty === "stroke" && typeof value === "string") {
+      if (applyVectorGradientPreview(el, value, "stroke")) return true;
+    }
     if (
       cssProperty === "--an-vector-start-point" ||
       cssProperty === "--an-vector-end-point"
@@ -14002,14 +14841,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var strokeOverlay: Element | null = null;
     var useOverlay = false;
     if (isVectorPaintProperty(cssProperty)) {
+      var vectorRoot =
+        el.tagName.toLowerCase() === "svg"
+          ? (el as unknown as SVGSVGElement)
+          : (el.closest(
+              "svg[data-an-primitive]",
+            ) as unknown as SVGSVGElement | null);
       var shape = vectorPaintTarget(el);
-      if (shape) {
+      var shapes = shape ? [shape] : [];
+      if (
+        !shapes.length &&
+        vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg"
+      ) {
+        shapes =
+          el === vectorRoot
+            ? pastedSvgPaintShapes(vectorRoot)
+            : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+                  el.tagName,
+                )
+              ? [el]
+              : [];
+      }
+      if (shapes.length && vectorRoot) {
+        if (cssProperty === "fill" || cssProperty === "stroke") {
+          removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
+        }
         strokeOverlay = vectorStrokeTarget(el);
         useOverlay =
           cssProperty.indexOf("stroke") === 0 &&
           !!strokeOverlay &&
           strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-        target = useOverlay ? strokeOverlay! : shape;
+        target = useOverlay ? strokeOverlay! : shapes[0]!;
         clearVectorWrapperPaint(el);
         if (useOverlay && cssProperty === "stroke-width") {
           var logicalWidth = String(value);
@@ -14025,6 +14887,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             logicalWidth,
           );
           value = actualWidth;
+        }
+        if (shapes.length > 1 && !useOverlay) {
+          shapes.forEach(function (shapeTarget) {
+            (shapeTarget as HTMLElement).style.setProperty(
+              cssProperty,
+              String(value),
+            );
+          });
+          return true;
         }
       }
     }
@@ -14680,8 +15551,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
   function eventEpochMilliseconds(
-    ev?: { timeStamp?: number } | null,
+    ev?: { timeStamp?: number; isTrusted?: boolean } | null,
   ): number | undefined {
+    // The host forwards board-drag events built in its own realm. Their
+    // timeStamp uses the host's earlier time origin, so dispatch-time is the
+    // reliable creation time when the event crosses into this document.
+    if (ev?.isTrusted === false) {
+      return performance.timeOrigin + performance.now();
+    }
     if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
       return undefined;
     }
@@ -21657,6 +22534,81 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return [];
   };
 
+  function scaleSelectionByFactor(
+    factor: number,
+    anchorX: number,
+    anchorY: number,
+  ): void {
+    if (readOnly || !selectedEl || isLayerInteractionBlocked(selectedEl))
+      return;
+    if (!(factor > 0) || factor === 1) return;
+    var el = selectedEl as HTMLElement;
+    refreshLiveVisualEditOriginalStyles(el);
+    ensurePositionable(el);
+    var cs = window.getComputedStyle(el);
+    var width = readPx(cs.width);
+    var height = readPx(cs.height);
+    var nextWidth = width * factor;
+    var nextHeight = height * factor;
+    var styles: Record<string, string> = {
+      left:
+        quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX,
+        ) + "px",
+      top:
+        quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY,
+        ) + "px",
+      width: quantizeToLayoutGrid(nextWidth) + "px",
+      height: quantizeToLayoutGrid(nextHeight) + "px",
+    };
+    if (el.style.position) styles.position = el.style.position;
+    var fontSize = readPx(el.style.fontSize || cs.fontSize);
+    var svgViewBoxScalesFont =
+      (el instanceof SVGSVGElement && el.hasAttribute("viewBox")) ||
+      isInsideScaledSvgViewBox(el);
+    if (fontSize > 0 && !svgViewBoxScalesFont) {
+      styles.fontSize =
+        Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+    }
+    var targets = collectKScaleStyleTargets(el, false);
+    Object.keys(styles).forEach(function (property) {
+      (el.style as any)[property] = styles[property];
+    });
+    applyKScaleStyleTargets(targets, factor);
+    var changes = kScaleStyleChanges(targets, factor);
+    var rootSelector = getSelector(el);
+    var rootChange = changes.find(function (change) {
+      return change.selector === rootSelector;
+    });
+    if (rootChange) {
+      rootChange.styles = Object.assign({}, rootChange.styles, styles);
+      rootChange.originalStyles = Object.assign(
+        {},
+        rootChange.originalStyles || {},
+        originalInlineStylesForPatch(el, styles),
+      );
+    } else {
+      changes.unshift({
+        selector: rootSelector,
+        sourceId: getSourceId(el) || undefined,
+        styles: styles,
+        originalStyles: originalInlineStylesForPatch(el, styles),
+        preserveSelection: true,
+      });
+    }
+    (window.parent as Window).postMessage(
+      { type: "visual-style-batch-change", changes: changes },
+      "*",
+    );
+    recordSourceOwnership(el);
+    targets.forEach(function (target) {
+      recordSourceOwnership(target.el);
+    });
+    releaseLiveVisualEditOriginalStyles(el);
+    refreshOverlays();
+  }
+
   function startResize(handle, e) {
     if (readOnly) return;
     if (!selectedEl) return;
@@ -22806,6 +23758,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.type === "pointerdown") lastPointerDownTimestamp = Date.now();
+    // A live text edit owns pointer selection inside its contenteditable. The
+    // document capture listener must not cancel that native gesture before the
+    // target's own selection machinery sees it; clicks outside still commit
+    // through the shield path below.
+    if (
+      activeTextEditEl &&
+      isTextEditElConnected() &&
+      e.target &&
+      activeTextEditEl.contains(e.target)
+    ) {
+      return;
+    }
+    if (activeTextEditEl && isTextEditElConnected()) {
+      var textEditToFinish = activeTextEditEl;
+      if (finishActiveTextEdit) finishActiveTextEdit(true);
+      textEditToFinish.blur();
+    }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
     // Consume any host handoff at pointerdown; the synthetic event carries
@@ -23648,9 +24617,133 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (content) {
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
-          { type: "figma-clipboard-paste", content: content },
+          {
+            type: "figma-clipboard-paste",
+            content: content,
+            ...clipboardScreenContext(),
+          },
           "*",
         );
+        return;
+      }
+      var svgHtml = e.clipboardData?.getData("text/html") || "";
+      var svgText = e.clipboardData?.getData("text/plain") || "";
+      var svgSource = /<svg\b/i.test(svgHtml)
+        ? svgHtml
+        : /<svg\b/i.test(svgText)
+          ? svgText
+          : "";
+      if (svgSource) {
+        stopNativeInteraction(e);
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            svg: svgSource,
+            ...clipboardScreenContext(),
+          },
+          "*",
+        );
+        return;
+      }
+      var clipboardFiles = Array.from(e.clipboardData?.items ?? [])
+        .filter(function (item) {
+          return item.kind === "file";
+        })
+        .map(function (item) {
+          return item.getAsFile();
+        })
+        .filter(function (file): file is File {
+          return Boolean(file);
+        });
+      var svgFiles = clipboardFiles.filter(function (file) {
+        return (
+          file.type.toLowerCase() === "image/svg+xml" ||
+          file.name.toLowerCase().endsWith(".svg")
+        );
+      });
+      var imageFiles = clipboardFiles.filter(function (file) {
+        return (
+          !svgFiles.includes(file) &&
+          (file.type.startsWith("image/") || file.type.startsWith("video/"))
+        );
+      });
+      if (svgFiles.length > 0 || imageFiles.length > 0) {
+        stopNativeInteraction(e);
+        var relayImageFiles = function () {
+          if (imageFiles.length === 0) return;
+          var readPromises = imageFiles.map(function (file) {
+            return new Promise<{
+              dataUrl: string;
+              type: string;
+              name: string;
+            } | null>(function (resolve) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve({
+                  dataUrl:
+                    typeof reader.result === "string" ? reader.result : "",
+                  type: file.type,
+                  name: file.name,
+                });
+              };
+              reader.onerror = function () {
+                resolve(null);
+              };
+              reader.readAsDataURL(file);
+            });
+          });
+          void Promise.all(readPromises).then(function (results) {
+            var valid = results.filter(function (r) {
+              return r && r.dataUrl;
+            });
+            if (valid.length > 0) {
+              (window.parent as Window).postMessage(
+                {
+                  type: "canvas-image-paste",
+                  files: valid,
+                  ...clipboardScreenContext(),
+                },
+                "*",
+              );
+            }
+          });
+        };
+        void Promise.all(
+          svgFiles.map(function (file) {
+            if (file.size > 1000000) {
+              return Promise.resolve({ error: "too-large" as const });
+            }
+            return file
+              .text()
+              .then(function (source) {
+                return { source: source };
+              })
+              .catch(function () {
+                return { error: "unreadable" as const };
+              });
+          }),
+        ).then(function (results) {
+          for (var result of results) {
+            (window.parent as Window).postMessage(
+              result.source
+                ? {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svg: result.source,
+                    ...clipboardScreenContext(),
+                  }
+                : {
+                    type: "figma-clipboard-paste",
+                    content: "",
+                    svgFileError: result.error,
+                    ...clipboardScreenContext(),
+                  },
+              "*",
+            );
+          }
+          relayImageFiles();
+        });
         return;
       }
       // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
@@ -23658,51 +24751,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // these because paste events inside an iframe don't bubble to the parent
       // document — the bridge reads each file as a data URL and relays it so
       // the parent's handlePastedImageFiles can insert an <img> layer.
-      var imageFiles = Array.from(e.clipboardData?.items ?? [])
-        .filter(function (item) {
-          return item.kind === "file" && item.type.startsWith("image/");
-        })
-        .map(function (item) {
-          return item.getAsFile();
-        })
-        .filter(function (f): f is File {
-          return Boolean(f);
-        });
-      if (imageFiles.length > 0) {
-        stopNativeInteraction(e);
-        var readPromises = imageFiles.map(function (file) {
-          return new Promise<{
-            dataUrl: string;
-            type: string;
-            name: string;
-          } | null>(function (resolve) {
-            var reader = new FileReader();
-            reader.onload = function () {
-              resolve({
-                dataUrl: typeof reader.result === "string" ? reader.result : "",
-                type: file.type,
-                name: file.name,
-              });
-            };
-            reader.onerror = function () {
-              resolve(null);
-            };
-            reader.readAsDataURL(file);
-          });
-        });
-        void Promise.all(readPromises).then(function (results) {
-          var valid = results.filter(function (r) {
-            return r && r.dataUrl;
-          });
-          if (valid.length > 0) {
-            (window.parent as Window).postMessage(
-              { type: "canvas-image-paste", files: valid },
-              "*",
-            );
-          }
-        });
-        return;
-      }
       // A paste carrying nothing importable stays silent, unless it plainly
       // came from Figma — the user expected a screen and must be told why they
       // got nothing. The parent applies the same rule to its own listener, but
@@ -23721,6 +24769,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             content: "",
             html: pastedHtml,
             text: pastedText,
+            ...clipboardScreenContext(),
           },
           "*",
         );
@@ -23746,29 +24795,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function placeTextCaretFromPoint(target, clientX, clientY) {
-    try {
-      var range = null;
-      if (document.caretRangeFromPoint) {
-        range = document.caretRangeFromPoint(clientX, clientY);
-      } else if (document.caretPositionFromPoint) {
-        var position = document.caretPositionFromPoint(clientX, clientY);
-        if (position) {
-          range = document.createRange();
-          range.setStart(position.offsetNode, position.offset);
-        }
-      }
-      if (!range) {
-        range = document.createRange();
-        range.selectNodeContents(target);
-        range.collapse(false);
-      }
-      var selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    } catch (err) {
-      collapseSelectionIntoContents(target);
-    }
+  function selectAllTextContents(target: HTMLElement): void {
+    var range = document.createRange();
+    range.selectNodeContents(target);
+    var selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
 
   // T5: elements that must never become contenteditable via the raw-target
@@ -24045,10 +25078,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target.removeEventListener("input", onInput, true);
       target.removeEventListener("keyup", onKeyUp, true);
       target.removeEventListener("mouseup", onMouseUp, true);
+      target.removeEventListener("mousedown", onMouseDownInSelection, true);
+      target.removeEventListener("dragstart", preventTextDrag, true);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
+      hideTextCaretOverlay(target);
       document.documentElement.removeAttribute(
         "data-agent-native-empty-text-editing",
       );
@@ -24280,6 +25316,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       scheduleTextEditingChromeUpdate();
     }
 
+    function onMouseDownInSelection(ev: MouseEvent) {
+      if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+      var selection = window.getSelection ? window.getSelection() : null;
+      if (!selection || selection.isCollapsed) return;
+      var point = document.caretPositionFromPoint
+        ? (function () {
+            var position = document.caretPositionFromPoint(
+              ev.clientX,
+              ev.clientY,
+            );
+            if (!position) return null;
+            var range = document.createRange();
+            range.setStart(position.offsetNode, position.offset);
+            range.collapse(true);
+            return range;
+          })()
+        : document.caretRangeFromPoint
+          ? document.caretRangeFromPoint(ev.clientX, ev.clientY)
+          : null;
+      if (!point || !rangeBelongsToElement(point, target)) return;
+      selection.removeAllRanges();
+      selection.addRange(point);
+    }
+
+    function preventTextDrag(ev: DragEvent): void {
+      ev.preventDefault();
+    }
+
     function onMouseUp() {
       captureActiveTextEditRange(target);
       clearActiveTextEditRangeIfCollapsed(target);
@@ -24292,6 +25356,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target.addEventListener("input", onInput, true);
     target.addEventListener("keyup", onKeyUp, true);
     target.addEventListener("mouseup", onMouseUp, true);
+    target.addEventListener("mousedown", onMouseDownInSelection, true);
+    target.addEventListener("dragstart", preventTextDrag, true);
     document.addEventListener("selectionchange", onSelectionChange);
     window.addEventListener("blur", onWindowBlur, true);
     target.focus();
@@ -24310,7 +25376,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // editable node. Collapse to the end of the target's own contents instead.
       collapseSelectionIntoContents(target);
     } else {
-      placeTextCaretFromPoint(target, e.clientX, e.clientY);
+      selectAllTextContents(target);
     }
     captureActiveTextEditRange(target);
     postTextEditingState(target, true);
@@ -24767,6 +25833,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === "measurement-modifier-release") {
+      hideMeasurements();
+      lastHoverInfoPostedEl = hoveredEl;
+      (window.parent as Window).postMessage(
+        {
+          type: "element-hover",
+          payload: hoveredEl ? getLightElementInfo(hoveredEl) : null,
+        },
+        "*",
+      );
+      return;
+    }
     // The child can finish booting before the parent installs its one-shot
     // ready listener. Let the parent ask again after the iframe load event;
     // this is idempotent and also survives a document remount.
@@ -24869,7 +25947,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
       readOnly = nextReadOnly;
-      textEditingEnabled = !readOnly && textEditingEnabledFlag;
+      textEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
       if (readOnly) {
         // Leave the text editor gracefully before going read-only.
         if (activeTextEditEl) {
@@ -24878,12 +25957,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         clearPendingShieldDrag();
         cancelActiveBridgeDrag();
         setSelectionOverlayResizeChromeVisible(false);
-        // Keep the shield active so the viewer can select and inspect layers.
-        shieldOverlay.style.pointerEvents = "auto";
-      } else {
-        setSelectionOverlayResizeChromeVisible(true);
-        shieldOverlay.style.pointerEvents = "auto";
       }
+      // Preserve the more specific Interact ownership when read-only state is
+      // replayed after a mode change on a retained iframe.
+      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+      setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+      if (interactionMode) hideSelectionOverlay();
+      else if (selectedEl?.isConnected)
+        positionOverlay(selectionOverlay, selectedEl);
       return;
     }
     // Interact changes pointer ownership in-place. The editor chrome stays
@@ -24892,16 +25973,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nextInteractionMode = e.data.interact === true;
       interactionMode = nextInteractionMode;
       if (interactionMode) {
+        var releaseSpacePan = bridgeSpaceKeyPressed;
         clearPendingShieldDrag();
         cancelActiveBridgeDrag();
+        if (releaseSpacePan) {
+          bridgeSpaceKeyPressed = false;
+          bridgeSpaceKeyConsumedByDrag = false;
+          (window.parent as Window).postMessage(
+            { type: "design-hotkey-up", key: " ", code: "Space" },
+            "*",
+          );
+        }
         if (activeTextEditEl) activeTextEditEl.blur();
+        textEditingEnabled = false;
         setSelectionOverlayResizeChromeVisible(false);
+        hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
         shieldOverlay.style.pointerEvents = "none";
       } else {
+        textEditingEnabled = !readOnly && textEditingEnabledFlag;
         setSelectionOverlayResizeChromeVisible(!readOnly);
         shieldOverlay.style.pointerEvents = "auto";
+        if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
       }
       return;
@@ -24916,7 +26011,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nextTextEditingEnabledFlag = !!e.data.enabled;
       if (textEditingEnabledFlag === nextTextEditingEnabledFlag) return;
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
-      var nextTextEditingEnabled = !readOnly && textEditingEnabledFlag;
+      var nextTextEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
       if (textEditingEnabled === nextTextEditingEnabled) return;
       textEditingEnabled = nextTextEditingEnabled;
       // Leaving text-editing-enabled mode: gracefully exit any in-progress
@@ -25228,6 +26324,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // bridgeSpaceKeyPressed on every move/commit tick, so this has the
       // same effect as this document's own keydown/keyup listener seeing it.
       bridgeSpaceKeyPressed = Boolean(e.data.held);
+      return;
+    }
+    if (e.data.type === "agent-native:scale-selection") {
+      if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+      scaleSelectionByFactor(
+        Number(e.data.factor),
+        Number(e.data.anchorX),
+        Number(e.data.anchorY),
+      );
       return;
     }
     if (e.data.type === "agent-native:cancel-active-drag") {
@@ -26667,21 +27772,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var wasTextEditingEnabled = textEditingEnabled;
       if (readOnly !== nextReadOnly) {
         readOnly = nextReadOnly;
-        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
         if (readOnly) {
           if (activeTextEditEl) activeTextEditEl.blur();
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
-          setSelectionOverlayResizeChromeVisible(false);
-          shieldOverlay.style.pointerEvents = "auto";
-        } else {
-          setSelectionOverlayResizeChromeVisible(true);
-          shieldOverlay.style.pointerEvents = "auto";
         }
-      } else {
-        textEditingEnabled = !readOnly && nextTextEditingEnabledFlag;
       }
       textEditingEnabledFlag = nextTextEditingEnabledFlag;
+      textEditingEnabled =
+        !readOnly && !interactionMode && textEditingEnabledFlag;
+      if (interactionMode) {
+        setSelectionOverlayResizeChromeVisible(false);
+        hideSelectionOverlay();
+        highlightOverlay.style.display = "none";
+        marqueeSelectionOverlay.style.display = "none";
+        shieldOverlay.style.pointerEvents = "none";
+      } else {
+        setSelectionOverlayResizeChromeVisible(!readOnly);
+        shieldOverlay.style.pointerEvents = "auto";
+        if (selectedEl?.isConnected)
+          positionOverlay(selectionOverlay, selectedEl);
+      }
       if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
         activeTextEditEl.blur();
       }

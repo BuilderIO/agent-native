@@ -53,10 +53,9 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
-  "onboarding.builderActivateCredits":
-    "Activer les crédits gratuits Builder.io",
-  "onboarding.builderConnectCredits":
-    "Connecter les crédits gratuits Builder.io",
+  "onboarding.builderCreateAccount": "Créer un compte Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Se connecter avec un compte Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -735,7 +734,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
-  "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
+  "errorMessages.addCreditsInBuilder": "Ajouter des crédits dans Builder",
   "feedback.inaccurate": "Inexact",
   "feedback.keyboardHint": "{{shortcut}} Entrée pour envoyer",
   "feedback.notHelpful": "Peu utile",
@@ -875,6 +874,16 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
+  "usage.builderCredits": "Crédits Builder",
+  "usage.estimatedBuilderCredits": "~{{amount}} crédits estimés",
+  "usage.otherUsdSpend": "{{amount}} USD supplémentaires",
+  "usage.noBuilderCredits": "0 crédit Builder",
+  "usage.otherUnclassifiedSpend": "Dépenses USD autres ou non classées",
+  "usage.providerSpendDetail":
+    "Utilisation du fournisseur ou anciens appels hors facturation Builder",
+  "usage.providerSpendToday":
+    "Autre utilisation ou non classée aujourd’hui : {{amount}}",
+  "usage.driverCreditsAndUsd": "Crédits Builder / USD",
 };
 
 export default messages;

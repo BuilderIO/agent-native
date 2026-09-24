@@ -104,12 +104,24 @@ describe("visual-edit pending handoff", () => {
   });
 
   it("exposes a durable read tool while keeping publication browser-only", () => {
-    expect(getPendingAction.mcpTool).toBe(true);
+    expect(getPendingAction).toMatchObject({
+      title: "Pull pending visual edits into app source",
+      mcpTool: true,
+      description: expect.stringContaining(
+        "call this instead of asking for copy/paste",
+      ),
+    });
+    expect(getPendingAction.description).toContain("source provenance");
+    expect(getPendingAction.description).toContain(
+      "Apply the prompt to connected app source",
+    );
+    expect(getPendingAction.description).toContain("verify the running app");
+    expect(getPendingAction.description).toContain("it does not modify source");
     expect(getPendingAction.publicAgent).toMatchObject({
       expose: true,
       readOnly: true,
       requiresAuth: false,
-      title: "Pull visual edits from Design",
+      title: "Pull pending visual edits into app source",
     });
     expect(getPendingAction.capabilityScopes).toEqual(["visual-edit"]);
     expect(acknowledgePendingAction).toMatchObject({

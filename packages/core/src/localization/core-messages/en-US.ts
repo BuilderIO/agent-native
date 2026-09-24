@@ -46,8 +46,8 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
-  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -483,7 +483,7 @@ const messages = {
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
-  "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
+  "errorMessages.addCreditsInBuilder": "Add credits in Builder",
   "feedback.inaccurate": "Inaccurate",
   "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
@@ -820,6 +820,15 @@ const messages = {
   "settings.emailChangeError": "Could not send confirmation.",
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
+  "usage.builderCredits": "Builder credits",
+  "usage.estimatedBuilderCredits": "~{{amount}} estimated credits",
+  "usage.otherUsdSpend": "{{amount}} other USD",
+  "usage.noBuilderCredits": "0 Builder credits",
+  "usage.otherUnclassifiedSpend": "Other or unclassified USD spend",
+  "usage.providerSpendDetail":
+    "Provider or older calls outside Builder billing",
+  "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 
 export default messages;
