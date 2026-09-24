@@ -64,26 +64,25 @@ current user-owned worktree, confirm there are no unpushed commits on any path
 and no dirty publishable paths; only `learnings.md`, `bridge/**`, and `data/**`
 may remain dirty. If any unpushed commit remains, keep the source branch checked
 out and report the commit hashes instead of rotating. This preserves commits
-excluded from `/ship:push`. Fetch `origin/main`, choose a unique name with the
-Branch naming rules, and create directly from the fetched ref:
+excluded from `/ship:push`. Use the exact PR head OID captured immediately
+before the guarded merge; this remains verifiable if GitHub deletes the source
+branch after squash merge. Fetch origin, choose a unique name with the Branch
+naming rules, and create directly from `origin/main` only after this check:
 
 ```bash
 git fetch origin
-branch=$(git branch --show-current)
-if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-  if ! unpublished=$(git log --oneline "origin/$branch"..HEAD); then
-    echo "Cannot verify unpublished commits; keep the source branch." >&2
-    exit 1
-  fi
-else
-  if ! unpublished=$(git log --oneline HEAD --not --remotes=origin); then
-    echo "Cannot verify unpublished commits; keep the source branch." >&2
-    exit 1
-  fi
+ship_head=<verified-pr-head-oid>
+if ! git cat-file -e "$ship_head^{commit}" || ! git merge-base --is-ancestor "$ship_head" HEAD; then
+  echo "Cannot verify the merged PR head in this branch; keep the source branch." >&2
+  exit 1
+fi
+if ! unpublished=$(git log --oneline "$ship_head"..HEAD); then
+  echo "Cannot verify unpublished commits; keep the source branch." >&2
+  exit 1
 fi
 if [ -n "$unpublished" ]; then
   printf '%s\n' "$unpublished"
-  echo "Keeping $branch; report these commits instead of rotating."
+  echo "Keeping the source branch; report these commits instead of rotating."
 else
   git switch -c <github-username>/changes-N origin/main
 fi

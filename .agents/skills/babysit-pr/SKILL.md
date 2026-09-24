@@ -460,6 +460,9 @@ gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
 ```
 
 If the head-match guard rejects the merge, restart the soak for the new head.
+When running under `/ship`, return this exact verified PR head OID to the
+parent with the merge SHA so `/new-branch` can safely check for commits added
+after the merged snapshot, even if GitHub has deleted the source branch.
 
 ## Stop conditions
 

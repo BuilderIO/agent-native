@@ -30,6 +30,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
   PR is ready, then leave it open, clean up the watcher, and do not rotate the
   branch.
+- Retain the exact PR head OID captured by the guarded merge through
+  post-merge branch disposition; `/new-branch` uses it to distinguish the
+  merged snapshot from later unpushed commits, even if GitHub deletes the PR
+  source branch.
 - That `/ship` request also authorizes one post-merge branch rotation in a
   user-owned checkout, after the merge commit is verified on `origin/main`.
   Platform-assigned Builder.io and Fusion branches stay in place. Apply
@@ -115,7 +119,7 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
 - In `merge-authorized` mode, if CI is green, the PR is mergeable, and review
   items are addressed, use the authorized admin merge after the unchanged
   10-minute soak. Capture the final live `headRefOid` immediately before
-  merging and bind the operation to it:
+  merging, retain that OID for branch disposition, and bind the operation to it:
   `gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`.
   If the command rejects because the head changed, restart the soak.
 - In `ready-only` mode, keep fixing CI and review feedback until the ready-PR
