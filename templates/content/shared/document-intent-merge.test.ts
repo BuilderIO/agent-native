@@ -7,6 +7,48 @@ const browser = "Browser edit\nParagraph two\nParagraph three";
 const agent = "Agent edit\nParagraph two\nParagraph three";
 
 describe("document body intent merge", () => {
+  it("keeps independent edits inside one plain paragraph in both delivery orders", () => {
+    const paragraphBase = "Alpha beta gamma";
+    const browserParagraph = "Alpha browser beta gamma";
+    const agentParagraph = "Alpha beta agent gamma";
+    const browserIntent = {
+      writerId: "browser:a",
+      operationId: "a:1",
+      authoredBaseRevision: 2,
+    };
+    const agentIntent = {
+      writerId: "mcp:z",
+      operationId: "z:1",
+      authoredBaseRevision: 2,
+    };
+    for (const [incoming, prior, authoredCandidateContent, currentContent] of [
+      [browserIntent, agentIntent, browserParagraph, agentParagraph],
+      [agentIntent, browserIntent, agentParagraph, browserParagraph],
+    ] as const) {
+      expect(
+        mergeDocumentBodyIntents({
+          authoredBaseContent: paragraphBase,
+          authoredCandidateContent,
+          currentContent,
+          currentRevision: 3,
+          incoming,
+          priorIntents: [
+            {
+              ...prior,
+              committedRevision: 3,
+              affectedBlockIndexes: [0],
+              canonicalChanged: true,
+            },
+          ],
+        }),
+      ).toMatchObject({
+        status: "resolved",
+        content: "Alpha browser beta agent gamma",
+        displaced: false,
+      });
+    }
+  });
+
   it("converges to one concurrent winner in opposite delivery orders", () => {
     const browserIntent = {
       writerId: "browser:a",

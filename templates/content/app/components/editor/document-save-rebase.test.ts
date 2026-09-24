@@ -15,6 +15,34 @@ const winner = {
 } as Document;
 
 describe("document save ownership after a rejected CAS", () => {
+  it("drops a settled editor generation without retrying or confirming it", async () => {
+    const confirm = vi.fn();
+    const persist = vi.fn().mockResolvedValue({
+      superseded: true,
+      id: "page",
+      document: winner,
+      editorSessionId: "tab-one",
+      editGeneration: 4,
+      discardedGeneration: 4,
+    });
+
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: draft,
+        persist,
+        owner: {
+          version: 1,
+          current: () => ({ version: 1, content: draft }),
+          canPreferLive: () => true,
+          confirm,
+        },
+      }),
+    ).resolves.toEqual({ status: "superseded", document: winner });
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
   it("keeps a server-preserved edit pending rather than confirming it as saved", async () => {
     const confirm = vi.fn();
     const persist = vi.fn().mockResolvedValue({

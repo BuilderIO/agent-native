@@ -559,6 +559,7 @@ export default defineAction({
             documentId: args.documentId,
             editorSessionId: payload.editorSessionId,
             editGeneration: payload.editGeneration,
+            discarded: args.choice === "use_saved",
             now: resolvedAt,
           });
         }

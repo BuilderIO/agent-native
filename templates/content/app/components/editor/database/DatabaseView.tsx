@@ -219,6 +219,7 @@ import {
 import {
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   type DocumentUpdateResult,
   useCreateDocument,
   useDeleteDocument,
@@ -603,6 +604,7 @@ export function previewDocumentSaveResult(args: {
 
   if (
     isDocumentUpdateConflict(args.result) ||
+    isDocumentUpdateSuperseded(args.result) ||
     isDocumentUpdatePreservationRequired(args.result) ||
     titleSaveObservedExternalBody
   ) {

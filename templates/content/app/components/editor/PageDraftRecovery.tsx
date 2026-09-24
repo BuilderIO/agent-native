@@ -12,6 +12,7 @@ import {
   documentQueryFilter,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   usePreviewDocumentDraft,
   useResolvePreviewDocumentDraft,
   useUpdateDocument,
@@ -339,6 +340,13 @@ export function PageDraftRecovery({
           });
         },
       });
+      if (outcome.status === "superseded") {
+        clearPageDraftJournal(entry.scope, journalSnapshot);
+        await queryClient.refetchQueries(documentQueryFilter(document.id));
+        await drafts.refetch();
+        setJournalState("checking");
+        return;
+      }
       if (outcome.status === "preservation") {
         if (!markPageDraftJournalRetained(entry.scope, journalSnapshot))
           throw new Error("The journal changed during History preservation.");
@@ -428,6 +436,11 @@ export function PageDraftRecovery({
               }
             : {}),
         });
+        if (isDocumentUpdateSuperseded(saved)) {
+          await queryClient.refetchQueries(documentQueryFilter(document.id));
+          await drafts.refetch();
+          return;
+        }
         if (isDocumentUpdateConflict(saved)) {
           setFailure("conflict");
           setConflictDocument(saved.document);

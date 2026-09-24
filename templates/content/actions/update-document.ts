@@ -74,7 +74,11 @@ import {
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import { settlePreviewDocumentDraft } from "./_preview-document-draft-settlement.js";
+import {
+  lockPreviewDocumentDraftSettlement,
+  readDiscardedPreviewDraftGeneration,
+  settlePreviewDocumentDraft,
+} from "./_preview-document-draft-settlement.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
@@ -86,6 +90,15 @@ export interface DocumentUpdateConflictResponse {
   id: string;
   /** Current server document as of the failed compare-and-swap. */
   document: DocumentUpdateResponse;
+}
+
+export interface DocumentUpdateSupersededResponse {
+  superseded: true;
+  id: string;
+  document: DocumentUpdateResponse;
+  editorSessionId: string;
+  editGeneration: number;
+  discardedGeneration: number;
 }
 
 type BrowserDocumentUpdateResponse = DocumentUpdateResponse & {
@@ -575,6 +588,7 @@ export default defineAction({
   ): Promise<
     | BrowserDocumentUpdateResponse
     | DocumentUpdateConflictResponse
+    | DocumentUpdateSupersededResponse
     | DocumentUpdatePreservationResponse
   > => {
     const id = args.id;
@@ -867,6 +881,7 @@ export default defineAction({
     let softDeletedDatabaseIds: string[] = [];
     let browserSaveConfirmation: BrowserSaveAttemptConfirmation | undefined;
     let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
+    let discardedEditorGeneration: number | undefined;
     let preservationRequired:
       | { reason: "structure" | "provenance"; checkpointId: string }
       | undefined;
@@ -925,6 +940,32 @@ export default defineAction({
             } else {
               browserSaveConfirmation = receipt;
             }
+            return;
+          }
+        }
+        if (settlesPreviewDraft) {
+          await lockPreviewDocumentDraftSettlement({
+            db: tx,
+            ownerEmail: requestUserEmail as string,
+            orgId: requestOrgId,
+            documentId: id,
+            editorSessionId: args.editorSessionId as string,
+            now: new Date().toISOString(),
+          });
+          const discardedGeneration = await readDiscardedPreviewDraftGeneration(
+            {
+              db: tx,
+              ownerEmail: requestUserEmail as string,
+              orgId: requestOrgId,
+              documentId: id,
+              editorSessionId: args.editorSessionId as string,
+            },
+          );
+          if (
+            discardedGeneration !== null &&
+            (args.editorEditGeneration as number) <= discardedGeneration
+          ) {
+            discardedEditorGeneration = discardedGeneration;
             return;
           }
         }
@@ -1358,6 +1399,28 @@ export default defineAction({
             browserSaveConfirmation = receipt;
           }
         }
+      }
+
+      if (discardedEditorGeneration !== undefined) {
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        return scopeDocumentAudit(
+          {
+            superseded: true,
+            id,
+            document: documentUpdateResponse(
+              current,
+              access.role,
+              currentFavorite,
+            ),
+            editorSessionId: args.editorSessionId as string,
+            editGeneration: args.editorEditGeneration as number,
+            discardedGeneration: discardedEditorGeneration,
+          } satisfies DocumentUpdateSupersededResponse,
+          ownerEmail,
+        );
       }
 
       if (browserSaveConfirmation?.result === "replayed") {

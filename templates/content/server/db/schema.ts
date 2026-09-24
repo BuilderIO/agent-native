@@ -180,6 +180,7 @@ export const documentPreviewDraftSettlements = table(
     documentId: text("document_id").notNull(),
     editorSessionId: text("editor_session_id").notNull(),
     settledGeneration: integer("settled_generation").notNull(),
+    discardedGeneration: integer("discarded_generation"),
     updatedAt: text("updated_at").notNull().default(now()),
   },
   (settlement) => [

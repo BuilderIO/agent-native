@@ -1283,6 +1283,11 @@ export const runContentMigrations = runMigrations(
       name: "content-document-body-intent-metadata-hash",
       sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS metadata_hash TEXT`,
     },
+    {
+      version: 107,
+      name: "content-preview-draft-discarded-generation",
+      sql: `ALTER TABLE document_preview_draft_settlements ADD COLUMN IF NOT EXISTS discarded_generation INTEGER`,
+    },
   ],
   { table: "content_migrations" },
 );

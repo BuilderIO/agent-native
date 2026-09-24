@@ -60,6 +60,8 @@ vi.mock("@/hooks/use-documents", () => ({
   isDocumentUpdatePreservationRequired: (result: {
     preservationRequired?: boolean;
   }) => result.preservationRequired === true,
+  isDocumentUpdateSuperseded: (result: { superseded?: boolean }) =>
+    result.superseded === true,
   usePreviewDocumentDraft: () => ({
     data: { draft: null },
     refetch: state.refetch,
@@ -181,6 +183,24 @@ describe("Page browser journal recovery", () => {
     await act(async () => render());
     expect(state.entries).toEqual([]);
     expect(state.rebase).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("clears a journal generation superseded by Use saved without retaining or replaying it", async () => {
+    state.entries = [entry("settled-writer", "Discarded local body")];
+    state.rebase.mockResolvedValue({
+      status: "superseded",
+      document: page,
+    });
+
+    await act(async () => render());
+
+    expect(state.rebase).toHaveBeenCalledTimes(1);
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toEqual([]);
+    expect(state.retained).not.toHaveBeenCalled();
+    expect(state.retainedNotice).toBe(false);
+    expect(container.textContent).not.toContain("editor.previewDraftConflict");
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 

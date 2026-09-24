@@ -833,6 +833,144 @@ describe("private preview document drafts", () => {
     ]);
   });
 
+  it("rejects a delayed browser save after Use saved settles its generation", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "use-saved-tab";
+    const editGeneration = 6;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Discarded local body"),
+          deferredReason: "conflict",
+          editorSessionId,
+          editGeneration,
+        },
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "use_saved",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Discarded local body",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      ),
+    ).resolves.toEqual({ status: "resolved", choice: "use_saved" });
+
+    const beforeDelayedSave = await documentRowForDraftTest(documentId);
+    const historyBeforeDelayedSave = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+
+    const delayed = await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Discarded local body",
+          editorSessionId,
+          editorEditGeneration: editGeneration,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Discarded local body",
+          browserSaveAttemptId: "delayed-use-saved-attempt",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(delayed).toMatchObject({
+      superseded: true,
+      document: { content: "Server body" },
+      editorSessionId,
+      editGeneration,
+      discardedGeneration: editGeneration,
+    });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Server body",
+      bodyRevision: 0,
+      updatedAt: beforeDelayedSave.updatedAt,
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, documentId)),
+    ).toHaveLength(historyBeforeDelayedSave.length);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, documentId)),
+    ).toHaveLength(0);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBrowserSaveAttempts)
+        .where(eq(schema.documentBrowserSaveAttempts.documentId, documentId)),
+    ).toHaveLength(0);
+  });
+
+  it("accepts a newer browser generation after Use saved", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "continued-use-saved-tab";
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Discarded generation six"),
+          deferredReason: "conflict",
+          editorSessionId,
+          editGeneration: 6,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "use_saved",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Discarded generation six",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      }),
+    );
+
+    const saved = await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Authored generation seven",
+          editorSessionId,
+          editorEditGeneration: 7,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Authored generation seven",
+          browserSaveAttemptId: "generation-after-use-saved",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(saved).toMatchObject({
+      content: "Authored generation seven",
+      browserSaveAttempt: { result: "applied" },
+    });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Authored generation seven",
+      bodyRevision: 1,
+    });
+  });
+
   it("keeps the exact draft when Use saved was reviewed against an older page", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()

@@ -26,7 +26,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
+import type {
+  DocumentUpdateConflictResponse,
+  DocumentUpdateSupersededResponse,
+} from "../../actions/update-document";
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
 import {
   documentQueryFilter,
@@ -50,7 +53,10 @@ export {
   type DocumentQueryContext,
 } from "../lib/document-query";
 
-export type { DocumentUpdateConflictResponse };
+export type {
+  DocumentUpdateConflictResponse,
+  DocumentUpdateSupersededResponse,
+};
 
 export type PageOwnedDocumentCachePatch = Pick<
   Partial<Document>,
@@ -274,6 +280,7 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
 export type DocumentUpdateResult =
   | DocumentUpdateResponse
   | DocumentUpdateConflictResponse
+  | DocumentUpdateSupersededResponse
   | DocumentUpdatePreservationResponse;
 
 export type DocumentUpdatePreservationResponse = {
@@ -301,6 +308,12 @@ export function isDocumentUpdateConflict(
   result: Document | DocumentUpdateResult,
 ): result is DocumentUpdateConflictResponse {
   return (result as DocumentUpdateConflictResponse)?.conflict === true;
+}
+
+export function isDocumentUpdateSuperseded(
+  result: Document | DocumentUpdateResult,
+): result is DocumentUpdateSupersededResponse {
+  return (result as DocumentUpdateSupersededResponse)?.superseded === true;
 }
 
 export function mergeDocumentIntoDocumentCache(
@@ -989,6 +1002,7 @@ export function useUpdateDocument() {
         // just-applied write.
         if (
           isDocumentUpdateConflict(data) ||
+          isDocumentUpdateSuperseded(data) ||
           isDocumentUpdatePreservationRequired(data)
         ) {
           const serverDocument = data.document;

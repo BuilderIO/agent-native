@@ -44,6 +44,8 @@ vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   isDocumentUpdateConflict: () => false,
+  isDocumentUpdatePreservationRequired: () => false,
+  isDocumentUpdateSuperseded: () => false,
   usePreviewDocumentDraft: () => ({ ...state.draftQuery, refetch: vi.fn() }),
   useUpdateDocument: () => ({ mutateAsync: vi.fn() }),
   useResolvePreviewDocumentDraft: () => ({ mutateAsync: vi.fn() }),

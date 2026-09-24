@@ -6,10 +6,12 @@ import { getSchema } from "@tiptap/core";
 import {
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
 } from "@/hooks/use-documents";
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdatePreservationResponse,
+  DocumentUpdateSupersededResponse,
 } from "@/hooks/use-documents";
 
 import { createVisualEditorExtensions } from "./VisualEditor";
@@ -49,6 +51,7 @@ export async function saveDocumentWithRebase({
   ) => Promise<
     | Document
     | DocumentUpdateConflictResponse
+    | DocumentUpdateSupersededResponse
     | DocumentUpdatePreservationResponse
   >;
   canRetry?: (winner: Document) => boolean;
@@ -90,6 +93,9 @@ export async function saveDocumentWithRebase({
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
     const saved = await persist(candidate, attemptedBase);
+    if (isDocumentUpdateSuperseded(saved)) {
+      return { status: "superseded", document: saved.document };
+    }
     if (isDocumentUpdatePreservationRequired(saved)) {
       return {
         status: "preservation",

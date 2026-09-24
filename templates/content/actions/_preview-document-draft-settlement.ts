@@ -41,6 +41,34 @@ export async function readSettledPreviewDraftGeneration(input: {
   return settlement?.settledGeneration ?? null;
 }
 
+export async function readDiscardedPreviewDraftGeneration(input: {
+  db: ContentDb;
+  ownerEmail: string;
+  orgId: string;
+  documentId: string;
+  editorSessionId: string;
+}) {
+  const [settlement] = await input.db
+    .select({
+      discardedGeneration:
+        schema.documentPreviewDraftSettlements.discardedGeneration,
+    })
+    .from(schema.documentPreviewDraftSettlements)
+    .where(
+      and(
+        eq(schema.documentPreviewDraftSettlements.ownerEmail, input.ownerEmail),
+        eq(schema.documentPreviewDraftSettlements.orgId, input.orgId),
+        eq(schema.documentPreviewDraftSettlements.documentId, input.documentId),
+        eq(
+          schema.documentPreviewDraftSettlements.editorSessionId,
+          input.editorSessionId,
+        ),
+      ),
+    )
+    .limit(1);
+  return settlement?.discardedGeneration ?? null;
+}
+
 export async function lockPreviewDocumentDraftSettlement(input: {
   db: ContentDb;
   ownerEmail: string;
@@ -93,6 +121,7 @@ export async function settlePreviewDocumentDraft(input: {
   documentId: string;
   editorSessionId: string;
   editGeneration: number;
+  discarded?: boolean;
   now: string;
 }) {
   await lockPreviewDocumentDraftSettlement(input);
@@ -105,6 +134,7 @@ export async function settlePreviewDocumentDraft(input: {
       documentId: input.documentId,
       editorSessionId: input.editorSessionId,
       settledGeneration: input.editGeneration,
+      discardedGeneration: input.discarded ? input.editGeneration : null,
       updatedAt: input.now,
     })
     .onConflictDoUpdate({
@@ -116,6 +146,11 @@ export async function settlePreviewDocumentDraft(input: {
       ],
       set: {
         settledGeneration: sql`GREATEST(${schema.documentPreviewDraftSettlements.settledGeneration}, ${input.editGeneration})`,
+        ...(input.discarded
+          ? {
+              discardedGeneration: sql`GREATEST(COALESCE(${schema.documentPreviewDraftSettlements.discardedGeneration}, -1), ${input.editGeneration})`,
+            }
+          : {}),
         updatedAt: input.now,
       },
     });

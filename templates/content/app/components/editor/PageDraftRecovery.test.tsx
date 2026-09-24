@@ -40,6 +40,8 @@ vi.mock("@/hooks/use-documents", () => ({
   isDocumentUpdatePreservationRequired: (result: {
     preservationRequired?: boolean;
   }) => result.preservationRequired === true,
+  isDocumentUpdateSuperseded: (result: { superseded?: boolean }) =>
+    result.superseded === true,
   usePreviewDocumentDraft: () => ({
     data: { draft: state.draft },
     refetch: state.refetch,
@@ -165,6 +167,35 @@ describe("Page draft recovery", () => {
       }),
     );
     expect(state.resolve).not.toHaveBeenCalled();
+  });
+
+  it("does not reopen recovery when Use saved already superseded the draft generation", async () => {
+    state.draft = {
+      title: "Draft",
+      content: "Discarded draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v2",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.update.mockResolvedValue({
+      superseded: true,
+      id: "page",
+      document: page,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+      discardedGeneration: 4,
+    });
+
+    await act(async () => render());
+
+    expect(state.update).toHaveBeenCalledTimes(1);
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.refetch).toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
   });
 
   it("preserves an unrebased newer-base draft in History without showing a conflict", async () => {

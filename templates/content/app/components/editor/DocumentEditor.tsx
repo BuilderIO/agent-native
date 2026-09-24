@@ -92,6 +92,7 @@ import {
   mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
@@ -2697,7 +2698,9 @@ function PageEditorSessionBody({
       pendingPersistenceRef.current.add(request);
       void request.then(
         (result) => {
-          if (
+          if (isDocumentUpdateSuperseded(result)) {
+            return;
+          } else if (
             isDocumentUpdateConflict(result) ||
             isDocumentUpdatePreservationRequired(result)
           ) {
@@ -2977,6 +2980,7 @@ function PageEditorSessionBody({
         return {
           contentPersisted:
             !isDocumentUpdateConflict(attested) &&
+            !isDocumentUpdateSuperseded(attested) &&
             !isDocumentUpdatePreservationRequired(attested),
         };
       }
@@ -3113,6 +3117,7 @@ function PageEditorSessionBody({
       }
       if (
         isDocumentUpdateConflict(saved) ||
+        isDocumentUpdateSuperseded(saved) ||
         isDocumentUpdatePreservationRequired(saved)
       ) {
         // Local-file saves retain their own conflict flow. Never acknowledge
@@ -3893,6 +3898,7 @@ function PageEditorSessionBody({
                 const saved = await persistDocumentUpdatesRef.current(updates);
                 if (
                   isDocumentUpdateConflict(saved) ||
+                  isDocumentUpdateSuperseded(saved) ||
                   isDocumentUpdatePreservationRequired(saved)
                 ) {
                   // Do not acknowledge a CAS loss as a successful flush. The
@@ -5993,6 +5999,7 @@ function PageEditorSessionBody({
                               // union.
                               if (
                                 isDocumentUpdateConflict(saved) ||
+                                isDocumentUpdateSuperseded(saved) ||
                                 isDocumentUpdatePreservationRequired(saved)
                               )
                                 return;

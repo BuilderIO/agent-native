@@ -345,6 +345,42 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(id)).content).toBe(observed);
   });
 
+  it("replays the exact receipt after its editor generation settles", async () => {
+    const id = await createDocument({ content: "Before" });
+    const args = {
+      id,
+      content: "After",
+      editorSessionId: nextId("settled-replay-session"),
+      editorEditGeneration: 1,
+      editorSnapshotTitle: "Untitled",
+      editorSnapshotContent: "After",
+      browserSaveAttemptId: nextId("settled-replay-attempt"),
+    };
+    const save = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, {
+          caller: "frontend",
+          userEmail: OWNER,
+        }),
+      );
+
+    const first = await save();
+    const retry = await save();
+
+    expect(first).toMatchObject({
+      content: "After",
+      browserSaveAttempt: { result: "applied" },
+    });
+    expect(retry).toMatchObject({
+      content: "After",
+      browserSaveAttempt: { result: "replayed" },
+    });
+    expect(await documentRow(id)).toMatchObject({
+      content: "After",
+      bodyRevision: 1,
+    });
+  });
+
   it("converges overlapping browser sessions regardless of save delivery order", async () => {
     const base = "Base passage\nUnrelated passage";
     const revision = documentRevisionToken(0, base);
