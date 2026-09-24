@@ -620,7 +620,10 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
 }
 
 export function camelCaseCssProperty(property: string): string {
-  return property.replace(/-([a-z])/g, (_, letter: string) =>
+  const normalized = property.startsWith("-webkit-")
+    ? property.slice(1)
+    : property;
+  return normalized.replace(/-([a-z])/g, (_, letter: string) =>
     letter.toUpperCase(),
   );
 }
@@ -1226,13 +1229,18 @@ export function isCodeLayerNodeRuntimeOnly(args: {
   );
 }
 
-/** Runtime/external projections are not a source-id inventory for movement. */
+/**
+ * Runtime/external projections are not a source-id inventory for movement.
+ * Pass the source bytes, or a projection already built from those same bytes.
+ */
 export function codeLayerSourceNodeIdAttrs(
-  content: string,
+  source: string | CodeLayerProjection,
 ): ReadonlySet<string> {
+  const projection =
+    typeof source === "string" ? buildCodeLayerProjection(source) : source;
   return new Set(
-    buildCodeLayerProjection(content)
-      .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
+    projection.nodes
+      .map((node) => node.dataAttributes["data-agent-native-node-id"])
       .filter((value): value is string => Boolean(value)),
   );
 }

@@ -37,14 +37,16 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "Elige tu rol",
   "onboarding.customizeRole": "Personalicemos esto para ti.",
   "onboarding.roleQuestion": "¿Qué describe mejor tu función?",
-  "onboarding.roleProduct": "Producto",
-  "onboarding.roleDesign": "Diseño",
+  "onboarding.roleHelperText": "Esto nos ayuda a personalizar tu experiencia",
+  "onboarding.roleProduct": "Gerente de producto",
+  "onboarding.roleDesign": "Diseñador",
   "onboarding.roleDeveloper": "Desarrollo",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Ventas",
   "onboarding.roleOps": "Operaciones",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Otro",
+  "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderActivateCredits":
@@ -64,9 +66,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
-  "onboarding.builderConsentPrefix": "Al continuar, aceptas los",
-  "onboarding.builderTerms": "Términos",
-  "onboarding.builderPrivacy": "Privacidad",
+  "onboarding.builderConsentPrefix":
+    "Al crear una cuenta de Builder.io, aceptas nuestros",
+  "onboarding.builderTerms": "Términos de servicio",
+  "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
   "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
   "onboarding.builderActivating":
@@ -83,10 +86,9 @@ const messages: AgentChatTranslation = {
     "Los créditos de IA están listos para usarse. Las ediciones de código en la nube requieren un proyecto de Builder en la configuración del agente en segundo plano.",
   "onboarding.openBackgroundAgentSettings":
     "Abrir la configuración del agente en segundo plano",
-  "onboarding.capability.llm.keySummary":
-    "Conecta un proveedor de IA o un modelo local",
+  "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
-    "Almacenamiento de Builder o un bucket compatible con S3",
+    "Carga y almacenamiento de archivos",
   "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
   "onboarding.fileStorage.description":
     "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
@@ -94,13 +96,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
-  "onboarding.capability.voiceInput.keySummary":
-    "Reconocimiento de voz del navegador o conversión de voz a texto",
+  "onboarding.capability.voiceInput.keySummary": "Entrada de voz",
   "onboarding.capability.voiceInput.why":
     "La entrada de voz convierte tus solicitudes habladas en texto; escribir siempre funciona.",
   "onboarding.capability.embeddings.label": "Vectores semánticos",
-  "onboarding.capability.embeddings.keySummary":
-    "Clave de Gemini, Cohere o Voyage",
+  "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
@@ -175,6 +175,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "Cargando...",
   "common.no": "No",
   "common.retry": "Reintentar",
+  "common.chunkLoadFailed": "No se pudo cargar. Inténtalo de nuevo.",
   "common.save": "Guardar",
   "agents.hostedAgent": "Agente alojado",
   "agents.provider": "Proveedor",

@@ -36,14 +36,16 @@ const messages: AgentChatTranslation = {
   "onboarding.chooseRole": "अपनी भूमिका चुनें",
   "onboarding.customizeRole": "आइए इसे आपके लिए अनुकूलित करें।",
   "onboarding.roleQuestion": "आपकी भूमिका का सबसे अच्छा वर्णन क्या है?",
-  "onboarding.roleProduct": "उत्पाद",
-  "onboarding.roleDesign": "डिज़ाइन",
+  "onboarding.roleHelperText": "इससे हमें आपके अनुभव को निजीकृत करने में मदद मिलती है",
+  "onboarding.roleProduct": "प्रोडक्ट मैनेजर",
+  "onboarding.roleDesign": "डिज़ाइनर",
   "onboarding.roleDeveloper": "डेवलपर",
   "onboarding.roleMarketing": "मार्केटिंग",
   "onboarding.roleSales": "बिक्री",
   "onboarding.roleOps": "संचालन",
   "onboarding.roleIndividual": "व्यक्तिगत",
   "onboarding.roleOther": "अन्य",
+  "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderActivateCredits": "Builder.io के मुफ़्त क्रेडिट सक्रिय करें",
@@ -58,8 +60,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
-  "onboarding.builderConsentPrefix": "जारी रखकर, आप Builder.io की",
-  "onboarding.builderTerms": "शर्तों",
+  "onboarding.builderConsentPrefix": "Builder.io खाता बनाकर, आप हमारी",
+  "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
@@ -74,8 +76,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI क्रेडिट उपयोग के लिए तैयार हैं। क्लाउड कोड संपादन के लिए Background Agent सेटिंग्स में Builder प्रोजेक्ट आवश्यक है।",
   "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
-  "onboarding.capability.llm.keySummary": "AI प्रदाता या स्थानीय मॉडल कनेक्ट करें",
-  "onboarding.capability.fileStorage.keySummary": "Builder स्टोरेज या S3-संगत बकेट",
+  "onboarding.capability.llm.keySummary": "अपना स्वयं का AI मॉडल कनेक्ट करें",
+  "onboarding.capability.fileStorage.keySummary": "फ़ाइल अपलोड और स्टोरेज",
   "onboarding.fileStorage.title": "फ़ाइल स्टोरेज चुनें",
   "onboarding.fileStorage.description":
     "प्रबंधित Builder स्टोरेज चुनें या अपने S3-संगत बकेट के लिए कस्टम स्टोरेज कुंजियों का उपयोग करें।",
@@ -83,12 +85,11 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
   "onboarding.capability.voiceInput.label": "वॉइस इनपुट",
-  "onboarding.capability.voiceInput.keySummary":
-    "ब्राउज़र स्पीच रिकग्निशन या स्पीच-टू-टेक्स्ट",
+  "onboarding.capability.voiceInput.keySummary": "वॉइस इनपुट",
   "onboarding.capability.voiceInput.why":
     "वॉइस इनपुट बोले गए अनुरोधों को टेक्स्ट में बदलता है; टाइप करना हमेशा उपलब्ध है।",
   "onboarding.capability.embeddings.label": "एंबेडिंग",
-  "onboarding.capability.embeddings.keySummary": "Gemini, Cohere या Voyage कुंजी",
+  "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
@@ -160,6 +161,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "लोड हो रहा है...",
   "common.no": "नहीं",
   "common.retry": "फिर से प्रयास करें",
+  "common.chunkLoadFailed": "लोड नहीं हो सका। कृपया फिर से कोशिश करें।",
   "common.save": "सहेजें",
   "agents.hostedAgent": "होस्ट किया गया एजेंट",
   "agents.provider": "प्रदाता",

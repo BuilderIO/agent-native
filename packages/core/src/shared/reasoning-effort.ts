@@ -158,7 +158,21 @@ export function stepDownReasoningEffort(
 
 export function isGPTReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^openai\//, "");
-  return /^gpt-5/.test(id) || /^o\d/.test(id);
+  return /^gpt-[56]/.test(id) || /^o\d/.test(id);
+}
+
+function claudeOpusAtLeast(
+  modelId: string,
+  minimumMajor: number,
+  minimumMinor: number,
+) {
+  const match = modelId.match(/opus-(\d+)(?:[-.](\d+))?/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return (
+    major > minimumMajor || (major === minimumMajor && minor >= minimumMinor)
+  );
 }
 
 function isClaudeReasoningModel(model: string) {
@@ -166,8 +180,7 @@ function isClaudeReasoningModel(model: string) {
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
   if (id.includes("haiku-4-5")) return true;
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+  return claudeOpusAtLeast(id, 4, 6);
 }
 
 /**
@@ -180,8 +193,7 @@ export function supportsClaudeAdaptiveThinking(model: string | undefined) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+  return claudeOpusAtLeast(id, 4, 6);
 }
 
 /**
@@ -215,12 +227,8 @@ function supportsClaudeXHigh(model: string) {
   if (id.includes("fable-5")) return true;
   // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
   if (id.includes("sonnet-5")) return true;
-  // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
-  const opusMatch = id.match(/opus-4[-.](\d+)/);
-  if (opusMatch) {
-    return parseInt(opusMatch[1], 10) >= 7;
-  }
-  return false;
+  // Opus 4.7 introduced xhigh; later major versions retain it.
+  return claudeOpusAtLeast(id, 4, 7);
 }
 
 function isGeminiReasoningModel(model: string) {
@@ -237,14 +245,7 @@ function claudeAcceptsSamplingParams(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return false;
   if (id.includes("sonnet-5")) return false;
-  const opusMatch = id.match(/opus-(\d+)(?:[-.](\d+))?/);
-  if (opusMatch) {
-    const major = parseInt(opusMatch[1], 10);
-    if (major >= 5) return false;
-    const minor = opusMatch[2] ? parseInt(opusMatch[2], 10) : 0;
-    return !(major === 4 && minor >= 7);
-  }
-  return true;
+  return !claudeOpusAtLeast(id, 4, 7);
 }
 
 /**

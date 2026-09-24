@@ -865,6 +865,10 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Collection",
   databaseDescription: "Inline collection in this page",
+  collectionInline: "Collection — inline",
+  collectionInlineDescription: "Add a collection inside this page",
+  collectionFullPage: "Collection — full page",
+  collectionFullPageDescription: "Create a child collection and link it here",
   cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
@@ -1085,6 +1089,18 @@ const enUS = {
     labCreativeContext: "Creative Context",
     labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
+    labSlashAdvancedCode: "Advanced code blocks",
+    labSlashAdvancedCodeDescription:
+      "Add structured code and code-tabs blocks to the slash menu.",
+    labSlashLayouts: "Layout blocks",
+    labSlashLayoutsDescription:
+      "Add custom HTML and tabs blocks to the slash menu.",
+    labSlashVisuals: "Visual blocks",
+    labSlashVisualsDescription:
+      "Add diagram, Mermaid, and wireframe blocks to the slash menu.",
+    labSlashDeveloperDocs: "Developer documentation blocks",
+    labSlashDeveloperDocsDescription:
+      "Add API and developer-documentation blocks to the slash menu.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -1218,8 +1234,9 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
+    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
-    databaseCreated: "Inline collection created",
+    databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
@@ -1460,6 +1477,7 @@ const enUS = {
     disconnectWorkspace: "Disconnect workspace",
     expand: "Expand sidebar",
     database: "Collection",
+    collection: "Collection",
     databasePermanentlyDeleted: "Collection permanently deleted",
     databaseRestored: "Collection restored",
     pagePermanentlyDeleted: "Page permanently deleted",

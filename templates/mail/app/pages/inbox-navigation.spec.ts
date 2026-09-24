@@ -115,6 +115,31 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("preserves Priority sort when Jev availability cannot be checked", () => {
+    const source = inboxSource();
+    const emailList = emailListSource();
+
+    expect(source).toContain(
+      'if (!jevAvailability.isSuccess) return;\n    if (!jevConfigured && sortMode === "priority")',
+    );
+    expect(source).toContain(
+      'if (navCommand.sort === "priority" && jevAvailability.isLoading) {',
+    );
+    expect(source).toContain(
+      'jevAvailability.isError || jevConfigured ? "priority" : "newest"',
+    );
+    expect(source).toContain(
+      'jevConfigured || (jevAvailability.isError && sortMode === "priority")',
+    );
+    expect(source).toContain("showPrioritySort={showPrioritySort}");
+    expect(emailList).toContain(
+      'showPrioritySort && view === "inbox" && !searchQuery && !labelParam',
+    );
+    expect(emailList).toContain("{showPrioritySort && (");
+    expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
+    expect(source).not.toContain("refetchOnWindowFocus: false");
+  });
+
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
@@ -147,6 +172,7 @@ describe("Inbox navigation commands", () => {
     expect(navigationHookSource()).toContain("tab?: string;");
     expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
+    expect(navigationHookSource()).toContain("sort?: MailSortMode;");
     // The inbox view reports the server-resolved tab id (falls back to the
     // raw URL param before the first response lands) so the agent sees the
     // actual active tab, including the default when the URL has none.
@@ -161,10 +187,12 @@ describe("Inbox navigation commands", () => {
     expect(viewScreenSource()).toContain(
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
+    expect(viewScreenSource()).toContain('sort: nav.sort ?? "newest"');
     expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
     expect(viewScreenSource()).toContain("nav.filter,");
     expect(navigateActionSource()).toContain("filter: z");
     expect(navigateActionSource()).toContain("nav.filter = args.filter");
+    expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {
@@ -262,6 +290,17 @@ describe("Inbox navigation commands", () => {
       'account.state === "error" || account.state === "needs_reauth"',
     );
   });
+
+  it("does not carry inbox account errors into placeholder tab data", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "if (inboxThreads.isPlaceholderData) return undefined;",
+    );
+    expect(source).toContain(
+      "    inboxThreads.isPlaceholderData,\n    labelAccountErrors,\n  ]);",
+    );
+  });
 });
 
 describe("Inbox pagination", () => {
@@ -295,11 +334,9 @@ describe("Inbox pagination", () => {
       "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
     );
     expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
-    // Resets pagination on tab/account switch so "load more" always starts
+    // Priority preloads its bounded evaluation window; other routes start
     // from the newly-active tab's page 0.
-    expect(source).toContain(
-      "  }, [isInboxView, resolvedInboxTab, activeAccounts]);",
-    );
+    expect(source).toContain("showPrioritySort,\n    resolvedInboxTab");
   });
 
   it("uses a contact-scoped search and bounded follow-up pages", () => {

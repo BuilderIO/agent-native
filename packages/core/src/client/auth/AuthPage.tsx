@@ -119,6 +119,8 @@ const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 export function isVerificationLinkInvalid(error: string | null): boolean {
   return error === "verification_link_invalid" || error === "INVALID_TOKEN";
@@ -705,6 +707,23 @@ export function shouldHideAuthSubtitle(
   return view === "signup" && localDevAvailable;
 }
 
+export function shouldStartWithLocalDev(
+  pathname: string,
+  search: string,
+): boolean {
+  const params = new URLSearchParams(search);
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return (
+    !params.has("tab") &&
+    !params.has("c") &&
+    !params.has("verified") &&
+    !isVerificationLinkInvalid(params.get("error")) &&
+    !path.endsWith("/login") &&
+    !path.endsWith("/signup") &&
+    !path.endsWith("/sign-in")
+  );
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
@@ -1174,6 +1193,18 @@ export function AuthPage(props: AuthPageProps) {
     [builderPreviewLocalDevEnabled],
   );
 
+  useIsomorphicLayoutEffect(() => {
+    if (
+      !localDevAllowed ||
+      verificationStepStartedRef.current ||
+      !shouldStartWithLocalDev(window.location.pathname, window.location.search)
+    ) {
+      return;
+    }
+    setLocalDevAvailable(true);
+    setFullAuthOptionsVisible(false);
+  }, [localDevAllowed]);
+
   React.useEffect(() => {
     if (!runtimeBasePathResolved || !localDevAllowed) return;
     let active = true;
@@ -1198,14 +1229,16 @@ export function AuthPage(props: AuthPageProps) {
           setFullAuthOptionsVisible(true);
           return;
         }
-        const params = new URLSearchParams(window.location.search);
-        const startWithLocalDev =
-          !params.has("tab") &&
-          !params.has("verified") &&
-          params.get("error") !== "verification_link_invalid";
-        setFullAuthOptionsVisible(!startWithLocalDev);
+        const startWithLocalDev = shouldStartWithLocalDev(
+          window.location.pathname,
+          window.location.search,
+        );
+        setFullAuthOptionsVisible((visible) => visible || !startWithLocalDev);
       } catch {
-        if (active) setFullAuthOptionsVisible(true);
+        if (active) {
+          setLocalDevAvailable(false);
+          setFullAuthOptionsVisible(true);
+        }
       }
     };
     void loadAvailability();
@@ -1656,7 +1689,7 @@ export function AuthPage(props: AuthPageProps) {
       } else {
         window.location.href = data.url;
       }
-    } catch (error) {
+    } catch {
       try {
         popup?.close();
       } catch {
@@ -1666,7 +1699,7 @@ export function AuthPage(props: AuthPageProps) {
       setGoogleBusy(false);
       setNotice("google", {
         kind: "error",
-        text: error instanceof Error ? error.message : t("failedToConnect"),
+        text: t("failedToConnect"),
       });
     }
   }, [

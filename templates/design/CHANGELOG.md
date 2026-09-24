@@ -3,6 +3,29 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Design loads translated catalogs and AI prompt tools only when you need them.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Canvas saves are faster because version checkpoints are taken at most every few minutes while you edit.
+- Large Figma files with hundreds of frames now import in seconds without freezing the editor, keep their Figma canvas layout, and render component slots and instance overrides much more faithfully.
+
+### Fixed
+
+- Fixed the design system picker showing a still-indexing Builder design system as ready to use
+- Blocks can be selected with one click inside screens
+- Canvas edits on large designs now save even when version history can't be stored, with a one-time notice instead of a lost change.
+- Opening Design signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
+- Live resize handles keep working at overview zoom
+- Live visual edits can now move layers onto an empty canvas and keep them editable.
+
 ## 2026-09-21
 
 ### Added
@@ -11,6 +34,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Large Figma imports keep the Design editor responsive while unchanged screens are prepared
 - Keep guided design choices readable in narrow panels
 - Live visual-edit screens stay selectable and editable while running
 - Live visual-edit screens support direct hover, selection, movement, resizing, and safe undo/redo.

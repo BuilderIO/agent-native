@@ -329,3 +329,20 @@ export const designReviewSnapshot = table("design_review_snapshot", {
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });
+
+/**
+ * Latest DOM-only visual-edit handoff for a design. This is intentionally
+ * separate from design data: it is a short-lived source prompt published by
+ * the browser so an external coding agent can pull it without the Design tab.
+ */
+export const designVisualEditPending = table("design_visual_edit_pending", {
+  designId: text("design_id").primaryKey(),
+  pendingEditCount: integer("pending_edit_count").notNull().default(0),
+  status: text("status", { enum: ["ready", "empty"] })
+    .notNull()
+    .default("empty"),
+  prompt: text("prompt").notNull().default(""),
+  revision: integer("revision").notNull().default(0),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});

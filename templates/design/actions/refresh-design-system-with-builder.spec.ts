@@ -22,6 +22,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/server", () => ({
   hydrateBuilderDesignSystemReference: (...args: unknown[]) =>
     mockHydrate(...args),
+  isBuilderDesignSystemReadyByCount: (docCount: number) => docCount > 0,
   parseBuilderDesignSystemProxyReference: (...args: unknown[]) =>
     mockParseReference(...args),
 }));
@@ -215,14 +216,14 @@ describe("refresh-design-system-with-builder", () => {
     });
   });
 
-  it("settles a completed Builder import even when it has no storable tokens", async () => {
+  it("settles an indexed Builder import even when it has no storable tokens", async () => {
     mockHydrate.mockResolvedValue({
       source: "builder",
       builderDesignSystemId: "ds-1",
       builderJobId: "job-1",
-      builderStatus: "complete",
+      builderStatus: "in-progress",
       docs: [],
-      docCount: 0,
+      docCount: 3,
       tokenValues: {},
       completionConfirmed: true,
     });

@@ -8,13 +8,6 @@ const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "Index.tsx"),
   "utf8",
 );
-const onboardingSource = readFileSync(
-  path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../components/onboarding/FirstDeckOnboardingFlow.tsx",
-  ),
-  "utf8",
-);
 const generationLibSource = readFileSync(
   path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -28,6 +21,23 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
+  it("defers the home prompt until open and prefetches on intent", () => {
+    expect(source).toContain(
+      'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
+    );
+    expect(source).toContain(
+      "const LazyPromptPopover = lazy(loadPromptPopover)",
+    );
+    expect(source).toContain(
+      "(showNewDeckPrompt || hasOpenedNewDeckPrompt) &&",
+    );
+    expect(source).toContain("onPointerEnter={preloadPromptPopover}");
+    expect(source).toContain("onFocus={preloadPromptPopover}");
+    expect(source).toContain(".then(clearInitialPromptFromUrl)");
+    expect(source).toContain("onClose={closeNewDeckPromptFallback}");
+    expect(source).toContain("<LazyChunkErrorBoundary");
+  });
+
   it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf(
@@ -119,30 +129,6 @@ describe("new deck generation flow", () => {
       "referenceFilePaths: [\n                  ...new Set([",
     );
     expect(source).toContain("...(pending.referenceFilePaths.length > 0");
-    expect(onboardingSource).toContain(
-      "const [referenceFilePaths, setReferenceFilePaths] =",
-    );
-    expect(onboardingSource).toContain("...referenceFilePaths,");
-  });
-
-  it("only seeds the reference step from an explicit onboarding preview URL", () => {
-    expect(onboardingSource).toContain(
-      "isOnboardingPreviewQuery(location.search)",
-    );
-    expect(onboardingSource).toContain(
-      'searchParams.get("step") === "references"',
-    );
-    expect(onboardingSource).toContain(
-      "isOnboardingPreviewQuery(location.search) &&",
-    );
-  });
-
-  it("syncs the reference step when an onboarding preview URL changes", () => {
-    expect(onboardingSource).toContain(
-      "if (!isOnboardingPreviewQuery(location.search)) return;",
-    );
-    expect(onboardingSource).toContain("setStep(");
-    expect(onboardingSource).toContain("[location.search]");
   });
 
   it("requires a generated title before the first slide", () => {
@@ -255,12 +241,6 @@ describe("new deck generation flow", () => {
     expect(source).toContain("options?: PromptComposerSubmitOptions");
     expect(source).toContain("modelSelection: options");
     expect(flow).toContain("...modelSelection");
-    expect(onboardingSource).toContain("setPromptModelSelection");
-    expect(onboardingSource).toContain("modelSelection: promptModelSelection");
-    expect(onboardingSource).toContain(
-      "selectedModel={promptModelSelection?.model}",
-    );
-    expect(onboardingSource).toContain("handlePromptModelChange");
   });
 
   it("routes both prompt submit and prompt skip into the reference step", () => {
@@ -341,16 +321,6 @@ describe("new deck generation flow", () => {
     expect(referenceImportFlow).not.toContain(
       "generationFiles = uploaded.filter((file) => file !== pptxReference)",
     );
-    expect(onboardingSource).toContain(
-      "The target generation context must retain the source handle",
-    );
-    expect(onboardingSource).toContain(
-      "const referenceFilePaths = uploaded\n          .filter((file) => /\\.(pdf|pptx|docx)$/i.test(file.originalName))",
-    );
-    expect(onboardingSource).toMatch(/source: "pptx",\s+referenceFilePaths,/);
-    expect(onboardingSource).toMatch(
-      /source: documentFormat,\s+referenceFilePaths,/,
-    );
     expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
       't("editorToolbar.importFailedDescription")',
@@ -370,9 +340,6 @@ describe("new deck generation flow", () => {
     expect(referenceImportFlow).toContain(
       "timeoutMs: IMPORT_ACTION_TIMEOUT_MS",
     );
-    expect(onboardingSource).toContain("const docxReference =");
-    expect(onboardingSource).toContain("format: documentFormat");
-    expect(onboardingSource).toContain("source: documentFormat");
   });
 
   it("imports a pasted Google Slides URL before selecting the reference deck", () => {

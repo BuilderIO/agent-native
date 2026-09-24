@@ -9,6 +9,9 @@ import {
   findInboxThreadIdByMessageId,
   INBOX_THREADS_QUERY_KEY,
   inboxThreadsHasNextPage,
+  keepLatestInboxSnapshot,
+  inboxThreadsRefetchInterval,
+  isUnauthorizedError,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
   removeInboxThreadsOptimistic,
@@ -20,6 +23,53 @@ import {
   snapshotInboxThreads,
   toggleInboxThreadsStarOptimistic,
 } from "./use-inbox-threads";
+
+describe("isUnauthorizedError", () => {
+  it("is true for a 401 or 403 action error", () => {
+    expect(isUnauthorizedError({ status: 401 })).toBe(true);
+    expect(isUnauthorizedError({ status: 403 })).toBe(true);
+  });
+
+  it("is false for other statuses, and for no error", () => {
+    expect(isUnauthorizedError({ status: 404 })).toBe(false);
+    expect(isUnauthorizedError({ status: 500 })).toBe(false);
+    expect(isUnauthorizedError(null)).toBe(false);
+    expect(isUnauthorizedError(new Error("network down"))).toBe(false);
+  });
+});
+
+describe("inboxThreadsRefetchInterval", () => {
+  it("stops the poll once the last error is a 401 or 403", () => {
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 401 } } }),
+    ).toBe(false);
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 403 } } }),
+    ).toBe(false);
+  });
+
+  it("keeps polling at the fast interval for a non-auth error, e.g. a 500", () => {
+    expect(
+      inboxThreadsRefetchInterval({ state: { error: { status: 500 } } }),
+    ).toBe(20_000);
+  });
+
+  it("polls fast while the account is syncing", () => {
+    expect(
+      inboxThreadsRefetchInterval({
+        state: { error: null, data: { syncing: true } },
+      }),
+    ).toBe(3_000);
+  });
+
+  it("polls at the idle interval once sync settles", () => {
+    expect(
+      inboxThreadsRefetchInterval({
+        state: { error: null, data: { syncing: false } },
+      }),
+    ).toBe(20_000);
+  });
+});
 
 describe("resolveInboxTabId", () => {
   it("returns undefined with no params so the server defaults to its first tab", () => {
@@ -119,6 +169,28 @@ function visibleResult(qc: QueryClient) {
   ])!;
   return applyInboxMutationOverlay(qc, raw as any);
 }
+
+describe("keepLatestInboxSnapshot", () => {
+  it("keeps a confirmed newer response when an older request resolves last", () => {
+    const stale = seedResult({
+      clientSnapshotId: 1,
+      items: [seedResult().items[0]],
+      total: 1,
+    });
+    const confirmed = seedResult({
+      clientSnapshotId: 2,
+      items: [seedResult().items[1]],
+      total: 1,
+    });
+
+    expect(keepLatestInboxSnapshot(stale as any, confirmed as any)).toBe(
+      confirmed,
+    );
+    expect(keepLatestInboxSnapshot(confirmed as any, stale as any)).toBe(
+      confirmed,
+    );
+  });
+});
 
 describe("removeInboxThreadsOptimistic", () => {
   it("resolves message ids to the action cache's thread key", () => {

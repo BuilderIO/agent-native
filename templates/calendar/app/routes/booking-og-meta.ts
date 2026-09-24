@@ -5,7 +5,7 @@ import type {
   MetaDescriptor,
 } from "react-router";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export interface BookingOgLoaderData {
   ogImageUrl: string;
@@ -51,7 +51,7 @@ export function bookingOgMeta({
   loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
   const image = loaderData?.ogImageUrl;
-  const title = messagesByLocale["en-US"].routeTitles.bookMeeting;
+  const title = enUSMessages.routeTitles.bookMeeting;
   return [
     { title },
     { property: "og:title", content: title },

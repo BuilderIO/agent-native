@@ -50,6 +50,9 @@ describe("built-in auth marketing layout contract", () => {
       expect(html).toContain('<body class="has-marketing">');
       expect(html).toContain('class="split');
       expect(html).toContain('class="form-panel');
+      expect(html.indexOf('class="form-panel')).toBeLessThan(
+        html.indexOf('class="marketing-panel"'),
+      );
 
       // (b) the learn-more link renders with a non-empty href and text
       const linkMatch = html.match(
@@ -67,12 +70,18 @@ describe("built-in auth marketing layout contract", () => {
       requestHost: "slides.agent-native.com",
     });
 
-    // top-right placement of the learn-more link
+    // Desktop placement of the learn-more link
     expect(html).toMatch(
       /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*top:/,
     );
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*1;/,
+    );
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*2;/,
     );
     const mobileStart = html.lastIndexOf("@media (max-width: 900px) {");
     const mobileEnd = html.indexOf("\n  }\n</style>", mobileStart);
@@ -80,25 +89,19 @@ describe("built-in auth marketing layout contract", () => {
     expect(mobileEnd).toBeGreaterThan(mobileStart);
     const mobileCss = html.slice(mobileStart, mobileEnd);
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*position:\s*sticky;[^}]*margin-block:/,
+      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*display:\s*none;/,
     );
     expect(mobileCss).toMatch(
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*-1;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
     );
     expect(html).toContain("overflow-x: clip;");
     expect(html).toContain("overflow: clip;");
-    expect(html).toContain(
-      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-right) + 0.5rem));",
-    );
-    expect(mobileCss).toContain(
-      ':root[dir="rtl"] .auth-marketing-home .auth-marketing-top-right',
-    );
-    expect(mobileCss).toContain(
-      "inset-inline-end: max(1.5rem, calc(env(safe-area-inset-left) + 0.5rem));",
-    );
     expect(html).toContain("--b-hero-ocean-opacity: 0.32;");
     expect(html).toContain("--b-hero-shader-opacity: 0.15;");
     expect(html).toContain("--b-hero-ocean-opacity: 0.3;");

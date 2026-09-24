@@ -1,19 +1,46 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { defineAction } from "@agent-native/core/action";
-import { commitUploadReceiptsForImport } from "@agent-native/core/file-upload/actions/upload-image";
+import { listAppState } from "@agent-native/core/application-state";
+import uploadImage, {
+  commitUploadReceiptsForImport,
+  UPLOAD_RECEIPT_PREFIX,
+} from "@agent-native/core/file-upload/actions/upload-image";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import {
+  checkpointSkippedResultField,
+  snapshotDesignBeforeAgentEdit,
+} from "../server/lib/design-versions.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
+  findImportedDesignFilesByOperationSourcePrefix,
   normalizeImportedHtmlDocument,
-  findImportedDesignFileByOperationSource,
   resolveImportDesignId,
   saveImportedDesignFiles,
+  type SavedImportedDesignFile,
 } from "../server/lib/import-design-files.js";
+import { MAX_UPLOAD_BYTES } from "../server/lib/request-body-limits.js";
 import { MAX_FIG_FRAME_HTML_BYTES } from "../shared/fig-to-frames.js";
+import { deleteDesignFilesByOperationSourcePrefix } from "./delete-file.js";
 
 const MAX_HTML_IMPORT_BYTES = MAX_FIG_FRAME_HTML_BYTES;
+const MAX_FIG_FRAMES_PER_REQUEST = 32;
+
+const htmlContent = z
+  .string()
+  .max(MAX_HTML_IMPORT_BYTES, "HTML import content is too large (max 2 MB).");
+
+interface FigFrameInput {
+  content: string;
+  originalName?: string;
+  frameTitle?: string;
+  frameWidth?: number;
+  frameHeight?: number;
+  frameX?: number;
+  frameY?: number;
+  clientImportId?: string;
+}
 
 function ensureHtmlSize(content: string) {
   if (Buffer.byteLength(content, "utf8") > MAX_HTML_IMPORT_BYTES) {
@@ -21,8 +48,144 @@ function ensureHtmlSize(content: string) {
   }
 }
 
+function requireContent(content: string | undefined): string {
+  if (content === undefined) {
+    throw new Error("`content` is required for this import.");
+  }
+  ensureHtmlSize(content);
+  return content;
+}
+
 function baseFilename(originalName: string | undefined, fallback: string) {
   return (originalName?.trim() || fallback).replace(/\.[^.]+$/, "") + ".html";
+}
+
+async function deleteImportImages(batchId: string) {
+  const receipts = await listAppState(`${UPLOAD_RECEIPT_PREFIX}${batchId}:`);
+  for (const { key } of receipts) {
+    await uploadImage.run({
+      idempotencyKey: key.slice(UPLOAD_RECEIPT_PREFIX.length),
+      cleanup: "delete",
+    });
+  }
+}
+
+/**
+ * Saves browser-decoded `.fig` frames. Every request of one import shares
+ * `clientImportBatchId`, so the design takes one history checkpoint (before
+ * the first frame lands) and one placement origin for the whole import, and
+ * a retried request returns the frames that already landed.
+ */
+async function importFigFrames(args: {
+  designId: string;
+  designData: string | null;
+  frames: FigFrameInput[];
+  batchId?: string;
+  finalBatch: boolean;
+  context: ActionRunContext | undefined;
+}) {
+  const { designId, frames, batchId } = args;
+  for (const frame of frames) ensureHtmlSize(frame.content);
+  const batchPrefix = batchId ? `fig-import:${batchId}:` : undefined;
+  const operationSources = frames.map((frame) =>
+    frame.clientImportId ? `fig-import:${frame.clientImportId}` : undefined,
+  );
+  for (const operationSource of operationSources) {
+    if (batchPrefix && !operationSource?.startsWith(batchPrefix)) {
+      throw new Error(
+        `Every clientImportId must start with "${batchId}:" (the clientImportBatchId).`,
+      );
+    }
+  }
+  if (
+    new Set(operationSources.filter(Boolean)).size !==
+    operationSources.filter(Boolean).length
+  ) {
+    throw new Error("Each frame in an import needs its own clientImportId.");
+  }
+
+  // Without a batch (a lone frame) only the frame's own marker finds a retry.
+  const lookupPrefix = batchPrefix ?? operationSources[0];
+  const landed = lookupPrefix
+    ? (
+        await findImportedDesignFilesByOperationSourcePrefix(
+          designId,
+          lookupPrefix,
+          args.designData,
+        )
+      ).filter((entry) => batchPrefix || entry.operationSource === lookupPrefix)
+    : [];
+  const placed = new Map(
+    landed
+      .filter((entry) => entry.placed)
+      .map((entry) => [entry.operationSource, entry.file]),
+  );
+  const pending = frames.flatMap((frame, index) => {
+    const operationSource = operationSources[index];
+    return operationSource && placed.has(operationSource)
+      ? []
+      : [{ frame, operationSource }];
+  });
+
+  let saved: Awaited<ReturnType<typeof saveImportedDesignFiles>> | undefined;
+  let checkpoint: Awaited<ReturnType<typeof snapshotDesignBeforeAgentEdit>> =
+    null;
+  if (pending.length > 0) {
+    // Snapshotting per request would capture the whole growing design once
+    // per frame; the pre-import state is the only checkpoint worth keeping.
+    if (landed.length === 0) {
+      checkpoint = await snapshotDesignBeforeAgentEdit(designId, args.context, {
+        allowCheckpointFailureSkip: true,
+      });
+    }
+    saved = await saveImportedDesignFiles({
+      designId,
+      sourceType: "fig-upload",
+      placementGroup: batchPrefix,
+      files: pending.map(({ frame, operationSource }) => ({
+        filename: baseFilename(frame.originalName, "figma-frame"),
+        fileType: "html",
+        content: normalizeImportedHtmlDocument(
+          frame.content,
+          `experimental .fig upload ${frame.originalName ?? "design"}`,
+        ),
+        source: {
+          sourceType: "fig-frame",
+          originalName: frame.originalName,
+          ...(operationSource ? { operationSource } : {}),
+        },
+        operationSource,
+        preferredFrame: {
+          title: frame.frameTitle,
+          width: frame.frameWidth,
+          height: frame.frameHeight,
+          x: frame.frameX,
+          y: frame.frameY,
+        },
+      })),
+    });
+  }
+  if (batchId && args.finalBatch) {
+    await commitUploadReceiptsForImport(batchId);
+  }
+
+  const savedFiles = saved?.files ?? [];
+  let savedIndex = 0;
+  const files: SavedImportedDesignFile[] = frames.map((_, index) => {
+    const operationSource = operationSources[index];
+    const existing = operationSource ? placed.get(operationSource) : undefined;
+    return existing ?? savedFiles[savedIndex++]!;
+  });
+  return {
+    designId,
+    files,
+    warnings: saved?.warnings ?? [],
+    placedFrames: saved?.placedFrames ?? [],
+    overview: true,
+    urlPath: `/design/${designId}`,
+    stats: { sourceKind: "fig-frame", frameCount: files.length },
+    ...checkpointSkippedResultField(checkpoint),
+  };
 }
 
 export default defineAction({
@@ -34,105 +197,97 @@ export default defineAction({
       .optional()
       .describe("Design id. Defaults to the active editor navigation state."),
     sourceType: z.enum(["figma-paste-html", "html-string", "fig-frame"]),
-    content: z
-      .string()
-      .max(
-        MAX_HTML_IMPORT_BYTES,
-        "HTML import content is too large (max 2 MB).",
-      ),
+    content: htmlContent
+      .optional()
+      .describe("HTML to import. Required unless `frames` or `abort` is set."),
     originalName: z.string().optional(),
     /** `fig-frame` only: the frame box the browser decoder resolved. */
     frameTitle: z.string().optional(),
     frameWidth: z.number().optional(),
     frameHeight: z.number().optional(),
     clientImportId: z.string().max(200).optional(),
-    clientImportBatchId: z.string().max(200).optional(),
+    clientImportBatchId: z
+      .string()
+      .max(200)
+      .regex(/^[^:]+$/, "clientImportBatchId cannot contain a colon.")
+      .optional(),
     clientImportFinalFrame: z.boolean().optional(),
+    /**
+     * `fig-frame` only: several frames of one browser import in one request.
+     * frameX/frameY are relative to the top-left of the imported selection.
+     */
+    frames: z
+      .array(
+        z.object({
+          content: htmlContent,
+          originalName: z.string().optional(),
+          frameTitle: z.string().optional(),
+          frameWidth: z.number().optional(),
+          frameHeight: z.number().optional(),
+          frameX: z.number().optional(),
+          frameY: z.number().optional(),
+          clientImportId: z.string().max(200),
+        }),
+      )
+      .min(1)
+      .max(MAX_FIG_FRAMES_PER_REQUEST)
+      .optional(),
+    clientImportFinalBatch: z.boolean().optional(),
+    /** `fig-frame` only: delete everything the import batch saved so far. */
+    abort: z.boolean().optional(),
   }),
-  run: async (
-    {
-      designId,
-      sourceType,
-      content,
-      originalName,
-      frameTitle,
-      frameWidth,
-      frameHeight,
-      clientImportId,
-      clientImportBatchId,
-      clientImportFinalFrame,
-    },
-    context,
-  ) => {
-    ensureHtmlSize(content);
+  maxBodyBytes: MAX_UPLOAD_BYTES,
+  run: async (input, context) => {
+    const { designId, sourceType, content, originalName } = input;
     const resolvedDesignId = await resolveImportDesignId(designId);
-    await assertAccess("design", resolvedDesignId, "editor");
+    const access = await assertAccess("design", resolvedDesignId, "editor");
 
-    // One frame per request, which is the point: a `.fig` decoded in the
-    // browser never uploads the file, and sending its frames one at a time
-    // keeps every request far below the ~6MB a Netlify function will accept —
-    // the cap the server route has to chunk around.
-    if (sourceType === "fig-frame") {
-      const operationSource = clientImportId
-        ? `fig-import:${clientImportId}`
-        : undefined;
-      if (operationSource) {
-        const existing = await findImportedDesignFileByOperationSource(
-          resolvedDesignId,
-          operationSource,
+    if (input.abort || input.frames) {
+      if (sourceType !== "fig-frame" || !input.clientImportBatchId) {
+        throw new Error(
+          "`frames` and `abort` need sourceType fig-frame and a clientImportBatchId.",
         );
-        if (existing?.placed) {
-          if (clientImportBatchId && clientImportFinalFrame) {
-            await commitUploadReceiptsForImport(clientImportBatchId);
-          }
-          return {
-            designId: resolvedDesignId,
-            files: [existing.file],
-            warnings: [],
-            placedFrames: [],
-            overview: true,
-            urlPath: `/design/${resolvedDesignId}`,
-            stats: { sourceKind: "fig-frame", frameCount: 1 },
-          };
-        }
       }
-      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
-      const saved = await saveImportedDesignFiles({
-        designId: resolvedDesignId,
-        sourceType: "fig-upload",
-        files: [
-          {
-            filename: baseFilename(originalName, "figma-frame"),
-            fileType: "html",
-            content: normalizeImportedHtmlDocument(
-              content,
-              `experimental .fig upload ${originalName ?? "design"}`,
-            ),
-            source: {
-              sourceType: "fig-frame",
-              originalName,
-              ...(operationSource ? { operationSource } : {}),
-            },
-            operationSource,
-            preferredFrame: {
-              title: frameTitle,
-              width: frameWidth,
-              height: frameHeight,
-            },
-          },
-        ],
-      });
-      if (clientImportBatchId && clientImportFinalFrame) {
-        await commitUploadReceiptsForImport(clientImportBatchId);
-      }
-      return {
-        ...saved,
-        stats: { sourceKind: "fig-frame", frameCount: saved.files.length },
-      };
+    }
+    if (input.abort) {
+      const deletedFileIds = await deleteDesignFilesByOperationSourcePrefix(
+        resolvedDesignId,
+        `fig-import:${input.clientImportBatchId}:`,
+      );
+      await deleteImportImages(input.clientImportBatchId!);
+      return { deletedFileIds };
     }
 
+    if (sourceType === "fig-frame") {
+      const frames: FigFrameInput[] = input.frames ?? [
+        {
+          content: requireContent(content),
+          originalName,
+          frameTitle: input.frameTitle,
+          frameWidth: input.frameWidth,
+          frameHeight: input.frameHeight,
+          clientImportId: input.clientImportId,
+        },
+      ];
+      return importFigFrames({
+        designId: resolvedDesignId,
+        designData: access.resource.data ?? null,
+        frames,
+        batchId: input.clientImportBatchId,
+        finalBatch: input.frames
+          ? input.clientImportFinalBatch === true
+          : input.clientImportFinalFrame === true,
+        context,
+      });
+    }
+
+    const html = requireContent(content);
     if (sourceType === "html-string") {
-      await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
+      const htmlCheckpoint = await snapshotDesignBeforeAgentEdit(
+        resolvedDesignId,
+        context,
+        { allowCheckpointFailureSkip: true },
+      );
       const saved = await saveImportedDesignFiles({
         designId: resolvedDesignId,
         sourceType: "html-import",
@@ -140,7 +295,7 @@ export default defineAction({
           {
             filename: baseFilename(originalName, "imported-html"),
             fileType: "html",
-            content: normalizeImportedHtmlDocument(content, "HTML source"),
+            content: normalizeImportedHtmlDocument(html, "HTML source"),
             source: { sourceType: "html-string", originalName },
           },
         ],
@@ -148,15 +303,24 @@ export default defineAction({
       return {
         ...saved,
         stats: { sourceKind: "html-string", frameCount: saved.files.length },
+        ...checkpointSkippedResultField(htmlCheckpoint),
       };
     }
 
-    await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
-    return saveFigmaPasteHtmlFallback({
+    const figmaPasteCheckpoint = await snapshotDesignBeforeAgentEdit(
+      resolvedDesignId,
+      context,
+      { allowCheckpointFailureSkip: true },
+    );
+    const figmaPasteResult = await saveFigmaPasteHtmlFallback({
       designId: resolvedDesignId,
-      clipboardHtml: content,
+      clipboardHtml: html,
       originalName,
     });
+    return {
+      ...figmaPasteResult,
+      ...checkpointSkippedResultField(figmaPasteCheckpoint),
+    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

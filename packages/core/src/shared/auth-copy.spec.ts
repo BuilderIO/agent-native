@@ -36,6 +36,17 @@ describe("native auth copy", () => {
     expect(copy.sendMagicLink.trim()).not.toBe("");
   });
 
+  it("keeps Google sign-in timeout copy user-facing in every locale", () => {
+    for (const locale of LOCALES) {
+      expect(NATIVE_AUTH_COPY[locale].googleNeverFinished).not.toMatch(
+        /redirect uri|server logs|agent-native/i,
+      );
+    }
+    expect(NATIVE_AUTH_COPY["en-US"].googleNeverFinished).toBe(
+      "Unable to sign in with Google right now. Please try again or use another sign-in method.",
+    );
+  });
+
   it("falls back to the default locale for an unknown request locale", () => {
     expect(resolveNativeAuthCopy("xx-XX").welcomeSubtitle).toBe(
       NATIVE_AUTH_COPY["en-US"].welcomeSubtitle,

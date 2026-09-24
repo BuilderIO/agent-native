@@ -10,9 +10,28 @@ const getOrgSettingMock = vi.fn(
   async (orgId: string, key: string) =>
     orgSettings.get(`${orgId}:${key}`) ?? null,
 );
+// `getSettings` batches a mix of global ("feature-flag:*") and org-prefixed
+// ("o:<orgId>:feature-flag:*") keys in one call, so it must resolve each raw
+// key against whichever fake map it belongs to, matching how the two
+// separate maps above stand in for one real settings table.
+const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
+const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
+  const result = new Map<string, Record<string, unknown> | null>();
+  for (const key of keys) {
+    const match = ORG_KEY_RE.exec(key);
+    result.set(
+      key,
+      match
+        ? (orgSettings.get(`${match[1]}:${match[2]}`) ?? null)
+        : (globalSettings.get(key) ?? null),
+    );
+  }
+  return result;
+});
 
 vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => getSettingMock(...args),
+  getSettings: (...args: any[]) => getSettingsMock(...args),
   putSetting: vi.fn(),
   mutateSetting: async (
     key: string,
@@ -208,6 +227,39 @@ describe("feature flag evaluator", () => {
     await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
       false,
     );
+  });
+
+  it("reads many flags' rules in one settings batch, org overrides winning over global", async () => {
+    registry.registerFeatureFlags([
+      { key: "new-editor" },
+      { key: "beta-export" },
+      { key: "unconfigured-flag" },
+    ]);
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+    globalSettings.set("feature-flag:beta-export", { mode: "off" });
+    orgSettings.set("org-1:feature-flag:beta-export", { mode: "on" });
+
+    const rules = await store.getFeatureFlagRulesForKeys(
+      ["new-editor", "beta-export", "unconfigured-flag"],
+      { orgId: "org-1" },
+    );
+
+    expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    expect(rules.get("new-editor")?.mode).toBe("on");
+    expect(rules.get("beta-export")?.mode).toBe("on");
+    expect(rules.get("unconfigured-flag")?.mode).toBe("off");
+  });
+
+  it("skips the org key entirely when no org is in scope", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+
+    const rules = await store.getFeatureFlagRulesForKeys(["new-editor"], {});
+
+    expect(getSettingsMock).toHaveBeenCalledWith(["feature-flag:new-editor"], {
+      transaction: undefined,
+    });
+    expect(rules.get("new-editor")?.mode).toBe("on");
   });
 
   it("starts an atomic org mutation from the global fallback", async () => {

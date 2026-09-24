@@ -89,6 +89,16 @@ branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
 
+Scaffolding the directory is not the app being live. Before saying the app is
+created, request `/<app-name>` on the running gateway and confirm it returns
+the new app, not a fallback route or another app's shell — then tell the user
+that exact path to open, since the preview root can still show a different
+app. If the preview/host isn't running the workspace gateway (root `pnpm
+dev`), say plainly that its run/dev command must point at the workspace root
+`pnpm dev` and name where to set it (Builder: project settings → dev
+command); the agent cannot change a host's run/dev command itself. Never
+report the app as created while the preview still shows something else.
+
 ## Finishing A Chat-Template App
 
 When using the chat template, treat it as scaffolding only. The finished app

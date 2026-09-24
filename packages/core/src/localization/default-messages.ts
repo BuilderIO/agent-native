@@ -4,10 +4,10 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
-import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
+import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 
 const messages = {
-  environmentBadge: ENVIRONMENT_BADGE_MESSAGES["en-US"],
+  environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
   },
@@ -38,14 +38,16 @@ const messages = {
     chooseRole: "Choose your role",
     customizeRole: "Let’s customize this for you.",
     roleQuestion: "What best describes your role?",
-    roleProduct: "Product",
-    roleDesign: "Design",
+    roleHelperText: "This helps us personalize your experience",
+    roleProduct: "Product Manager",
+    roleDesign: "Designer",
     roleDeveloper: "Developer",
     roleMarketing: "Marketing",
     roleSales: "Sales",
     roleOps: "Ops",
     roleIndividual: "Individual",
     roleOther: "Other",
+    roleOtherInputLabel: "Describe your role",
     skipForNow: "Skip for now",
     saveRoleError: "Could not save your role.",
     builderReadyWithCodeChanges:
@@ -722,9 +724,17 @@ const messages = {
     modelId: "Model ID",
     endpointUrl: "Endpoint URL",
     optional: "Optional",
-    ollamaEndpointHint: "Defaults to Ollama at http://localhost:11434.",
     compatibleEndpointHint:
       "Use this for LiteLLM or another OpenAI-compatible gateway.",
+    findModels: "Find models",
+    ollamaModelsChecking: "Checking installed models…",
+    ollamaModelsFound_one: "Found {{count}} installed model.",
+    ollamaModelsFound_other: "Found {{count}} installed models.",
+    ollamaModelsNone:
+      "Connected, but no models are pulled yet — run `ollama pull llama3.1`.",
+    ollamaModelsError: "{{error}} Showing example model names below.",
+    ollamaModelsPrompt:
+      'Click "Find models" above to list what your Ollama server actually has installed.',
     savingProvider: "Saving...",
     providerSaved: "Connected",
     useProvider: "Use {{provider}}",
@@ -1774,6 +1784,10 @@ const messages = {
     answer: "What the agent answered",
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
+    reviewPreview: "Preview output",
+    closePreview: "Hide preview",
+    addFeedback: "Add feedback",
+    draftInstruction: "Draft instruction",
     closeReview: "Close",
     notReviewed: "Not reviewed",
     noteSaved: "Note saved",

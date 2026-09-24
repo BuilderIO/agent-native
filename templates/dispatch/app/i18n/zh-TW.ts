@@ -335,6 +335,15 @@ const messages = {
       connectAppGrant: "你的帳戶將透過現有身份交接流程配置。",
       connectAppUnsupported: "此應用程式目前不支援連接。",
       connectAppsPrivacy: "應用程式不會收到共享 Cookie 或共享密鑰。",
+      usageAlertDescription:
+        "使用量達到提醒閾值時，透過應用程式內或電子郵件接收通知。提醒不會停止使用或限制費用。",
+      usageAlertEmpty: "尚無提醒。新增一個即可在使用量達到閾值時收到通知。",
+      usageAlertThreshold: "提醒閾值",
+      usageAlertReached: "已達提醒閾值",
+      usageAlertCurrentAndThreshold:
+        "使用量：{{current}} · 每{{period}}提醒閾值：{{threshold}}",
+      usageAlertDay: "天",
+      usageAlertMonth: "月",
       dataLoadFailed: "無法載入資料",
       dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
       appAdoption: "應用程式採用情況",

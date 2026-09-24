@@ -66,7 +66,7 @@ const messages = {
     folders: "Folders",
     recordings: "Recordings",
     newFolder: "New folder",
-    noSpaces: "No spaces yet",
+    noSpaces: "Bring your team’s Clips together",
     noSpacesAdminCta: "Ask an organization admin to create the first space.",
     desktopCta: "Get desktop app",
     desktopTitle: "Get the Clips desktop app.",
@@ -80,39 +80,38 @@ const messages = {
     createFolderError: "Create failed",
     folderCreated: "Folder created",
     folderNamePlaceholder: "Folder name",
-    breadcrumbBack: "Back to {{label}}",
   },
   empty: {
     library: {
-      title: "Your library is empty",
-      body: "Capture your first screen recording and it'll land here, ready to share.",
-      cta: "Record your first Clip",
+      title: "Your Clips start here",
+      body: "Record your screen, camera, or both. Your Clip will be ready to review and share here.",
+      cta: "Record a Clip",
     },
     shared: {
-      title: "No clips shared with you yet",
-      body: "Clips that teammates share with you will appear here.",
+      title: "Explore recordings shared with you",
+      body: "Watch Clips from teammates and join the conversation with comments.",
     },
     folder: {
-      title: "This folder is empty",
-      body: "Drag recordings in, or hit record to start something new in this folder.",
-      cta: "Record here",
+      title: "Keep this work together",
+      body: "Move related recordings into this folder, or record a new Clip for this project.",
+      cta: "Record a Clip",
     },
     space: {
-      title: "No recordings in this space yet",
-      body: "Share a recording with the space or record something new — your team will see it here.",
-      cta: "Record for this space",
+      title: "Give this space its first Clip",
+      body: "Record or move a Clip here so your team can find it in one place.",
+      cta: "Record a Clip",
     },
     archive: {
-      title: "Nothing archived",
-      body: "Archived recordings are hidden from the library but kept safe. You can always restore them later.",
+      title: "No archived recordings",
+      body: "Archived Clips stay here until you’re ready to bring them back.",
     },
     trash: {
       title: "Trash is empty",
-      body: "Deleted recordings appear here for 30 days before being permanently removed.",
+      body: "Deleted Clips stay here for 30 days before they’re permanently removed.",
     },
     search: {
-      title: "No matches",
-      body: "Try a different search term or check your filters.",
+      title: "Nothing matches this search",
+      body: "Try another term or clear your filters to find the Clip you’re looking for.",
     },
   },
   trashRoute: {
@@ -265,6 +264,9 @@ const messages = {
       "Views, completion, and viewer details are visible to editors of this clip.",
   },
   sharePage: {
+    beingEdited: "Being edited",
+    beingEditedMessage:
+      "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
       "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
@@ -548,6 +550,9 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
+    redactionsPendingBody:
+      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
+    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",
@@ -1140,6 +1145,7 @@ const messages = {
     transcript: "Transcript",
     comment: "Comment",
     titleOrDescription: "Title or description",
+    matchAt: "Match at {{time}} in video",
   },
   organizationSwitcher: {
     noOrganization: "No organization",
@@ -1220,6 +1226,16 @@ const messages = {
     loadingRecording: "Loading recording…",
     recordingNotFound: "Recording not found",
     noVideoYet: "No video available yet.",
+    burnFailed: "Could not burn the redactions in",
+    burnProgressUnreadable:
+      "Cannot tell how the redaction is getting on. It is most likely still rendering — refresh the page to see.",
+    burnedRedactionsDone:
+      "Redacted. Those areas are now gone from the file, and the original has been deleted.",
+    burningRedactions: "Rendering the redactions into the video…",
+    burningRedactionsPercent:
+      "Rendering the redactions into the video… {{percent}}%",
+    editFailed: "Could not save that edit",
+    nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {
     transcript: "Transcript",
@@ -1231,7 +1247,7 @@ const messages = {
   createSpaceDialog: {
     newSpace: "New space",
     description:
-      "Spaces are shared places for your organization to organize recordings.",
+      "Organize recordings by project or team so everyone can find the work that matters.",
     name: "Name",
     color: "Color",
     useColor: "Use color {{color}}",
@@ -1369,6 +1385,79 @@ const messages = {
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
   },
+  redaction: {
+    box: "Redaction box",
+    resize: "Resize this redaction",
+    range: "Redaction from {{start}} to {{end}}",
+    waypoint: "Waypoint at {{at}}",
+    startsAt: "Redaction starts at {{at}}",
+    endsAt: "Redaction ends at {{at}}",
+    chip: "{{number}}. {{start}}\u2013{{end}}",
+    resizeTopLeft: "Resize this redaction from the top left",
+    styleBlur: "Blur",
+    styleSolid: "Solid",
+    helpTitle: "Using redaction",
+    /**
+     * First, and on its own: everything else here is about drawing boxes, and
+     * a box on its own hides nothing. Someone who reads only one line of this
+     * help should read this one.
+     */
+    helpLead:
+      "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
+    helpDrawTerm: "Cover something",
+    helpDraw: "Drag across the picture.",
+    helpMoveTerm: "Move or resize a box",
+    helpMove: "Drag the box, or one of its corners.",
+    helpFollowTerm: "Follow something that moves",
+    helpFollow:
+      "Scrub forward, then drag the box to where the thing has got to. The box slides between the points you set. Draw it a bit bigger than the thing it covers.",
+    helpTimingTerm: "Change when a box shows",
+    helpTiming: "Drag either end of its bar, on the lane under the timeline.",
+    helpWaypointTerm: "The diamonds on that bar",
+    helpWaypoint:
+      "Each one is a point you set. Drag one to change when it happens, or press it twice to remove it.",
+    helpRemoveTerm: "Remove a box",
+    helpRemove: "Click it and press Delete. Cmd+Z puts it back.",
+    helpStylesTerm: "Blur or Solid",
+    styleBlurHint:
+      "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
+    /**
+     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
+     * is a repeatable average, so guesses can be pixelated the same way and
+     * compared — public tools do it. Whether it works on a given clip depends
+     * on the text being short, the rendering reproducible, and the blocks small
+     * against the glyphs; ours are frame width / 40, coarse enough that this is
+     * hard. Nobody can tell which case they are in while drawing a box, and
+     * Solid costs nothing, so the advice is flat.
+     */
+    styleSolidHint:
+      "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
+    /** The whole judgement, in one line, for someone who does not want it. */
+    helpWhenInDoubt: "Either style hides the area completely.",
+    goTo: "Go to this redaction",
+    remove: "Delete redaction {{number}}",
+    notYetBurned:
+      "{{count}} redaction(s) are drawn but not applied — the video still shows everything underneath them until you burn them in.",
+  },
+  timelineTrack: {
+    helpTitle: "Using the timeline",
+    helpSplitTerm: "Split the clip where you are",
+    helpSplit: "Press S. It cuts at the playhead.",
+    helpShortenTerm: "Shorten a section",
+    helpShorten:
+      "Drag the red line left. Whatever you drag past comes off the end of the section on its left.",
+    helpOtherSideTerm: "Take footage off the section on the right instead",
+    helpOtherSide: "Click that section first, then drag the red line right.",
+    helpRemoveTerm: "Remove a whole section",
+    helpRemove: "Click it and press Delete.",
+    helpRestoreTerm: "Put a removed stretch back",
+    helpRestore: "Click it and press Delete again, or use its arrow.",
+    section: "Section {{start}} to {{end}}",
+    removedSection: "Removed section, {{duration}}",
+    putBack: "Put this section back",
+    sectionEndsAt: "End of the section at {{at}} — drag to move it",
+    sectionStartsAt: "Start of the section at {{at}} — drag to move it",
+  },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
@@ -1421,6 +1510,27 @@ const messages = {
     exportedMp4: "Exported MP4",
     exportFailed:
       "Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.",
+    backToEditing: "Back to editing",
+    burnIn: "Burn in {{count}}",
+    burnInConfirm: "Burn in and delete the original",
+    burnInHint:
+      "Render the redactions into the video for good, and delete the original",
+    burnInTitle: "Burn {{count}} redaction(s) into this video?",
+    burnInWarning:
+      "The covered areas will be destroyed in a new copy of the video, and the original file will be deleted. This cannot be undone. Your cuts, chapters, comments and transcript are not affected and stay editable. The poster image and the editor filmstrip are rebuilt from the redacted video, because they are made of the frames you are redacting. Anything already downloaded or exported keeps what it has.",
+    burning: "Burning…",
+    burningPercent: "Burning… {{percent}}%",
+    deleteKey: "Delete",
+    exportUnredactedTitle: "Burn the redactions in first",
+    exportUnredactedWarning:
+      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them — and so would this copy of it. Burn them in and this comes back.",
+    redact: "Redact",
+    redactHint:
+      "Cover something in the picture. Nothing is hidden until you burn it in.",
+    redactOn: "Redacting",
+    redoTooltip: "Redo (Cmd/Ctrl+Shift+Z)",
+    scrollBack: "Show the controls to the left",
+    scrollOn: "Show the controls to the right",
   },
   preRecord: {
     modeScreenCamera: "Screen + cam",
@@ -1590,7 +1700,7 @@ const messages = {
     howToUse: "How to use Dictate",
     browserDictation: "Browser dictation",
     browserDictationDescription:
-      "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+      "Capture your thoughts as you speak. Copy the transcript or clean it up with AI.",
     browserDictationDescriptionDesktop:
       "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
     quickNoteTitle: "Quick dictation note",
@@ -1599,18 +1709,45 @@ const messages = {
     desktopShortcuts: "Desktop shortcuts",
     desktopShortcutsDescriptionSuffix: ", in the desktop app.",
     holdFn: "Hold Fn",
+    mobileDictation: "Mobile dictation",
+    fnShortcut: "Fn shortcut",
+    customShortcut: "Custom shortcut",
+    otherSource: "Other source",
+    voiceSource: "Voice",
     browserUnavailable:
       "Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.",
     browserUnavailableShort: "Browser speech recognition is unavailable here",
     startSpeaking: "Start speaking...",
-    replacedOriginal: "Replaced original with cleaned text",
+    newDictation: "New Dictation",
+    startDictation: "Start dictation",
+    stop: "Stop",
+    saving: "Saving",
+    listening: "Listening",
+    lastCapture: "Last capture",
+    copy: "Copy",
+    copied: "Copied",
+    copyFailed: "Couldn't copy",
+    aiProcessed: "AI Processed",
+    aiCleaned: "AI cleaned",
+    original: "Original",
+    cleaned: "Cleaned",
+    delete: "Delete",
+    deleteDictationTitle: "Delete this dictation?",
+    deleteDictationDescription:
+      "This permanently removes the dictation from your history.",
+    deleted: "Dictation deleted",
+    deleteFailed: "Couldn't delete dictation",
+    showDetails: "Details",
+    info: "Dictation info",
+    time: "Time",
+    duration: "Duration",
+    hideDetails: "Hide details",
     noText: "No text",
-    emptyTranscript: "Empty transcript",
-    replaceOriginal: "Replace original with cleaned",
     cleanupWithAi: "Cleanup with AI",
-    cleanupHint:
-      'Click "Cleanup with AI" to fix punctuation, casing, and filler words.',
-    startFirst: "Start your first dictation",
+    cleanupComplete: "Dictation cleaned up",
+    cleanupFailed: "Couldn't clean up dictation",
+    startFirst: "Turn your thoughts into text",
+    recordOnDesktop: "Record on desktop",
     emptyDesktopDescription:
       "Hold {{fnKey}} anywhere on your Mac, or press {{modifierKey}} ⇧ Space. Your history will live here.",
     emptyWebDescription:
@@ -1638,17 +1775,17 @@ const messages = {
     dictionaryTermsPlaceholder: "Agent-Native\nagent native → Agent-Native",
     dictionaryTermsRequired: "Enter at least one term.",
     dictionarySearch: "Search dictionary",
-    dictionaryNoMatches: "No matching terms.",
+    dictionaryNoMatches: "No terms match this search",
     dictionaryRemoveTitle: "Remove “{{term}}”?",
     dictionaryRemoveDescription:
       "Future dictations will no longer use this correction.",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+      "Add preferred spellings so Clips recognizes the words you use.",
     dictionaryTermPlaceholder: "Term",
     dictionaryReplacementPlaceholder: "Replacement (optional)",
     dictionaryAdd: "Add",
     dictionaryLoading: "Loading dictionary...",
-    dictionaryEmpty: "No learned terms yet.",
+    dictionaryEmpty: "Teach Clips your vocabulary",
     dictionaryUsesCount: "Used {{count}}x",
     dictionaryRemove: "Remove",
     vocabularyAddFailed: "Couldn't add term",
@@ -1759,9 +1896,9 @@ const messages = {
     pastRecordings: "Past recordings",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
-    connectGoogleCalendar: "Connect Google Calendar",
+    connectGoogleCalendar: "Make every meeting more memorable",
     desktopReminder:
-      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
+      "Connect Google Calendar to see upcoming meetings and capture notes with Clips Desktop.",
     getDesktopApp: "Get desktop app",
     requiredForReminders:
       "Desktop captures mic + system audio for meeting transcription.",
@@ -1782,18 +1919,18 @@ const messages = {
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
-      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
+      "Start notes in Clips Desktop during a meeting. The transcript and notes will be saved here.",
     agendaTab: "Agenda",
     pastTab: "Past",
     now: "Now",
-    noPastMeetings: "No past meetings yet",
+    noPastMeetings: "Your meeting history starts here",
     loadOlder: "Load older",
     searchFailed: "Couldn't search meetings. Try again in a moment.",
     searchPlaceholder: "Search meetings, attendees, and transcripts...",
     clearSearch: "Clear search",
-    noMeetingsYet: "No meetings yet",
+    noMeetingsYet: "Your agenda is clear",
     noMeetingsDescription:
-      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
+      "Upcoming events from your connected calendars will appear here when they’re scheduled.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
     howToTriggerTitle: "How to trigger meeting notes",

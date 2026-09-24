@@ -1,6 +1,6 @@
 export { default } from "../pages/Present";
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.designPreview }];
+  return [{ title: enUSMessages.routeTitles.designPreview }];
 }

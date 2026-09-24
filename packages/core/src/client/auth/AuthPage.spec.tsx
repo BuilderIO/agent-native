@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +14,7 @@ import {
   shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
+  shouldStartWithLocalDev,
   type AuthPageProps,
 } from "./AuthPage.js";
 
@@ -24,6 +27,24 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 describe("AuthPage", () => {
+  it("does not show raw Google OAuth exceptions to users", () => {
+    const source = readFileSync(
+      new URL("./AuthPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("const startGoogle = React.useCallback");
+    const end = source.indexOf(
+      "  }, [\n    apiPath,\n    googleAuthUrlPath",
+      start,
+    );
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const googleOAuthCatch = source.slice(start, end);
+
+    expect(googleOAuthCatch).toContain('text: t("failedToConnect")');
+    expect(googleOAuthCatch).not.toContain("error.message");
+  });
+
   it("recognizes Better Auth invalid-token redirects as expired verification links", () => {
     expect(isVerificationLinkInvalid("verification_link_invalid")).toBe(true);
     expect(isVerificationLinkInvalid("INVALID_TOKEN")).toBe(true);
@@ -39,6 +60,21 @@ describe("AuthPage", () => {
     expect(shouldHideAuthSubtitle("signup", true)).toBe(true);
     expect(shouldHideAuthSubtitle("signup", false)).toBe(false);
     expect(shouldHideAuthSubtitle("login", true)).toBe(false);
+  });
+
+  it("starts local development sign-in collapsed unless the URL requests auth", () => {
+    expect(shouldStartWithLocalDev("/", "")).toBe(true);
+    expect(shouldStartWithLocalDev("/", "?tab=signup")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?tab=login")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?verified=1")).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?error=INVALID_TOKEN")).toBe(false);
+    expect(shouldStartWithLocalDev("/login", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/signup/", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(false);
+    expect(
+      shouldStartWithLocalDev("/_agent-native/sign-in", "?return=%2Fplans"),
+    ).toBe(false);
+    expect(shouldStartWithLocalDev("/", "?c=%2Fplans")).toBe(false);
   });
 
   it("only confirms anonymous sessions from a readable auth response", () => {
@@ -202,7 +238,7 @@ describe("AuthPage", () => {
     expect(html).toContain('id="heading"');
     expect(html).not.toContain('id="local-note"');
     expect(onboardingHtml).toContain(
-      ".auth-marketing-home .marketing-panel {\n    flex: 1 1 50%;",
+      ".auth-marketing-home .marketing-panel {\n    order: 1;\n    flex: 1 1 50%;",
     );
     expect(onboardingHtml).toContain(
       ".auth-marketing-home .auth-marketing-screenshot-wrap {\n    position: fixed;\n    inset: 0;",
@@ -213,7 +249,7 @@ describe("AuthPage", () => {
     );
     expect(onboardingHtml).toContain("box-shadow: none;");
     expect(onboardingHtml).toContain(
-      ".auth-marketing-home .form-panel {\n    flex: 1 1 50%;",
+      ".auth-marketing-home .form-panel {\n    order: 2;\n    flex: 1 1 50%;",
     );
     expect(onboardingHtml).toContain("border-inline-start: 1px solid");
     expect(onboardingHtml).toContain("@media (prefers-color-scheme: light)");

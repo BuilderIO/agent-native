@@ -23,6 +23,29 @@ export const INBOX_THREADS_QUERY_KEY = ["action", "list-inbox-threads"];
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
 
+// Not yet re-exported for template use from
+// packages/core/src/client/create-query-client.ts's isTerminalAuthFailure.
+export function isUnauthorizedError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ((error as { status?: unknown }).status === 401 ||
+      (error as { status?: unknown }).status === 403)
+  );
+}
+
+/** Exported so a spec can pin the poll/stop decision directly, instead of only
+ * through `isUnauthorizedError`. A signed-out/expired tab (e.g. an embedded
+ * surface with no session) otherwise reissues the identical 401/403 forever. A
+ * remount, a mutation invalidation, or an explicit refetch still retries. */
+export function inboxThreadsRefetchInterval(query: {
+  state: { error: unknown; data?: { syncing?: boolean } };
+}): number | false {
+  if (isUnauthorizedError(query.state.error)) return false;
+  return query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS;
+}
+
 /** Rows per page. Page 0 comes from `useInboxThreads` (polled); pages beyond
  * that come from `useInboxThreadsPages` (fetched on demand, no poll). */
 export const INBOX_PAGE_SIZE = 100;
@@ -31,6 +54,15 @@ type InboxQueryResult = ListInboxThreadsResult & {
   /** Client-only request-start fence for optimistic journal evidence. */
   clientSnapshotId: number;
 };
+
+export function keepLatestInboxSnapshot(
+  current: InboxQueryResult | undefined,
+  incoming: InboxQueryResult,
+): InboxQueryResult {
+  return current && current.clientSnapshotId > incoming.clientSnapshotId
+    ? current
+    : incoming;
+}
 
 let nextInboxSnapshotId = 0;
 
@@ -82,13 +114,19 @@ function freshCompleteInboxScope(
 function fetchInboxThreads(
   input: ListInboxThreadsInput,
   signal: AbortSignal,
+  qc: QueryClient,
+  queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
     { method: "GET", signal },
-  ).then((data) => ({ ...data, clientSnapshotId }));
+  ).then((data) => {
+    const incoming = { ...data, clientSnapshotId };
+    const current = qc.getQueryData<InboxQueryResult>(queryKey);
+    return keepLatestInboxSnapshot(current, incoming);
+  });
 }
 
 /**
@@ -105,14 +143,14 @@ export function useInboxThreads(
   const qc = useQueryClient();
   return useQuery<InboxQueryResult>({
     queryKey: ["action", "list-inbox-threads", input],
-    queryFn: ({ signal }) => fetchInboxThreads(input, signal),
+    queryFn: ({ signal, queryKey }) =>
+      fetchInboxThreads(input, signal, qc, queryKey),
     enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
     retry: false,
     // The 3s/20s poll below already keeps this fresh — an extra unbounded
     // window-focus refetch fans out across every mounted instance (bar +
     // list) and isn't worth the added request-storm risk.
-    refetchInterval: (query) =>
-      query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS,
+    refetchInterval: inboxThreadsRefetchInterval,
     // Tab switches must never blank the list while the new tab's page loads.
     placeholderData: keepPreviousData,
     select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
@@ -139,8 +177,13 @@ export function useInboxThreadsPages(
       const params: ListInboxThreadsInput = { ...input, offset };
       return {
         queryKey: ["action", "list-inbox-threads", params],
-        queryFn: ({ signal }: { signal: AbortSignal }) =>
-          fetchInboxThreads(params, signal),
+        queryFn: ({
+          signal,
+          queryKey,
+        }: {
+          signal: AbortSignal;
+          queryKey: QueryKey;
+        }) => fetchInboxThreads(params, signal, qc, queryKey),
         enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
         retry: false,
         placeholderData: keepPreviousData,

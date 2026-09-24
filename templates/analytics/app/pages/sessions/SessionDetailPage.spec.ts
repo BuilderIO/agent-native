@@ -12,6 +12,7 @@ import {
   partitionReplayChunkBatches,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
+  replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -29,6 +30,21 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
+  it("distinguishes missing events from analytics-only recordings", () => {
+    expect(replayAvailabilityErrorKey([])).toBe("noReplayEvents");
+    expect(
+      replayAvailabilityErrorKey([
+        { type: 4, timestamp: 1_000, data: { href: "/checkout" } },
+      ]),
+    ).toBe("replayUnavailableDescription");
+    expect(
+      replayAvailabilityErrorKey([
+        { type: 4, timestamp: 1_000, data: { href: "/checkout" } },
+        { type: 2, timestamp: 1_001, data: { node: {} } },
+      ]),
+    ).toBeNull();
+  });
+
   it("coalesces animation-frame clock updates before publishing React state", () => {
     expect(shouldPublishReplayClockUpdate(null, 1_000, 0, 10)).toBe(true);
     expect(shouldPublishReplayClockUpdate(1_000, 1_016, 10, 26)).toBe(false);

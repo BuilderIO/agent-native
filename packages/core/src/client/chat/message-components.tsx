@@ -108,6 +108,12 @@ import {
   type AgentActivityItem,
 } from "./agent-activity-trace.js";
 import {
+  coerceAssistantChatHistoryDate as coerceMessageDate,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryDate,
+  type AssistantChatHistoryVersion,
+} from "./assistant-chat-history-version.js";
+import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
   SmoothMarkdownText,
@@ -172,17 +178,6 @@ export interface FormattedMessageTimestamp {
 
 const messageFooterFadeClassName =
   "opacity-0 transition-[color,opacity] duration-150 group-hover:opacity-100 group-focus-within:opacity-100";
-
-function coerceMessageDate(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-  if (typeof value === "string" || typeof value === "number") {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  return null;
-}
 
 function isSameCalendarDay(a: Date, b: Date): boolean {
   return (
@@ -470,19 +465,16 @@ export const CheckpointContext = React.createContext<{
   checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
-export type AssistantChatHistoryDate = string | number | Date;
+export { isAssistantChatHistoryVersion } from "./assistant-chat-history-version.js";
+export type {
+  AssistantChatHistoryDate,
+  AssistantChatHistoryVersion,
+} from "./assistant-chat-history-version.js";
 
 export interface AssistantChatHistoryContext {
   threadId?: string;
   runId?: string;
   turnId?: string;
-}
-
-export interface AssistantChatHistoryVersion {
-  id: string;
-  createdAt: AssistantChatHistoryDate;
-  editable?: boolean;
-  chatContext?: AssistantChatHistoryContext;
 }
 
 export interface AssistantChatHistoryScope {
@@ -565,21 +557,6 @@ export function isLocalDevelopmentHost(hostname: string): boolean {
     normalizedHostname === "0.0.0.0" ||
     normalizedHostname === "::1" ||
     normalizedHostname === "[::1]"
-  );
-}
-
-export function isAssistantChatHistoryVersion(
-  value: unknown,
-): value is AssistantChatHistoryVersion {
-  if (!value || typeof value !== "object") return false;
-  const version = value as {
-    id?: unknown;
-    createdAt?: unknown;
-  };
-  return (
-    typeof version.id === "string" &&
-    version.id.trim().length > 0 &&
-    coerceMessageDate(version.createdAt) !== null
   );
 }
 
@@ -2129,6 +2106,20 @@ export function shouldShowInlineRunError({
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
+export function withoutBanneredRunErrorSummary(
+  text: string,
+  runError: RunErrorInfo | null,
+  bannerRunErrorKey: string | null | undefined,
+): string | null {
+  if (!runError || runErrorKey(runError) !== bannerRunErrorKey) return text;
+  const summary = runError.message.trim();
+  for (const prefix of [`Error: ${summary}`, summary]) {
+    if (text === prefix) return null;
+    if (text.startsWith(`${prefix}\n\n`)) return text.slice(prefix.length + 2);
+  }
+  return text;
+}
+
 export function InlineRunErrorNotice({
   info,
   durationMs,
@@ -2646,7 +2637,12 @@ export function AssistantMessage() {
                       />
                     );
                   }
-                  return <MarkdownText />;
+                  const text = withoutBanneredRunErrorSummary(
+                    part.text,
+                    messageRunError,
+                    isUserStoppedRun ? null : messageActions?.bannerRunErrorKey,
+                  );
+                  return text === null ? null : <MarkdownText text={text} />;
                 case "reasoning":
                   return <ReasoningMessagePart />;
                 case "tool-call":

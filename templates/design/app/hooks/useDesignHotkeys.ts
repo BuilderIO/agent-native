@@ -363,6 +363,14 @@ function isFocusableChromeTarget(target: EventTarget | null) {
   );
 }
 
+export function isNativeKeyboardActivationTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest("a[href], button, input, select, textarea, summary"),
+  );
+}
+
 export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   const propsRef = useRef(props);
 
@@ -602,6 +610,15 @@ export function handleDesignHotkey(
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") {
+    if (
+      isNativeKeyboardActivationTarget(event.target) &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest("[data-layer-row-button]")
+      )
+    ) {
+      return false;
+    }
     // Figma: Enter drills into the selection (selects its first child /
     // begins text editing); Shift+Enter is its sibling — select the
     // selection's PARENT. Checked before the plain onEnter fallback so
