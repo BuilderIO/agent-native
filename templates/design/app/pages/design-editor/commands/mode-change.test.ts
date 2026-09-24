@@ -80,4 +80,16 @@ describe("runModeChange Interact navigation", () => {
       targetFile.id,
     );
   });
+
+  it("allows leaving the focused view with pending live edits", () => {
+    vi.mocked(toast.error).mockClear();
+    const args = makeArgs("single", activeFile.id);
+    args.pendingLiveNonStyleEdits = [{}] as never;
+
+    runModeChange(args, "edit");
+
+    expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(null);
+    expect(args.enterOverviewFromZoom).toHaveBeenCalledWith("edit");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 });

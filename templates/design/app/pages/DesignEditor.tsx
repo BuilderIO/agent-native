@@ -18640,13 +18640,6 @@ function DesignEditor() {
       overviewInteractScreenId,
     ],
   );
-  // Frame-button entry uses the same mode guard as the toolbar and screen list.
-  const handleOverviewFrameAction = useCallback(
-    (screenId: string) => {
-      handleModeChange("interact", { targetFileId: screenId });
-    },
-    [handleModeChange],
-  );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -18654,6 +18647,18 @@ function DesignEditor() {
     setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     handleModeChange("edit");
   }, [handleModeChange]);
+  // Frame-button entry uses the shared pending-edit guard. Re-clicking the
+  // focused screen leaves through the same close path as Escape and Close.
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (overviewInteractScreenIdRef.current === screenId) {
+        handleExitResponsiveInteract();
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
+    },
+    [handleExitResponsiveInteract, handleModeChange],
+  );
   // Escape is the standard "leave this mode" convention users try first, and
   // Interact had no keyboard path back to Edit at all — only the bar's Close
   // button. This listens on `window` in the default bubble phase, same as
