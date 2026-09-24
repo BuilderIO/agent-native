@@ -26,6 +26,31 @@ the next task.
   overwrite, rebase, or force-push it.
 - /ship authorizes the merge once the gates below pass, unless the user says
   not to merge.
+- In Codex, inspect the task goal with `get_goal` at the start. If none exists,
+  create one with `create_goal` whose objective, under normal `/ship`
+  authorization, says to continue until the PR is merged, `origin/main` ancestry
+  is verified, and the branch is rotated, while checking/fixing CI and review
+  feedback and using the guarded squash-admin merge. If the user explicitly
+  opts out of merging, make the goal match that endpoint. Reuse an existing goal
+  only when it covers this shipment; never replace an unrelated goal. Complete
+  the ship goal with `update_goal` only after its stated endpoint is reached.
+  The goal records the objective; `/babysit-pr` owns the checks and durable
+  wake-ups.
+- In Claude Code, use its native session goal for the same endpoint. `/goal` is
+  a session command, not an agent tool; start the ship task with `/goal` and a
+  condition that tells Claude to run `/ship` and continue until the PR is
+  merged, `origin/main` contains the merge commit, and branch rotation is
+  complete. A bare `/ship` cannot set this native goal on Claude's behalf. Do
+  not replace an unrelated active goal; Claude Code permits one per session.
+  The invocation condition is: `Run /ship through the guarded admin merge,
+  verify origin/main contains the merge commit, and rotate the branch; keep
+  fixing CI and review feedback until then.`
+  The goal evaluator reads the transcript, so report the live PR state, merge
+  SHA, ancestry proof, and rotation result as they happen. If Claude clears the
+  goal after judging it impossible or an unrecoverable error, or pauses it
+  without reaching the endpoint, that is not success: fix the cause, set the
+  same goal again, and continue. A resumed Claude Code session restores an
+  active goal.
 - If the user asks not to create scheduled tasks, keep ship and babysitting in
   the foreground; do not create a separate recurring automation.
 - For a linked GitHub issue, a verified source fix in the merged shipping
@@ -45,7 +70,9 @@ the next task.
 1. Preflight the worktree and ownership.
 2. Run focused validation and publish the first coherent snapshot.
 3. Open or update the ready PR immediately.
-4. Run /babysit-pr <number> and keep the watcher or foreground loop active.
+4. Run /babysit-pr <number> and keep the watcher or foreground loop active
+   through merge. Its 30-minute green-and-quiet stop applies only to standalone
+   babysitting; it never ends an authorized /ship lifecycle.
 5. Merge only after the live gates hold continuously for 10 minutes.
 6. Verify the merge reached origin/main, then rotate to a fresh branch.
 7. Report source checks, PR, merge, branch rotation, and deployment boundaries
@@ -72,8 +99,10 @@ The scheduler is a trigger, not the work. A ship task must inspect, fix,
 publish, merge, verify `origin/main`, and rotate the branch in the same
 lifecycle; it must not stop at a progress report while an actionable PR state
 is available. The original task that received the ship request owns this tail:
-once the gates hold, it runs `gh pr merge <number> --squash --admin` without
-waiting for the user or a separate watcher to perform the routine merge.
+once the gates hold, it captures the final live `headRefOid` and runs
+`gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`
+without waiting for the user or a separate watcher to perform the routine
+merge.
 Under `/ship`, `reviewDecision: REVIEW_REQUIRED` is not a user handoff: once
 required checks are green, the live PR is `MERGEABLE`, and every review item
 has a verified fix, reply, or terminal disposition, the owning task must
@@ -166,6 +195,13 @@ review handling, conflict recovery, and cadence. Do not duplicate its lease
 protocol here or end the task after opening the PR without either its watcher
 or a foreground loop.
 
+Under `/ship`, `/babysit-pr` is a blocking subworkflow, not a terminal handoff.
+Do not return "All clear," stop the task, or pause its watcher while the PR is
+open. A green, review-clean, mergeable unchanged head that passes the 10-minute
+gate is an immediate guarded-merge trigger. After the PR merges, continue in
+this task through `origin/main` verification and branch rotation before
+completing the ship goal.
+
 If a live PR is CONFLICTING, let babysit-pr recover it only after:
 
 - the local tree and publishable-path unpublished-commit check are clean;
@@ -227,7 +263,8 @@ repo defect; classify it before changing code.
 After the merge, verify that origin/main contains the merge commit. Then run
 the post-ship branch rotation owned by /new-branch, preserving and reporting
 any pre-existing stashes. The final state is a fresh branch from current
-origin/main, not a detached merged checkout.
+origin/main, not a detached merged checkout. Only then mark the ship goal
+complete.
 
 ## Deployment boundary
 

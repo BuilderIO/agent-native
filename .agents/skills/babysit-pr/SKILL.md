@@ -1,13 +1,19 @@
 ---
 name: babysit-pr
-description: Monitor a PR, fix feedback and CI failures until fully green for 30 min. Run with /babysit-pr <number>
+description: >-
+  Monitor a PR and fix CI or review feedback. Use standalone, or from /ship to
+  continue through its authorized guarded merge instead of stopping at green.
 user-invocable: true
 scope: dev
 metadata:
   internal: true
 ---
 
-Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
+Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
+review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
+CI and no new feedback. When invoked by `/ship`, continue through its 10-minute
+merge gate and guarded admin merge; a quiet green PR is not a stop condition
+while it remains open.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -139,7 +145,11 @@ interruptible waits until a stop condition is reached.
    tool is available, keep the foreground loop running and do not stop after PR
    creation.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
-3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
+3. For standalone `/babysit-pr` without inherited `/ship` authorization, after
+   30 minutes of no new actionable items with GitHub Actions CI green, cancel
+   the loop and report "All clear". Under `/ship`, this is not a stop
+   condition: the 10-minute clean merge gate is a trigger to merge, and the
+   task-scoped watcher remains active until the PR merges or closes.
 
 ### Loop discipline — read this, it is the part people get wrong
 
@@ -377,15 +387,18 @@ Fix issues that are:
 ## Merging
 
 An invocation from `/ship` inherits that skill's explicit merge authorization;
-do not return "All clear" while its PR is still open.
+do not return "All clear" or stop the watcher while its PR is still open.
 
-**Never auto-merge by default.** Only merge when the user explicitly asks you to.
+Never enable GitHub auto-merge. `/ship` is explicit authorization to admin-merge
+when its gates hold; for a standalone `/babysit-pr`, merge only when the user
+explicitly asks.
 
 `/ship-now` is an explicit fast-path exception. When it is invoked, follow
 `ship-now`'s local targeted-recovery gate and immediate admin-merge rule instead
 of waiting for this section's remote-CI and soak requirements.
 
-When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
+When merge authorization applies, all of these must be true **simultaneously
+for 10 consecutive minutes** before merging:
 
 1. **No local uncommitted changes** except the documented routine exclusions
 2. **No unpushed commits** — the publishable-path `git log` check from Step 0
@@ -397,12 +410,26 @@ When the user does ask to merge, all of these must be true **simultaneously for 
 The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI
 fails, a new review comment arrives, or merge conflicts appear.
 
-Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
+After 10 consecutive clean minutes, query the live PR again and capture its
+current `headRefOid`, then run:
+
+```bash
+gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
+```
+
+If the head-match guard rejects the merge, restart the soak for the new head.
 
 ## Stop conditions
 
-- No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
+- For standalone `/babysit-pr` only: no new actionable feedback and GitHub
+  Actions green for 30 consecutive minutes
 - PR is merged or closed
+
+Under `/ship`, never stop at the 30-minute quiet-green condition. Keep checking
+and fixing CI/review feedback, merge as soon as the 10-minute gate holds, then
+complete watcher cleanup and return to `/ship` for `origin/main` verification
+and branch rotation. A closed but unmerged PR is a terminal PR state, not a
+successful ship; report it without marking the ship goal complete.
 
 Cleanup has two mutually exclusive paths. If this invocation claimed the PR
 lease but did not create or resume its task-scoped heartbeat, release that lease

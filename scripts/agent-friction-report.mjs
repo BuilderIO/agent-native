@@ -84,6 +84,16 @@ const STALE_PR_WATCHER_RE = new RegExp(
   "i",
 );
 
+const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
+  [
+    String.raw`(?:^|[^\w])(?:\/ship|ship-watchdog)\b[^.!?\n]{0,180}\b(?:stop(?:ped|s)?|open|unmerged|babysit(?:ting)?|watch(?:er|ing)?|merge|every day|every morning)\b`,
+    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:left open|still open|unmerged|not merged|didn['’]?t merge)\b[^.!?\n]{0,100}\b(?:\/ship|told|asked|stopped|stop)\b`,
+    String.raw`\b(?:don['’]?t|do not|never) stop\b[^.!?\n]{0,100}\buntil\b[^.!?\n]{0,60}\b(?:the )?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
+    String.raw`\b(?:they|you|agents?)\b[^.!?\n]{0,60}\b(?:just )?stop\b[^.!?\n]{0,80}\b(?:PR|pull request)\b`,
+  ].join("|"),
+  "i",
+);
+
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
 // A bare namespace mention is routine documentation. Count it only when the
@@ -177,6 +187,21 @@ const STALE_PR_WATCHER_REGEX_CASES = [
   [false, "These scheduled tasks are pointless."],
 ];
 
+const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
+  [
+    true,
+    "These are all threads I told to /ship, but I still have to run /ship-watchdog every morning.",
+  ],
+  [
+    true,
+    "They just stop after opening the PR; keep checking CI and review until merged.",
+  ],
+  [true, "Do not stop /ship until the PR is merged."],
+  [false, "Run /ship on the remaining changes."],
+  [false, "The pull request is still open while CI runs."],
+  [false, "Ship the feature and stop when its tests pass."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -190,6 +215,12 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...STALE_PR_WATCHER_REGEX_CASES.filter(
       ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        SHIP_STOPPED_BEFORE_MERGE_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -214,7 +245,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -288,6 +319,13 @@ const PATTERNS = [
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
+  },
+  {
+    key: "ship-stopped-before-merge",
+    label: "Had to demand authorized /ship continue through merge",
+    fixedBy:
+      ".agents/skills/ship + babysit-pr (goal and blocking merge lifecycle, 2026-09-24)",
+    re: SHIP_STOPPED_BEFORE_MERGE_RE,
   },
   {
     key: "cheap-model",
