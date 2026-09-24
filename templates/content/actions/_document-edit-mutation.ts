@@ -396,7 +396,7 @@ export async function mutateDocumentBody(
         initializationContent,
         baseContent,
       );
-      const { beforeContent, beforeHash, resolved } = validated;
+      const { resolved } = validated;
 
       if (
         initializationContent !== undefined &&

@@ -5,7 +5,6 @@ import { mergeDocumentBodyIntents } from "./document-intent-merge.js";
 const base = "Paragraph one\nParagraph two\nParagraph three";
 const browser = "Browser edit\nParagraph two\nParagraph three";
 const agent = "Agent edit\nParagraph two\nParagraph three";
-const independent = "Paragraph one\nParagraph two\nIndependent edit";
 
 describe("document body intent merge", () => {
   it("converges to one concurrent winner in opposite delivery orders", () => {
