@@ -1588,10 +1588,14 @@ const overrides = {
     noMatchingPages: "沒有符合的頁面",
     failedRenamePage: "無法重新命名頁面",
     failedDuplicatePage: "無法建立頁面副本",
+    duplicatedFromLastSave:
+      "已複製最後儲存的版本；最近未儲存的編輯未包含在內。",
     chooseSpace: "選擇工作區",
     moveToSpaceTitle: "移至 {{space}}？",
-    moveToSpaceWarningShared: "{{space}} 中的所有人都能看到「{{title}}」及其子頁面。目前的共用設定和公開連結將被移除，你將成為擁有者。",
-    moveToSpaceWarningPrivate: "「{{title}}」及其子頁面在 {{space}} 中將僅你可見。目前的共用設定和公開連結將被移除，你將成為擁有者。",
+    moveToSpaceWarningShared:
+      "{{space}} 中的所有人都能看到「{{title}}」及其子頁面。目前的共用設定和公開連結將被移除，你將成為擁有者。",
+    moveToSpaceWarningPrivate:
+      "「{{title}}」及其子頁面在 {{space}} 中將僅你可見。目前的共用設定和公開連結將被移除，你將成為擁有者。",
     back: "返回",
     movePage: "移動",
     movedToSpace: "已將「{{title}}」移至 {{space}}",

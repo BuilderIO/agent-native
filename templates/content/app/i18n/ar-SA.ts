@@ -856,10 +856,14 @@ const rawLiterals = {
     noMatchingPages: "لا توجد صفحات مطابقة",
     failedRenamePage: "تعذّرت إعادة تسمية الصفحة",
     failedDuplicatePage: "تعذّر تكرار الصفحة",
+    duplicatedFromLastSave:
+      "تم نسخ آخر إصدار محفوظ؛ لم تُضمَّن التعديلات الأخيرة غير المحفوظة.",
     chooseSpace: "اختر مساحة عمل",
     moveToSpaceTitle: "النقل إلى {{space}}؟",
-    moveToSpaceWarningShared: "سيتمكن الجميع في {{space}} من رؤية «{{title}}» وصفحاتها الفرعية. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
-    moveToSpaceWarningPrivate: "ستصبح «{{title}}» وصفحاتها الفرعية خاصة بك في {{space}}. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    moveToSpaceWarningShared:
+      "سيتمكن الجميع في {{space}} من رؤية «{{title}}» وصفحاتها الفرعية. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    moveToSpaceWarningPrivate:
+      "ستصبح «{{title}}» وصفحاتها الفرعية خاصة بك في {{space}}. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
     back: "رجوع",
     movePage: "نقل",
     movedToSpace: "تم نقل «{{title}}» إلى {{space}}",

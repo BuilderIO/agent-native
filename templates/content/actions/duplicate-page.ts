@@ -32,6 +32,7 @@ async function canRead(documentId: string) {
     await assertAccess("document", documentId, "viewer");
     return true;
   } catch {
+    // coercion-ok: callers treat any denial as "cannot read" and refuse.
     return false;
   }
 }
@@ -78,6 +79,20 @@ export default defineAction({
           ? source.parentId
           : null;
 
+    // A parent decides the copy's space, so it must be in the destination.
+    if (parentId) {
+      const [parent] = await db
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, parentId));
+      if (!parent || parent.spaceId !== spaceId) {
+        throw new ActionContractError(
+          "The parent page must be in the destination Content space.",
+          { errorCode: "PARENT_SPACE_MISMATCH", statusCode: 409 },
+        );
+      }
+    }
+
     const subtree = await loadPageSubtree(db, source, {
       includeTrashed: false,
     });
@@ -88,6 +103,12 @@ export default defineAction({
       db,
       subtree.map((document) => document.id),
     );
+    if (collectionDocumentIds.has(source.id)) {
+      throw new ActionContractError(
+        "Collections can't be duplicated with duplicate-page.",
+        { errorCode: "PAGE_IS_COLLECTION", statusCode: 409 },
+      );
+    }
     const copies = new Map<string, string>();
     const pages: PageSubtreeDocument[] = [];
     for (const document of subtree) {
@@ -107,15 +128,17 @@ export default defineAction({
     }
 
     // A live editor is fresher than SQL; copy what the author sees when it
-    // answers, and otherwise the last save rather than failing the copy.
+    // answers. Otherwise copy the last save and say so in the result.
+    const copiedFromLastSave: string[] = [];
     for (const page of pages) {
       try {
         await flushOpenDocumentEditorToSql({
           documentId: page.id,
           ownerEmail: page.ownerEmail,
         });
-      } catch {
-        // Fall back to the saved content.
+      } catch (error) {
+        console.warn("[duplicate-page] live editor flush failed", error);
+        copiedFromLastSave.push(page.id);
       }
     }
     const fresh = new Map<string, PageSubtreeDocument>();
@@ -190,6 +213,36 @@ export default defineAction({
         if (inserts.length > 0) {
           await db.insert(schema.documentPropertyValues).values(inserts);
         }
+        // Extra Blocks fields keep their Markdown outside documents.content.
+        const fieldContents = await db
+          .select()
+          .from(schema.documentBlockFieldContents)
+          .where(
+            inArray(
+              schema.documentBlockFieldContents.documentId,
+              pages.map((page) => page.id),
+            ),
+          );
+        const fieldInserts = fieldContents.flatMap((field) => {
+          const copyId = copies.get(field.documentId);
+          if (!copyId) return [];
+          return [
+            {
+              id: nanoid(),
+              ownerEmail: owners.get(copyId) ?? userEmail,
+              documentId: copyId,
+              propertyId: field.propertyId,
+              content: field.content,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ];
+        });
+        if (fieldInserts.length > 0) {
+          await db
+            .insert(schema.documentBlockFieldContents)
+            .values(fieldInserts);
+        }
       }
 
       // Keep the copy next to its original rather than at the end.
@@ -203,8 +256,12 @@ export default defineAction({
       if (rootCopyId) {
         try {
           await deleteDocument.run({ id: rootCopyId });
-        } catch {
+        } catch (cleanupError) {
           // Report the original failure; a leftover partial copy is visible.
+          console.warn(
+            "[duplicate-page] could not remove partial copy",
+            cleanupError,
+          );
         }
       }
       throw error;
@@ -222,6 +279,9 @@ export default defineAction({
       spaceId: copy.spaceId,
       parentId: copy.parentId,
       copiedCount: pages.length,
+      // Pages whose open editor couldn't be flushed; their last save was
+      // copied, so recent unsaved edits may be missing.
+      copiedFromLastSave,
     };
   },
 });

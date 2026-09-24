@@ -139,6 +139,11 @@ import {
   localSourceItemIdentity,
   projectLocalSourceHierarchy,
 } from "./local-source-hierarchy";
+import {
+  MovePageDialog,
+  type MovePageDestination,
+  type MovePageTarget,
+} from "./MovePageDialog";
 import { PersonalSidebarSections } from "./PersonalSidebarSections";
 import {
   contentSpaceActionArgs,
@@ -153,11 +158,6 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
-import {
-  MovePageDialog,
-  type MovePageDestination,
-  type MovePageTarget,
-} from "./MovePageDialog";
 import { sidebarRowClassName } from "./SidebarNavigationRow";
 import {
   SidebarPageActionsProvider,
@@ -2023,6 +2023,11 @@ export function DocumentSidebar({
         duplicateDocument.mutate(
           { documentId },
           {
+            onSuccess: (result) => {
+              if (result?.copiedFromLastSave?.length) {
+                toast.info(t("sidebar.duplicatedFromLastSave"));
+              }
+            },
             onError: (error) => {
               toast.error(t("sidebar.failedDuplicatePage"), {
                 description:

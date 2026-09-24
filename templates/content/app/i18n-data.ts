@@ -1483,6 +1483,8 @@ const enUS = {
     noMatchingPages: "No matching pages",
     failedRenamePage: "Couldn't rename page",
     failedDuplicatePage: "Couldn't duplicate page",
+    duplicatedFromLastSave:
+      "Copied the last saved version; recent unsaved edits weren't included.",
     chooseSpace: "Choose a workspace",
     moveToSpaceTitle: "Move to {{space}}?",
     moveToSpaceWarningShared:

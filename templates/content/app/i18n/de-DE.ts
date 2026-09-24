@@ -897,10 +897,14 @@ const rawLiterals = {
     noMatchingPages: "Keine passenden Seiten",
     failedRenamePage: "Seite konnte nicht umbenannt werden",
     failedDuplicatePage: "Seite konnte nicht dupliziert werden",
+    duplicatedFromLastSave:
+      "Die zuletzt gespeicherte Version wurde kopiert; neuere ungespeicherte Änderungen fehlen.",
     chooseSpace: "Arbeitsbereich wählen",
     moveToSpaceTitle: "Nach {{space}} verschieben?",
-    moveToSpaceWarningShared: "Alle in {{space}} können „{{title}}“ und die Unterseiten sehen. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
-    moveToSpaceWarningPrivate: "„{{title}}“ und die Unterseiten sind in {{space}} nur für dich sichtbar. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    moveToSpaceWarningShared:
+      "Alle in {{space}} können „{{title}}“ und die Unterseiten sehen. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    moveToSpaceWarningPrivate:
+      "„{{title}}“ und die Unterseiten sind in {{space}} nur für dich sichtbar. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
     back: "Zurück",
     movePage: "Verschieben",
     movedToSpace: "„{{title}}“ nach {{space}} verschoben",

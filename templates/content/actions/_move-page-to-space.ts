@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { blocksFieldId } from "../shared/blocks-field-identity.js";
@@ -205,6 +205,33 @@ export async function movePageToSpace(args: {
       ).map((property) => property.id)
     : [];
 
+  // Extra Blocks fields of the old Files table have no home in the new space;
+  // refuse rather than strand their content.
+  if (fromFilesPropertyIds.length > 0) {
+    for (const idGroup of groups(ids)) {
+      const [extraContent] = await db
+        .select({ id: schema.documentBlockFieldContents.id })
+        .from(schema.documentBlockFieldContents)
+        .where(
+          and(
+            inArray(schema.documentBlockFieldContents.documentId, idGroup),
+            inArray(
+              schema.documentBlockFieldContents.propertyId,
+              fromFilesPropertyIds,
+            ),
+            ne(schema.documentBlockFieldContents.content, ""),
+          ),
+        )
+        .limit(1);
+      if (extraContent) {
+        throw contractError(
+          "Pages with content in this workspace's extra Files fields can't move to another workspace yet.",
+          "PAGE_HAS_FILES_BLOCKS_FIELDS",
+        );
+      }
+    }
+  }
+
   const now = new Date().toISOString();
   await withPositionLock(
     documentsPositionScope(userEmail, parentId),
@@ -229,6 +256,27 @@ export async function movePageToSpace(args: {
         );
 
       await db.transaction(async (tx) => {
+        // Page creation elsewhere doesn't share this lock, so a sub-page
+        // added since the subtree was read would be left behind. Abort
+        // instead; the caller can retry against the current tree.
+        const idSet = new Set(ids);
+        for (const idGroup of groups(ids)) {
+          const children: Array<{ id: string }> = await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              or(
+                inArray(schema.documents.parentId, idGroup),
+                inArray(schema.documents.trashParentId, idGroup),
+              ),
+            );
+          if (children.some((child) => !idSet.has(child.id))) {
+            throw contractError(
+              "This page changed while it was being moved. Try again.",
+              "PAGE_SUBTREE_CHANGED",
+            );
+          }
+        }
         for (const idGroup of groups(ids)) {
           await tx
             .update(schema.documents)

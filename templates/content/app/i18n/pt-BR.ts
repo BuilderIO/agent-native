@@ -888,10 +888,14 @@ const rawLiterals = {
     noMatchingPages: "Nenhuma página correspondente",
     failedRenamePage: "Não foi possível renomear a página",
     failedDuplicatePage: "Não foi possível duplicar a página",
+    duplicatedFromLastSave:
+      "A última versão salva foi copiada; edições recentes não salvas não foram incluídas.",
     chooseSpace: "Escolha um espaço de trabalho",
     moveToSpaceTitle: "Mover para {{space}}?",
-    moveToSpaceWarningShared: "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
-    moveToSpaceWarningPrivate: "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningShared:
+      "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
     back: "Voltar",
     movePage: "Mover",
     movedToSpace: "“{{title}}” movida para {{space}}",

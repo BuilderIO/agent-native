@@ -922,10 +922,14 @@ const rawLiterals = {
     noMatchingPages: "没有匹配的页面",
     failedRenamePage: "无法重命名页面",
     failedDuplicatePage: "无法创建页面副本",
+    duplicatedFromLastSave:
+      "已复制最后保存的版本；最近未保存的编辑未包含在内。",
     chooseSpace: "选择工作区",
     moveToSpaceTitle: "移动到 {{space}}？",
-    moveToSpaceWarningShared: "{{space}} 中的所有人都将能看到“{{title}}”及其子页面。当前的共享设置和公开链接将被移除，你将成为所有者。",
-    moveToSpaceWarningPrivate: "“{{title}}”及其子页面在 {{space}} 中将仅你可见。当前的共享设置和公开链接将被移除，你将成为所有者。",
+    moveToSpaceWarningShared:
+      "{{space}} 中的所有人都将能看到“{{title}}”及其子页面。当前的共享设置和公开链接将被移除，你将成为所有者。",
+    moveToSpaceWarningPrivate:
+      "“{{title}}”及其子页面在 {{space}} 中将仅你可见。当前的共享设置和公开链接将被移除，你将成为所有者。",
     back: "返回",
     movePage: "移动",
     movedToSpace: "已将“{{title}}”移动到 {{space}}",

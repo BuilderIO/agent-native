@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";

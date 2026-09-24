@@ -27,7 +27,6 @@ import {
   type SearchQueryTerm,
 } from "../shared/search-query.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
-import { loadPageSubtree } from "./_page-subtree.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
   DOCUMENT_DISCOVERY_MAX_LIMIT,
@@ -38,6 +37,7 @@ import {
   documentSearchRanking,
   searchQueryProximityPattern,
 } from "./_document-search-ranking.js";
+import { loadPageSubtree } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");

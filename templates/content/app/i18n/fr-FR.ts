@@ -893,10 +893,14 @@ const rawLiterals = {
     noMatchingPages: "Aucune page correspondante",
     failedRenamePage: "Impossible de renommer la page",
     failedDuplicatePage: "Impossible de dupliquer la page",
+    duplicatedFromLastSave:
+      "La dernière version enregistrée a été copiée ; les modifications récentes non enregistrées n'ont pas été incluses.",
     chooseSpace: "Choisir un espace de travail",
     moveToSpaceTitle: "Déplacer vers {{space}} ?",
-    moveToSpaceWarningShared: "Tout le monde dans {{space}} pourra voir « {{title}} » et ses sous-pages. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
-    moveToSpaceWarningPrivate: "« {{title}} » et ses sous-pages seront privées pour vous dans {{space}}. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    moveToSpaceWarningShared:
+      "Tout le monde dans {{space}} pourra voir « {{title}} » et ses sous-pages. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    moveToSpaceWarningPrivate:
+      "« {{title}} » et ses sous-pages seront privées pour vous dans {{space}}. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
     back: "Retour",
     movePage: "Déplacer",
     movedToSpace: "« {{title}} » déplacée vers {{space}}",

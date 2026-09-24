@@ -393,4 +393,19 @@ describe("duplicating a page", () => {
       expect.objectContaining({ spaceId: personalContentSpaceId(OWNER) }),
     ]);
   });
+
+  it("refuses a parent outside the destination space", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Memo" }));
+    const orgParent = await as(OWNER, () =>
+      createDocument.run({
+        title: "Team folder",
+        spaceId: organizationContentSpaceId(ORG_ID),
+      }),
+    );
+    await expect(
+      as(OWNER, () =>
+        duplicatePage.run({ documentId: page.id, parentId: orgParent.id }),
+      ),
+    ).rejects.toThrow("destination Content space");
+  });
 });
