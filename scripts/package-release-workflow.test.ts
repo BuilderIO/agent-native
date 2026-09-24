@@ -22,6 +22,10 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
+const changesetCheckWorkflow = readFileSync(
+  ".github/workflows/changeset-check.yml",
+  "utf8",
+);
 const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
@@ -198,6 +202,18 @@ describe("npm package release workflow", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("installs the YAML parser before checking changesets in CI", () => {
+    assert.match(changesetCheckWorkflow, /pnpm\/action-setup/);
+    assert.match(
+      changesetCheckWorkflow,
+      /pnpm install --frozen-lockfile --ignore-scripts --filter agentnative/,
+    );
+    assert.ok(
+      changesetCheckWorkflow.indexOf("pnpm install") <
+        changesetCheckWorkflow.indexOf("node scripts/check-changeset.mjs"),
+    );
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
