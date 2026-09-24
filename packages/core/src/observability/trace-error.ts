@@ -14,7 +14,7 @@ const QUOTED_CREDENTIAL_PATTERN = new RegExp(
 const PRIVATE_KEY_BLOCK_PATTERN =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/gi;
 const CREDENTIAL_HEADER_PATTERN =
-  /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(['"])(?:\\.|(?!\2)[\s\S])*?\2|[^\r\n"'{}\]]+)/gim;
+  /(["']?\b(?:authorization|cookie)\b["']?\s*[:=]\s*)(?:(\[(?:\\.|[^\]])*\])|(["'])(?:\\.|(?!\3)[\s\S])*?\3|[^\r\n"'{}\]]+)/gim;
 
 export const TOOL_ERROR_CAPTURE_METADATA_KEY = "__tool_error_capture_version";
 
@@ -24,8 +24,8 @@ export function redactToolErrorMessage(value: string): string {
     .replace(QUOTED_CREDENTIAL_PATTERN, "$1$2[REDACTED]$2")
     .replace(
       CREDENTIAL_HEADER_PATTERN,
-      (_match, prefix: string, quote?: string) =>
-        `${prefix}${quote ?? ""}[REDACTED]${quote ?? ""}`,
+      (_match, prefix: string, bracketed: string | undefined, quote?: string) =>
+        `${prefix}${bracketed ? '["[REDACTED]"]' : `${quote ?? ""}[REDACTED]${quote ?? ""}`}`,
     )
     .replace(
       new RegExp(
