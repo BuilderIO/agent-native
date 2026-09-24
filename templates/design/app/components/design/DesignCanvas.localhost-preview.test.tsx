@@ -135,7 +135,10 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "agent-native:editor-chrome-ready" },
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/account",
+          },
           origin: bridgeUrl,
           source: liveIframe?.contentWindow,
         }),
@@ -152,6 +155,70 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
       liveIframe,
     );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          previewUrlOverride="http://localhost:5173/settings"
+          bridgeUrl={bridgeUrl}
+          previewToken="registration-preview-token"
+          onBootReady={onBootReady}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      const currentUrl = new URL(liveIframe!.src);
+      expect(currentUrl.searchParams.get("url")).toBe(
+        "http://localhost:5173/settings",
+      );
+    });
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      liveIframe,
+    );
+    expect(container.textContent).toContain("Preparing live editor");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/account",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/settings",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("");
   });
 
   it("stops retrying a stale bridge token and tells the user to reconnect the screen", async () => {

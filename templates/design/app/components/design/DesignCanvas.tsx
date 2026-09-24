@@ -1173,6 +1173,33 @@ function getExternalPreviewUrl(content: string): string | null {
   }
 }
 
+function isCurrentLiveEditReadyMessage(
+  liveEditUrl: string,
+  routePath: unknown,
+  previousRoutePath: string | null,
+): "current" | "stale" | "invalid" {
+  try {
+    const liveEdit = new URL(liveEditUrl);
+    const targetUrl = liveEdit.searchParams.get("url");
+    const targetPathParam = liveEdit.searchParams.get("path");
+    const targetPath = targetUrl
+      ? new URL(targetUrl)
+      : targetPathParam
+        ? new URL(targetPathParam, liveEdit.origin)
+        : null;
+    if (!targetPath) return "invalid";
+    const expectedRoutePath = targetPath.pathname + targetPath.search;
+    if (typeof routePath === "string" && routePath) {
+      return routePath === expectedRoutePath ? "current" : "stale";
+    }
+    return previousRoutePath === null || previousRoutePath === expectedRoutePath
+      ? "current"
+      : "stale";
+  } catch {
+    return "invalid";
+  }
+}
+
 function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
   const endpoint = new URL("/snapshot", bridgeUrl);
   endpoint.searchParams.set("url", previewUrl);
@@ -3688,6 +3715,10 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
+  iframeDocumentIdentityRef.current = iframeDocumentIdentity;
+  const externalPreviewUrlRef = useRef(externalPreviewUrl);
+  externalPreviewUrlRef.current = externalPreviewUrl;
   // Route navigation inside a live URL updates `externalPreviewUrl`, but it
   // must not replace the host iframe. Keeping the element stable lets the
   // running app navigate in place while the document identity below still
@@ -3848,6 +3879,18 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      if (
+        sourceType === "localhost" &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        externalPreviewUrlRef.current &&
+        isCurrentLiveEditReadyMessage(
+          externalPreviewUrlRef.current,
+          e.data.routePath,
+          liveRoutePathRef.current,
+        ) !== "current"
+      ) {
+        return;
+      }
       // A srcdoc editor has booted once its chrome bridge, the last script in
       // the body, reports ready; `load` would also wait for every image. Not
       // any message: the session-replay bootstrap posts a probe from <head>.
@@ -3916,7 +3959,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(iframeDocumentIdentityRef.current);
         flushPendingOneShotMessages();
       }
       if (typeof e.data.routePath === "string" && e.data.routePath) {
@@ -3970,7 +4013,7 @@ export function DesignCanvas({
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(iframeDocumentIdentityRef.current);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
         // is genuinely live — clear the suspected-restart attempt counter so
         // a later transient hiccup gets the full retry budget again instead
