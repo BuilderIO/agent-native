@@ -1519,20 +1519,20 @@ export async function recordSessionReplayChunks(
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
 
-  // Reserve before the slow blob upload: the budget check sums this table, so
-  // concurrent admissions only see each other's bytes once this row exists.
   const ingestId = replayId("sri");
-  await db.insert(schema.sessionReplayIngests).values({
-    id: ingestId,
-    publicKeyId: key.id,
-    recordingId: recording.id,
-    byteLength: replayIngestByteLength(clampedInput, context),
-    createdAt: ingestedAt,
-    ownerEmail: key.ownerEmail,
-    orgId: key.orgId,
-  });
-
   try {
+    // Reserve before the slow blob upload: the budget check sums this table, so
+    // concurrent admissions only see each other's bytes once this row exists.
+    await db.insert(schema.sessionReplayIngests).values({
+      id: ingestId,
+      publicKeyId: key.id,
+      recordingId: recording.id,
+      byteLength: replayIngestByteLength(clampedInput, context),
+      createdAt: ingestedAt,
+      ownerEmail: key.ownerEmail,
+      orgId: key.orgId,
+    });
+
     for (const rawChunk of clampedInput.chunks) {
       const existing = existingBySeq.get(rawChunk.seq);
       if (existing) {
@@ -1601,8 +1601,13 @@ export async function recordSessionReplayChunks(
     await db
       .delete(schema.sessionReplayIngests)
       .where(eq(schema.sessionReplayIngests.id, ingestId))
-      .catch(() => {
-        // Best-effort rollback cleanup; the original ingest error is more useful.
+      .catch((releaseError: unknown) => {
+        // The ingest error below is what the client needs; a leaked
+        // reservation only over-counts the key's budget, so surface it here.
+        console.error(
+          "[session-replay] failed to release replay usage reservation",
+          { ingestId, publicKeyId: key.id, error: releaseError },
+        );
       });
     if (wasEmptyRecording) {
       await deleteEmptyReplayRecordingPlaceholder(db, {

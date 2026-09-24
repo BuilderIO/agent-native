@@ -1483,6 +1483,71 @@ describe("session replay ingest parsing", () => {
     }
   });
 
+  it("removes a new recording's placeholder when the usage reservation fails", async () => {
+    const recording = {
+      id: "sr_new",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      chunkCount: 0,
+      eventCount: 0,
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+    };
+    const { db, inserts, deletes } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [], // no existing recording -> placeholder insert
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [recording],
+      [],
+    ]);
+    db.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: unknown) => {
+        inserts.push({ table, values });
+        if (table === schema.sessionReplayIngests) {
+          throw new Error("reservation insert failed");
+        }
+        return { onConflictDoNothing: vi.fn(async () => undefined) };
+      }),
+    }));
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          anonymousId: "anon_1",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).rejects.toThrow("reservation insert failed");
+
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
+    const placeholderCleanup = deletes.find(
+      (entry) => entry.table === schema.sessionRecordings,
+    );
+    expect(placeholderCleanup).toBeDefined();
+    expect(conditionText(placeholderCleanup?.where)).toContain("chunk_count");
+  });
+
   it("deletes uploaded replay blobs when chunk inserts fail", async () => {
     const handle = {
       opaque: "blob_1",
