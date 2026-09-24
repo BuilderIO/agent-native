@@ -531,6 +531,8 @@ const messages = {
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",
+      jevMatchProbability:
+        "Probabilidade de correspondência do Jev: {{percent}}%",
       feedbackLabel: "Marque as correspondências que não devem ser incluídas",
       notSpamShort: "Não é spam",
       notMatchShort: "Não corresponde",

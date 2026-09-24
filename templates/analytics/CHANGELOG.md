@@ -3,10 +3,21 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-24
+
+### Improved
+
+- The Sessions list hides 0m recordings by default, with a filter to include them.
+
+### Fixed
+
+- Session recordings no longer cut off partway through when the daily recording budget runs low; new recordings wait for room instead.
+
 ## 2026-09-23
 
 ### Improved
 
+- Transient HTTP 5xx checks now need confirmation before alerting
 - Analytics opens faster by loading translation catalogs and rarely used surfaces only when needed.
 
 ## 2026-09-22

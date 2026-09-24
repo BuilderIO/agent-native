@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { BUILDER_CREDIT_USAGE_REPORTING_FLAG } from "../../feature-flags/registry.js";
+import { isFeatureFlagEnabled } from "../../feature-flags/store.js";
 import { listAppUsageMetrics } from "../metrics-store.js";
 import { resolveUsageAppKey } from "../store.js";
 
@@ -16,8 +18,12 @@ export default defineAction({
   }),
   run: async ({ sinceDays, scope, userEmail, appId }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    const builderCreditsEnabled = await isFeatureFlagEnabled(
+      BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+      { userEmail: ctx.userEmail, orgId: ctx.orgId },
+    );
     return listAppUsageMetrics(
-      { sinceDays, scope, userEmail },
+      { sinceDays, scope, userEmail, builderCreditsEnabled },
       {
         ownerEmail: ctx.userEmail,
         orgId: ctx.orgId,

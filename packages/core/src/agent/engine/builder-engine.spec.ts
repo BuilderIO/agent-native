@@ -495,6 +495,7 @@ describe("createBuilderEngine", () => {
             type: "usage",
             inputTokens: 5,
             outputTokens: 3,
+            creditsUsed: 0.237,
             cacheInputTokens: 2,
             cacheCreatedTokens: 1,
           },
@@ -518,6 +519,7 @@ describe("createBuilderEngine", () => {
       outputTokens: 3,
       cacheReadTokens: 2,
       cacheWriteTokens: 1,
+      builderCreditsUsed: 0.237,
     });
 
     const assistantContent = events.find((e) => e.type === "assistant-content");
@@ -527,6 +529,30 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("end_turn");
+  });
+
+  it("rejects malformed Builder credit usage instead of recording an estimate", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "usage",
+            inputTokens: 5,
+            outputTokens: 3,
+            creditsUsed: "1",
+          },
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.find((event) => event.type === "usage")).toBeUndefined();
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "error",
+      errorCode: "builder_gateway_error",
+    });
   });
 
   it("assembles interleaved text and tool-call into assistant-content in order", async () => {
