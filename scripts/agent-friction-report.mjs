@@ -85,7 +85,7 @@ const STALE_PR_WATCHER_RE = new RegExp(
 );
 
 const SHIP_AFFIRMATIVE_OPT_OUT = String.raw`(?:\b(?:user\s+)?(?:explicitly\s+)?(?:asked|told|requested)[^.!?\n]{0,100}\b(?:to\s+not\s+merge|not\s+to\s+merge|leave\s+(?:the\s+)?PR\s+open|no[- ]merge)|\b(?:user\s+)?(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)\b`;
-const SHIP_FALSE_OPT_OUT_CLAIM = String.raw`\b(?:but|although|however)\s+(?:i|we)\s+(?:didn['’]?t|did not|never)\b`;
+const SHIP_FALSE_OPT_OUT_CLAIM = String.raw`\b(?:but|although|however|which)\s+(?:i|we)\s+(?:didn['’]?t|did not|never)\b`;
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
   String.raw`^(?![\s\S]*\b(?:ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)\b)(?![\s\S]*${SHIP_AFFIRMATIVE_OPT_OUT}(?![^.!?\n]{0,120}${SHIP_FALSE_OPT_OUT_CLAIM}))[\s\S]*(?:${[
@@ -383,6 +383,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, but I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, which I did not.",
   ],
   [false, "Ready-only shipment: the PR stayed open after checks passed."],
   [true, "The agent stopped /ship with the pull request unmerged."],
