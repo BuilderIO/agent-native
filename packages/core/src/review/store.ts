@@ -1,5 +1,9 @@
 import { getDbExec, type DbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   ReviewActorKind,
@@ -20,6 +24,8 @@ let reviewTablesInitPromise: Promise<void> | undefined;
 type ReviewThreadStatus = "open" | "resolved";
 
 export interface InsertReviewCommentInput {
+  /** A caller-provided, stable identifier used to make a submission replay-safe. */
+  id?: string;
   resourceType: string;
   resourceId: string;
   threadId?: string | null;
@@ -32,11 +38,17 @@ export interface InsertReviewCommentInput {
   authorName?: string | null;
   createdBy?: ReviewActorKind;
   resolutionTarget?: ReviewResolutionTarget | null;
+  replyRouteTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   ownerEmail?: string | null;
   orgId?: string | null;
   visibility?: Visibility | null;
   metadata?: Record<string, unknown> | null;
+}
+
+export interface InsertReviewCommentResult {
+  comment: ReviewComment;
+  replayed: boolean;
 }
 
 export interface UpdateReviewCommentInput {
@@ -104,6 +116,8 @@ export async function ensureReviewTables(): Promise<void> {
       -- guard:allow-identity-column - immutable review creator snapshot
       created_by TEXT NOT NULL DEFAULT 'human',
       resolution_target TEXT,
+      reply_route_target TEXT DEFAULT 'legacy',
+      notification_completed_at TEXT,
       mentions_json TEXT,
       owner_email TEXT,
       org_id TEXT,
@@ -145,6 +159,14 @@ export async function ensureReviewTables(): Promise<void> {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (thread_id, user_email)
     )`;
+      const createNotificationDeliveriesSql = `CREATE TABLE IF NOT EXISTS agent_review_notification_deliveries (
+      comment_id TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      claim_token TEXT NOT NULL,
+      claimed_at TEXT NOT NULL,
+      sent_at TEXT,
+      PRIMARY KEY (comment_id, recipient_email)
+    )`;
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
            ON agent_review_comments (resource_type, resource_id, created_at)`,
@@ -169,6 +191,16 @@ export async function ensureReviewTables(): Promise<void> {
 
       {
         await ensureTableExists("agent_review_comments", createCommentsSql);
+        await ensureColumnExists(
+          "agent_review_comments",
+          "reply_route_target",
+          "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS reply_route_target TEXT DEFAULT 'legacy'",
+        );
+        await ensureColumnExists(
+          "agent_review_comments",
+          "notification_completed_at",
+          "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS notification_completed_at TEXT",
+        );
         await ensureTableExists("agent_review_statuses", createStatusesSql);
         await ensureTableExists(
           "agent_review_comment_reactions",
@@ -177,6 +209,10 @@ export async function ensureReviewTables(): Promise<void> {
         await ensureTableExists(
           "agent_review_thread_preferences",
           createPreferencesSql,
+        );
+        await ensureTableExists(
+          "agent_review_notification_deliveries",
+          createNotificationDeliveriesSql,
         );
         await ensureIndexExists(
           "idx_agent_review_comments_resource",
@@ -374,6 +410,95 @@ export async function insertReviewComment(
   return insertReviewCommentWithClient(input, getDbExec());
 }
 
+/**
+ * Uses the submission ID as a durable receipt. A receipt can only be replayed
+ * by the same immutable comment payload; a reused ID must never redirect a
+ * comment to another resource or thread.
+ */
+export async function insertReviewCommentIdempotently(
+  input: InsertReviewCommentInput & { id: string },
+): Promise<InsertReviewCommentResult> {
+  await ensureReviewTables();
+  return insertReviewCommentIdempotentlyWithClient(input, getDbExec());
+}
+
+export async function reviewCommentNotificationCompleted(
+  id: string,
+): Promise<boolean> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute({
+    sql: "SELECT notification_completed_at FROM agent_review_comments WHERE id = ?",
+    args: [id],
+  });
+  if (!result.rows?.length) throw new Error("Review comment not found");
+  return result.rows[0].notification_completed_at !== null;
+}
+
+export async function markReviewCommentNotificationCompleted(
+  id: string,
+): Promise<void> {
+  await ensureReviewTables();
+  await getDbExec().execute({
+    sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
+    args: [new Date().toISOString(), id],
+  });
+}
+
+export async function claimReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+): Promise<{ status: "claimed"; token: string } | { status: "sent" | "busy" }> {
+  await ensureReviewTables();
+  const token = globalThis.crypto.randomUUID();
+  const now = new Date();
+  const expiredBefore = new Date(now.getTime() - 30 * 60_000).toISOString();
+  const result = await getDbExec().execute({
+    sql: `INSERT INTO agent_review_notification_deliveries
+      (comment_id, recipient_email, claim_token, claimed_at, sent_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT (comment_id, recipient_email) DO UPDATE
+      SET claim_token = excluded.claim_token, claimed_at = excluded.claimed_at
+      WHERE agent_review_notification_deliveries.sent_at IS NULL
+        AND agent_review_notification_deliveries.claimed_at < ?`,
+    args: [commentId, recipientEmail, token, now.toISOString(), expiredBefore],
+  });
+  if ((result.rowsAffected ?? 0) > 0) return { status: "claimed", token };
+  const existing = await getDbExec().execute({
+    sql: `SELECT sent_at FROM agent_review_notification_deliveries
+      WHERE comment_id = ? AND recipient_email = ?`,
+    args: [commentId, recipientEmail],
+  });
+  if (!existing.rows?.length)
+    throw new Error("Review notification receipt is unavailable");
+  return { status: existing.rows[0].sent_at ? "sent" : "busy" };
+}
+
+export async function finishReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+  token: string,
+): Promise<void> {
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_review_notification_deliveries SET sent_at = ?
+      WHERE comment_id = ? AND recipient_email = ? AND claim_token = ? AND sent_at IS NULL`,
+    args: [new Date().toISOString(), commentId, recipientEmail, token],
+  });
+  if (result.rowsAffected !== 1)
+    throw new Error("Review notification delivery claim was lost");
+}
+
+export async function releaseReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+  token: string,
+): Promise<void> {
+  await getDbExec().execute({
+    sql: `DELETE FROM agent_review_notification_deliveries
+      WHERE comment_id = ? AND recipient_email = ? AND claim_token = ? AND sent_at IS NULL`,
+    args: [commentId, recipientEmail, token],
+  });
+}
+
 export async function insertReviewReply(
   input: InsertReviewCommentInput & {
     threadId: string;
@@ -421,11 +546,93 @@ export async function insertReviewReply(
   }
 }
 
+export async function insertReviewReplyIdempotently(
+  input: InsertReviewCommentInput & {
+    id: string;
+    threadId: string;
+    parentCommentId: string;
+  },
+  routeTarget: ReviewResolutionTarget | null,
+  resource: { resourceType: string; resourceId: string },
+): Promise<InsertReviewCommentResult> {
+  await ensureReviewTables();
+  const client = getDbExec();
+  const insertAndRoute = async (tx: DbExec) => {
+    const result = await insertReviewCommentIdempotentlyWithClient(
+      { ...input, replyRouteTarget: routeTarget },
+      tx,
+    );
+    if (result.replayed) {
+      await assertMatchingReplyRouteTarget(tx, input.id, routeTarget);
+    }
+    if (result.replayed || !routeTarget) return result;
+    const routedCount = await routeReviewThreadWithClient(
+      tx,
+      input.threadId,
+      routeTarget,
+      resource,
+    );
+    if (routedCount < 1) throw new Error("Open review thread not found");
+    return result;
+  };
+  if (client.transaction) return client.transaction(insertAndRoute);
+
+  const result = await insertReviewCommentIdempotentlyWithClient(
+    { ...input, replyRouteTarget: routeTarget },
+    client,
+  );
+  if (result.replayed) {
+    await assertMatchingReplyRouteTarget(client, input.id, routeTarget);
+  }
+  if (result.replayed || !routeTarget) return result;
+  try {
+    const routedCount = await routeReviewThreadWithClient(
+      client,
+      input.threadId,
+      routeTarget,
+      resource,
+    );
+    if (routedCount < 1) throw new Error("Open review thread not found");
+    return result;
+  } catch (error) {
+    await client.execute({
+      sql: `DELETE FROM agent_review_comments
+             WHERE id = ? AND resource_type = ? AND resource_id = ?`,
+      args: [input.id, resource.resourceType, resource.resourceId],
+    });
+    throw error;
+  }
+}
+
+async function assertMatchingReplyRouteTarget(
+  client: DbExec,
+  commentId: string,
+  routeTarget: ReviewResolutionTarget | null,
+): Promise<void> {
+  const result = await client.execute({
+    sql: `SELECT reply_route_target FROM agent_review_comments WHERE id = ?`,
+    args: [commentId],
+  });
+  if (result.rows?.[0]?.reply_route_target !== routeTarget) {
+    throw new Error(
+      "Review comment submission ID conflicts with another submission",
+    );
+  }
+}
+
 export async function insertReviewCommentWithClient(
   input: InsertReviewCommentInput,
   client: DbExec,
 ): Promise<ReviewComment> {
-  const id = createReviewId("comment");
+  return (await writeReviewCommentWithClient(input, client)).comment;
+}
+
+async function writeReviewCommentWithClient(
+  input: InsertReviewCommentInput,
+  client: DbExec,
+  onConflictDoNothing = false,
+): Promise<InsertReviewCommentResult> {
+  const id = input.id ?? createReviewId("comment");
   const now = new Date().toISOString();
   const comment: ReviewComment = {
     id,
@@ -463,7 +670,7 @@ export async function insertReviewCommentWithClient(
         : null,
   };
 
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO agent_review_comments (
       id,
       resource_type,
@@ -479,6 +686,7 @@ export async function insertReviewCommentWithClient(
       author_name,
       created_by,
       resolution_target,
+      reply_route_target,
       mentions_json,
       owner_email,
       org_id,
@@ -491,7 +699,7 @@ export async function insertReviewCommentWithClient(
       created_at,
       updated_at,
       metadata_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${onConflictDoNothing ? " ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       comment.id,
       comment.resourceType,
@@ -507,6 +715,7 @@ export async function insertReviewCommentWithClient(
       comment.authorName,
       comment.createdBy,
       comment.resolutionTarget,
+      input.replyRouteTarget ?? null,
       stringifyOptionalJson(comment.mentions),
       comment.ownerEmail,
       comment.orgId,
@@ -522,7 +731,134 @@ export async function insertReviewCommentWithClient(
     ],
   });
 
-  return comment;
+  return { comment, replayed: (result.rowsAffected ?? 1) < 1 };
+}
+
+async function insertReviewCommentIdempotentlyWithClient(
+  input: InsertReviewCommentInput & { id: string },
+  client: DbExec,
+): Promise<InsertReviewCommentResult> {
+  const submitted = reviewCommentFromInput(input);
+  const existing = await getReviewCommentByIdWithClient(client, submitted.id);
+  if (existing) {
+    assertMatchingReviewCommentReceipt(existing, submitted);
+    return { comment: existing, replayed: true };
+  }
+
+  const insertion = await writeReviewCommentWithClient(input, client, true);
+  if (!insertion.replayed) return insertion;
+
+  const receipt = await getReviewCommentByIdWithClient(client, submitted.id);
+  if (!receipt) {
+    throw new Error("Review comment submission receipt is unavailable");
+  }
+  assertMatchingReviewCommentReceipt(receipt, submitted);
+  return { comment: receipt, replayed: true };
+}
+
+function reviewCommentFromInput(
+  input: InsertReviewCommentInput,
+): ReviewComment {
+  const id = input.id ?? createReviewId("comment");
+  return {
+    id,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+    threadId: input.threadId ?? id,
+    parentCommentId: input.parentCommentId ?? null,
+    targetId: input.targetId ?? null,
+    kind: input.kind ?? "comment",
+    status: "open",
+    anchor: input.anchor ?? null,
+    body: input.body,
+    authorEmail: input.authorEmail ?? null,
+    authorName: input.authorName ?? null,
+    createdBy: input.createdBy ?? "human",
+    resolutionTarget: input.resolutionTarget ?? null,
+    mentions: input.mentions ?? [],
+    ownerEmail: input.ownerEmail ?? input.authorEmail ?? null,
+    orgId: input.orgId ?? null,
+    visibility:
+      input.visibility === "org" || input.visibility === "public"
+        ? input.visibility
+        : "private",
+    resolvedBy: null,
+    resolvedAt: null,
+    consumedAt: null,
+    deletedBy: null,
+    deletedAt: null,
+    createdAt: "",
+    updatedAt: "",
+    metadata: input.metadata ?? null,
+    resolutionNote:
+      typeof input.metadata?.resolutionNote === "string"
+        ? input.metadata.resolutionNote
+        : null,
+  };
+}
+
+async function getReviewCommentByIdWithClient(
+  client: DbExec,
+  id: string,
+): Promise<ReviewComment | null> {
+  const result = await client.execute({
+    sql: `SELECT ${commentColumns()}
+       FROM agent_review_comments
+      WHERE id = ?
+      LIMIT 1`,
+    args: [id],
+  });
+  const row = result.rows?.[0];
+  return row ? mapCommentRow(row) : null;
+}
+
+function assertMatchingReviewCommentReceipt(
+  existing: ReviewComment,
+  submitted: ReviewComment,
+) {
+  const immutableFields: (keyof ReviewComment)[] = [
+    "id",
+    "resourceType",
+    "resourceId",
+    "threadId",
+    "parentCommentId",
+    "targetId",
+    "kind",
+    "anchor",
+    "body",
+    "authorEmail",
+    "createdBy",
+    "resolutionTarget",
+    "mentions",
+    "metadata",
+  ];
+  if (
+    immutableFields.some(
+      (field) => !reviewReceiptValueEquals(existing[field], submitted[field]),
+    )
+  ) {
+    throw new Error(
+      "Review comment submission ID conflicts with another submission",
+    );
+  }
+}
+
+function reviewReceiptValueEquals(left: unknown, right: unknown): boolean {
+  return stableReviewReceiptJson(left) === stableReviewReceiptJson(right);
+}
+
+function stableReviewReceiptJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(stableReviewReceiptJson).join(",")}]`;
+  }
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([key, entry]) =>
+        `${JSON.stringify(key)}:${stableReviewReceiptJson(entry)}`,
+    )
+    .join(",")}}`;
 }
 
 export async function queryReviewComments(
@@ -1267,6 +1603,12 @@ function mapStatusRow(row: Record<string, unknown>): ReviewStatusEntry {
 
 function createReviewId(prefix: string): string {
   return `rev_${prefix}_${globalThis.crypto.randomUUID()}`;
+}
+
+export function reviewCommentIdForClientOperation(
+  clientOperationId: string,
+): string {
+  return `rev_comment_${clientOperationId}`;
 }
 
 function statusId(resourceType: string, resourceId: string): string {

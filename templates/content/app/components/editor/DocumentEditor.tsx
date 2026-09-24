@@ -5391,7 +5391,7 @@ function PageEditorSessionBody({
         return suggestion ?? null;
       }}
       canDecideSuggestions={canEdit}
-      decidingSuggestion={
+      decidingSuggestion={() =>
         decideSuggestion.isPending ||
         isSubmittingSuggestions ||
         !!pendingSuggestionDecision
@@ -5460,11 +5460,12 @@ function PageEditorSessionBody({
         });
         void suggestionsQuery.refetch();
         await refreshSuggestionDecisionDocument(continueSuggesting);
-        if (result.suggestion.status !== "stale") return;
-        toast.error(t("editor.toolbar.conflict"));
-        setSelectedSuggestionId(result.suggestion.id);
-        setUtilityPanel("comments");
-        setCommentsBrowseOpen(true);
+        if (result.suggestion.status === "stale") {
+          toast.error(t("editor.toolbar.conflict"));
+          setSelectedSuggestionId(result.suggestion.id);
+          setUtilityPanel("comments");
+          setCommentsBrowseOpen(true);
+        }
       }}
       canSuggest={canSuggest}
       commentAi={commentAi}
