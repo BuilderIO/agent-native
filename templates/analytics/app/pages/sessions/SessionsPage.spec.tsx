@@ -98,6 +98,8 @@ describe("formatSessionDuration", () => {
     expect(formatSessionDuration(null)).toBe("0m");
     expect(formatSessionDuration(0)).toBe("0m");
     expect(formatSessionDuration(42_000)).toBe("0m");
+    expect(formatSessionDuration(59_499)).toBe("0m");
+    expect(formatSessionDuration(59_500)).toBe("1m");
   });
 });
 

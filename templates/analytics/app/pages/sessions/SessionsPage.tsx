@@ -171,6 +171,7 @@ type SessionRecordingIdentity = Pick<
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS = 59_500;
 const SESSION_QUERY_DEBOUNCE_MS = 250;
 
 /**
@@ -254,7 +255,9 @@ export default function SessionsPage() {
       from: from ?? undefined,
       app: app || undefined,
       query: query || undefined,
-      minDurationMs: includeZeroMinuteSessions ? undefined : 60_000,
+      minDurationMs: includeZeroMinuteSessions
+        ? undefined
+        : MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS,
       limit: 100,
     },
     { staleTime: 30_000 },
@@ -393,7 +396,15 @@ export default function SessionsPage() {
           ) : isLoading ? (
             <SessionSkeleton />
           ) : recordings.length === 0 ? (
-            <EmptySessionsState />
+            includeZeroMinuteSessions ? (
+              <EmptySessionsState />
+            ) : (
+              <FilteredEmptySessionsState
+                onIncludeZeroMinuteSessions={() =>
+                  updateFilter("includeZeroMinuteSessions", "true")
+                }
+              />
+            )
           ) : (
             <div>
               <div className="flex items-center justify-between border-b px-4 py-3">
@@ -538,6 +549,22 @@ function EmptySessionsState() {
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function FilteredEmptySessionsState({
+  onIncludeZeroMinuteSessions,
+}: {
+  onIncludeZeroMinuteSessions: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex min-h-[380px] flex-col items-center justify-center gap-4 p-6">
+      <h2 className="text-lg font-semibold">{t("sessions.noSessions")}</h2>
+      <Button variant="outline" onClick={onIncludeZeroMinuteSessions}>
+        {t("sessions.includeZeroMinuteSessions")}
+      </Button>
     </div>
   );
 }
@@ -879,6 +906,7 @@ function formatDateTime(value: string): string {
 
 export function formatSessionDuration(ms: number | null): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return "0m";
+  if (ms < MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS) return "0m";
   const seconds = Math.round(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
