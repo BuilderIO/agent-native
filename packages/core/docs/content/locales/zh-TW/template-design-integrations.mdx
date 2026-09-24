@@ -1,0 +1,87 @@
+---
+title: "Design 的跨應用使用"
+description: "Design 如何連接到調度，以及 Claude Code、Claude Desktop 等外部代理如何直接透過 MCP 建立和編輯設計。"
+---
+
+# Design 的跨應用使用
+
+Design 是[調度](/docs/template-dispatch)工作區中眾多應用程式之一，也能被
+完全在該工作區之外運作的代理直接呼叫。本頁涵蓋這兩者：調度連接如何運
+作，以及一個外部代理如何透過 MCP 呼叫 Design 自己的 actions。總覽請參閱
+[Design](/docs/template-design)。
+
+## Design 如何連接到調度
+
+這是否自動運作，取決於 Design 和調度當初是如何一起設定的，而不是取決於其
+中任何一個是託管執行還是在本機執行。
+
+### 相同工作區：自動運作
+
+如果 Design 和調度是一起產生或加入到同一個 Agent-Native 工作區中（透過
+`create` 或 `add-app`），並部署為一個整體單元，它們就已經共用同一個
+`.env`、同一個 `A2A_SECRET`，以及同一個工作區登錄。無論這個工作區是在
+您的機器上執行，還是在生產環境中執行，發現機制和已驗證的 A2A 呼叫都能
+直接運作，不需要任何額外設定。
+
+### 各自部署：一個手動步驟
+
+如果 Design 和調度是兩個各自獨立建立的 Agent-Native 專案，它們就不會共用
+密鑰，也還無法互相呼叫。連接它們需要在雙方各執行一個手動步驟：透過**
+設定 → 已連接的代理**、Agent 頁面的**連線**分頁，或**調度 → 代理 →
+新增外部代理**，加入一個帶有共用密鑰的 `remote-agents/<id>.json` 資
+源。完整操作步驟請參閱 [A2A 協議](/docs/a2a-protocol)。
+
+若要確認您目前是哪種情況，可以詢問任一應用程式的代理「你能看到哪些應
+用程式？」如果調度的回答中沒有出現 Design，就代表您屬於第二種情況。
+
+## 從工作區外部呼叫 Design
+
+Design 也會以託管的 MCP 伺服器形式執行，讓其他代理可以直接連線，無論它們
+是否屬於您的調度工作區。Claude、Claude Code、Claude Desktop、Codex，以
+及其他相容 MCP 的主機，都可以連線到：
+
+```
+https://design.agent-native.com/mcp
+```
+
+Claude 和 Claude Desktop 會把這個網址加為自訂連接器，然後登入以核准存
+取權限。Claude Code 加入同一個網址後，執行 `/mcp` 進行驗證。Codex 和其
+他 CLI 或 stdio 用戶端則改為執行 `npx @agent-native/core@latest connect
+https://design.agent-native.com`，這會開啟一個瀏覽器分頁進行授權，並產
+生一個可撤銷的個人專屬權杖，不涉及任何共用密鑰。
+
+連線之後，外部代理就能取得[與 Agent 對話](/docs/template-design-agent)
+中涵蓋的相同核心工作流程：建立一個設計、產生幾個方向來比較、讀取某個
+畫面的目前狀態、進行一個範圍受限的編輯，並在需要把結果轉換成真正程式
+碼時匯出編碼交接套件。代理會顯示行內預覽，或提供一個連回真實編輯器的
+「開啟設計」連結，而不是把原始 HTML 貼進對話中。
+
+<Callout tone="info">
+
+如果您外部代理中的 Design 工具呼叫開始回傳工作階段或驗證錯誤，請不要一直
+重試。在 Claude Code 中執行 `/mcp` 並重新連線，或從任一終端機執行
+`npx -y @agent-native/core@latest reconnect
+https://design.agent-native.com`。這兩種方式都能重新驗證，不需要重新
+安裝任何東西。
+
+</Callout>
+
+## 透過調度委派給 Design
+
+姊妹應用程式不需要任何特殊整合就能與 Design 協作。它可以像您在聊天中一
+樣，把一個用簡單文字描述的請求，例如「幫我做一個介紹這個新功能的到達
+頁面」，直接交給 Design 的代理，而 Design 會直接回答或執行這個請求。
+
+Design 完全不需要知道請求方應用程式的憑證，反過來也是如此。它只需要回答
+一個真實的請求，不需要知道是誰在提出請求，或為什麼提出請求。
+
+## 接下來
+
+- [**Design**](/docs/template-design) — 總覽和入門步驟
+- [**功能**](/docs/template-design-features) — 設計清單、編輯設計、範本，以及設計系統
+- [**與 Agent 對話**](/docs/template-design-agent) — 依任務分類的提示，以及代理如何看到您的畫面
+- [**開發者指南**](/docs/template-design-developers) — 快速入門、actions、資料模型和路由
+- [**調度**](/docs/template-dispatch) — 這些模式所運作的工作區控制平面
+- [**A2A 協議**](/docs/a2a-protocol) — 應用程式如何發現、驗證，以及互相呼叫
+- [**外部代理**](/docs/external-agents) — 將 Claude Code、Claude Desktop 和其他 MCP 主機連接到 Agent-Native 應用程式
+- [**多應用工作區**](/docs/multi-app-workspace) — 組合第一方應用程式而非彼此巢狀嵌套的通用模式

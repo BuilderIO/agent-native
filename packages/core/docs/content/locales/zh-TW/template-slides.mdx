@@ -1,0 +1,91 @@
+---
+title: "幻燈片"
+description: "一款開放原始碼的簡報編輯器，取代 Google 簡報、Pitch 和 PowerPoint。根據提示生成簡報、進行視覺化編輯，並全螢幕呈現，內建匯入/匯出、設計系統與即時協作功能。"
+---
+
+# 幻燈片
+
+幻燈片是一款由代理驅動的簡報編輯器。向代理要求一份簡報，它就會根據提示生成一份，並在建立的過程中把投影片逐張串流到編輯器中，之後只要您用簡單的文字描述或用滑鼠點一下，它就會編輯、重新設計樣式或匯出這份簡報。它用一個應用程式取代了 Google 簡報、Pitch 和 PowerPoint，讓生成、編輯、呈現和匯出簡報不再是需要在不同工具之間切換的動作。
+
+<Cards columns={1}>
+
+### [立即試用 →](https://slides.agent-native.com)
+
+親眼看看幻燈片的實際運作，並生成一份真實的簡報。
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9815f38535264c09985a25a2accd3ea3?alt=media&token=9d3a37f9-fd8a-43bd-852a-760b304ec488&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="幻燈片應用程式的簡短導覽。"
+  caption="幻燈片應用程式的簡短導覽。"
+  autoplay={true}
+  loop={true}
+/>
+
+## 它取代的內容
+
+<Comparison>
+
+### 之前
+
+- 使用 Google 簡報、Pitch 或 PowerPoint 來製作簡報本身
+- 只是為了持續編輯和呈現，就需要按人數付費的訂閱方案
+- 手動把品牌顏色、字型和標誌複製貼上到每一份新簡報中
+- 為了與使用不同工具的人分享簡報，必須手動轉換檔案
+
+### 之後
+
+- 一個編輯器：在同一份簡報中根據提示生成、視覺化編輯並呈現
+- 端到端掌控整套技術堆疊，不需訂閱
+- 儲存的設計系統會自動把您的品牌套用到每一份新簡報
+- 匯入 PPTX、DOCX、PDF 或 Google 文件，隨時可以匯出回 PPTX、Google 簡報或 HTML
+
+</Comparison>
+
+## 幻燈片在多應用工作區中
+
+如果您在[調度](/docs/template-dispatch)之下與其他應用程式一起執行幻燈片，一份簡報就不再只是一個您自己動手開啟的頁面。代理可以把一份簡報提交到其他應用程式也能重複使用的內容庫，或是用回答您聊天訊息的同一種方式，回答姊妹應用程式提出的一個簡單文字請求。若想了解這種連接實際上如何運作，以及背後真正的機制，請參閱[幻燈片的跨應用使用](/docs/template-slides-integrations)。
+
+## 你可以用它做什麼
+
+- **根據提示生成簡報。**「為咖啡訂閱服務生成一份 10 張投影片的推介簡報，受眾是投資者。」詳見[功能](/docs/template-slides-features)。
+- **視覺化編輯投影片。**雙擊文字即可編輯，點選一個區塊會開啟氣泡選單，輸入 `/` 開啟斜線選單以插入區塊。詳見[功能](/docs/template-slides-features)。
+- **全螢幕呈現**、評論、即時協作，並與特定隊友或公開分享一份簡報。詳見[功能](/docs/template-slides-features)。
+- **引入既有內容。**以 PPTX、DOCX、PDF 或 Google 文件作為起點來匯入。匯出到 PPTX、Google 簡報，或匯出成獨立的 HTML 檔案。詳見[功能](/docs/template-slides-features)。
+- **套用根據您品牌建立的設計系統。**一次儲存顏色、字型和標誌，並在每一份新簡報中重複使用。您可以從 Figma 檔案、已連結的程式碼庫或一個網站來設定。詳見[功能](/docs/template-slides-features)。
+- **恢復先前的版本。**每一次變更都會有快照。可以列出或恢復任何先前的版本。詳見[功能](/docs/template-slides-features)。
+
+## 開始使用
+
+當您開啟應用程式時：
+
+1. 點選**新增簡報**。
+2. 詢問代理：「為咖啡訂閱服務生成一份 10 張投影片的推介簡報，受眾是投資者。」
+3. 觀看投影片逐張串流進來。點選任何一張投影片進行編輯，或不斷要求代理進行調整。選取文字後點選氣泡選單中的**用 AI 修訂**，就能把您選取的確切內容交給代理處理。
+
+### 有用的提示
+
+- 「為咖啡訂閱服務生成一份 10 張投影片的推介簡報，受眾是投資者。」
+- 「在投影片 3 之後新增一張定價投影片。」
+- 「放大這張投影片的標題，並把強調色改成綠色。」
+- 「把這份 PDF 概括成一份 6 張投影片的簡報。」（附上這份 PDF）
+
+若要建立您自己的幻燈片副本：
+
+```bash
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+其餘的設定步驟（`cd`、`pnpm install`、`pnpm dev`）與框架的基本概念，請參閱[開始使用](/docs/getting-started)。
+
+## 接下來
+
+- [**功能**](/docs/template-slides-features) — 提示、視覺化編輯、呈現、評論、分享、版本歷史、設計系統與匯入/匯出
+- [**與 Agent 對話**](/docs/template-slides-agent) — 代理看到的內容，以及依任務分類的提示
+- [**幻燈片的跨應用使用**](/docs/template-slides-integrations) — 整合策略，以及如何連接到調度
+- [**開發者指南**](/docs/template-slides-developers) — 資料模型、action 清單、路由，以及如何擴充這個範本
+- [**範本**](/docs/cloneable-saas) — 可複製 SaaS 模型，以及可作為起點的所有其他領域範本
+- [**開始使用**](/docs/getting-started) — 框架基礎：actions、application state 和即時同步
+- [**即時協作**](/docs/real-time-collaboration) — 簡報與其他協作介面共用的 Yjs 流程
+- [**共用**](/docs/sharing) — 簡報和設計系統所建立的共用授權模型

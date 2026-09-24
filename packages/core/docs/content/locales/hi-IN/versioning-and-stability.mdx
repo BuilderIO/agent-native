@@ -1,0 +1,32 @@
+---
+title: वर्ज़निंग और स्थिरता
+description: Nightly और stable releases, 1.0 से पहले compatibility, migrations और template pins समझें।
+---
+
+# वर्ज़निंग और स्थिरता
+
+Agent-Native packages अभी 1.0 से पहले हैं। Release process nightly snapshots, stable releases, migration tools और doctor checks देता है। Alpha या beta production support की गारंटी नहीं है।
+
+## Release channels
+
+`main` में merge होने पर npm के `nightly` tag के तहत nightly snapshots प्रकाशित होते हैं। इससे `latest` tag नहीं बदलता। Stable releases Changesets से coordinated हैं। Scheduled runs सोमवार से गुरुवार, Pacific time दोपहर में patch release तैयार करते हैं। हर run में release की गारंटी नहीं है।
+
+## 1.0 से पहले compatibility
+
+Patch releases का लक्ष्य bug fixes और compatible improvements है। Minor releases features जोड़ सकते हैं और alpha या beta APIs का behavior बदल सकते हैं। Major releases व्यापक breaking changes के लिए हैं। Upgrade से पहले release notes और migration steps देखें।
+
+जहाँ supported migration है, `migration-manifest.json` moved imports और renamed symbols दर्ज करता है। पहले codemod preview करें, diff देखें और फिर लागू करें:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+हटाए गए paths कुछ समय migration निर्देश वाले tombstone modules बने रह सकते हैं। कोई निश्चित retention अवधि तय नहीं है।
+
+## Template versions और लक्ष्य
+
+CLI scaffold बनाते समय `@agent-native/core` को template देने वाले exact version पर pin करता है। `latest` को हाथ से सेट करने के बजाय migration tools से upgrade करें।
+
+वर्तमान लक्ष्य अक्टूबर 2026 के मध्य तक beta और 2026 के अंत तक 1.0 है। ये लक्ष्य हैं, वादे नहीं। Reproducible issue के साथ package version, database provider और migration output दें।

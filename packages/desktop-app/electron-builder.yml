@@ -1,0 +1,106 @@
+appId: com.agentnative.desktop
+productName: Agent-Native
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - "!node_modules/**"
+  - node_modules/node-pty/**
+  - "!src/**"
+  - "!shared/**"
+  - "!electron.vite.config.*"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.*.json}"
+
+asarUnpack:
+  - node_modules/node-pty/prebuilds/**
+
+extraResources:
+  - from: ../agent-chrome-extension/dist
+    to: chrome-extension
+  # `electron-builder --dir` skips its normal onAfterPack updater metadata
+  # write. Keep local packaged builds installable by supplying the same cache
+  # configuration that release builds receive automatically.
+  - from: desktop-update-config.yml
+    to: app-update.yml
+
+protocols:
+  - name: Agent-Native
+    schemes:
+      - agentnative
+
+mac:
+  files:
+    - "!node_modules/node-pty/build/**"
+  extraResources:
+    - from: native/bin/agent-native-computer-helper
+      to: native/agent-native-computer-helper
+    - from: build/Assets.car
+      to: Assets.car
+  category: public.app-category.developer-tools
+  identity: "Builder.io, Inc (W3PMF2T3MW)"
+  icon: build/icon.icns
+  extendInfo:
+    CFBundleIconName: agent-native
+    NSMicrophoneUsageDescription: Agent-Native uses your microphone for dictation and realtime voice conversations.
+    NSCameraUsageDescription: Agent-Native uses your camera for video capture in apps like Clips.
+    NSScreenCaptureUsageDescription: Agent-Native records your screen when you start a recording in apps like Clips.
+  entitlements: entitlements.mac.plist
+  entitlementsInherit: entitlements.mac.plist
+  notarize: true
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+
+dmg:
+  artifactName: ${productName}-${arch}.${ext}
+
+win:
+  files:
+    - "!node_modules/node-pty/build/**"
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${arch}.${ext}
+
+nsis:
+  oneClick: true
+  perMachine: false
+
+linux:
+  executableName: agent-native
+  icon: build/icon.png
+  target:
+    - target: tar.xz
+      arch:
+        - x64
+        - arm64
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+    - target: deb
+      arch:
+        - x64
+        - arm64
+  category: Development
+  artifactName: ${productName}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: BuilderIO
+  repo: agent-native
+
+npmRebuild: false

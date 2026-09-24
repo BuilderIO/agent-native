@@ -1,0 +1,52 @@
+import { defineAction } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description:
+    "Navigate the Assets UI. Views (internal keys, with the surface they open): create, picker (the embedded image Library picker), libraries (the unified Library workspace), library (a single Brand Kit inside Library), templates, template, preset (legacy generation preset editor alias), asset, generation-session, generation-run, extensions, audit, settings. Use threadId to open a specific create/chat thread; use libraryId, templateId, presetId, assetId, sessionId, runId, or extensionId where appropriate.",
+  schema: z.object({
+    view: z
+      .enum([
+        "create",
+        "picker",
+        "libraries",
+        "library",
+        "templates",
+        "template",
+        "preset",
+        "asset",
+        "image",
+        "generation-session",
+        "generation-run",
+        "extensions",
+        "audit",
+        "settings",
+      ])
+      .optional(),
+    libraryId: z.string().optional(),
+    assetId: z.string().optional(),
+    sessionId: z.string().optional(),
+    runId: z.string().optional(),
+    threadId: z.string().optional(),
+    presetId: z.string().optional(),
+    templateId: z.string().optional(),
+    mediaType: z.enum(["image", "video"]).optional(),
+    query: z.string().optional(),
+    prompt: z.string().optional(),
+    aspectRatio: z.string().optional(),
+    activeTab: z
+      .enum(["references", "generated", "runs", "settings"])
+      .optional(),
+    extensionId: z.string().optional(),
+    path: z.string().optional(),
+  }),
+  http: false,
+  run: async (args) => {
+    if (!args.view && !args.path) {
+      throw new Error("view or path is required.");
+    }
+    await writeAppStateForCurrentTab("navigate", args);
+    return { navigating: true, ...args };
+  },
+});

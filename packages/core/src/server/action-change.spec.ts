@@ -1,0 +1,246 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockAppStatePut = vi.hoisted(() => vi.fn());
+const mockRecordChange = vi.hoisted(() => vi.fn());
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
+
+vi.mock("../application-state/store.js", () => ({
+  appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
+}));
+
+vi.mock("./poll.js", async () => {
+  const { setActionChangeFastPath } =
+    await import("../action-change-fast-path.js");
+  setActionChangeFastPath((target) => {
+    mockRecordChange({
+      source: "action",
+      type: "change",
+      key: target.actionName,
+      ...(target.owner ? { owner: target.owner } : {}),
+      ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    });
+  });
+  return { recordChange: (...args: unknown[]) => mockRecordChange(...args) };
+});
+
+vi.mock("./request-context.js", () => ({
+  getRequestOrgId: () => mockGetRequestOrgId(),
+  getRequestUserEmail: () => mockGetRequestUserEmail(),
+}));
+
+describe("notifyActionChange", () => {
+  beforeEach(() => {
+    mockAppStatePut.mockReset();
+    mockRecordChange.mockReset();
+    mockGetRequestOrgId.mockReset();
+    mockGetRequestUserEmail.mockReset();
+  });
+
+  it("records in-memory and durable action changes for an owner", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({
+      actionName: "create-project",
+      owner: "owner@example.com",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "create-project",
+      owner: "owner@example.com",
+    });
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__action_change__",
+      expect.objectContaining({
+        source: "action",
+        actionName: "create-project",
+        owner: "owner@example.com",
+      }),
+      { requestSource: "agent" },
+    );
+  });
+
+  it("does not broaden owner-scoped action markers to the current org", async () => {
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({ actionName: "update-project" });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "update-project",
+      owner: "owner@example.com",
+    });
+    expect(mockAppStatePut.mock.calls[0][2]).not.toHaveProperty("orgId");
+  });
+
+  it("keeps explicit owner-scoped action changes out of explicit org scope", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({
+      actionName: "publish-project",
+      owner: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "publish-project",
+      owner: "owner@example.com",
+    });
+    expect(mockRecordChange.mock.calls[0][0]).not.toHaveProperty("orgId");
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__action_change__",
+      expect.objectContaining({
+        source: "action",
+        actionName: "publish-project",
+        owner: "owner@example.com",
+      }),
+      { requestSource: "agent" },
+    );
+    expect(mockAppStatePut.mock.calls[0][2]).not.toHaveProperty("orgId");
+  });
+
+  it("preserves a frontend tab source so the originating tab can ignore the echo", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({
+      actionName: "update-project",
+      owner: "owner@example.com",
+      requestSource: "tab-123",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith(
+      expect.objectContaining({ requestSource: "tab-123" }),
+    );
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__action_change__",
+      expect.objectContaining({ requestSource: "tab-123" }),
+      { requestSource: "tab-123" },
+    );
+  });
+
+  it("can publish the fast invalidation without waiting for the durable marker", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    expect(
+      notifyActionChangeInBackground({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      }),
+    ).toBeUndefined();
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "update-project",
+      owner: "owner@example.com",
+    });
+    expect(mockAppStatePut).toHaveBeenCalled();
+
+    releaseMarker();
+    await Promise.resolve();
+  });
+
+  it("surfaces a background marker failure instead of swallowing it", async () => {
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    notifyActionChangeInBackground({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] durable marker write failed:",
+        "database unavailable",
+      );
+    });
+    warn.mockRestore();
+  });
+
+  it("does not publish an unscoped fast event without an owner or org", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({ actionName: "update-project" });
+
+    expect(mockRecordChange).not.toHaveBeenCalled();
+    expect(mockAppStatePut).not.toHaveBeenCalled();
+  });
+});
+
+describe("actionCallIsReadOnly", () => {
+  const listOrWrite = {
+    planMode: {
+      effect: (args: { action?: string }) =>
+        args.action === "list" ? ("read" as const) : ("write" as const),
+    },
+  };
+
+  it("lets a mixed action's per-call effect decide", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(actionCallIsReadOnly(listOrWrite, { action: "list" }, false)).toBe(
+      true,
+    );
+    expect(actionCallIsReadOnly(listOrWrite, { action: "set" }, false)).toBe(
+      false,
+    );
+  });
+
+  it("falls back to readOnly, then to the caller's default", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(actionCallIsReadOnly({ readOnly: true }, {}, false)).toBe(true);
+    expect(actionCallIsReadOnly({ readOnly: false }, {}, true)).toBe(false);
+    expect(actionCallIsReadOnly({}, {}, true)).toBe(true);
+    expect(actionCallIsReadOnly({}, {}, false)).toBe(false);
+  });
+
+  it("treats a throwing effect as no answer rather than as a read", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    const entry = {
+      planMode: {
+        effect: () => {
+          throw new Error("boom");
+        },
+      },
+    };
+    expect(actionCallIsReadOnly(entry, {}, false)).toBe(false);
+  });
+
+  it("honors fixed Plan-mode effects", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(
+      actionCallIsReadOnly({ planMode: { effect: "read" } }, {}, false),
+    ).toBe(true);
+    expect(
+      actionCallIsReadOnly(
+        { readOnly: true, planMode: { effect: "write" } },
+        {},
+        true,
+      ),
+    ).toBe(false);
+  });
+});

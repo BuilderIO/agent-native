@@ -1,0 +1,68 @@
+name: Content product conformance
+
+on:
+  pull_request:
+    branches: [main]
+    types:
+      [
+        opened,
+        synchronize,
+        reopened,
+        edited,
+        ready_for_review,
+        labeled,
+        unlabeled,
+      ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: content-product-conformance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Advisory Content product impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out immutable conformance controller
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c
+          path: controller
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out candidate as inert data
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch exact target revision
+        run: git -C candidate fetch --no-tags https://github.com/BuilderIO/agent-native.git ${{ github.event.pull_request.base.sha }}
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: controller/package.json
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: controller/pnpm-lock.yaml
+
+      - run: pnpm --dir controller install --frozen-lockfile --ignore-scripts
+
+      - name: Check Content product impact
+        env:
+          CONTENT_IMPACT_REPOSITORY: ../candidate
+          CONTENT_IMPACT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTENT_IMPACT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts

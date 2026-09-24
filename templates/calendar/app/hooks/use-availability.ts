@@ -1,0 +1,24 @@
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+import type { AvailabilityConfig } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
+
+export function useAvailability() {
+  return useActionQuery<AvailabilityConfig>("get-availability");
+}
+
+export function useUpdateAvailability() {
+  const queryClient = useQueryClient();
+  return useActionMutation<AvailabilityConfig, AvailabilityConfig>(
+    "update-availability",
+    {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-availability"],
+        });
+      },
+    },
+  );
+}

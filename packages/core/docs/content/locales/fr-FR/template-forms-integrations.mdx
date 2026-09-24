@@ -1,0 +1,41 @@
+---
+title: "Forms dans un espace de travail multi-apps"
+description: "Comment Forms se connecte à Dispatch et à d'autres applications, et les deux véritables mécanismes que d'autres applications utilisent pour agir sur un formulaire ou lui envoyer des données."
+---
+
+# Forms dans un espace de travail multi-apps
+
+Forms est une application parmi d'autres dans un espace de travail [Dispatch](/docs/template-dispatch). Cette page couvre ce que cela signifie concrètement en pratique : comment la connexion fonctionne, et des moyens concrets par lesquels d'autres applications peuvent agir sur un formulaire ou lui envoyer des données. Consultez [Forms](/docs/template-forms) pour la vue d'ensemble.
+
+## Comment Forms se connecte à Dispatch
+
+Le fait que ce soit automatique dépend de la façon dont Forms et Dispatch ont été configurés ensemble, pas du fait que l'un ou l'autre soit hébergé ou exécuté localement.
+
+### Même espace de travail : automatique
+
+Si Forms et Dispatch ont été générés ou ajoutés ensemble dans un seul espace de travail Agent-Native (via `create` ou `add-app`) et déployés comme une seule unité, ils partagent déjà un seul `.env`, un seul `A2A_SECRET`, et un seul registre d'espace de travail. La découverte et l'appel A2A authentifié fonctionnent tous les deux sans rien à configurer, que cet espace de travail s'exécute sur votre machine ou en production. C'est la configuration attendue pour un véritable produit multi-apps construit sur Forms.
+
+### Déploiements séparés : une étape manuelle
+
+Si Forms et Dispatch sont deux projets Agent-Native créés indépendamment, ils ne partagent pas de secret et ne peuvent pas encore s'appeler entre eux. Les connecter demande une étape manuelle de chaque côté : ajoutez une ressource `remote-agents/<id>.json` avec un secret partagé, depuis Paramètres → Agents connectés, l'onglet Connexions de la page Agent, ou Dispatch → Agents → Ajouter un agent externe. Consultez [Protocole A2A](/docs/a2a-protocol) pour le guide complet.
+
+Pour vérifier dans quelle situation vous êtes, demandez à l'agent de l'une des deux applications « quelles applications peux-tu voir ? » Si Forms est absent de la réponse de Dispatch, vous êtes dans le second cas.
+
+## Stratégies d'intégration
+
+**Délégation en langage naturel via Dispatch.** Une application sœur n'a pas besoin d'une intégration spéciale pour travailler avec Forms. Elle peut transmettre à l'agent de Forms une demande en langage courant, comme « combien de réponses a le formulaire d'inscription bêta », de la même façon que vous le feriez dans le chat, et Forms y répond ou agit dessus directement. C'est le véritable mécanisme derrière quelque chose comme une question qui arrive dans Slack ou Mail et se transforme en une vraie réponse de Forms : Dispatch (ou l'application qui a reçu le message) délègue la demande à l'agent de Forms, et Forms la traite comme n'importe quelle autre invite.
+
+**D'autres applications soumettant directement dans un formulaire.** Forms n'a besoin ni d'A2A ni de Dispatch pour qu'une autre application lui envoie des données. N'importe quelle application peut envoyer une simple requête web à l'adresse de soumission publique d'un formulaire, de la même façon qu'un répondant anonyme remplissant la page publique le ferait. Le bouton de retour du framework lui-même fonctionne exactement de cette manière. Il envoie une soumission à une application Forms déployée depuis la barre latérale d'une autre application, avec la page et l'application d'où vient le retour, et Forms l'enregistre comme une réponse normale. Cela signifie que n'importe quelle application de votre espace de travail peut envoyer des données structurées dans un formulaire sans aucune connexion A2A, juste une simple requête web.
+
+**Rester découplé.** Que Forms réponde à une question déléguée ou reçoive une soumission directe, il n'a jamais besoin de connaître les identifiants de l'application appelante, et l'application appelante n'a jamais besoin de savoir quoi que ce soit sur la façon dont Forms stocke ses données. La délégation passe par l'agent comme n'importe quelle autre invite, et une soumission directe passe par la même adresse publique qu'utiliserait un répondant humain.
+
+## Et ensuite
+
+- [**Forms**](/docs/template-forms) — la vue d'ensemble et ce qu'il remplace
+- [**Fonctionnalités**](/docs/template-forms-features) — chaque fonctionnalité, avec les étapes de configuration pour chacune
+- [**Parler à l'agent**](/docs/template-forms-agent) — chaque invite par tâche et comment l'agent voit votre écran
+- [**Guide développeur**](/docs/template-forms-developers) — chaque action et le modèle de données derrière ces fonctionnalités
+- [**Dispatch**](/docs/template-dispatch) — le plan de contrôle d'espace de travail sur lequel ces modèles s'exécutent
+- [**Protocole A2A**](/docs/a2a-protocol) — comment les applications se découvrent, s'authentifient et s'appellent entre elles
+- [**Espace de travail multi-apps**](/docs/multi-app-workspace) — le modèle général de composition d'applications de première partie plutôt que de les imbriquer
+  </content>

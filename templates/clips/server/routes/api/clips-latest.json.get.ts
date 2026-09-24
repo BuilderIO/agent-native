@@ -1,0 +1,458 @@
+import {
+  createError,
+  defineEventHandler,
+  getQuery,
+  setResponseHeaders,
+} from "h3";
+
+/**
+ * Same-origin endpoint that tells the download page which user-facing
+ * installers (DMG / MSI / AppImage) are available for the latest
+ * published Clips Desktop release.
+ *
+ * Why NOT just proxy the Tauri updater manifest (`clips-latest.json`
+ * on the `clips-latest` release)? The updater manifest lists *updater*
+ * artifacts — `.app.tar.gz`, `.msi.zip`, `.AppImage.tar.gz` — which are
+ * patch bundles for the already-installed app. End users arriving at
+ * /download want the raw installers (.dmg / .msi / .AppImage).
+ *
+ * This route therefore hits GitHub's REST API, paginates through
+ * releases until it finds the most recent published release for the requested
+ * channel, and returns its asset list plus metadata.
+ *
+ * The channel's pointer release is still the release-channel hint: when it
+ * has a signed updater manifest, we resolve that manifest's version back to
+ * the matching versioned release before scanning. That keeps the manual
+ * download page and the in-app updater pointed at the same build by default.
+ *
+ * ## Rate-limit hardening
+ *
+ * GitHub's unauthenticated REST API caps at 60 requests/hour/IP, so a
+ * modest burst of downloads would 429. We guard against that with:
+ *
+ *   - A 5-minute process-wide memoization (`cached`) — every request
+ *     for 5 min shares one upstream fetch.
+ *   - A stale-while-revalidate refresh — once the cache expires, we return the
+ *     previous payload immediately and refresh it in the background.
+ *   - A stale-while-error fallback — if GitHub ever errors out AND we have a
+ *     previously-successful payload (even expired), we keep serving it.
+ *   - Durable HTTP cache headers with short freshness and a long stale window
+ *     for downstream CDNs + the browser.
+ */
+
+const RELEASES_URL_BASE =
+  "https://api.github.com/repos/BuilderIO/agent-native/releases";
+const PER_PAGE = 100;
+// Up to 10 pages = 1000 releases. If the requested channel has not appeared
+// by then, something else is wrong and the 404 is correct.
+const MAX_PAGES = 10;
+const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_RETRY_BACKOFF_MS = 60_000;
+
+export const CLIPS_RELEASE_CACHE_HEADERS = {
+  "cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "cdn-cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "netlify-cdn-cache-control":
+    "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+} as const;
+
+export type ClipsReleaseChannel = "production" | "nightly";
+
+const RELEASE_CHANNEL_CONFIG: Record<
+  ClipsReleaseChannel,
+  { releasePrefix: string; updaterManifestUrl: string }
+> = {
+  production: {
+    releasePrefix: "clips-v",
+    updaterManifestUrl:
+      "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json",
+  },
+  nightly: {
+    releasePrefix: "clips-nightly-v",
+    updaterManifestUrl:
+      "https://github.com/BuilderIO/agent-native/releases/download/clips-nightly-latest/clips-nightly-latest.json",
+  },
+};
+
+interface GhAsset {
+  name: string;
+  browser_download_url: string;
+  size: number;
+}
+
+interface GhRelease {
+  tag_name: string;
+  name: string;
+  published_at: string;
+  draft: boolean;
+  prerelease: boolean;
+  assets: GhAsset[];
+  body?: string;
+}
+
+interface UpdaterManifest {
+  version: string;
+}
+
+export interface DownloadManifest {
+  version: string;
+  tag: string;
+  pub_date: string | null;
+  notes?: string;
+  assets: {
+    name: string;
+    url: string;
+    size: number;
+    /**
+     * Classification used by the download UI. `"unknown"` is left in
+     * place for anything that doesn't obviously match an installer
+     * pattern (updater archives, .sig files, etc.) — the UI ignores
+     * those.
+     */
+    kind:
+      | "mac-universal"
+      | "mac-arm64"
+      | "mac-x64"
+      | "windows-msi"
+      | "linux-appimage"
+      | "linux-deb"
+      | "linux-rpm"
+      | "unknown";
+  }[];
+}
+
+export function classifyClipsAsset(
+  name: string,
+): DownloadManifest["assets"][number]["kind"] {
+  const n = name.toLowerCase();
+  // Skip updater archives + signature files explicitly.
+  if (
+    n.endsWith(".sig") ||
+    n.endsWith(".app.tar.gz") ||
+    n.endsWith(".msi.zip") ||
+    n.endsWith(".appimage.tar.gz")
+  ) {
+    return "unknown";
+  }
+  if (n.endsWith(".dmg")) {
+    if (n.includes("universal")) return "mac-universal";
+    if (n.includes("aarch64") || n.includes("arm64")) return "mac-arm64";
+    if (n.includes("x64") || n.includes("x86_64")) return "mac-x64";
+    // No arch hint — assume universal (default target of clips workflow).
+    return "mac-universal";
+  }
+  if (n.endsWith(".msi")) return "windows-msi";
+  if (n.endsWith(".appimage")) return "linux-appimage";
+  if (n.endsWith(".deb")) return "linux-deb";
+  if (n.endsWith(".rpm")) return "linux-rpm";
+  return "unknown";
+}
+
+function parseClipsVersion(tagName: string): number[] | null {
+  const match = /^clips(?:-nightly)?-v(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(
+    tagName,
+  );
+  if (!match) return null;
+  return match.slice(1, 4).map((part) => Number(part));
+}
+
+export function compareClipsReleaseTags(a: string, b: string): number {
+  const av = parseClipsVersion(a);
+  const bv = parseClipsVersion(b);
+  if (av && !bv) return 1;
+  if (!av && bv) return -1;
+  if (!av || !bv) return a.localeCompare(b);
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    const diff = (av[i] ?? 0) - (bv[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+export function isClipsReleaseForChannel(
+  release: GhRelease,
+  channel: ClipsReleaseChannel,
+): boolean {
+  if (release.draft || !hasInstallerAssets(release)) return false;
+  if (channel === "production") {
+    return (
+      !release.prerelease && /^clips-v\d+\.\d+\.\d+$/.test(release.tag_name)
+    );
+  }
+  return (
+    release.prerelease &&
+    /^clips-nightly-v\d+\.\d+\.\d+(?:[-+].*)?$/.test(release.tag_name)
+  );
+}
+
+function isBetterRelease(candidate: GhRelease, current: GhRelease | null) {
+  if (!current) return true;
+  const versionOrder = compareClipsReleaseTags(
+    candidate.tag_name,
+    current.tag_name,
+  );
+  if (versionOrder !== 0) return versionOrder > 0;
+  return (
+    new Date(candidate.published_at).getTime() >
+    new Date(current.published_at).getTime()
+  );
+}
+
+function hasInstallerAssets(release: GhRelease) {
+  return release.assets.some(
+    (asset) => classifyClipsAsset(asset.name) !== "unknown",
+  );
+}
+
+const cache = new Map<
+  ClipsReleaseChannel,
+  { data: DownloadManifest; ts: number }
+>();
+const inFlight = new Map<ClipsReleaseChannel, Promise<DownloadManifest>>();
+const retryAfter = new Map<ClipsReleaseChannel, number>();
+
+type WaitUntil = (promise: Promise<unknown>) => void;
+
+class UpstreamError extends Error {
+  statusCode: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.statusCode = status;
+  }
+}
+
+async function fetchPage(page: number): Promise<GhRelease[]> {
+  const url = `${RELEASES_URL_BASE}?per_page=${PER_PAGE}&page=${page}`;
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    // Preserve the upstream status code so 429 (rate limit) and 503
+    // (service unavailable) surface correctly to callers / monitors
+    // instead of being flattened to 502.
+    throw new UpstreamError(
+      res.status,
+      `Upstream releases fetch failed (${res.status})`,
+    );
+  }
+  return (await res.json()) as GhRelease[];
+}
+
+async function fetchReleaseByTag(tagName: string): Promise<GhRelease | null> {
+  const url = `${RELEASES_URL_BASE}/tags/${encodeURIComponent(tagName)}`;
+  const res = await fetch(url, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new UpstreamError(
+      res.status,
+      `Upstream release fetch failed (${res.status})`,
+    );
+  }
+  return (await res.json()) as GhRelease;
+}
+
+function isUpdaterManifestLike(value: unknown): value is UpdaterManifest {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.version === "string" && obj.version.length > 0;
+}
+
+async function fetchUpdaterManifest(
+  channel: ClipsReleaseChannel,
+): Promise<UpdaterManifest> {
+  const res = await fetch(RELEASE_CHANNEL_CONFIG[channel].updaterManifestUrl, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "clips-download-page",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    throw new UpstreamError(
+      res.status,
+      `Upstream updater manifest fetch failed (${res.status})`,
+    );
+  }
+  const json = (await res.json()) as unknown;
+  if (!isUpdaterManifestLike(json)) {
+    throw new Error("Invalid Clips updater manifest");
+  }
+  return json;
+}
+
+async function findUpdaterPinnedRelease(
+  channel: ClipsReleaseChannel,
+): Promise<GhRelease | null> {
+  try {
+    const manifest = await fetchUpdaterManifest(channel);
+    const releasePrefix = RELEASE_CHANNEL_CONFIG[channel].releasePrefix;
+    const version = manifest.version
+      .replace(/^clips(?:-nightly)?-v/, "")
+      .replace(/^v/, "");
+    const release = await fetchReleaseByTag(`${releasePrefix}${version}`);
+    return release && isClipsReleaseForChannel(release, channel)
+      ? release
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findLatestClipsRelease(
+  channel: ClipsReleaseChannel,
+): Promise<GhRelease | null> {
+  // Start with the updater's channel pointer so fresh manual installs and
+  // auto-updates agree about the channel's current version. Then scan the
+  // versioned releases as a fallback/guard and prefer the highest semver
+  // tag; a republished older tag must not beat a newer build just because
+  // it has a later `published_at`.
+  let best: GhRelease | null = await findUpdaterPinnedRelease(channel);
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const batch = await fetchPage(page);
+    if (batch.length === 0) break;
+    for (const r of batch) {
+      if (!isClipsReleaseForChannel(r, channel)) continue;
+      if (isBetterRelease(r, best)) {
+        best = r;
+      }
+    }
+    if (batch.length < PER_PAGE) break;
+  }
+  return best;
+}
+
+async function buildManifest(
+  channel: ClipsReleaseChannel,
+): Promise<DownloadManifest> {
+  const latest = await findLatestClipsRelease(channel);
+  if (!latest) {
+    throw createError({
+      statusCode: 404,
+      statusMessage:
+        channel === "nightly"
+          ? "No published clips-nightly-v* release found"
+          : "No published clips-v* release found",
+    });
+  }
+  return {
+    version: latest.tag_name.replace(/^clips(?:-nightly)?-v/, ""),
+    tag: latest.tag_name,
+    pub_date: latest.published_at,
+    notes: latest.body,
+    assets: latest.assets.map((a) => ({
+      name: a.name,
+      url: a.browser_download_url,
+      size: a.size,
+      kind: classifyClipsAsset(a.name),
+    })),
+  };
+}
+
+function refreshManifest(
+  channel: ClipsReleaseChannel,
+): Promise<DownloadManifest> {
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
+    try {
+      const data = await buildManifest(channel);
+      cache.set(channel, { data, ts: Date.now() });
+      retryAfter.delete(channel);
+      return data;
+    } catch (error) {
+      retryAfter.set(channel, Date.now() + CACHE_RETRY_BACKOFF_MS);
+      throw error;
+    }
+  })();
+  inFlight.set(
+    channel,
+    request.finally(() => {
+      inFlight.delete(channel);
+    }),
+  );
+  return inFlight.get(channel)!;
+}
+
+function refreshInBackground(
+  channel: ClipsReleaseChannel,
+  waitUntil?: WaitUntil,
+): void {
+  const refresh = refreshManifest(channel).catch(() => undefined);
+  if (waitUntil) {
+    waitUntil(refresh);
+  } else {
+    void refresh;
+  }
+}
+
+async function getManifest(
+  channel: ClipsReleaseChannel = "production",
+  waitUntil?: WaitUntil,
+): Promise<DownloadManifest> {
+  const now = Date.now();
+  const cached = cache.get(channel);
+  if (cached) {
+    if (
+      now - cached.ts >= CACHE_TTL_MS &&
+      now >= (retryAfter.get(channel) ?? 0)
+    ) {
+      refreshInBackground(channel, waitUntil);
+    }
+    return cached.data;
+  }
+  return refreshManifest(channel);
+}
+
+export const __clipsLatestTest = {
+  getManifest,
+  reset() {
+    cache.clear();
+    inFlight.clear();
+    retryAfter.clear();
+  },
+};
+
+export function normalizeClipsReleaseChannel(
+  value: unknown,
+): ClipsReleaseChannel {
+  return value === "nightly" ? "nightly" : "production";
+}
+
+export default defineEventHandler(async (event) => {
+  const channel = normalizeClipsReleaseChannel(getQuery(event).channel);
+  let manifest: DownloadManifest;
+  try {
+    const waitUntil =
+      typeof event.waitUntil === "function"
+        ? (promise: Promise<unknown>) => event.waitUntil(promise)
+        : undefined;
+    manifest = await getManifest(channel, waitUntil);
+  } catch (err) {
+    const e = err as {
+      statusCode?: number;
+      statusMessage?: string;
+      message?: string;
+    };
+    const status = typeof e.statusCode === "number" ? e.statusCode : 502;
+    const msg =
+      e.statusMessage ?? e.message ?? "Upstream releases fetch failed";
+    throw createError({ statusCode: status, statusMessage: msg });
+  }
+  setResponseHeaders(event, {
+    "content-type": "application/json; charset=utf-8",
+    ...CLIPS_RELEASE_CACHE_HEADERS,
+  });
+  return manifest;
+});

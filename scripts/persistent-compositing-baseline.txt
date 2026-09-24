@@ -1,0 +1,6 @@
+# guard:persistent-compositing baseline
+#
+# Pre-existing compositing promotions on long-lived surfaces. Each line is
+# <path>\t<rule>\t<normalized snippet>. Shrink this file; do not grow it.
+# Regenerate: UPDATE_PERSISTENT_COMPOSITING_BASELINE=1 pnpm guard:persistent-compositing
+packages/core/src/client/chat-view-transition.ts	view-transition-name	viewTransitionName: AGENT_CHAT_VIEW_TRANSITION_NAME,

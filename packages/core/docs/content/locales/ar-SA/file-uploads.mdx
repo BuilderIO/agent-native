@@ -1,0 +1,263 @@
+---
+title: "تحميل الملفات"
+description: "قم بتكوين تخزين دائم لتحميل الملفات باستخدام Builder.io أو موفر تخزين كائنات مخصص للإنتاج."
+---
+
+# تحميل الملفات
+
+يوفر إطار العمل تجريدًا لتحميل الملفات يقوم بتوجيه التحميلات عبر موفر قابل للتكوين. تستدعي القوالب `uploadFile()` وتستعيد رابط URL. يمكن استبدال واجهة التخزين الخلفية دون تغيير رمز التطبيق.
+
+## كيفية العمل {#how-it-works}
+
+تنتقل طلبات التحميل إلى `POST /_agent-native/file-upload`، التي ترسلها إلى الموفر النشط. يمكنك التحقق من الموفر المُكوَّن حاليًا عبر `GET /_agent-native/file-upload/status`.
+
+ترتيب حل الموفر هو:
+
+1. **الموفرون المسجلون بواسطة المستخدم**: موفرون مخصصون مسجلون عبر `registerFileUploadProvider()`.
+2. **موفر Builder.io**: مدمج، ويتم تنشيطه تلقائيًا عند اتصال Builder.io.
+3. **بدون موفر**: يُرفض التحميل، وتعرض المحادثة دعوة لإعداد التخزين. لا يتم تخزين البيانات الثنائية في SQL أبدًا.
+
+من بين الموفرين المسجلين بواسطة المستخدم، يفوز أول موفر مسجَّل يُبلغ عن كونه مُكوَّنًا. تعمل `registerFileUploadProvider()` بشكل ثابت (idempotent) لكل `id`. تسجيل موفر تحت `id` مستخدم بالفعل يستبدل الموفر الحالي.
+
+تقرر واجهة المستخدم ما إذا كانت ستعرض مطالبة إعداد التخزين باستخدام فحص `isConfigured()` المتزامن فقط، وذلك قبل محاولة أي تحميل. أما التحميل الفعلي فيتحقق من كل من `isConfigured()` و`isConfiguredForRequest()`. الموفر الذي يُبلغ عن كونه مُكوَّنًا فقط عبر `isConfiguredForRequest()` يبقى غير مرئي لمطالبة الإعداد، رغم أن التحميلات من خلاله ستنجح.
+
+<Diagram id="doc-block-hq5uvx" title="ترتيب حل الموفر" summary="يختار uploadFile() أول موفر مُكوَّن حسب الترتيب. بدون موفر، يفشل التحميل بأمان، لذا لا يتم تخزين البيانات الثنائية في SQL أبدًا.">
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        مسجل من المستخدم<br /><small class="diagram-muted"
+          >registerFileUploadProvider() لـ S3 وR2 وGCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >تلقائي عند الاتصال، يُقدَّم عبر CDN</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        بدون موفر<br /><small class="diagram-muted"
+          >دعوة لإعداد التخزين، ولا تخزين للبيانات الثنائية</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-4os0mo" title="نقطة نهاية التحميل" method="POST" path="/_agent-native/file-upload" summary="قم بتحميل ملف عبر الموفر النشط واسترجع رابط URL عامًا." request={{
+  "contentType": "multipart/form-data"
+}} responses={[
+  {
+    "status": "201",
+    "description": "`{ url, id?, provider }`: الرابط العام والموفر الذي تعامل مع الطلب."
+  },
+  {
+    "status": "401",
+    "description": "لا توجد جلسة مصادقة."
+  },
+  {
+    "status": "413",
+    "description": "يتجاوز حجم الملف الحد الأقصى للتحميل البالغ 25 ميجابايت."
+  },
+  {
+    "status": "415",
+    "description": "نوع MIME محظور، مثل ملف تنفيذي أو نص برمجي."
+  },
+  {
+    "status": "503",
+    "description": "لم يتم تكوين أي موفر لتحميل الملفات."
+  }
+]}>
+
+يرسل الطلب إلى أول موفر مُكوَّن حسب ترتيب الحل. تحقق من الموفر النشط عبر `GET /_agent-native/file-upload/status`.
+
+</Endpoint>
+
+## التخزين مطلوب للتحميلات الدائمة {#storage-required}
+
+عند عدم تكوين أي موفر، تُعيد `uploadFile()` القيمة `null` ويُعيد مسار multipart الرمز `503`. تبقى مرفقات المحادثة متاحة فقط للطلب الحالي، ويتلقى الوكيل تلميحًا لإعداد التخزين، ويخزن السجل علامة إعداد بدلاً من الحمولة الثنائية. يحافظ هذا السلوك الآمن عند الفشل على صغر حجم SQL ويجعل الإعداد الناقص ظاهرًا.
+
+## استضافة Builder.io {#builder-hosting}
+
+عندما يكون تطبيقك متصلاً بـ Builder.io، يتم توجيه تحميلات الملفات تلقائيًا إلى استضافة أصول Builder. تتضمن الخطة المجانية من Builder.io هذا التخزين المُدار. تُقدَّم الملفات من CDN دون الحاجة إلى أي تكوين، ويُخزَّن الرابط الدائم في سجل المحادثة حتى يمكن إعادة استخدامه في الأدوار اللاحقة. هذا هو إعداد الإنتاج الموصى به.
+
+## موفرو الخدمة المخصصون {#custom-providers}
+
+يشحن إطار العمل بالفعل موفرًا مدمجًا للتخزين المتوافق مع S3
+(مثل AWS S3، وCloudflare R2، وMinIO، وما شابه). قم بتوصيله عبر متغيرات
+البيئة أو من خلال قائمة الإعداد الجانبية. لا حاجة لأي رمز.
+راجع [الإعداد](/docs/onboarding).
+
+سجّل موفرًا مخصصًا فقط لنوع مختلف من الواجهة الخلفية. يقوم هذا
+المثال بالتحميل عبر واجهة HTTP عامة باستخدام `fetch()`:
+
+```ts filename="server/plugins/file-upload.ts"
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
+    upload: async ({ data, filename, mimeType }) => {
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
+    },
+  });
+});
+```
+
+استخدم `resolveSecret()` من `@agent-native/core/server` بدلاً من متغير
+بيئة عندما يحتاج الموفر إلى بيانات اعتماد حقيقية، مثل مفتاح API.
+راجع [الأمان — إدارة الأسرار](/docs/security#secrets).
+
+## تحميل API {#upload-api}
+
+واجهة `FileUploadProvider`:
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+استخدم `uploadFile()` من `@agent-native/core/file-upload` في actions أو رمز الخادم:
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it. result.url is the public URL.
+} else {
+  // No provider configured. Show the storage setup CTA, or skip.
+}
+```
+
+## التحميلات القابلة للاستئناف / المتدفقة {#resumable}
+
+يمكن لأي موفر أن ينفذ اختياريًا كتلة `resumable` على `FileUploadProvider` للتحميلات التي تحتاج إلى التدفق نحو التخزين فور وصول البيانات، بدلاً من تخزين الملف كاملاً في الذاكرة المؤقتة أولاً. يستخدم قالب Clips هذا لنقل تسجيل إلى التخزين قطعة تلو الأخرى أثناء استمرار التسجيل، بدلاً من تجميع الكتلة الكاملة بعد توقف المسجل.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+عند وجود `resumable`، تستدعي الجهات المستدعية التي تُدفّق البيانات (مثل المسجل) الدالة `startSession` مرة واحدة، ثم `relayChunk` بشكل متكرر مع وصول البايتات، وأخيرًا `completeSession` عند انتهاء التدفق. يحل هذا محل الاستدعاء الفردي المؤقت لـ `upload()`. الموفر الذي لا يحتوي على كتلة `resumable` يرى فقط المسار المؤقت. نفّذه فقط عندما تمتلك واجهة التخزين الخاصة بك واجهة برمجة تحميل مجزأة/قابلة للاستئناف أصلية (مثل S3 multipart أو GCS resumable uploads) تستحق العرض.
+
+## ما التالي
+
+- [**قاعدة البيانات**](/docs/server-database) — نمط `getDb()`/المخطط لتخزين الرابط الذي تُعيده `uploadFile()`
+- [**الأمان — إدارة الأسرار**](/docs/security#secrets) — كيف تقوم `resolveSecret()` وخزنة بيانات الاعتماد بتشفير مفاتيح الموفر أثناء التخزين
+- [**الإعداد**](/docs/onboarding) — تسجيل خطوة إعداد لموفر مخصص في قائمة التحقق الجانبية

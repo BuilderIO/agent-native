@@ -1,0 +1,12 @@
+build
+.output/
+
+.generated/
+
+.vercel/
+
+# Copied from @mediapipe/tasks-vision at build/dev start by vite.config.ts.
+# The segmentation model alongside it (public/mediapipe/*.tflite) is vendored.
+public/mediapipe/wasm/
+
+data/*.lock

@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "noCheck": true,
+    "strict": false,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo"
+  },
+  "include": ["src/cli/**/*.ts", "src/testing.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/templates",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.e2e-host.tsx"
+  ]
+}

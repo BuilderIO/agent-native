@@ -1,0 +1,91 @@
+---
+title: "幻灯片"
+description: "一款开源的演示文稿编辑器，用来取代 Google Slides、Pitch 和 PowerPoint。根据提示生成演示文稿，进行可视化编辑，并全屏演示，导入导出、设计系统和实时协作全部内置其中。"
+---
+
+# 幻灯片
+
+幻灯片是一款由代理驱动的演示文稿编辑器。向代理请求一份演示文稿，它就会根据提示生成一份，边构建边将幻灯片流式传输到编辑器中，之后无论您是用简单易懂的语言描述，还是点击操作，它都能随时编辑、重新设计样式或导出这份演示文稿。它用一个应用取代了 Google Slides、Pitch 和 PowerPoint，让生成、编辑、演示和导出演示文稿不再是需要在多个工具之间切换才能完成的事。
+
+<Cards columns={1}>
+
+### [立即试用 →](https://slides.agent-native.com)
+
+查看幻灯片实际运行的效果，并生成一份真实的演示文稿。
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9815f38535264c09985a25a2accd3ea3?alt=media&token=9d3a37f9-fd8a-43bd-852a-760b304ec488&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="幻灯片应用的简要导览。"
+  caption="幻灯片应用的简要导览。"
+  autoplay={true}
+  loop={true}
+/>
+
+## 它取代了什么
+
+<Comparison>
+
+### 之前
+
+- 用于构建演示文稿本身的 Google Slides、Pitch 或 PowerPoint
+- 仅为了继续编辑和演示就需要按席位付费的订阅
+- 手动将品牌颜色、字体和徽标复制粘贴到每一份新的演示文稿中
+- 为了与使用不同工具的人共享演示文稿，需要手动转换文件
+
+### 之后
+
+- 一个编辑器：在同一份演示文稿中完成根据提示生成、可视化编辑和演示
+- 端到端拥有整套技术栈，无需订阅
+- 保存的设计系统会自动将您的品牌应用到每一份新的演示文稿上
+- 随时导入 PPTX、DOCX、PDF 或 Google Docs，并导出回 PPTX、Google Slides 或 HTML
+
+</Comparison>
+
+## 多应用工作区中的幻灯片
+
+如果您在 [Dispatch](/docs/template-dispatch) 下将幻灯片与其他应用一起运行，一份演示文稿就不再只是一个可以手动打开的页面。代理可以将一份演示文稿提交到其他应用也能复用的 Library 中，或者用回答您聊天请求时同样的方式，回答来自同级应用的一条简单易懂的请求。有关这种连接实际如何运作及其背后真实机制的说明，请参阅[多应用工作区中的幻灯片](/docs/template-slides-integrations)。
+
+## 你可以用它做什么
+
+- **根据提示生成演示文稿。**“为一家咖啡订阅服务生成一份 10 页的推介演示文稿，受众是投资者。” 参见[功能](/docs/template-slides-features)。
+- **直观地编辑幻灯片。**双击文本即可编辑，点击某个块调出气泡菜单，使用 `/` 呼出斜线菜单来插入块。参见[功能](/docs/template-slides-features)。
+- **全屏演示**，添加评论，进行实时协作，并将演示文稿与特定队友共享或公开分享。参见[功能](/docs/template-slides-features)。
+- **引入现有内容。**导入 PPTX、DOCX、PDF 或 Google Doc 作为起点。导出为 PPTX、Google Slides 或独立的 HTML 文件。参见[功能](/docs/template-slides-features)。
+- **应用基于您品牌构建的设计系统。**一次性保存颜色、字体和徽标，并在每一份新的演示文稿中复用它们。可以从一个 Figma 文件、一个已连接的代码库或一个网站来搭建设计系统。参见[功能](/docs/template-slides-features)。
+- **恢复早期版本。**每一次更改都会被快照记录。您可以列出或恢复任何先前的版本。参见[功能](/docs/template-slides-features)。
+
+## 开始使用
+
+当您打开应用时：
+
+1. 点击**新建演示文稿**。
+2. 询问代理：“为一家咖啡订阅服务生成一份 10 页的推介演示文稿，受众是投资者。”
+3. 观看幻灯片逐一流入。点击任意一张幻灯片进行编辑，或不断要求代理继续优化。选中文本后点击气泡菜单中的**用 AI 修订**，即可把这段选中内容准确地交给代理处理。
+
+### 有用的提示
+
+- “为一家咖啡订阅服务生成一份 10 页的推介演示文稿，受众是投资者。”
+- “在第 3 张幻灯片之后添加一张定价幻灯片。”
+- “把这张幻灯片上的标题放大，并将强调色改成绿色。”
+- “把这份 PDF 总结成一份 6 页的演示文稿。”（附上该 PDF）
+
+要搭建您自己的幻灯片副本：
+
+```bash
+npx --yes @agent-native/core@latest create my-slides --standalone --template slides
+```
+
+剩余的搭建步骤（`cd`、`pnpm install`、`pnpm dev`）以及框架基础知识，请参阅[快速入门](/docs/getting-started)。
+
+## 接下来
+
+- [**功能**](/docs/template-slides-features) — 提示、可视化编辑、演示、评论、共享、版本历史、设计系统以及导入导出
+- [**与 Agent 对话**](/docs/template-slides-agent) — 代理能看到什么，以及按任务分类的提示
+- [**多应用工作区中的幻灯片**](/docs/template-slides-integrations) — 集成策略以及与 Dispatch 的连接
+- [**开发者指南**](/docs/template-slides-developers) — 数据模型、action 清单、路由，以及如何扩展该模板
+- [**模板**](/docs/cloneable-saas) — 可克隆 SaaS 模型，以及所有可作为起点的其他领域模板
+- [**快速入门**](/docs/getting-started) — 框架基础：actions、应用状态和实时同步
+- [**实时协作**](/docs/real-time-collaboration) — 演示文稿与其他协作界面共用的 Yjs 流水线
+- [**共享**](/docs/sharing) — 演示文稿和设计系统所依托的共享授权模型

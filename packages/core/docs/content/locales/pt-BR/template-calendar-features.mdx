@@ -1,0 +1,293 @@
+---
+title: "Calendário: Funcionalidades"
+description: "Todas as funcionalidades essenciais do Calendário, incluindo visualizações, disponibilidade, busca de horários e links de reserva, com passos de configuração para cada uma."
+---
+
+# Funcionalidades
+
+Todas as funcionalidades essenciais do Calendário: como funcionam e como
+configurá-las. Veja [Calendário](/docs/template-calendar) para a visão geral
+e [Conversar com o Agent](/docs/template-calendar-agent) para a lista
+completa de prompts.
+
+## Visualizações do calendário
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd033f1071872452687ea570ed2ab6da3?alt=media&token=c6318aee-94cc-4898-be16-32b8fbf4fb2f&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Um breve tour pela visualização do calendário."
+  caption="Um tour pela visualização do calendário, incluindo como ver o calendário de outra pessoa e adicionar eventos."
+  autoplay={true}
+  loop={true}
+/>
+
+Alterne entre as visualizações de dia, semana e mês na barra de ferramentas.
+Todas as visualizações leem diretamente do seu Google Calendar real e
+conectado. Nada é armazenado em cache ou sintético.
+
+- **Várias contas** aparecem na mesma grade, com cores diferentes, se você
+  conectar mais de uma conta do Google (trabalho + pessoal).
+- **Feeds ICS/`webcal://` somente leitura** cobrem coisas como feriados da
+  empresa, a programação de uma conferência ou o calendário público de um
+  colega. Eles se misturam na mesma visualização com sua própria cor, embora
+  você não possa editar eventos que vêm de um feed.
+- **Sobreponha o calendário de um colega** para que os eventos dele apareçam
+  junto com os seus, cada um em sua própria cor. Isso ajuda quando um gestor
+  precisa verificar a agenda de um subordinado direto.
+- **Fusos horários dos participantes** mostram o horário local de início de
+  um convidado quando o Google informa isso, ou a partir de uma substituição
+  salva por convidado quando não informa.
+- **Locais de trabalho** (casa, escritório, outro lugar) aparecem como um
+  status real, não como um evento genérico de dia inteiro, e nunca bloqueiam
+  sua disponibilidade. **Eventos recorrentes** são suportados de ponta a
+  ponta. Edite uma única ocorrência ou toda a série.
+
+<Callout tone="warning">
+
+Se parte da sua programação não carregar, seja porque o token de uma conta
+expirou ou porque a URL de um feed expirou por tempo, o aplicativo informa
+qual fonte falhou em vez de simplesmente mostrar um dia vazio. Um calendário
+vazio e uma conexão quebrada têm aparências diferentes de propósito, para
+que você nunca confunda "nada carregou" com "nada agendado".
+
+</Callout>
+
+<Steps>
+
+### Conecte seu calendário
+
+Abra **Configurações**, clique em **Conectar Google Calendar** e aprove.
+Conecte mais contas da mesma forma se quiser sobrepor pessoal e trabalho.
+
+### Assine um feed somente leitura
+
+Em **Configurações → Calendários externos**, cole uma URL ICS ou
+`webcal://`.
+
+### Sobreponha o calendário de um colega
+
+Peça ao agente para "Adicionar o calendário da Priya à minha visualização
+em azul", ou adicione-a em **Configurações → Overlays**.
+
+</Steps>
+
+## Encontrando horários
+
+Peça ao agente para encontrar um horário e ele verifica sua disponibilidade
+e seus eventos reais do Google Calendar. Quando você menciona outras
+pessoas, ele também verifica o status de livre/ocupado delas, e então
+propõe horários concretos. Depois que você escolhe um, o agente o reserva
+diretamente no Google Calendar.
+
+Quando você está agendando com alguém novo, busque por nome ou e-mail em vez
+de digitar um endereço exato. O Calendário busca nos seus Contatos do Google
+e no diretório do Workspace, então você pode perguntar "quem é a Dana na
+Acme" ou "encontre pessoas chamadas Priya" e obter correspondências reais
+para escolher.
+
+<Diagram id="doc-block-calendar3" title="Da disponibilidade a um evento reservado" summary="O agente combina suas regras de disponibilidade, seus eventos existentes e (quando mencionados) a disponibilidade livre/ocupada de outros participantes antes de propor horários.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Sua disponibilidade<br /><small class="diagram-muted"
+        >horário semanal, buffer, aviso prévio</small
+      >
+    </div>
+    <div class="diagram-box">
+      Eventos existentes<br /><small class="diagram-muted"
+        >Google Calendar, em tempo real</small
+      >
+    </div>
+    <div class="diagram-box">
+      Disponibilidade dos participantes<br /><small class="diagram-muted"
+        >quando você menciona pessoas</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Encontrar um horário</span
+    ><small class="diagram-muted">horários candidatos</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Você escolhe um</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Evento criado no Google Calendar</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<Steps>
+
+### Peça um horário
+
+"Encontre um horário de 1 hora na próxima semana com o Sam e a Priya."
+
+### Escolha um
+
+O agente propõe horários concretos. Escolha um no chat, ou entre as opções
+sugeridas na interface.
+
+### Está reservado
+
+O agente cria o evento diretamente no Google Calendar e ele aparece na sua
+visualização imediatamente.
+
+</Steps>
+
+## Links de reserva
+
+Links de reserva são páginas públicas onde qualquer pessoa pode escolher um
+horário e reservá-lo diretamente no seu calendário. Essa é a parte do
+Calendário no estilo Calendly: configure tipos de reunião, a disponibilidade
+da qual eles se baseiam, e acompanhe quem faz as reservas.
+
+### Tipos de reunião
+
+Um tipo de reunião é um link de reserva específico, como "introdução de 15
+min" ou "demo de 30 min", cada um com sua própria duração, campos e escolha
+de conferência.
+
+<Steps>
+
+### Crie um tipo de reunião
+
+Dê a ele um título e uma duração (como "introdução de 15 min" com 15
+minutos), depois peça ao agente ou clique em **Novo link de reserva**.
+
+### Adicione opções
+
+Defina durações alternativas para que um visitante possa escolher 15, 30 ou
+60 minutos no mesmo link, campos personalizados para coletar um nome de
+empresa ou tópico, uma escolha de conferência (Google Meet, Zoom ou um link
+personalizado), uma cor e co-hosts obrigatórios, outras pessoas que também
+precisam estar livres antes que um horário seja oferecido. Quando alguém faz
+uma reserva, todos (você e seus co-hosts) são convidados para o evento
+resultante no Google Calendar.
+
+### Conecte o Zoom (opcional)
+
+O Google Meet não precisa de configuração. Ele é adicionado da mesma forma
+que qualquer convite do Google Calendar recebe um link do Meet. Para o Zoom,
+conecte sua conta uma vez em **Configurações**. Depois disso, qualquer tipo
+de reunião configurado para Zoom cria uma reunião real no Zoom para cada
+nova reserva e anexa o link de acesso à confirmação.
+
+### Compartilhe
+
+Compartilhe a URL pública onde quiser. Conceda a um colega de equipe acesso
+de visualizador/editor/administrador no menu **Compartilhar** do link, se
+ele também deve ajudar a gerenciá-lo. Isso é separado do acesso público de
+reserva, que qualquer pessoa com a URL sempre tem enquanto o link estiver
+ativo.
+
+</Steps>
+
+Todo tipo de reunião tem uma URL pública em `/book/{your-booking-name}/{slug}`,
+por exemplo `/book/steve/30min`. Seu nome de reserva é gerado automaticamente
+a partir do seu e-mail na primeira vez que você cria um link, e você pode
+alterá-lo depois em Configurações (até três vezes a cada 30 dias, já que ele
+faz parte de todo link público que você compartilhou).
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3dda132ad91b44dfa11c9d4e4b9e1b79?alt=media&token=b25577a1-ef91-48f8-a474-e5a39b246c25&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Vídeo mostrando como criar um novo tipo de reunião de reserva."
+  caption="Vídeo mostrando como criar um novo tipo de reunião de reserva."
+  autoplay={true}
+  loop={true}
+/>
+
+- **Renomear um tipo de reunião**: altere o slug da URL a qualquer momento,
+  por exemplo, de `/book/steve/into-call` para `/book/steve/intro`. A URL
+  antiga continua funcionando: visitantes que ainda a têm são redirecionados
+  automaticamente para a nova, então nada que você já compartilhou é
+  interrompido.
+
+### Disponibilidade
+
+Disponibilidade é uma programação semanal: em quais dias você trabalha e em
+quais horários você está disponível em cada um, além do seu fuso horário.
+Além disso, você pode definir um **buffer** entre reuniões para que reservas
+consecutivas não aconteçam, um **aviso prévio mínimo** para que as pessoas
+não possam reservar você com cinco minutos de antecedência, **quão
+adiantado** as pessoas podem reservar (janela de antecedência) e uma
+**duração padrão** para novos tipos de reunião.
+
+O agente lê a mesma programação que a interface edita, então "defina meu
+horário para 9h-17h nos dias de semana" e arrastar os controles deslizantes
+na aba Disponibilidade produzem o mesmo resultado.
+
+<Steps>
+
+### Defina seu horário semanal
+
+Vá para a aba **Disponibilidade** e ative os dias e horários em que você
+está disponível, por dia se necessário.
+
+### Adicione buffer e aviso prévio
+
+Defina um **buffer** entre reuniões e uma janela de **aviso prévio mínimo**
+para que as pessoas não possam reservar você com cinco minutos de
+antecedência.
+
+### Defina sua janela de antecedência e a duração padrão
+
+Escolha quão adiantado as pessoas podem reservar, e a duração padrão com a
+qual novos tipos de reunião começam.
+
+</Steps>
+
+Ou simplesmente peça ao agente: "Bloqueie as tardes de sexta-feira na minha
+disponibilidade."
+
+### Reservas
+
+Um visitante escolhe um horário disponível a partir da sua disponibilidade
+real, preenche o nome, e-mail e quaisquer campos personalizados que você
+adicionou, e então confirma. Ele recebe uma confirmação com um link privado
+de gerenciamento. Nenhum login é necessário, já que o próprio link é a
+credencial.
+
+- **Gerenciar reservas**: você (o host) vê todas as reservas, passadas e
+  futuras, filtradas por todas, confirmadas ou canceladas, na aba
+  **Reservas**.
+- **Reagendar ou cancelar**: os visitantes usam o link de gerenciamento para
+  mudar para outro horário disponível ou cancelar diretamente, sem precisar
+  de uma conta. Você também pode cancelar uma reserva você mesmo na aba
+  **Reservas**.
+
+Ou peça ao agente: "Mostre as reservas desta semana."
+
+## Próximos passos
+
+- [**Calendário**](/docs/template-calendar) — a visão geral e os passos iniciais
+- [**Conversar com o Agent**](/docs/template-calendar-agent) — todos os prompts por tarefa, estado da aplicação e Extensões
+- [**Uso entre apps**](/docs/template-calendar-integrations) — estratégias de integração e conexão com o Dispatch
+- [**Guia do desenvolvedor**](/docs/template-calendar-developers) — as actions e o modelo de dados por trás dessas funcionalidades
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento sobre o qual os links de reserva são construídos

@@ -1,0 +1,194 @@
+import { TextField } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  IconArrowUpRight,
+  IconExternalLink,
+  IconPlugConnected,
+  IconSearch,
+  IconTopologyRing2,
+} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { appMountedPath } from "../api-path.js";
+import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
+
+type DirectoryProvider = {
+  id: "foundry" | "gemini" | "anthropic";
+  nameKey: string;
+  hintKey: string;
+  protocolKey: string;
+  provider: "a2a" | "anthropic-managed-agents";
+};
+
+const PROVIDERS: readonly DirectoryProvider[] = [
+  {
+    id: "foundry",
+    nameKey: "agentChat.agents.directoryFoundry",
+    hintKey: "agentChat.agents.directoryFoundryHint",
+    protocolKey: "agentChat.agents.directoryA2A",
+    provider: "a2a",
+  },
+  {
+    id: "gemini",
+    nameKey: "agentChat.agents.directoryGemini",
+    hintKey: "agentChat.agents.directoryGeminiHint",
+    protocolKey: "agentChat.agents.directoryA2A",
+    provider: "a2a",
+  },
+  {
+    id: "anthropic",
+    nameKey: "agentChat.agents.directoryAnthropic",
+    hintKey: "agentChat.agents.directoryAnthropicHint",
+    protocolKey: "agentChat.agents.directoryManaged",
+    provider: "anthropic-managed-agents",
+  },
+];
+
+function openAgentConnection(provider?: DirectoryProvider["provider"]) {
+  if (typeof window === "undefined") return;
+  const query = `?connect=${encodeURIComponent(provider ?? "manual")}`;
+  const path = `${appMountedPath(
+    buildSettingsRoute("agent:agents", STANDARD_APP_ROUTES.settings),
+    STANDARD_APP_ROUTES.settings,
+  )}${query}`;
+  window.location.assign(path);
+}
+
+export function AgentDirectorySection() {
+  const t = useT();
+  const orgQuery = useOrg();
+  const canManageSharedAgents =
+    !orgQuery.isLoading &&
+    !orgQuery.isError &&
+    (!orgQuery.data?.orgId ||
+      orgQuery.data.role === "owner" ||
+      orgQuery.data.role === "admin");
+  const [query, setQuery] = useState("");
+  const filteredProviders = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return PROVIDERS;
+    return PROVIDERS.filter((provider) =>
+      [t(provider.nameKey), t(provider.hintKey), t(provider.protocolKey)]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [query, t]);
+
+  return (
+    <div className="w-full space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <TextField
+          value={query}
+          onChange={setQuery}
+          aria-label={t("agentChat.agents.directorySearch")}
+          placeholder={t("agentChat.agents.directorySearch")}
+          leadingContent={<IconSearch size={15} />}
+          className="w-full sm:max-w-sm"
+        />
+        {canManageSharedAgents && (
+          <Button
+            type="button"
+            variant="outline"
+            intent="neutral"
+            emphasis="outline"
+            onClick={() => openAgentConnection()}
+            className="h-9 shrink-0 gap-1.5"
+          >
+            <IconPlugConnected size={15} />
+            {t("agentChat.agents.directoryManual")}
+          </Button>
+        )}
+      </div>
+
+      <section
+        className="space-y-3"
+        aria-labelledby="agent-directory-providers"
+      >
+        <h2
+          id="agent-directory-providers"
+          className="text-sm font-medium text-foreground"
+        >
+          {t("agentChat.agents.directoryProviders")}
+        </h2>
+        {filteredProviders.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            {filteredProviders.map((provider) => (
+              <article
+                key={provider.id}
+                className="flex min-h-36 flex-col justify-between rounded-lg border border-border bg-card p-4"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="flex size-8 items-center justify-center rounded-md bg-accent/60 text-foreground">
+                        <IconTopologyRing2 size={17} />
+                      </span>
+                      <h3 className="text-sm font-medium text-foreground">
+                        {t(provider.nameKey)}
+                      </h3>
+                    </div>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {t(provider.protocolKey)}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t(provider.hintKey)}
+                  </p>
+                </div>
+                {canManageSharedAgents && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    intent="neutral"
+                    onClick={() => openAgentConnection(provider.provider)}
+                    className="mt-4 h-8 justify-between px-2 text-xs"
+                  >
+                    {t("agentChat.common.connect")}
+                    <IconArrowUpRight size={14} />
+                  </Button>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            {t("agentChat.agents.directoryNoMatches")}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex size-8 items-center justify-center rounded-md bg-accent/60 text-foreground">
+              <IconTopologyRing2 size={17} />
+            </span>
+            <div className="space-y-1">
+              <h2 className="text-sm font-medium text-foreground">
+                {t("agentChat.agents.directoryRegistry")}
+              </h2>
+              <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                {t("agentChat.agents.directoryRegistryHint")}
+              </p>
+            </div>
+          </div>
+          <a
+            href="https://www.a2a-registry.org"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
+          >
+            {t("agentChat.agents.directoryBrowse")}
+            <IconExternalLink size={14} />
+          </a>
+        </div>
+      </section>
+    </div>
+  );
+}

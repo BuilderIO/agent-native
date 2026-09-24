@@ -1,0 +1,190 @@
+import type {
+  ContentDatabaseBodyHydration,
+  ContentDatabaseBodyHydrationSummary,
+  ContentDatabaseItem,
+  Document,
+} from "@shared/api";
+
+export function builderBodyHydrationIsPending(
+  hydration: ContentDatabaseBodyHydration | null | undefined,
+) {
+  return (
+    !!hydration &&
+    (hydration.status === "pending" || hydration.status === "hydrating")
+  );
+}
+
+export function builderBodyHydrationIsTerminalError(
+  hydration: ContentDatabaseBodyHydration | null | undefined,
+) {
+  return hydration?.status === "error";
+}
+
+export function builderBodyHydrationDisplayHydratedCount(args: {
+  summary: ContentDatabaseBodyHydrationSummary;
+  highWaterCount?: number | null;
+}) {
+  const total = Math.max(0, args.summary.total);
+  const unresolved = Math.max(
+    0,
+    args.summary.pending + args.summary.hydrating + args.summary.error,
+  );
+  const maxResolved = Math.max(0, total - unresolved);
+  return Math.min(
+    Math.max(args.summary.hydrated, args.highWaterCount ?? 0),
+    unresolved > 0 ? maxResolved : total,
+  );
+}
+
+export function databaseItemBodyHydrationIsPending(
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
+) {
+  const hydration =
+    item.bodyHydration ?? item.document.databaseMembership?.bodyHydration;
+  if (
+    sourceBackedEmptyBodyNeedsHydration({
+      sourceId: item.document.databaseMembership?.sourceId,
+      content: item.document.content,
+      hydration,
+    })
+  ) {
+    return true;
+  }
+  return builderBodyHydrationIsPending(hydration);
+}
+
+export function documentBodyHydrationIsPending(
+  document: Pick<Document, "content" | "bodyHydration">,
+) {
+  const hydration = document.bodyHydration?.hydration;
+  if (
+    sourceBackedEmptyBodyNeedsHydration({
+      sourceId: document.bodyHydration ? "source-backed" : undefined,
+      content: document.content,
+      hydration,
+    })
+  ) {
+    return true;
+  }
+  return builderBodyHydrationIsPending(hydration);
+}
+
+export function newDocumentPageChoiceIsDisabled(args: {
+  canEdit: boolean;
+  bodyHydrationPending: boolean;
+  databaseCreationPending: boolean;
+}) {
+  return (
+    !args.canEdit || args.bodyHydrationPending || args.databaseCreationPending
+  );
+}
+
+export function previewBodyHydrationIsPending(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document:
+    | Pick<Document, "content" | "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
+}) {
+  const membership =
+    args.document?.databaseMembership ?? args.item.document.databaseMembership;
+  if (
+    membership?.sourceId &&
+    !args.document &&
+    !args.item.bodyHydration &&
+    !args.item.document.databaseMembership?.bodyHydration
+  ) {
+    return true;
+  }
+  return (
+    databaseItemBodyHydrationIsPending(args.item) ||
+    (args.document ? documentBodyHydrationIsPending(args.document) : false)
+  );
+}
+
+/**
+ * A draft that began from an empty source snapshot must not automatically
+ * replace a non-empty Builder body that arrived while hydration was running.
+ * Keep the draft dirty/recoverable and let the user decide which body to keep.
+ */
+export function previewDraftConflictsWithHydratedBody(args: {
+  loadedContent: string | null | undefined;
+  loadedUpdatedAt: string | null | undefined;
+  loadedContentWasEmpty: boolean | undefined;
+  pendingContent: string | null | undefined;
+  hydratedContent: string | null | undefined;
+  hydratedUpdatedAt: string | null | undefined;
+}) {
+  const sourceChangedSinceDraftLoaded =
+    (!!args.loadedUpdatedAt &&
+      !!args.hydratedUpdatedAt &&
+      args.loadedUpdatedAt !== args.hydratedUpdatedAt) ||
+    args.loadedContent !== args.hydratedContent;
+  return (
+    !isEffectivelyEmptyDocumentContent(args.pendingContent) &&
+    args.pendingContent !== args.hydratedContent &&
+    sourceChangedSinceDraftLoaded &&
+    (args.loadedContentWasEmpty === true ||
+      args.loadedContent !== args.hydratedContent)
+  );
+}
+
+export function previewBodyHydrationIsTerminalError(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document:
+    | Pick<Document, "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
+}) {
+  return Boolean(previewBodyHydrationTerminalError(args));
+}
+
+export function previewBodyHydrationTerminalError(args: {
+  item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
+  document:
+    | Pick<Document, "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
+}) {
+  const documentHydration = args.document?.bodyHydration?.hydration;
+  if (builderBodyHydrationIsTerminalError(documentHydration)) {
+    return documentHydration;
+  }
+  const itemHydration =
+    args.item.bodyHydration ??
+    args.item.document.databaseMembership?.bodyHydration;
+  return builderBodyHydrationIsTerminalError(itemHydration)
+    ? itemHydration
+    : null;
+}
+
+export function isEffectivelyEmptyDocumentContent(
+  content: string | null | undefined,
+) {
+  const normalized = (content ?? "").trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+function sourceBackedEmptyBodyNeedsHydration(args: {
+  sourceId: string | null | undefined;
+  content: string | null | undefined;
+  hydration: ContentDatabaseBodyHydration | null | undefined;
+}) {
+  if (!args.sourceId || !isEffectivelyEmptyDocumentContent(args.content)) {
+    return false;
+  }
+  if (!args.hydration) return true;
+  if (builderBodyHydrationIsPending(args.hydration)) return true;
+  if (args.hydration.status === "error") return false;
+  return args.hydration.status === "hydrated" && !args.hydration.version;
+}
+
+export function shouldIgnorePreviewEmptyNormalization(args: {
+  currentContent: string | null | undefined;
+  nextContent: string | null | undefined;
+}) {
+  return (
+    isEffectivelyEmptyDocumentContent(args.currentContent) &&
+    isEffectivelyEmptyDocumentContent(args.nextContent)
+  );
+}

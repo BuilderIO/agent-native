@@ -1,0 +1,199 @@
+---
+title: "Routes"
+description: "Routes serveur Nitro basées sur des fichiers, le catch-all SSR, les conventions de nommage, et le cadrage des routes personnalisées à l'utilisateur authentifié."
+---
+
+# Routes
+
+Le routage serveur dans une application native d'agent est réparti sur deux surfaces.
+
+**Les routes du framework** sous `/_agent-native/*` sont gérées par le framework. Elles exposent la boucle de chat de l'agent, le polling de synchronisation, les points de terminaison d'action, et d'autres capacités centrales. Vous ne créez ni ne modifiez ces routes.
+
+**Les routes de fichiers personnalisées** dans `server/routes/` sont l'endroit où vous ajoutez vos propres points de terminaison. Nitro les prend en charge automatiquement selon leur emplacement dans l'arborescence des répertoires — aucun enregistrement ni configuration n'est nécessaire. Le nom de fichier définit la méthode HTTP, le chemin du répertoire devient le chemin d'URL, et chaque fichier exporte un unique gestionnaire.
+
+## Routes montées par le framework {#framework-routes}
+
+Le framework réserve l'espace de noms `/_agent-native/` à ses propres points de terminaison. Ne placez jamais de routes personnalisées ici. Ce tableau est représentatif, pas exhaustif.
+
+| Préfixe de route                 | Objectif                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Points de terminaison HTTP des actions                                                       |
+| `/_agent-native/agent-chat`      | Boucle de chat de l'agent                                                                    |
+| `/_agent-native/poll`            | Synchronisation de l'UI appuyée sur SQL                                                      |
+| `/_agent-native/runs`            | Primitive de progression. Le `RunsTray` interroge ce point ; voir [Progress](/docs/progress) |
+| `/_agent-native/resources/*`     | Ressources de l'espace de travail                                                            |
+| `/_agent-native/extensions/*`    | Extensions à l'exécution et proxy d'extension (alias hérité : `/_agent-native/tools/*`)      |
+| `/_agent-native/integrations/*`  | Intégrations de messagerie/webhooks                                                          |
+| `/_agent-native/a2a`             | JSON-RPC agent-à-agent                                                                       |
+| `/mcp`                           | Point de terminaison MCP                                                                     |
+| `/_agent-native/onboarding/*`    | Liste de configuration initiale                                                              |
+| `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                                    |
+| `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléversement de fichiers                             |
+
+Les routes d'application personnalisées vont dans `/api/*` ou un autre chemin qui n'entre pas en collision avec `/_agent-native/`.
+
+## Quand utiliser une route personnalisée {#when-custom-routes}
+
+Les actions couvrent la grande majorité des opérations d'application. Ne recourez à une route de fichier dans `server/routes/` que lorsque vous avez besoin de quelque chose qu'une action ne peut pas exprimer.
+
+<Comparison>
+
+### Utiliser une route personnalisée {#use-custom-route}
+
+- Téléversements de fichiers ou données de formulaire multipart
+- Réponses en streaming ou événements envoyés par le serveur (SSE)
+- Webhooks entrants nécessitant une vérification du corps brut
+- Rappels OAuth
+- Pages publiques non authentifiées
+- Contrats REST externes exigeant un chemin d'URL ou une forme de réponse spécifique
+
+### Utiliser une action à la place {#use-action-instead}
+
+- Opérations dont l'UI et l'agent ont tous deux besoin
+- Lecture ou écriture des données de l'application
+- Points de terminaison en forme HTTP (utilisez l'option `http` dans [Actions](/docs/actions-overview))
+- Tout ce qui devrait être un outil pour l'agent, un outil MCP, ou une commande CLI
+- API de requête/réponse JSON standard
+
+</Comparison>
+
+### Exemple : webhook entrant {#example-webhook}
+
+Les webhooks sont un cas clair pour une route personnalisée. Les services externes envoient un corps HTTP brut qui doit être lu en octets avant l'analyse, afin de pouvoir vérifier la signature de la requête. Les actions reçoivent du JSON déjà analysé et ne peuvent pas accéder au corps brut, ce qui rend la vérification de signature impossible à l'intérieur de l'une d'elles.
+
+La route ci-dessous traite un webhook entrant sur `POST /api/webhooks/events`. Elle lit le corps brut, vérifie une signature HMAC, puis traite la charge utile.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro fait correspondre ce fichier à `POST /api/webhooks/events` automatiquement. La variable d'environnement `WEBHOOK_SECRET` doit être définie avec le secret de signature fourni par le service externe.
+
+## Routes basées sur des fichiers {#file-based-routes}
+
+Le chemin du répertoire devient le chemin d'URL, et le suffixe du nom de fichier définit la méthode HTTP. Un fichier à `server/routes/api/items/[id].get.ts` correspond à `GET /api/items/:id` — `items/` vient du répertoire, `[id]` devient le paramètre `:id`, et `.get` définit la méthode.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> catch-all SSR pour les pages publiques
+```
+
+`defineEventHandler` est la primitive H3 pour écrire une route. Elle enveloppe votre fonction de gestionnaire et lui donne accès à l'objet `event`, qui porte la requête, la réponse, les paramètres du routeur, la chaîne de requête, les en-têtes et le corps. Renvoyer une valeur depuis le gestionnaire l'envoie comme réponse — un objet simple devient automatiquement du JSON. Lever une `createError` envoie le statut d'erreur HTTP approprié.
+
+Les paramètres du routeur comme `[id]` sont lus depuis `event` avec `getRouterParam` :
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### Conventions de nommage {#naming-conventions}
+
+| Chemin de fichier (relatif à `server/routes/`) | Méthode HTTP | Chemin d'URL     |
+| ---------------------------------------------- | ------------ | ---------------- |
+| `api/items/index.get.ts`                       | GET          | `/api/items`     |
+| `api/items/index.post.ts`                      | POST         | `/api/items`     |
+| `api/items/[id].get.ts`                        | GET          | `/api/items/:id` |
+| `api/items/[id].patch.ts`                      | PATCH        | `/api/items/:id` |
+| `api/items/[id].delete.ts`                     | DELETE       | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                   | GET          | `/api/items/*`   |
+
+## Contexte de requête et accès {#request-context}
+
+Les actions montées par le framework s'exécutent automatiquement avec le contexte de requête. Ce n'est pas le cas des routes personnalisées. Si une route personnalisée lit ou écrit des ressources ownable, chargez la session et enveloppez le travail :
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="Cadrer une route personnalisée à l'utilisateur de la requête"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "Les routes personnalisées n'ont pas de contexte automatique",
+      note: "Contrairement aux actions, une route de fichier doit charger elle-même la session et échouer de façon fermée en l'absence d'utilisateur authentifié.",
+    },
+    {
+      lines: "13",
+      label: "Établir le contexte de requête",
+      note: "`runWithRequestContext` rend l'utilisateur/l'organisation disponibles pour les assistants de cadrage pendant la durée du travail.",
+    },
+    {
+      lines: "17-20",
+      label: "Cadrer les lectures ownable",
+      note: "`accessFilter` restreint la requête aux lignes que l'appelant peut voir. N'exécutez jamais ici un `db.select().from(ownableTable)` non cadré.",
+    },
+  ]}
+/>
+
+`getDb` est créé par application via `createGetDb(schema)` dans `server/db/index.ts`, donc les routes personnalisées l'importent depuis le chemin du modèle (`../../db/index.js`), pas depuis `@agent-native/core/db`. Voir [Database](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  N'exécutez pas de `db.select().from(ownableTable)` non cadré dans des routes
+  personnalisées. Établissez toujours le contexte de requête avec
+  `runWithRequestContext` avant d'interroger des données ownable.
+</Callout>
+
+## Catch-all SSR {#ssr-catch-all}
+
+La route `[...page].get.ts` à la racine de `server/routes/` gère le rendu côté serveur pour les pages publiques. Elle utilise `createH3SSRHandler` pour transmettre la main au build de React Router :
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+Chaque réponse SSR est une coquille publique et impersonnelle mise en cache au niveau du CDN. Ne lisez jamais les cookies, l'état de session, ou des branches d'authentification dans ce gestionnaire. La personnalisation se fait côté client après l'hydratation.
+
+## Quelle est la prochaine étape {#whats-next}
+
+- [**Actions**](/docs/actions-overview) : la surface privilégiée pour les opérations d'application ; ne recourez à une route que lorsqu'elle ne convient pas
+- [**Plugins**](/docs/server-plugins) : les plugins de démarrage et leur comportement d'initialisation
+- [**Middleware**](/docs/server-middleware) : les gardes d'authentification qui protègent toutes les routes, y compris `/api/*`
+- [**Security**](/docs/security#access-guards) : `accessFilter`/`assertAccess` et le modèle complet de cadrage des données

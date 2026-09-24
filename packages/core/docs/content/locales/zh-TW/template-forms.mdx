@@ -1,0 +1,133 @@
+---
+title: "表單"
+description: "一款由代理驅動的表單建置器，用一個您自己擁有的應用程式取代 Typeform 和 Google Forms。在聊天中描述您想要的表單，發布一個受保護的連結，然後讓回覆自動完成路由、匯出與摘要。"
+---
+
+# 表單
+
+表單是一款表單建置器，適合任何需要在不寫程式的情況下收集資訊的人使用。可以用於註冊、意見回饋、報名或問卷調查。向代理描述您想要的表單，當您需要更直接的控制時，再以視覺化方式進行微調，然後發布一個任何人都能填寫的連結。
+
+<Cards columns={1}>
+
+### [立即試用 →](https://forms.agent-native.com)
+
+親眼看看表單的實際運作，並發布一份真正的表單。
+
+</Cards>
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70338a3cf0cc402580858a409dd5bd6a?alt=media&token=f2c7c8e9-6cf3-4e03-865d-abc499d87ff6&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="表單應用程式的簡短導覽。"
+  caption="表單應用程式的簡短導覽。"
+  autoplay={true}
+  loop={true}
+/>
+
+每個新工作階段都會開啟**詢問表單**，這是一個您可以描述需求的聊天介面。代理會為您建立表單。之後您隨時可以切換到視覺化編輯器，手動調整欄位、驗證或發布設定。這兩種編輯方式更新的是同一份表單，所以不會有任何內容失去同步。
+
+<Diagram id="doc-block-forms2" title="建置、發布、收集" summary={"代理和視覺化編輯器編輯的是同一份表單。任何人都可以在不登入的情況下開啟公開填寫頁面，新的提交內容會自動傳送到您設定的目的地。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      詢問表單聊天<br /><small class="diagram-muted"
+        >「新增一個 NPS 問題」</small
+      >
+    </div>
+    <div class="diagram-node">
+      視覺化編輯器<br /><small class="diagram-muted">標籤、驗證、順序</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · patch-form-fields</span
+    ><small class="diagram-muted">欄位 JSON，設定 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">透過 Drizzle 使用 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      公開填寫頁面<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 它取代的內容
+
+<Comparison>
+
+### 之前
+
+- Typeform、Google Forms，或自己手動打造用來收集回覆的表單
+- 手動把新提交的內容複製到 Slack 或試算表中
+- 需要另一個工具才能總結收到的回覆
+- 設定 Zapier 自動化，才能把回覆送進 Sheets 或 webhook
+
+### 之後
+
+- 一份表單，代理和視覺化編輯器都會更新它
+- 新回覆一到，就會立即傳送到 Slack、Discord、Sheets 或 webhook
+- 只要開口要求摘要，就能得到圖表、表格，或兩者兼具，不需要另一個工具
+- 條件欄位、垃圾提交防護和匿名模式全都內建在同一個建置器中
+
+</Comparison>
+
+## 表單在多應用工作區中
+
+如果您在[調度](/docs/template-dispatch)之下與其他應用程式一起執行表單，一份表單就不再只是您自己手動開啟的頁面。表單代理可以把屬於其他應用程式的問題轉交出去，其他應用程式也能直接把回覆送進您的表單，就像框架自帶的回饋按鈕一樣。若想了解實際運作方式，請參閱[表單的跨應用使用](/docs/template-forms-integrations)。
+
+## 您可以用它做什麼
+
+- **以對話方式建置表單。** 試試看像是「建立一個聯絡表單」、「新增一個 NPS 分數問題」或「把電子郵件欄位設為必填」這類提示。請參閱[可用的欄位類型](/docs/template-forms-features#field-types)。
+- **視覺化微調。** 當您需要更直接的控制時，可以直接在表單建置器中編輯標籤、預留位置、必填欄位、選項和欄位順序。
+- **發布並保護一份公開表單。** 分享一個公開連結，並在需要時開啟垃圾提交防護或完全匿名回覆。請參閱[功能](/docs/template-forms-features)。
+- **檢視回覆並要求洞察。** 試試看像是「總結這週的提交內容」或「按天繪製提交圖表」這類提示。請參閱[功能](/docs/template-forms-features#response-insights)。
+- **自動路由提交內容。** 貼上 Slack、Discord、Google Sheets 或一般 webhook 網址，新回覆一到就會立即傳送過去。
+
+## 接下來
+
+- [**功能**](/docs/template-forms-features) — 欄位類型、條件邏輯、發布、保護機制、回覆、洞察和路由，並附上各項的設定步驟
+- [**與 Agent 對話**](/docs/template-forms-agent) — 依任務分類的提示，以及代理如何看到您的畫面
+- [**表單的跨應用使用**](/docs/template-forms-integrations) — 委派機制，以及其他應用程式所使用的公開提交端點
+- [**開發者指南**](/docs/template-forms-developers) — 給開發者的 SQL 結構描述、action 參考和路由
+- [**範本**](/docs/cloneable-saas) — 可複製 SaaS 模型
+- [**開始使用**](/docs/getting-started) — 框架基礎：actions、application state 和即時同步
+- [**Actions**](/docs/actions-overview) — 為建置器提供動力的 action 系統
+- [**Messaging**](/docs/messaging) — Slack 和其他提交目的地
+- [**共用**](/docs/sharing) — 表單共用所建立的共用授權模型

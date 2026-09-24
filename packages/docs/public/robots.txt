@@ -1,0 +1,44 @@
+# Agent Web crawler policy
+# Preset: discoverable-no-training
+
+# training: disallow
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: CCBot
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Bytespider
+User-agent: Meta-ExternalAgent
+User-agent: Amazonbot
+Disallow: /
+
+# search: allow
+User-agent: OAI-SearchBot
+User-agent: Claude-SearchBot
+User-agent: PerplexityBot
+User-agent: YouBot
+Allow: /
+
+# userTriggered: allow
+User-agent: ChatGPT-User
+User-agent: Claude-User
+User-agent: Perplexity-User
+Allow: /
+
+# codingAgents: allow
+User-agent: Claude-Code
+User-agent: Gemini-CLI
+User-agent: Devin
+User-agent: OpenHands
+Allow: /
+
+# autonomousAgents: allow
+User-agent: ChatGPT-Agent
+User-agent: Operator
+User-agent: Gemini-Deep-Research
+Allow: /
+
+User-agent: *
+Allow: /
+
+Sitemap: https://www.agent-native.com/sitemap.xml

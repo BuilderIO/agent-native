@@ -1,0 +1,525 @@
+// @vitest-environment happy-dom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  scrollToIndex: vi.fn(),
+  trash: vi.fn(),
+  searchQuery: "",
+  virtualStart: 0,
+  virtualWindowSize: Number.POSITIVE_INFINITY,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  trackEvent: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    getQueryData: vi.fn(),
+    setQueryData: vi.fn(),
+    invalidateQueries: vi.fn(),
+  }),
+}));
+
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () => {
+      const start = Math.min(mocks.virtualStart, count);
+      const end = Math.min(count, start + mocks.virtualWindowSize);
+      return Array.from({ length: end - start }, (_, offset) => {
+        const index = start + offset;
+        return {
+          index,
+          key: `synthetic-row-${index}`,
+          start: index * 48,
+        };
+      });
+    },
+    getTotalSize: () => count * 48,
+    measureElement: vi.fn(),
+    scrollToIndex: (index: number, options?: { align: string }) => {
+      mocks.scrollToIndex(index, options);
+      if (Number.isFinite(mocks.virtualWindowSize)) {
+        mocks.virtualStart = Math.max(
+          0,
+          index - Math.floor(mocks.virtualWindowSize / 2),
+        );
+      }
+    },
+  }),
+}));
+
+vi.mock("react-router", () => ({
+  useNavigate: () => mocks.navigate,
+  useParams: () => ({ view: "all" }),
+  useSearchParams: () => [
+    new URLSearchParams(
+      mocks.searchQuery ? { q: mocks.searchQuery } : undefined,
+    ),
+  ],
+}));
+
+vi.mock("@/components/layout/HeaderActions", () => ({
+  useSetHeaderActions: vi.fn(),
+}));
+
+vi.mock("@/components/GoogleConnectBanner", () => ({
+  GoogleConnectBanner: () => null,
+}));
+
+vi.mock("@/components/email/AiFilterDialog", () => ({
+  AiFilterDialog: () => null,
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => children,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/components/ui/dropdown-menu", async () => {
+  const React = await import("react");
+  const PassThrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, children);
+  return {
+    DropdownMenu: PassThrough,
+    DropdownMenuContent: PassThrough,
+    DropdownMenuItem: PassThrough,
+    DropdownMenuLabel: PassThrough,
+    DropdownMenuSeparator: () => null,
+    DropdownMenuSub: PassThrough,
+    DropdownMenuSubContent: PassThrough,
+    DropdownMenuSubTrigger: PassThrough,
+    DropdownMenuTrigger: PassThrough,
+  };
+});
+
+vi.mock("@/hooks/use-account-filter", () => ({
+  useAccountFilter: () => ({ activeAccounts: new Set(), allAccounts: [] }),
+}));
+
+vi.mock("@/hooks/use-ai-priority", () => ({
+  useAiPriority: () => ({
+    isPending: false,
+    mutateAsync: vi.fn().mockResolvedValue({ scores: [] }),
+  }),
+}));
+
+vi.mock("@/hooks/use-automations", () => ({
+  useAutomations: () => ({ data: [], isFetching: false }),
+}));
+
+vi.mock("@/hooks/use-emails", () => {
+  const mutation = () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    createSuppressionToken: vi.fn(() => ({ ids: new Map() })),
+    getSuppressionIds: vi.fn(() => []),
+  });
+  return {
+    EMPTY_LABELS: [],
+    MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
+    releaseSuppressionClaims: vi.fn(),
+    useEmails: () => ({ data: [] }),
+    useLabels: () => ({ data: [] }),
+    useMarkRead: mutation,
+    useMarkThreadRead: mutation,
+    useToggleStar: mutation,
+    useArchiveEmail: mutation,
+    useUnarchiveEmail: mutation,
+    useTrashEmail: () => ({
+      mutate: mocks.trash,
+      mutateAsync: vi.fn(),
+      createSuppressionToken: vi.fn(() => ({ ids: new Map() })),
+      getSuppressionIds: vi.fn(() => []),
+    }),
+    useUntrashEmail: mutation,
+    useBulkArchiveEmails: mutation,
+    useBulkTrashEmails: mutation,
+    useBulkToggleStar: mutation,
+    useBulkMarkRead: mutation,
+    useMoveEmail: mutation,
+  };
+});
+
+vi.mock("@/hooks/use-scheduled-jobs", () => ({
+  useDeleteScheduledJob: () => ({ mutate: vi.fn() }),
+  useSendScheduledJobNow: () => ({ mutate: vi.fn() }),
+}));
+
+vi.mock("@/hooks/use-undo", () => ({
+  setUndoAction: vi.fn(() => vi.fn()),
+  setUndoToastId: vi.fn(),
+  UNDO_DURATION: 10_000,
+}));
+
+vi.mock("@/lib/thread-cache", () => ({
+  ensureThread: vi.fn(() => Promise.resolve([])),
+  warmThreads: vi.fn(),
+}));
+
+import { EmailList } from "./EmailList";
+
+const messages = ["first", "middle", "last"].map((id, index) => ({
+  id,
+  threadId: `thread-${id}`,
+  from: { name: `Sender ${id}`, email: `${id}@example.test` },
+  to: [{ name: "Synthetic User", email: "user@example.test" }],
+  subject: `Subject ${id}`,
+  snippet: `Snippet ${id}`,
+  body: `Body ${id}`,
+  date: new Date(Date.UTC(2026, 0, 3 - index)).toISOString(),
+  isRead: true,
+  isStarred: false,
+  isArchived: false,
+  isTrashed: false,
+  labelIds: [],
+  accountEmail: "synthetic@example.test",
+}));
+
+function Harness({
+  emails = messages,
+  onCompose,
+  accountErrors,
+  hasNextPage,
+  isFetchingNextPage,
+}: {
+  emails?: typeof messages;
+  onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
+  accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+}) {
+  const [focusedId, setFocusedId] = useState<string | null>("first");
+  const [selectedIds, setSelectedIds] = useState(new Set<string>());
+  return (
+    <>
+      <input aria-label="Synthetic input" />
+      <output aria-label="Focused id">{focusedId}</output>
+      <EmailList
+        emails={emails}
+        isLoading={false}
+        focusedId={focusedId}
+        setFocusedId={setFocusedId}
+        selectedIds={selectedIds}
+        setSelectedIds={setSelectedIds}
+        onCompose={onCompose}
+        accountErrors={accountErrors}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+      />
+    </>
+  );
+}
+
+function rows() {
+  return screen.queryAllByRole("row");
+}
+
+function press(key: string, shiftKey = false) {
+  fireEvent.keyDown(window, { key, shiftKey });
+}
+
+describe("EmailList keyboard navigation interactions", () => {
+  beforeEach(() => {
+    mocks.navigate.mockReset();
+    mocks.scrollToIndex.mockReset();
+    mocks.trash.mockReset();
+    mocks.searchQuery = "";
+    mocks.virtualStart = 0;
+    mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
+  });
+
+  afterEach(() => cleanup());
+
+  it("keeps partial refresh warnings out of a populated cached list", () => {
+    render(
+      <Harness
+        accountErrors={[
+          { email: "steve@builder.io", error: "temporary refresh failure" },
+        ]}
+      />,
+    );
+
+    expect(rows()).toHaveLength(3);
+    expect(screen.queryByText("mail.error.someAccountsFailed")).toBeNull();
+  });
+
+  it("keeps refresh warnings on empty search results", () => {
+    mocks.searchQuery = "invoice";
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.noSearchResults")).toBeTruthy();
+  });
+
+  it("keeps refresh warnings while an empty page is fetching more rows", () => {
+    render(
+      <Harness
+        emails={[]}
+        accountErrors={[{ email: "steve@builder.io", error: "temporary" }]}
+        hasNextPage
+        isFetchingNextPage
+      />,
+    );
+
+    expect(screen.getByText("mail.error.someAccountsFailed")).toBeTruthy();
+    expect(screen.getByText("mail.empty.loadingMore")).toBeTruthy();
+  });
+
+  it("moves visible focus with j/k and arrows and clamps at both ends", () => {
+    render(<Harness />);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+
+    press("j");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+    press("ArrowDown");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      "true",
+    ]);
+    press("j");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      "true",
+    ]);
+
+    press("k");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+    press("ArrowUp");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+    press("k");
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+  });
+
+  it("extends selected rows with Shift+j and Shift+ArrowDown; plain j clears selection", () => {
+    render(<Harness />);
+
+    press("j", true);
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "true",
+      "false",
+    ]);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+    press("ArrowDown", true);
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "true",
+      "true",
+    ]);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      "true",
+    ]);
+
+    press("k");
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "false",
+      "false",
+    ]);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+  });
+
+  it("extends a multi-selection upward with Shift+k and Shift+ArrowUp", () => {
+    render(<Harness />);
+    press("j");
+    press("j");
+
+    press("k", true);
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "true",
+      "true",
+    ]);
+    press("ArrowUp", true);
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "true",
+      "true",
+    ]);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+  });
+
+  it("Escape clears the selection without moving focus", () => {
+    render(<Harness />);
+    press("j", true);
+    press("Escape");
+
+    expect(rows().map((row) => row.getAttribute("aria-selected"))).toEqual([
+      "false",
+      "false",
+      "false",
+    ]);
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+  });
+
+  it.each(["Enter", "o"])("opens the focused thread with %s", (key) => {
+    render(<Harness />);
+    press("ArrowDown");
+    press(key);
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/all/thread-middle");
+  });
+
+  it.each([
+    { key: "d", shiftKey: false },
+    { key: "#", shiftKey: true },
+    { key: "#", shiftKey: false },
+  ])("trashes the focused thread with $key", ({ key, shiftKey }) => {
+    render(<Harness />);
+    press(key, shiftKey);
+
+    expect(mocks.trash).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "first",
+        accountEmail: "synthetic@example.test",
+        threadId: "thread-first",
+        suppressionToken: expect.any(Object),
+      }),
+    );
+  });
+
+  it("does not wrap a one-row list and keeps an empty list free of focused rows", () => {
+    const { rerender } = render(<Harness emails={[messages[0]]} />);
+    press("k");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].getAttribute("aria-current")).toBe("true");
+    press("j");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].getAttribute("aria-current")).toBe("true");
+
+    rerender(<Harness emails={[]} />);
+    expect(rows()).toHaveLength(0);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+    press("j");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("moves into rows appended by a later fetch", () => {
+    const fetchedMessage = {
+      ...messages[2],
+      id: "newly-fetched",
+      threadId: "thread-newly-fetched",
+      date: new Date(Date.UTC(2025, 11, 31)).toISOString(),
+      subject: "Subject newly fetched",
+    };
+    const { rerender } = render(<Harness emails={messages} />);
+    press("j");
+    press("j");
+
+    rerender(<Harness emails={[...messages, fetchedMessage]} />);
+    press("j");
+
+    expect(screen.getByLabelText("Focused id").textContent).toBe(
+      "newly-fetched",
+    );
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      null,
+      null,
+      null,
+      "true",
+    ]);
+  });
+
+  it("scrolls virtualized focus into the rendered window", () => {
+    const manyMessages = Array.from({ length: 10 }, (_, index) => ({
+      ...messages[index % messages.length],
+      id: `row-${index}`,
+      threadId: `thread-row-${index}`,
+      date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+      subject: `Subject row-${index}`,
+    }));
+    mocks.virtualWindowSize = 3;
+    const view = render(<Harness emails={manyMessages} />);
+    expect(rows()).toHaveLength(3);
+
+    for (let index = 0; index < 7; index += 1) press("j");
+    view.rerender(<Harness emails={manyMessages} />);
+
+    expect(mocks.scrollToIndex).toHaveBeenCalledWith(7, { align: "auto" });
+    const focusedRows = rows().filter(
+      (row) => row.getAttribute("aria-current") === "true",
+    );
+    expect(focusedRows).toHaveLength(1);
+    expect(focusedRows[0].textContent).toContain("Subject row-7");
+  });
+
+  it("does not consume navigation shortcuts while an input is focused", () => {
+    render(<Harness />);
+    const input = screen.getByRole("textbox", { name: "Synthetic input" });
+    input.focus();
+    fireEvent.keyDown(input, { key: "j" });
+
+    expect(rows().map((row) => row.getAttribute("aria-current"))).toEqual([
+      "true",
+      null,
+      null,
+    ]);
+    expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+  });
+
+  it("maps r and a to reply and Reply All for the focused conversation", () => {
+    const onCompose = vi.fn();
+    render(<Harness onCompose={onCompose} />);
+
+    press("r");
+    press("a");
+
+    expect(onCompose).toHaveBeenNthCalledWith(1, messages[0], "reply");
+    expect(onCompose).toHaveBeenNthCalledWith(2, messages[0], "replyAll");
+  });
+});

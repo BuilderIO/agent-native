@@ -1,0 +1,106 @@
+import { defineAction } from "@agent-native/core/action";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { and, eq, isNull } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
+
+export default defineAction({
+  description:
+    "Create a new design system with brand colors, typography, spacing, and other design tokens. " +
+    "If this is the first design system for the user, it is automatically set as the default.",
+  schema: z.object({
+    title: z.string().describe("Design system name (e.g. 'Acme Corp Brand')"),
+    description: z
+      .string()
+      .optional()
+      .describe("Short description of the design system"),
+    data: z
+      .string()
+      .describe(
+        "JSON string of DesignSystemData (colors, typography, spacing, etc.)",
+      ),
+    assets: z
+      .string()
+      .optional()
+      .describe("JSON string of DesignSystemAsset[] (logos, fonts, images)"),
+    customInstructions: z
+      .string()
+      .optional()
+      .describe(
+        "Free-form guidance the agent should follow whenever it generates slides using this design system (tone, voice, layout preferences, dos and don'ts).",
+      ),
+  }),
+  run: async ({ title, description, data, assets, customInstructions }) => {
+    let parsedData: unknown;
+    try {
+      parsedData = JSON.parse(data);
+    } catch {
+      throw new Error("data must be a valid JSON string");
+    }
+    const missingFields = missingDesignSystemDataFields(parsedData);
+    if (missingFields.length > 0) {
+      throw new Error(
+        "data is missing required design system field(s): " +
+          missingFields.join(", "),
+      );
+    }
+    if (assets) {
+      try {
+        JSON.parse(assets);
+      } catch {
+        throw new Error("assets must be a valid JSON string");
+      }
+    }
+
+    const db = getDb();
+    const id = nanoid();
+    const now = new Date().toISOString();
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId();
+
+    // Check only this user's owned systems in the active organization. Shared
+    // systems should not prevent the first system a user creates from becoming
+    // their default, and another organization must not affect this one.
+    const existing = await db
+      .select({ id: schema.designSystems.id })
+      .from(schema.designSystems)
+      .where(
+        orgId
+          ? and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              eq(schema.designSystems.orgId, orgId),
+            )
+          : and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              isNull(schema.designSystems.orgId),
+            ),
+      )
+      .limit(1);
+
+    const isDefault = existing.length === 0;
+
+    await db.insert(schema.designSystems).values({
+      id,
+      title,
+      description: description ?? null,
+      data,
+      assets: assets ?? null,
+      customInstructions: customInstructions ?? "",
+      isDefault,
+      ownerEmail,
+      orgId,
+      visibility: orgId ? "org" : "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { id, title, isDefault };
+  },
+});

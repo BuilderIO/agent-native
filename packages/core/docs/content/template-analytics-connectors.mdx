@@ -1,0 +1,75 @@
+---
+title: "Analytics: Connecting and Extending Data Sources"
+description: "The full data-source catalog for Analytics, reusable workspace integrations, and the provider-API and data-program escape hatches for anything a canned action doesn't cover."
+---
+
+# Connecting and Extending Data Sources
+
+This page lists every data source Analytics connects to today, and the escape hatches available once a question needs more than a canned action provides. Anyone connecting a new source can follow the first half; the escape-hatch sections get more technical.
+
+## The full source catalog
+
+Open the **Data Sources** page (`/data-sources`) from the sidebar — every source below gets a walkthrough and a **Test Connection** button there. Nothing here needs code; connect credentials or link a workspace integration and ask the agent a question.
+
+| Source                        | Category           | What you need                               |
+| ----------------------------- | ------------------ | ------------------------------------------- |
+| First-party events (built-in) | Warehouse          | Nothing — always on                         |
+| BigQuery                      | Warehouse          | Google service-account JSON + project ID    |
+| Google Analytics (GA4)        | Product analytics  | Google service-account JSON + property ID   |
+| Amplitude                     | Product analytics  | API key + secret key                        |
+| Mixpanel                      | Product analytics  | Project ID + service account                |
+| PostHog                       | Product analytics  | API key + project ID                        |
+| PostgreSQL                    | Warehouse          | Connection URL                              |
+| Prometheus                    | Observability      | Endpoint URL (+ optional basic/bearer auth) |
+| Grafana                       | Observability      | URL + API token                             |
+| Stripe                        | Billing            | Secret key                                  |
+| HubSpot                       | CRM                | Private app token                           |
+| Gong                          | Sales calls        | Access key + secret                         |
+| Apollo                        | Sales intelligence | API key                                     |
+| Pylon                         | Support            | API key                                     |
+| Clay                          | GTM enrichment     | Public API key                              |
+| Slack                         | Community/comms    | Bot token                                   |
+| Notion                        | Docs               | API key                                     |
+| Common Room                   | Community          | API token                                   |
+| X / Twitter                   | Social             | Bearer token                                |
+| GitHub                        | Dev                | Access token                                |
+| Jira                          | Dev/support        | Base URL + email + API token                |
+| Sentry                        | Errors             | Auth token                                  |
+| DataForSEO                    | SEO                | Login + password                            |
+
+Each row's credentials are stored through the framework's settings/env layer — never in git. Adding a new action that needs an API key registers a new row on this page automatically through the template's onboarding registration; see [Extending Analytics](/docs/template-analytics-developers) for how.
+
+## Reusable workspace integrations vs. per-app credentials
+
+If Analytics is running inside a multi-app workspace, some providers (Slack, HubSpot, Notion, GitHub, and others) can be connected once at the workspace level and **granted** to Analytics instead of configuring another copy of the same key. The Data Sources page shows the shared state directly: ready via workspace, needs a grant, needs credentials, or local credentials only.
+
+The split of responsibility: the shared workspace connection stores provider identity, account metadata, and credential references once; Analytics keeps its own app-specific interpretation — which sources are enabled, data-dictionary entries, dashboard SQL, and analysis history. See [Integrations Directory](/docs/integrations) for the workspace-connection model in general.
+
+## The provider-API escape hatch
+
+Every source above ships as a canned action for the common case (list HubSpot deals, query a BigQuery table, and so on). When a question needs an endpoint, filter, or pagination mode a canned action doesn't expose, the agent can call the same providers directly:
+
+- **provider-api-catalog** — lists supported providers, credential key names, and docs/spec links (no secrets returned).
+- **provider-api-docs** — inspects a provider's registered docs/spec when the exact payload shape is uncertain.
+- **provider-api-request** — makes the actual authenticated HTTP call, constrained to the provider's own hosts, with credentials injected server-side. For large result sets it can stage the response into a scratch dataset instead of returning it raw, and fetch every page server-side in one call.
+- **query-staged-dataset** — filters, aggregates, and projects over a staged dataset without pulling every row into context.
+
+This is a framework-wide pattern, not an Analytics-specific one — see [Integrations Directory](/docs/integrations) for the full shape.
+
+## Data programs: turning a one-off pull into a live panel
+
+Sometimes a question that provider-api-request can answer once needs to become something other people see, refreshed on its own — a cohort defined by an arbitrary CRM property filter, or a join across two providers no canned action anticipates. That's a **data program**: a small, named, agent-authored script that fetches/joins/aggregates data and is bound to a dashboard panel like any other source.
+
+Analytics ships a worked example of this exact pattern — a "Risk Meeting" dashboard that joins a configurable HubSpot deal cohort against Pylon account sentiment by company domain, entirely through two saved data programs. See [Data Programs](/docs/data-programs) for the full authoring contract, caching model, and that worked example in detail.
+
+## Public write keys for first-party tracking
+
+If you want another one of your own apps (or a marketing site) to send events into this Analytics instance's first-party event store, generate a **public write key**. It's intentionally write-only — it can create events for your account but grants no read or admin access — and gets dropped into the emitting app's `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` environment variable. This is unrelated to sharing a dashboard or embedding a chart; it's purely about getting more first-party data flowing in.
+
+## What's next
+
+- [**Dashboards, Analyses, and the Data Dictionary**](/docs/template-analytics-dashboards) — what you build once a source is connected
+- [**Monitoring, Errors, and Session Replay**](/docs/template-analytics-monitoring-and-sessions) — DataForSEO-powered traffic/SEO reporting
+- [**Extending Analytics**](/docs/template-analytics-developers) — adding a brand-new data source as a template extension
+- [**Integrations Directory**](/docs/integrations) — the framework-wide connection model
+- [**Analytics overview**](/docs/template-analytics) — back to the app summary

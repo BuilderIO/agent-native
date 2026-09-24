@@ -1,0 +1,121 @@
+---
+title: "Enrutamiento"
+description: "Enrutamiento basado en archivos para aplicaciones nativas del agente con React Router v8: páginas, parámetros dinámicos y navegación."
+---
+
+# Enrutamiento
+
+Las aplicaciones nativas del agente usan **React Router v8** con enrutamiento basado en archivos a través de `flatRoutes()` de `@react-router/fs-routes`. Cada archivo en `app/routes/` se convierte en una URL. Las plantillas usan la convención de notación con puntos. Los puntos separan segmentos de URL dentro de un único nombre de archivo.
+
+Esta página cubre las rutas de cliente, las páginas renderizadas en el navegador a partir de `app/routes/`. Las rutas de servidor son un sistema aparte: rutas de archivo de Nitro bajo `server/routes/`, más los propios endpoints `/_agent-native/*` del framework. Esas viven en la página [Rutas](/docs/server-routes). Los dos no comparten directorio, convención de nombres, ni router, así que un archivo de `server/routes/` nunca se convierte en una página aquí y un archivo de `app/routes/` nunca se convierte en un endpoint de servidor.
+
+<Diagram id="doc-block-client-routing-1" title="Nombre de archivo → URL" summary="Cada archivo en app/routes/ se convierte en una URL. Los puntos se convierten en barras, y un segmento $ se convierte en un parámetro dinámico.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Enrutamiento basado en archivos {#file-based-routing}
+
+### Mapeo de archivo → URL
+
+| Archivo                    | URL                    | Notas                                                                             |
+| -------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | Ruta de índice                                                                    |
+| `dashboard.tsx`            | `/dashboard`           | Página simple                                                                     |
+| `extensions.$id.tsx`       | `/extensions/:id`      | Se anida dentro del `<Outlet/>` de `extensions.tsx`. `$` es un parámetro dinámico |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | El `_` final evita la anidación bajo `dashboard.tsx`, así que es su propia página |
+| `_app.tsx`                 | (sin segmento de URL)  | Layout sin ruta. Prefijo con `_`                                                  |
+| `inbox/route.tsx`          | `/inbox`               | Forma de carpeta. `route.tsx` es el índice                                        |
+
+Prefija un segmento con `$` para un parámetro dinámico. Prefija con `_` para que sea una ruta de layout sin ruta (sin segmento de URL), o agrega un `_` final antes del punto para que una ruta que parece anidada no se anide bajo el layout de su padre. Las plantillas usan `flatRoutes()`. El archivo de notación con puntos de arriba es la forma principal. La forma de carpeta anidada `inbox/route.tsx` también funciona.
+
+## Agregar una página nueva {#adding-a-page}
+
+Crea el archivo y exporta un componente predeterminado:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+Eso es todo. El servidor de desarrollo lee los archivos de ruta al iniciarse. Si `pnpm dev` ya está en ejecución, reinícialo después de añadir el archivo. No es necesario registrarse.
+
+## Parámetros dinámicos {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+El `_` final antes del punto evita que esta página se anide dentro del `<Outlet/>` de `dashboard.tsx`, así que se renderiza como su propia página completa en `/dashboard/:ticketId` en lugar de aparecer dentro del layout de la cola de tickets.
+
+## Navegación {#navigation}
+
+Usa `<Link>` para navegación del lado del cliente y `useNavigate()` para navegación programática:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+Ninguno de estos le dice al agente por sí solo qué está mirando el usuario. Eso es una preocupación aparte, gestionada por `useAgentRouteState()` al escribir la ruta actual en el estado de la aplicación. Consulta [Conciencia del contexto](/docs/context-awareness).
+
+## ¿Qué sigue?
+
+- [**Resumen**](/docs/client-overview) — dónde encaja `app/routes/` dentro del resto de `app/` y `public/`
+- [**Datos y sincronización**](/docs/client-data) — leer y escribir datos desde dentro de una ruta
+- [**Chat del Agent**](/docs/client-agent-chat) — enviar prompts y preparar contexto desde una ruta
+- [**Rutas**](/docs/server-routes) — el sistema de enrutamiento de servidor aparte: rutas de archivo bajo `server/routes/` y el espacio de nombres `/_agent-native/` del framework
+- [**Conciencia del contexto**](/docs/context-awareness) — cómo aprende el agente la ruta y selección actuales
