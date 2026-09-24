@@ -105,6 +105,7 @@ const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
 
 const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   String.raw`(?:${[
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,30}\b(?:had|have)\s+to\s+tell\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:running|active)\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)\b`,
     String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50}\b(?:stopp?ed|ended|quit|returned)\b[^.!?\n]{0,50}\bwithout\s+merg(?:e|ing)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\s*#?\d+\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
@@ -208,6 +209,7 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
     ...text.matchAll(new RegExp(SHIP_DIRECT_LEAVE_OPEN_RE.source, "gi")),
   ].sort((left, right) => left.index - right.index);
   return matches.map((match) => {
+    const directPrs = prNumbers(match[0]);
     const prs = prNumbersNearMatch(text, match);
     const mentionsDifferentWork =
       /\b(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
@@ -219,10 +221,15 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
       /(?:\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b|\b(?:don['’]?t|do not)\s+merge\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?)\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
         match[0],
       );
+    const attributedPrs =
+      mentionsDifferentWork && directPrs.size === 0 ? directPrs : prs;
     return {
       match,
       sentence: text,
-      prs: prs.size === 0 && refersBackToShipment ? previousShipmentPrs : prs,
+      prs:
+        attributedPrs.size === 0 && refersBackToShipment
+          ? previousShipmentPrs
+          : attributedPrs,
     };
   });
 }
@@ -593,6 +600,8 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "They just stop after opening the PR; /ship should keep checking until merged.",
   ],
   [false, "Do not stop /ship until the PR is merged."],
+  [true, "I had to tell the agent to keep /ship running."],
+  [false, "Please tell the agent to keep /ship running until the checks pass."],
   [true, "I told /ship to merge the pull request, but it never did."],
   [true, "/ship stopped without merging PR #123."],
   [
@@ -674,6 +683,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with PR #123 unmerged. I asked to leave it open for the separate deploy.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I asked it not to merge a separate PR.",
   ],
   [
     true,

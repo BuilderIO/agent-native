@@ -524,9 +524,11 @@ before pausing the watcher or releasing its lease:
    owns the PR lease, renew it with the observed-version compare-and-swap, and
    verify the renewed record before checking ancestry. Do not depend on another
    scheduled tick or reactivate a watcher after the PR is terminal. If renewal
-   fails or ownership changed, stop audits, branch disposition, and cleanup;
-   wait read-only until this invocation can safely reacquire the lease under
-   the normal claim rules. Never mutate another owner's lease.
+   fails or ownership changed, stop audits and branch disposition. Pause and
+   verify only this invocation's task-scoped watcher when its targetThreadId
+   still matches this task; leave any foreign lease untouched. Continue in the
+   foreground and read-only until this invocation can safely reacquire the
+   lease under the normal claim rules.
 2. Before any branch disposition, fetch origin and renew/verify this
    invocation's lease with the observed-version compare-and-swap. If renewal
    fails, do no audits or checkout mutations; wait read-only and resume only
