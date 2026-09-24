@@ -23,6 +23,10 @@ import {
   mergePendingChangelog,
   parsePendingEntry,
 } from "../changelog/parse.js";
+import {
+  DEV_SERVER_RECOVERY_EXIT_CODE,
+  DEV_SERVER_SUPERVISOR_ENV,
+} from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
   inferAgentNativeDeploymentEnvironment,
@@ -3538,6 +3542,58 @@ function nitroStartupRecovery(): Plugin {
   };
 }
 
+function persistent5xxRecovery(
+  options: {
+    enabled?: boolean;
+    now?: () => number;
+    exit?: (code: number) => void;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-persistent-5xx-recovery",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      if (
+        !(options.enabled ?? process.env[DEV_SERVER_SUPERVISOR_ENV] === "1")
+      ) {
+        return;
+      }
+
+      const now = options.now ?? Date.now;
+      const exit = options.exit ?? ((code: number) => process.exit(code));
+      let hasServedHealthyResponse = false;
+      let first5xxAt: number | undefined;
+      server.middlewares.use((req, res, next) => {
+        if (!isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        res.once("finish", () => {
+          if ((res.statusCode ?? 500) < 500) {
+            hasServedHealthyResponse = true;
+            first5xxAt = undefined;
+            return;
+          }
+
+          const failedAt = now();
+          first5xxAt ??= failedAt;
+          if (!hasServedHealthyResponse || failedAt - first5xxAt <= 75_000) {
+            return;
+          }
+
+          console.error(
+            `[agent-native] Dev server kept returning HTTP ${res.statusCode} after recovery; restarting.`,
+          );
+          exit(DEV_SERVER_RECOVERY_EXIT_CODE);
+        });
+        next();
+      });
+    },
+  };
+}
+
 /**
  * Silence benign connection-reset noise from Vite's dev middleware.
  * Fires when a browser closes/reloads/navigates mid-request — the peer has
@@ -4139,6 +4195,7 @@ function createAgentNativePlugins(
       : [];
 
   return [
+    persistent5xxRecovery(),
     presetMarkerPlugin,
     // Stub packages from `options.ssrStubs` in the SSR bundle so they
     // don't bloat the edge worker. Opt-in per template — the framework
@@ -4806,6 +4863,7 @@ export {
   getReactRouterAliases as _getReactRouterAliases,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
+  persistent5xxRecovery as _persistent5xxRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
   resolveNitroSsrServiceEntry as _resolveNitroSsrServiceEntry,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
