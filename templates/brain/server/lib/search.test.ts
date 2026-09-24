@@ -501,7 +501,13 @@ describe("Brain universal search helpers", () => {
     ).toBe(true);
     expect(
       citationEvidenceMatchesCapture({ quote: "Contact [redacted]." }, content),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      citationEvidenceMatchesCapture(
+        { quote: "Contact mallory@example.com." },
+        content,
+      ),
+    ).toBe(false);
     expect(
       citationEvidenceMatchesCapture(
         {

@@ -313,14 +313,7 @@ export function citationEvidenceMatchesCapture(
     .replace(/\s+/g, " ")
     .trim();
   const quote = citation?.quote?.trim();
-  if (quote) {
-    const redactedQuote = redactSensitiveText(quote)
-      .replace(/\s+/g, " ")
-      .trim();
-    return (
-      captureContent.includes(quote) || redactedContent.includes(redactedQuote)
-    );
-  }
+  if (quote) return captureContent.includes(quote);
   if (citation?.verbatim !== false) return false;
   const preview = citation.preview
     ?.trim()

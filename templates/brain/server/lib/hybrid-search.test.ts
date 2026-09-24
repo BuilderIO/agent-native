@@ -8,7 +8,7 @@ interface HybridTestColumn {
 }
 
 type HybridTestCondition =
-  | { type: "access" }
+  | { type: "access"; table?: string }
   | { type: "and"; conditions: HybridTestCondition[] }
   | { type: "or"; conditions: HybridTestCondition[] }
   | { type: "eq"; column: HybridTestColumn; value: unknown }
@@ -88,6 +88,7 @@ const hybridMocks = vi.hoisted(() => {
       "sourceId",
     ]),
   };
+  const accessibleSourceIds = new Set<string>();
   const rows = {
     artifacts: [] as HybridTestRow[],
     audiences: [] as HybridTestRow[],
@@ -113,7 +114,13 @@ const hybridMocks = vi.hoisted(() => {
     row: HybridTestRow,
     condition?: HybridTestCondition,
   ): boolean => {
-    if (!condition || condition.type === "access") return true;
+    if (!condition) return true;
+    if (condition.type === "access") {
+      return (
+        condition.table !== "source" ||
+        accessibleSourceIds.has(String(row["source.id"]))
+      );
+    }
     if (condition.type === "and") {
       return condition.conditions.every((candidate) => matches(row, candidate));
     }
@@ -182,7 +189,9 @@ const hybridMocks = vi.hoisted(() => {
     },
   }));
   return {
+    accessibleSourceIds,
     availableEmbeddingFamilies: vi.fn(),
+    readEmbeddingFamilyAvailability: vi.fn(),
     embeddingFamily: {
       id: "gemini:test:3",
       provider: "gemini",
@@ -208,6 +217,7 @@ vi.mock("@agent-native/core/embeddings", () => ({
   availableEmbeddingFamilies: hybridMocks.availableEmbeddingFamilies,
   defaultEmbeddingFamily: (families: EmbeddingFamily[]) =>
     families.length === 1 ? families[0] : null,
+  readEmbeddingFamilyAvailability: hybridMocks.readEmbeddingFamilyAvailability,
 }));
 
 vi.mock("@agent-native/core/search", () => ({
@@ -221,7 +231,10 @@ vi.mock("@agent-native/core/search", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: () => ({ type: "access" }),
+  accessFilter: (table: { __tableName?: string }) => ({
+    type: "access",
+    table: table.__tableName,
+  }),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -277,6 +290,7 @@ import {
   burstText,
   burstRows,
   canIndexCapture,
+  captureEmbeddingCoverageFromTargets,
   deterministicArtifact,
   embedSearchTexts,
   embeddingReadinessFromFamilies,
@@ -343,6 +357,35 @@ describe("Brain search index primitives", () => {
     }
   });
 
+  it("requires artifact and every indexed burst embedding", () => {
+    expect(
+      captureEmbeddingCoverageFromTargets({
+        artifactId: "artifact-1",
+        burstIds: ["burst-1", "burst-2"],
+        embeddings: [
+          { targetType: "artifact", targetId: "artifact-1" },
+          { targetType: "burst", targetId: "burst-1" },
+        ],
+      }),
+    ).toEqual({
+      complete: false,
+      artifactEmbedded: true,
+      expectedBursts: 2,
+      embeddedBursts: 1,
+    });
+    expect(
+      captureEmbeddingCoverageFromTargets({
+        artifactId: "artifact-1",
+        burstIds: ["burst-1", "burst-2"],
+        embeddings: [
+          { targetType: "artifact", targetId: "artifact-1" },
+          { targetType: "burst", targetId: "burst-1" },
+          { targetType: "burst", targetId: "burst-2" },
+        ],
+      }).complete,
+    ).toBe(true);
+  });
+
   it("favors rare lexical terms and fuses lanes with RRF", () => {
     expect(
       incrementalIdf("rare", ["rare", "common", "common"]),
@@ -383,6 +426,7 @@ describe("Brain search index primitives", () => {
 
 function artifactRow(input: {
   id: string;
+  sourceId?: string;
   audienceId?: string;
   capturedAt: string;
   title: string;
@@ -390,12 +434,13 @@ function artifactRow(input: {
   summary: string;
   resolution?: string;
 }) {
+  const sourceId = input.sourceId ?? "source-1";
   const audienceId = input.audienceId ?? "audience-allowed";
   const captureId = `capture-${input.id}`;
   return {
     "artifact.id": input.id,
     "artifact.captureId": captureId,
-    "artifact.sourceId": "source-1",
+    "artifact.sourceId": sourceId,
     "artifact.audienceId": audienceId,
     "artifact.aclHash": "acl-1",
     "artifact.title": input.title,
@@ -412,7 +457,7 @@ function artifactRow(input: {
     "capture.audienceAclHash": "acl-1",
     "capture.sensitivityDisposition": "allowed",
     "capture.sensitivityPolicyVersion": "2",
-    "source.id": "source-1",
+    "source.id": sourceId,
     "source.provider": "slack",
   };
 }
@@ -427,6 +472,8 @@ describe("Brain hybrid search pipeline", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     for (const rows of Object.values(hybridMocks.rows)) rows.length = 0;
+    hybridMocks.accessibleSourceIds.clear();
+    hybridMocks.accessibleSourceIds.add("source-1");
     hybridMocks.rows.audiences.push({
       "audience.id": "audience-allowed",
       "audience.sourceId": "source-1",
@@ -526,6 +573,43 @@ describe("Brain hybrid search pipeline", () => {
     expect(results.some((result) => result.id === "artifact-private")).toBe(
       false,
     );
+  });
+
+  it("keeps FTS results when embedding credentials are unavailable", async () => {
+    hybridMocks.rows.artifacts.push(
+      artifactRow({
+        id: "fts-only",
+        capturedAt: "2026-07-20T00:00:00.000Z",
+        title: "Enterprise activation decision",
+        summary: "Shorten enterprise onboarding latency.",
+      }),
+    );
+    hybridMocks.queryPostgresFts.mockResolvedValue([
+      { chunkId: "fts-only", score: 0.9 },
+    ]);
+    hybridMocks.availableEmbeddingFamilies.mockRejectedValueOnce(
+      new Error("credential store unavailable"),
+    );
+
+    await expect(
+      searchAs("leader@example.com", { query: "reduce customer waiting" }),
+    ).resolves.toMatchObject([{ id: "fts-only", lane: "lexical" }]);
+  });
+
+  it("excludes audience-visible artifacts from inaccessible sources", async () => {
+    hybridMocks.rows.artifacts.push(
+      artifactRow({
+        id: "source-denied",
+        sourceId: "source-denied",
+        capturedAt: "2026-07-20T00:00:00.000Z",
+        title: "Restricted source roadmap",
+        summary: "Secret roadmap launch sequence.",
+      }),
+    );
+
+    await expect(
+      searchAs("leader@example.com", { query: "secret roadmap" }),
+    ).resolves.toEqual([]);
   });
 
   it("calculates freshness and lets it resolve adjacent external ranks", async () => {
@@ -678,6 +762,7 @@ describe("Brain embedding readiness", () => {
       status: "ready",
       ready: true,
       configuredProviders: ["gemini"],
+      unavailableProviders: [],
       configuredFamilies: 1,
       provider: "gemini",
       model: "test-model",
@@ -697,6 +782,12 @@ describe("Brain embedding readiness", () => {
       status: "ambiguous",
       ready: false,
       configuredFamilies: 2,
+    });
+    expect(embeddingReadinessFromFamilies([family], ["cohere"])).toMatchObject({
+      status: "unavailable",
+      ready: false,
+      configuredProviders: ["gemini"],
+      unavailableProviders: ["cohere"],
     });
   });
 

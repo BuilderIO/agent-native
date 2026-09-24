@@ -3,6 +3,7 @@ import {
   availableEmbeddingFamilies,
   defaultEmbeddingFamily,
   type EmbeddingFamily,
+  readEmbeddingFamilyAvailability,
 } from "@agent-native/core/embeddings";
 import {
   deletePgVectors,
@@ -42,12 +43,14 @@ export type BrainSearchArtifact = z.infer<typeof artifactSchema>;
 export type BrainEmbeddingReadinessStatus =
   | "ready"
   | "not-configured"
-  | "ambiguous";
+  | "ambiguous"
+  | "unavailable";
 
 export interface BrainEmbeddingReadiness {
   status: BrainEmbeddingReadinessStatus;
   ready: boolean;
   configuredProviders: string[];
+  unavailableProviders: string[];
   configuredFamilies: number;
   provider: string | null;
   model: string | null;
@@ -264,13 +267,33 @@ export function burstRows(
 
 export function embeddingReadinessFromFamilies(
   families: readonly EmbeddingFamily[],
+  unavailableProviders: readonly string[] = [],
 ): BrainEmbeddingReadiness {
+  const configuredProviders = Array.from(
+    new Set(families.map((candidate) => candidate.provider)),
+  );
+  if (unavailableProviders.length) {
+    return {
+      status: "unavailable",
+      ready: false,
+      configuredProviders,
+      unavailableProviders: [...unavailableProviders],
+      configuredFamilies: families.length,
+      provider: null,
+      model: null,
+      embeddingSetId: null,
+      dimensions: null,
+      warning:
+        "Embedding credential status is temporarily unavailable. Retry before indexing.",
+    };
+  }
   const family = defaultEmbeddingFamily(families);
   if (family) {
     return {
       status: "ready",
       ready: true,
       configuredProviders: [family.provider],
+      unavailableProviders: [],
       configuredFamilies: 1,
       provider: family.provider,
       model: family.model,
@@ -279,13 +302,11 @@ export function embeddingReadinessFromFamilies(
       warning: null,
     };
   }
-  const configuredProviders = Array.from(
-    new Set(families.map((candidate) => candidate.provider)),
-  );
   return {
     status: families.length ? "ambiguous" : "not-configured",
     ready: false,
     configuredProviders,
+    unavailableProviders: [],
     configuredFamilies: families.length,
     provider: null,
     model: null,
@@ -298,12 +319,133 @@ export function embeddingReadinessFromFamilies(
 }
 
 export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness> {
-  return embeddingReadinessFromFamilies(await availableEmbeddingFamilies());
+  const availability = await readEmbeddingFamilyAvailability();
+  return embeddingReadinessFromFamilies(
+    availability.families,
+    availability.unavailableProviders,
+  );
 }
 
 async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
   const families = await availableEmbeddingFamilies();
   return defaultEmbeddingFamily(families);
+}
+
+export interface CaptureEmbeddingCoverage {
+  complete: boolean;
+  artifactEmbedded: boolean;
+  expectedBursts: number;
+  embeddedBursts: number;
+}
+
+export function captureEmbeddingCoverageFromTargets(input: {
+  artifactId: string;
+  burstIds: string[];
+  embeddings: Array<{ targetType: string; targetId: string }>;
+}): CaptureEmbeddingCoverage {
+  const embeddedTargets = new Set(
+    input.embeddings.map((row) => `${row.targetType}:${row.targetId}`),
+  );
+  const artifactEmbedded = embeddedTargets.has(`artifact:${input.artifactId}`);
+  const embeddedBursts = input.burstIds.filter((id) =>
+    embeddedTargets.has(`burst:${id}`),
+  ).length;
+  return {
+    complete: artifactEmbedded && embeddedBursts === input.burstIds.length,
+    artifactEmbedded,
+    expectedBursts: input.burstIds.length,
+    embeddedBursts,
+  };
+}
+
+export async function readCaptureEmbeddingCoverage(
+  captureId: string,
+  embeddingSetId: string,
+): Promise<CaptureEmbeddingCoverage> {
+  const db = getDb();
+  const [artifact] = await db
+    .select({
+      id: schema.brainSearchArtifacts.id,
+      contentHash: schema.brainSearchArtifacts.contentHash,
+      sensitivityPolicyVersion:
+        schema.brainSearchArtifacts.sensitivityPolicyVersion,
+      aclHash: schema.brainSearchArtifacts.aclHash,
+      indexVersion: schema.brainSearchArtifacts.indexVersion,
+    })
+    .from(schema.brainSearchArtifacts)
+    .innerJoin(
+      schema.brainRawCaptures,
+      eq(schema.brainSearchArtifacts.captureId, schema.brainRawCaptures.id),
+    )
+    .where(
+      and(
+        eq(schema.brainRawCaptures.id, captureId),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        eq(schema.brainSearchArtifacts.status, "active"),
+        eq(
+          schema.brainSearchArtifacts.contentHash,
+          schema.brainRawCaptures.contentHash,
+        ),
+        eq(
+          schema.brainSearchArtifacts.sensitivityPolicyVersion,
+          schema.brainRawCaptures.sensitivityPolicyVersion,
+        ),
+        eq(
+          schema.brainSearchArtifacts.aclHash,
+          schema.brainRawCaptures.audienceAclHash,
+        ),
+        eq(
+          schema.brainSearchArtifacts.indexVersion,
+          BRAIN_SEARCH_INDEX_VERSION,
+        ),
+      ),
+    )
+    .limit(1);
+  if (!artifact) {
+    return {
+      complete: false,
+      artifactEmbedded: false,
+      expectedBursts: 0,
+      embeddedBursts: 0,
+    };
+  }
+  const bursts = await db
+    .select({ id: schema.brainSearchBursts.id })
+    .from(schema.brainSearchBursts)
+    .where(
+      and(
+        eq(schema.brainSearchBursts.artifactId, artifact.id),
+        eq(schema.brainSearchBursts.indexed, 1),
+        eq(schema.brainSearchBursts.contentHash, artifact.contentHash),
+        eq(schema.brainSearchBursts.indexVersion, artifact.indexVersion),
+      ),
+    );
+  const targetIds = [artifact.id, ...bursts.map((burst) => burst.id)];
+  const embeddings = await db
+    .select({
+      targetType: schema.brainSearchEmbeddings.targetType,
+      targetId: schema.brainSearchEmbeddings.targetId,
+    })
+    .from(schema.brainSearchEmbeddings)
+    .where(
+      and(
+        eq(schema.brainSearchEmbeddings.status, "active"),
+        eq(schema.brainSearchEmbeddings.embeddingSetId, embeddingSetId),
+        eq(schema.brainSearchEmbeddings.contentHash, artifact.contentHash),
+        eq(
+          schema.brainSearchEmbeddings.sensitivityPolicyVersion,
+          artifact.sensitivityPolicyVersion,
+        ),
+        eq(schema.brainSearchEmbeddings.aclHash, artifact.aclHash),
+        eq(schema.brainSearchEmbeddings.indexVersion, artifact.indexVersion),
+        inArray(schema.brainSearchEmbeddings.targetId, targetIds),
+      ),
+    );
+  return captureEmbeddingCoverageFromTargets({
+    artifactId: artifact.id,
+    burstIds: bursts.map((burst) => burst.id),
+    embeddings,
+  });
 }
 
 export async function embedSearchTexts(

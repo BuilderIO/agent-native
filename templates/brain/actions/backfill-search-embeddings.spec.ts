@@ -11,22 +11,23 @@ const candidate = {
   audienceAclHash: "acl-hash",
   capturedAt: "2026-07-20T00:00:00.000Z",
   updatedAt: "2026-07-20T00:00:00.000Z",
-  artifactId: null,
-  artifactAudienceId: null,
-  artifactAclHash: null,
-  artifactTitle: null,
-  artifactQuestion: null,
-  artifactSummary: null,
-  artifactResolution: null,
-  artifactSystemsJson: null,
-  artifactCodeRefsJson: null,
-  embeddingId: null,
+  artifactId: null as string | null,
+  artifactAudienceId: null as string | null,
+  artifactAclHash: null as string | null,
+  artifactTitle: null as string | null,
+  artifactQuestion: null as string | null,
+  artifactSummary: null as string | null,
+  artifactResolution: null as string | null,
+  artifactSystemsJson: null as string | null,
+  artifactCodeRefsJson: null as string | null,
+  embeddingId: null as string | null,
 };
 
 const readiness = {
   status: "ready" as const,
   ready: true,
   configuredProviders: ["gemini"],
+  unavailableProviders: [],
   configuredFamilies: 1,
   provider: "gemini",
   model: "gemini-embedding-2",
@@ -40,10 +41,18 @@ const mocks = vi.hoisted(() => {
   return {
     assertAccess: vi.fn(async () => undefined),
     getDb: vi.fn(),
-    indexBrainCapture: vi.fn(async () => ({ indexed: 1 })),
-    indexCaptureForSearch: vi.fn(async () => ({ indexed: true })),
+    enqueueBrainOperation: vi.fn(),
+    runWithRequestContext: vi.fn(
+      async (_context: unknown, callback: () => unknown) => callback(),
+    ),
+    readCaptureEmbeddingCoverage: vi.fn(),
     readEmbeddingReadiness: vi.fn(),
     schema: {
+      brainSources: {
+        id: column("source.id"),
+        ownerEmail: column("source.ownerEmail"),
+        orgId: column("source.orgId"),
+      },
       brainRawCaptures: {
         id: column("capture.id"),
         sourceId: column("capture.sourceId"),
@@ -91,6 +100,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (action: unknown) => action,
 }));
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  runWithRequestContext: mocks.runWithRequestContext,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
@@ -117,14 +130,15 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/brain.js", () => ({
   nowIso: () => "2026-07-21T00:00:00.000Z",
-  parseJson: (value: string | null, fallback: unknown) =>
-    value ? JSON.parse(value) : fallback,
+}));
+
+vi.mock("../server/lib/ingest-queue.js", () => ({
+  enqueueBrainOperation: mocks.enqueueBrainOperation,
 }));
 
 vi.mock("../server/lib/search-index.js", () => ({
   BRAIN_SEARCH_INDEX_VERSION: "1",
-  indexBrainCapture: mocks.indexBrainCapture,
-  indexCaptureForSearch: mocks.indexCaptureForSearch,
+  readCaptureEmbeddingCoverage: mocks.readCaptureEmbeddingCoverage,
   readEmbeddingReadiness: mocks.readEmbeddingReadiness,
 }));
 
@@ -137,7 +151,7 @@ import action, {
   backfillSearchEmbeddingsSchema,
 } from "./backfill-search-embeddings.js";
 
-function createDb(rows = [candidate], embeddingWritten = true) {
+function createDb(rows = [candidate]) {
   let selectCount = 0;
   return {
     select: vi.fn(() => {
@@ -145,26 +159,22 @@ function createDb(rows = [candidate], embeddingWritten = true) {
       if (selectCount === 1) {
         return {
           from: vi.fn(() => ({
-            leftJoin: vi.fn(() => ({
-              leftJoin: vi.fn(() => ({
-                where: vi.fn(() => ({
-                  orderBy: vi.fn(() => ({
-                    limit: vi.fn(async () => rows),
-                  })),
-                })),
-              })),
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => [
+                { ownerEmail: "owner@example.com", orgId: "org-1" },
+              ]),
             })),
           })),
         };
       }
       return {
         from: vi.fn(() => ({
-          innerJoin: vi.fn(() => ({
-            innerJoin: vi.fn(() => ({
+          leftJoin: vi.fn(() => ({
+            leftJoin: vi.fn(() => ({
               where: vi.fn(() => ({
-                limit: vi.fn(async () =>
-                  embeddingWritten ? [{ id: "embedding-1" }] : [],
-                ),
+                orderBy: vi.fn(() => ({
+                  limit: vi.fn(async () => rows),
+                })),
               })),
             })),
           })),
@@ -178,6 +188,13 @@ describe("backfill-search-embeddings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readEmbeddingReadiness.mockResolvedValue(readiness);
+    mocks.readCaptureEmbeddingCoverage.mockResolvedValue({
+      complete: true,
+      artifactEmbedded: true,
+      expectedBursts: 1,
+      embeddedBursts: 1,
+    });
+    mocks.enqueueBrainOperation.mockResolvedValue({ id: "queue-1" });
     mocks.getDb.mockReturnValue(createDb());
   });
 
@@ -193,22 +210,26 @@ describe("backfill-search-embeddings", () => {
       "source-1",
       "admin",
     );
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      mocks.readEmbeddingReadiness,
+    );
     expect(result).toMatchObject({
       dryRun: true,
       sourceId: "source-1",
       scanned: 1,
       matched: 1,
-      embedded: 0,
+      queued: 0,
       failed: 0,
       hasMore: false,
       nextCursor: null,
       candidates: [{ captureId: "capture-1", reason: "missing-artifact" }],
       results: [],
     });
-    expect(mocks.indexBrainCapture).not.toHaveBeenCalled();
+    expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
   });
 
-  it("requires approval for execution and writes missing embeddings", async () => {
+  it("requires approval and durably queues missing embeddings", async () => {
     expect(action.needsApproval).toBe(backfillSearchEmbeddingsNeedsApproval);
     expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: false })).toBe(true);
     expect(backfillSearchEmbeddingsNeedsApproval({ dryRun: "false" })).toBe(
@@ -228,17 +249,24 @@ describe("backfill-search-embeddings", () => {
       limit: 25,
     });
 
-    expect(mocks.indexBrainCapture).toHaveBeenCalledWith("capture-1");
+    expect(mocks.enqueueBrainOperation).toHaveBeenCalledWith({
+      operation: "search-index",
+      dedupeKey: `search-index-backfill:capture-1:content-hash:${readiness.embeddingSetId}`,
+      sourceId: "source-1",
+      captureId: "capture-1",
+      priority: 40,
+      payload: { requiredEmbeddingSetId: readiness.embeddingSetId },
+    });
     expect(result).toMatchObject({
       dryRun: false,
       matched: 1,
-      embedded: 1,
+      queued: 1,
       failed: 0,
       results: [
         {
           captureId: "capture-1",
-          outcome: "embedded",
-          embedded: true,
+          outcome: "queued",
+          queueId: "queue-1",
         },
       ],
     });
@@ -261,12 +289,13 @@ describe("backfill-search-embeddings", () => {
         limit: 25,
       }),
     ).rejects.toThrow("Configure exactly one embedding provider.");
-    expect(mocks.getDb).not.toHaveBeenCalled();
-    expect(mocks.indexBrainCapture).not.toHaveBeenCalled();
+    expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
   });
 
-  it("returns failed capture IDs for explicit retry", async () => {
-    mocks.getDb.mockReturnValue(createDb([candidate], false));
+  it("returns failed capture IDs when durable queueing fails", async () => {
+    mocks.enqueueBrainOperation.mockRejectedValueOnce(
+      new Error("queue unavailable"),
+    );
 
     const result = await action.run({
       sourceId: "source-1",
@@ -278,11 +307,49 @@ describe("backfill-search-embeddings", () => {
 
     expect(result).toMatchObject({
       matched: 1,
-      embedded: 0,
+      queued: 0,
       failed: 1,
       failedCaptureIds: ["capture-1"],
       hasMore: false,
       nextCursor: null,
+    });
+  });
+
+  it("includes captures with incomplete burst embeddings", async () => {
+    mocks.getDb.mockReturnValue(
+      createDb([
+        {
+          ...candidate,
+          artifactId: "artifact-1",
+          artifactAudienceId: "audience-1",
+          artifactAclHash: "acl-hash",
+          artifactTitle: "Decision",
+          artifactQuestion: "Question",
+          artifactSummary: "Summary",
+          artifactResolution: "Resolution",
+          artifactSystemsJson: "[]",
+          artifactCodeRefsJson: "[]",
+          embeddingId: "embedding-1",
+        },
+      ]),
+    );
+    mocks.readCaptureEmbeddingCoverage.mockResolvedValue({
+      complete: false,
+      artifactEmbedded: true,
+      expectedBursts: 2,
+      embeddedBursts: 1,
+    });
+
+    const result = await action.run({
+      sourceId: "source-1",
+      dryRun: true,
+      force: false,
+      limit: 25,
+    });
+
+    expect(result).toMatchObject({
+      matched: 1,
+      candidates: [{ captureId: "capture-1", reason: "partial-embedding" }],
     });
   });
 
