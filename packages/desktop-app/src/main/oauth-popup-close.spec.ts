@@ -1,6 +1,12 @@
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
 
-import { createOAuthPopupCloser } from "./oauth-popup-close";
+import {
+  createOAuthPopupCloser,
+  watchOAuthSystemBrowserReturn,
+  watchOAuthSystemBrowserReturnForContents,
+} from "./oauth-popup-close";
 
 function fakeWindow() {
   const finishLoadListeners: Array<() => void> = [];
@@ -54,5 +60,73 @@ describe("createOAuthPopupCloser", () => {
     closer.onLoadFailed(-105);
 
     expect(win.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("watchOAuthSystemBrowserReturn", () => {
+  it("reports the same attempt after the app regains focus from system-browser OAuth", () => {
+    const win = new EventEmitter();
+    const onReturn = vi.fn();
+    const cleanup = watchOAuthSystemBrowserReturn(
+      win as unknown as Parameters<typeof watchOAuthSystemBrowserReturn>[0],
+      "attempt-123",
+      onReturn,
+    );
+
+    win.emit("focus");
+    expect(onReturn).not.toHaveBeenCalled();
+
+    win.emit("blur");
+    win.emit("focus");
+    win.emit("blur");
+    win.emit("focus");
+
+    expect(onReturn).toHaveBeenCalledTimes(1);
+    expect(onReturn).toHaveBeenCalledWith("attempt-123");
+    cleanup();
+  });
+
+  it("stops watching when the app window closes", () => {
+    const win = new EventEmitter();
+    const onReturn = vi.fn();
+    watchOAuthSystemBrowserReturn(
+      win as unknown as Parameters<typeof watchOAuthSystemBrowserReturn>[0],
+      "attempt-123",
+      onReturn,
+    );
+
+    win.emit("blur");
+    win.emit("closed");
+    win.emit("focus");
+
+    expect(onReturn).not.toHaveBeenCalled();
+  });
+
+  it("watches the owner window for source contents when multiple windows are open", () => {
+    const firstWindow = new EventEmitter();
+    const ownerWindow = new EventEmitter();
+    const sourceContents = {};
+    const getOwnerWindow = vi.fn((contents: typeof sourceContents) =>
+      contents === sourceContents ? ownerWindow : null,
+    );
+    const onReturn = vi.fn();
+
+    const cleanup = watchOAuthSystemBrowserReturnForContents(
+      sourceContents,
+      getOwnerWindow,
+      "attempt-456",
+      onReturn,
+    );
+
+    firstWindow.emit("blur");
+    firstWindow.emit("focus");
+    expect(onReturn).not.toHaveBeenCalled();
+
+    ownerWindow.emit("blur");
+    ownerWindow.emit("focus");
+
+    expect(getOwnerWindow).toHaveBeenCalledWith(sourceContents);
+    expect(onReturn).toHaveBeenCalledWith("attempt-456");
+    cleanup?.();
   });
 });

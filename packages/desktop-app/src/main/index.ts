@@ -318,7 +318,10 @@ import {
   initializeMultiFrontierAppIntegration,
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
-import { createOAuthPopupCloser } from "./oauth-popup-close";
+import {
+  createOAuthPopupCloser,
+  watchOAuthSystemBrowserReturnForContents,
+} from "./oauth-popup-close";
 import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   isQuickPromptActive,
@@ -13441,11 +13444,23 @@ function openMatchedOAuthUrl(
   sourceUrl: string | undefined,
   sourceContents: Electron.WebContents,
 ) {
+  const attemptId = parsed.searchParams.get("_an_connect_attempt");
   if (shouldOpenOAuthInSystemBrowser(provider, parsed)) {
+    if (attemptId) {
+      watchOAuthSystemBrowserReturnForContents(
+        sourceContents,
+        (contents) => BrowserWindow.fromWebContents(contents),
+        attemptId,
+        (closedAttemptId) => {
+          if (!sourceContents.isDestroyed()) {
+            sourceContents.send(IPC.OAUTH_POPUP_CLOSED, closedAttemptId);
+          }
+        },
+      );
+    }
     openExternalUrl(url);
     return;
   }
-  const attemptId = parsed.searchParams.get("_an_connect_attempt");
   routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
     openOAuthWindow(
       boundUrl,

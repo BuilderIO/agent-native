@@ -51,3 +51,57 @@ export function createOAuthPopupCloser(win: OAuthPopupWindowLike) {
     },
   };
 }
+
+interface OAuthSystemBrowserWindowLike {
+  on(event: "blur", listener: () => void): void;
+  once(event: "focus" | "closed", listener: () => void): void;
+  removeListener(
+    event: "blur" | "focus" | "closed",
+    listener: () => void,
+  ): void;
+}
+
+/** Electron cannot observe a system-browser tab closing; focus return is the proxy. */
+export function watchOAuthSystemBrowserReturn(
+  win: OAuthSystemBrowserWindowLike,
+  attemptId: string,
+  onReturn: (attemptId: string) => void,
+) {
+  let blurred = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanup = () => {
+    if (timeout) clearTimeout(timeout);
+    win.removeListener("blur", onBlur);
+    win.removeListener("focus", onFocus);
+    win.removeListener("closed", cleanup);
+  };
+  const onFocus = () => {
+    if (!blurred) return;
+    cleanup();
+    onReturn(attemptId);
+  };
+  const onBlur = () => {
+    blurred = true;
+    win.removeListener("blur", onBlur);
+    win.once("focus", onFocus);
+  };
+
+  win.on("blur", onBlur);
+  win.once("closed", cleanup);
+  timeout = setTimeout(cleanup, 5 * 60 * 1000);
+
+  return cleanup;
+}
+
+export function watchOAuthSystemBrowserReturnForContents<T>(
+  sourceContents: T,
+  getOwnerWindow: (contents: T) => OAuthSystemBrowserWindowLike | null,
+  attemptId: string,
+  onReturn: (attemptId: string) => void,
+) {
+  const ownerWindow = getOwnerWindow(sourceContents);
+  return ownerWindow
+    ? watchOAuthSystemBrowserReturn(ownerWindow, attemptId, onReturn)
+    : undefined;
+}
