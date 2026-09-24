@@ -84,9 +84,9 @@ For each enabled family or action, creation requires permission to create and a 
 
 - A personal target requires the actor.
 - An organization target requires an organization member.
-- A team target requires a team member.
+- A team target requires team membership or organization owner/admin authority.
 
-Organization owners and admins can also target teams. Team leads receive no special create grant.
+Team leads receive no special create grant.
 
 If a family or action allows it, an ordinary team member can create a resource in that member's team. That member becomes the human owner.
 
