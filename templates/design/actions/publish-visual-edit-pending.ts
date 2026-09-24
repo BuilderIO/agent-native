@@ -1,7 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -129,6 +129,7 @@ export default defineAction({
 
     const samePublisherIsNewer = sql`${schema.designVisualEditPending.publisherId} = excluded.publisher_id AND ${schema.designVisualEditPending.clientRevision} < excluded.client_revision`;
     const fromNewPublisher = sql`${schema.designVisualEditPending.publisherId} IS DISTINCT FROM excluded.publisher_id`;
+    const fromNewPublisherToReady = sql`(${fromNewPublisher} AND ${schema.designVisualEditPending.status} <> 'ready')`;
     const updated = await getDb()
       .insert(schema.designVisualEditPending)
       .values(values)
@@ -149,9 +150,30 @@ export default defineAction({
         setWhere:
           pending === null && !canEditDesign
             ? samePublisherIsNewer
-            : sql`(${fromNewPublisher} OR ${samePublisherIsNewer})`,
+            : sql`(${samePublisherIsNewer} OR ${pending === null && canEditDesign ? fromNewPublisher : fromNewPublisherToReady})`,
       })
       .returning({ revision: schema.designVisualEditPending.revision });
+
+    if (!updated.length && pending !== null) {
+      const [current] = await getDb()
+        .select({
+          status: schema.designVisualEditPending.status,
+          publisherId: schema.designVisualEditPending.publisherId,
+        })
+        .from(schema.designVisualEditPending)
+        .where(eq(schema.designVisualEditPending.designId, designId))
+        .limit(1);
+
+      if (current?.status === "ready" && current.publisherId !== publisherId) {
+        fail(
+          "Another collaborator has visual edits waiting to be applied. Apply or clear those edits before publishing new ones.",
+          {
+            errorCode: "visual_edit_pending_conflict",
+            statusCode: 409,
+          },
+        );
+      }
+    }
 
     return {
       designId,

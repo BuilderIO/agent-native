@@ -8900,6 +8900,116 @@ it(
 );
 
 it(
+  "serializes snapshot reservations and publishes a newer capture after pending DOM changes",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(
+        "<!doctype html><html><body><h1>Canvas</h1></body></html>",
+      );
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          ),
+        undefined,
+        { timeout: 15_000 },
+      );
+
+      const firstRequest = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type ===
+            "agent-native:runtime-layer-snapshot-reservation-request",
+        ),
+      );
+      await page.evaluate(() => {
+        window.postMessage({ type: "request-runtime-layer-snapshot" }, "*");
+        window.postMessage({ type: "request-runtime-layer-snapshot" }, "*");
+      });
+      await page.waitForTimeout(30);
+      await expectSnapshotReservationRequests(page, [firstRequest.requestId]);
+
+      await page.evaluate((requestId) => {
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+            reservationToken: "capture-one",
+          },
+          "*",
+        );
+      }, firstRequest.requestId);
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          ).length === 2,
+      );
+      const requestIds = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? [])
+          .filter(
+            (message: any) =>
+              message.type ===
+              "agent-native:runtime-layer-snapshot-reservation-request",
+          )
+          .map((message: any) => message.requestId),
+      );
+      expect(requestIds).toEqual([
+        firstRequest.requestId,
+        firstRequest.requestId + 1,
+      ]);
+
+      await page.evaluate((requestId) => {
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+            reservationToken: "capture-two",
+          },
+          "*",
+        );
+      }, requestIds[1]);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot" &&
+            message.payload?.reservationToken === "capture-two",
+        ),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+async function expectSnapshotReservationRequests(
+  page: import("@playwright/test").Page,
+  requestIds: number[],
+) {
+  const actual = await page.evaluate(() =>
+    ((window as any).__bridgeMessages ?? [])
+      .filter(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      )
+      .map((message: any) => message.requestId),
+  );
+  expect(actual).toEqual(requestIds);
+}
+
+it(
   "runtime layers qualify shared React shell identities by screen so hover and selection keep the correct route owner",
   { timeout: 30_000 },
   async () => {

@@ -738,6 +738,12 @@ import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-fr
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
 import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
+import {
+  createVisualEditSnapshotPublicationState,
+  runClearVisualEditSnapshotPublications,
+  runScheduleVisualEditSnapshotPublication,
+  type VisualEditSnapshotPublicationState,
+} from "./design-editor/commands/publish-visual-edit-snapshot";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import {
   commitPendingLiveStructureEdits,
@@ -4965,16 +4971,6 @@ function DesignEditor() {
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
-  // Viral attribution: whoever copies this share link is tagged as the
-  // referrer, so a signup that follows it can be attributed.
-  const editorShareUrl = useMemo(() => {
-    if (!id || typeof window === "undefined") return undefined;
-    return withShareLinkAttribution(
-      getDesignEditorShareUrl(id, window.location.origin, appBasePath()),
-      "design_share",
-      session?.userId,
-    );
-  }, [id, session?.userId]);
   const {
     designSystems,
     defaultSystem,
@@ -5371,12 +5367,16 @@ function DesignEditor() {
   const [liveScreenSnapshotsById, setLiveScreenSnapshotsById] = useState<
     Record<string, LiveScreenSnapshot>
   >({});
-  const visualEditSnapshotTimersRef = useRef(new Map<string, number>());
-  const latestVisualEditSnapshotsRef = useRef(new Map<string, string>());
-  const publishedVisualEditSnapshotsRef = useRef(new Map<string, string>());
-  const visualEditSnapshotQueueRef = useRef(Promise.resolve());
+  const visualEditSnapshotPublicationStateRef =
+    useRef<VisualEditSnapshotPublicationState | null>(null);
+  if (!visualEditSnapshotPublicationStateRef.current) {
+    visualEditSnapshotPublicationStateRef.current =
+      createVisualEditSnapshotPublicationState();
+  }
+  const visualEditSnapshotPublicationState =
+    visualEditSnapshotPublicationStateRef.current;
   const scheduleVisualEditSnapshotRef = useRef(
-    (_screenId: string, _html: string) => {},
+    (_screenId: string, _html: string, _reservationToken?: string) => {},
   );
   const [runtimeLayerSnapshotsById, setRuntimeLayerSnapshotsById] = useState<
     Record<string, RuntimeLayerSnapshot>
@@ -5717,84 +5717,68 @@ function DesignEditor() {
     (screen) =>
       resolveOverviewScreenSourceType(screen, designSourceType) === "localhost",
   );
-  const scheduleVisualEditSnapshotPublication = useCallback(
-    (screenId: string, html: string) => {
-      if (
-        !id ||
-        !canEditDesign ||
-        !html.trim() ||
-        isStandaloneHttpUrl(html) ||
-        publishedVisualEditSnapshotsRef.current.get(screenId) === html
-      ) {
-        return;
+  // Viral attribution is kept on the regular share URL, including live canvases.
+  const editorShareUrl = useMemo(() => {
+    if (!id || typeof window === "undefined") return undefined;
+    return withShareLinkAttribution(
+      getDesignEditorShareUrl(
+        id,
+        window.location.origin,
+        appBasePath(),
+        hasLocalhostScreens ? "visual-edit" : "design",
+      ),
+      "design_share",
+      session?.userId,
+    );
+  }, [hasLocalhostScreens, id, session?.userId]);
+  const reserveVisualEditSnapshot = useCallback(
+    (fileId?: string) => {
+      if (!id || !fileId) {
+        return Promise.reject(new Error("Missing visual edit snapshot target"));
       }
-      latestVisualEditSnapshotsRef.current.set(screenId, html);
-      const existingTimer = visualEditSnapshotTimersRef.current.get(screenId);
-      if (existingTimer !== undefined) window.clearTimeout(existingTimer);
-      visualEditSnapshotTimersRef.current.set(
-        screenId,
-        window.setTimeout(() => {
-          visualEditSnapshotTimersRef.current.delete(screenId);
-          visualEditSnapshotQueueRef.current =
-            visualEditSnapshotQueueRef.current
-              .catch(() => {})
-              .then(async () => {
-                const latestHtml =
-                  latestVisualEditSnapshotsRef.current.get(screenId);
-                if (
-                  !latestHtml ||
-                  publishedVisualEditSnapshotsRef.current.get(screenId) ===
-                    latestHtml
-                ) {
-                  return;
-                }
-                await callAction("publish-visual-edit-snapshot", {
-                  designId: id,
-                  fileId: screenId,
-                  html: latestHtml,
-                });
-                publishedVisualEditSnapshotsRef.current.set(
-                  screenId,
-                  latestHtml,
-                );
-                setPendingVisualEditPublicationFailed(false);
-              })
-              .catch((error) => {
-                console.error(
-                  "[design:visual-edit] fallback snapshot publication failed",
-                  error,
-                );
-                setPendingVisualEditPublicationFailed(true);
-                toast.error(t("designEditor.toasts.codingHandoffError"), {
-                  id: `design-visual-edit-snapshot:${screenId}`,
-                });
-              });
-        }, 250),
+      return callAction<{ reservationToken: string }>(
+        "reserve-visual-edit-snapshot",
+        { designId: id, fileId },
       );
-    },
-    [canEditDesign, id, t],
-  );
-  scheduleVisualEditSnapshotRef.current = scheduleVisualEditSnapshotPublication;
-  useEffect(
-    () => () => {
-      visualEditSnapshotTimersRef.current.forEach((timer) =>
-        window.clearTimeout(timer),
-      );
-      visualEditSnapshotTimersRef.current.clear();
-      latestVisualEditSnapshotsRef.current.clear();
-      publishedVisualEditSnapshotsRef.current.clear();
     },
     [id],
   );
-  const editorShareUrl = useMemo(() => {
-    if (!id || typeof window === "undefined") return undefined;
-    return getDesignEditorShareUrl(
-      id,
-      window.location.origin,
-      appBasePath(),
-      hasLocalhostScreens ? "visual-edit" : "design",
-    );
-  }, [hasLocalhostScreens, id]);
+  const scheduleVisualEditSnapshotPublication = useCallback(
+    (screenId: string, html: string, reservationToken?: string) => {
+      runScheduleVisualEditSnapshotPublication({
+        canPublish: canEditDesign,
+        designId: id,
+        fileId: screenId,
+        html,
+        reservationToken,
+        publish: (payload) =>
+          callAction<{ published: boolean }>(
+            "publish-visual-edit-snapshot",
+            payload,
+          ),
+        setFailed: setPendingVisualEditPublicationFailed,
+        showError: (fileId, error) => {
+          console.error(
+            "[design:visual-edit] fallback snapshot publication failed",
+            error,
+          );
+          toast.error(t("designEditor.toasts.codingHandoffError"), {
+            id: `design-visual-edit-snapshot:${fileId}`,
+          });
+        },
+        state: visualEditSnapshotPublicationState,
+      });
+    },
+    [canEditDesign, id, t, visualEditSnapshotPublicationState],
+  );
+  scheduleVisualEditSnapshotRef.current = scheduleVisualEditSnapshotPublication;
+  useEffect(
+    () => () =>
+      runClearVisualEditSnapshotPublications(
+        visualEditSnapshotPublicationState,
+      ),
+    [id],
+  );
   const visualEditPendingQuery = useActionQuery<{
     designId: string;
     pendingEditCount: number;
@@ -8756,7 +8740,11 @@ function DesignEditor() {
         resolveOverviewScreenSourceType(screen, designSourceTypeRef.current) ===
           "localhost"
       ) {
-        scheduleVisualEditSnapshotRef.current(screenId, snapshot.html);
+        scheduleVisualEditSnapshotRef.current(
+          screenId,
+          snapshot.html,
+          snapshot.reservationToken,
+        );
       }
       runtimeLayerSnapshotsByIdRef.current = {
         ...runtimeLayerSnapshotsByIdRef.current,
@@ -20124,10 +20112,17 @@ function DesignEditor() {
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
         setPendingVisualEditPublicationFailed,
-        showHandoffErrorToast: () =>
-          toast.error(t("designEditor.toasts.codingHandoffError"), {
-            id: "design-visual-edit-pending-publication",
-          }),
+        showHandoffErrorToast: (error) => {
+          const errorCode = (error as { errorCode?: unknown } | undefined)
+            ?.errorCode;
+          toast.error(
+            errorCode === "visual_edit_pending_conflict"
+              ? t("designEditor.toasts.visualEditPendingConflict")
+              : (actionErrorMessage(error) ??
+                  t("designEditor.toasts.codingHandoffError")),
+            { id: "design-visual-edit-pending-publication" },
+          );
+        },
       });
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
@@ -25610,6 +25605,14 @@ function DesignEditor() {
               ? getRuntimeLayerSnapshotCallback(screen.id)
               : undefined
           }
+          onReserveVisualEditSnapshot={
+            !screenSnapshotOnly &&
+            canEditDesign &&
+            id &&
+            screenSourceType === "localhost"
+              ? reserveVisualEditSnapshot
+              : undefined
+          }
           onScreenRootComputedStyles={getScreenRootComputedStylesCallback(
             breakpointWidthPx === undefined
               ? screen.id
@@ -29107,6 +29110,14 @@ function DesignEditor() {
                             content: activeContent,
                           })
                             ? handleActiveRuntimeLayerSnapshot
+                            : undefined
+                        }
+                        onReserveVisualEditSnapshot={
+                          !activeScreenSnapshotOnly &&
+                          canEditDesign &&
+                          id &&
+                          activeCanvasSourceType === "localhost"
+                            ? reserveVisualEditSnapshot
                             : undefined
                         }
                         onRuntimeVerificationSnapshot={

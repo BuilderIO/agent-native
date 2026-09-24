@@ -635,7 +635,11 @@ interface DesignCanvasProps {
     html: string;
     nodeCount: number;
     documentId?: string;
+    reservationToken?: string;
   }) => void;
+  onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
+    reservationToken: string;
+  }>;
   /** Called once when this document has a usable runtime bridge. */
   onBridgeReady?: () => void;
   /** Publishes a refreshed localhost preview credential to the host editor. */
@@ -1579,6 +1583,7 @@ export function DesignCanvas({
   blockPreviewInteraction = false,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
+  onReserveVisualEditSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
   onRoutePathChange,
@@ -1960,6 +1965,9 @@ export function DesignCanvas({
     },
     [probeBridgeReadinessUntilDrained],
   );
+  const requestRuntimeLayerSnapshot = useCallback(() => {
+    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+  }, [postOneShotBridgeMessage]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
   const requestSharedSnapshotAfterEdit = useCallback(() => {
     if (sourceType !== "localhost" || snapshotOnly) return;
@@ -1968,9 +1976,9 @@ export function DesignCanvas({
     }
     sharedSnapshotRequestTimerRef.current = window.setTimeout(() => {
       sharedSnapshotRequestTimerRef.current = undefined;
-      postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
+      requestRuntimeLayerSnapshot();
     }, 100);
-  }, [postOneShotBridgeMessage, snapshotOnly, sourceType]);
+  }, [requestRuntimeLayerSnapshot, snapshotOnly, sourceType]);
   useEffect(
     () => () => {
       if (sharedSnapshotRequestTimerRef.current !== undefined) {
@@ -4093,6 +4101,26 @@ export function DesignCanvas({
         markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
+      if (
+        e.data.type ===
+        "agent-native:runtime-layer-snapshot-reservation-request"
+      ) {
+        if (!Number.isSafeInteger(e.data.requestId)) return;
+        const grantSnapshot = (reservationToken?: string) =>
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: e.data.requestId,
+            ...(reservationToken ? { reservationToken } : {}),
+          });
+        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
+          grantSnapshot();
+        } else {
+          void onReserveVisualEditSnapshot(screenId)
+            .then(({ reservationToken }) => grantSnapshot(reservationToken))
+            .catch(() => grantSnapshot());
+        }
+        return;
+      }
       if (e.data.type === "agent-native:live-route-path") {
         if (typeof e.data.routePath === "string" && e.data.routePath) {
           liveRoutePathRef.current = e.data.routePath;
@@ -4160,6 +4188,10 @@ export function DesignCanvas({
             documentId:
               typeof payload.documentId === "string"
                 ? payload.documentId
+                : undefined,
+            reservationToken:
+              typeof payload.reservationToken === "string"
+                ? payload.reservationToken
                 : undefined,
           });
         }
@@ -5256,6 +5288,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onRuntimeLayerSnapshot,
+    onReserveVisualEditSnapshot,
     onBridgeReady,
     onBootReady,
     markPreviewFrameReady,
@@ -6495,8 +6528,8 @@ export function DesignCanvas({
       return;
     }
     lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
-    postOneShotBridgeMessage({ type: "request-runtime-layer-snapshot" });
-  }, [postOneShotBridgeMessage, runtimeLayerSnapshotRequest]);
+    requestRuntimeLayerSnapshot();
+  }, [requestRuntimeLayerSnapshot, runtimeLayerSnapshotRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised

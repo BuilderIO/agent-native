@@ -14,6 +14,7 @@ function makeArgs(
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     pending: {
       designId: "design-1",
+      publisherId: "00000000-0000-4000-8000-000000000001",
       revision: 1,
       pending: {
         designId: "design-1",
@@ -64,10 +65,11 @@ describe("runPublishVisualEditPending", () => {
     );
   });
 
-  it("surfaces the handoff error toast only when an editor's durable publish itself fails", async () => {
+  it("surfaces the handoff error only when an editor's durable publish itself fails", async () => {
+    const error = new Error("editor access");
     const args = makeArgs({
       canPublishDurableHandoff: true,
-      callAction: vi.fn().mockRejectedValue(new Error("editor access")),
+      callAction: vi.fn().mockRejectedValue(error),
     });
 
     await runPublishVisualEditPending(args);
@@ -75,7 +77,7 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
-    expect(args.showHandoffErrorToast).toHaveBeenCalledTimes(1);
+    expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
     // The bridge POST is independent and must still run after the failure.
     expect(args.fetchImpl).toHaveBeenCalled();
   });

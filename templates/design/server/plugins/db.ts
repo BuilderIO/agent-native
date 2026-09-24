@@ -467,6 +467,13 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
       sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS client_revision INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 34,
+      name: "design-visual-edit-snapshot-blob-ordering",
+      sql: `ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS blob_handle TEXT;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS capture_revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS published_revision BIGINT NOT NULL DEFAULT 0`,
+    },
   ],
   { table: "design_migrations" },
 );

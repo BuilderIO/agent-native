@@ -1296,6 +1296,8 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      visualEditPendingConflict:
+        "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",

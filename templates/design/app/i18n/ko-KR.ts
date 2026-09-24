@@ -1299,6 +1299,8 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      visualEditPendingConflict:
+        "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",

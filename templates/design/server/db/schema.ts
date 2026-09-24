@@ -1,5 +1,6 @@
 import {
   table,
+  bigint,
   text,
   integer,
   now,
@@ -358,7 +359,15 @@ export const designVisualEditSnapshots = table(
     fileId: text("file_id")
       .notNull()
       .references(() => designFiles.id, { onDelete: "cascade" }),
+    // Kept only for pre-blob rows; new snapshots store an opaque private-blob handle.
     html: text("html").notNull(),
+    blobHandle: text("blob_handle"),
+    captureRevision: bigint("capture_revision", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    publishedRevision: bigint("published_revision", { mode: "bigint" })
+      .notNull()
+      .default(0n),
     updatedAt: text("updated_at").default(now()),
     ...ownableColumns(),
   },

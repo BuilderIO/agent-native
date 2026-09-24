@@ -1270,6 +1270,8 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      visualEditPendingConflict:
+        "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
       htmlCreateError: "无法创建 HTML 下载",

@@ -1,6 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  deletePrivateBlob,
+  putPrivateBlob,
+  type PrivateBlobHandle,
+} from "@agent-native/core/private-blob";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,7 +21,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function assertLocalhostScreenMetadata(
+export function assertLocalhostScreenMetadata(
   dataJson: unknown,
   fileId: string,
   fileContent: unknown,
@@ -111,6 +116,10 @@ export default defineAction({
     .object({
       designId: z.string().min(1).describe("Design project ID."),
       fileId: z.string().min(1).describe("Localhost screen file ID."),
+      reservationToken: z
+        .string()
+        .regex(/^[1-9][0-9]{0,18}$/)
+        .describe("Latest server-issued screen capture reservation."),
       html: z
         .string()
         .min(1)
@@ -118,7 +127,7 @@ export default defineAction({
         .describe("Complete HTML snapshot captured from the running route."),
     })
     .strict(),
-  run: async ({ designId, fileId, html }) => {
+  run: async ({ designId, fileId, reservationToken, html }) => {
     const editorAccess = await assertAccess("design", designId, "editor");
     const design = editorAccess.resource as typeof schema.designs.$inferSelect;
 
@@ -188,31 +197,115 @@ export default defineAction({
       );
     }
 
-    await db
-      .insert(schema.designVisualEditSnapshots)
-      .values({
-        designId,
-        fileId,
-        html: safeHtml,
-        updatedAt: new Date().toISOString(),
-        visibility: design.visibility,
-        ownerEmail: design.ownerEmail,
-        orgId: design.orgId,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.designVisualEditSnapshots.designId,
-          schema.designVisualEditSnapshots.fileId,
-        ],
-        set: {
-          html: safeHtml,
-          updatedAt: new Date().toISOString(),
-          visibility: design.visibility,
-          ownerEmail: design.ownerEmail,
-          orgId: design.orgId,
-        },
+    const revision = BigInt(reservationToken);
+    if (revision > 9_223_372_036_854_775_807n) {
+      fail("The visual-edit snapshot reservation is invalid.", {
+        errorCode: "invalid_visual_edit_snapshot_reservation",
       });
+    }
+
+    const blob = await putPrivateBlob({
+      data: Buffer.from(safeHtml, "utf8"),
+      filename: "visual-edit-screen.html",
+      mimeType: "text/html",
+      ownerEmail:
+        typeof design.ownerEmail === "string" ? design.ownerEmail : undefined,
+    });
+    if (!blob) {
+      fail(
+        "Private blob storage is not configured for visual-edit snapshots.",
+        {
+          errorCode: "visual_edit_snapshot_storage_unavailable",
+        },
+      );
+    }
+
+    const now = new Date().toISOString();
+    let committed: { previousBlobHandle: string | null } | null;
+    try {
+      committed = await db.transaction(async (tx) => {
+        const table = schema.designVisualEditSnapshots;
+        const [current] = await tx
+          .select({
+            blobHandle: table.blobHandle,
+            captureRevision: table.captureRevision,
+            publishedRevision: table.publishedRevision,
+          })
+          .from(table)
+          .where(and(eq(table.designId, designId), eq(table.fileId, fileId)))
+          .for("update")
+          .limit(1);
+        if (
+          !current ||
+          current.captureRevision !== revision ||
+          current.publishedRevision >= revision
+        ) {
+          return null;
+        }
+
+        const updated = await tx
+          .update(table)
+          .set({
+            blobHandle: JSON.stringify(blob),
+            html: "",
+            publishedRevision: revision,
+            updatedAt: now,
+            visibility: design.visibility,
+            ownerEmail: design.ownerEmail,
+            orgId: design.orgId,
+          })
+          .where(
+            and(
+              eq(table.designId, designId),
+              eq(table.fileId, fileId),
+              eq(table.captureRevision, revision),
+              sql`${table.publishedRevision} < ${revision}`,
+            ),
+          )
+          .returning({ blobHandle: table.blobHandle });
+        return updated.length
+          ? { previousBlobHandle: current.blobHandle }
+          : null;
+      });
+    } catch (error) {
+      await discardSnapshotBlob(blob);
+      throw error;
+    }
+
+    if (!committed) {
+      await discardSnapshotBlob(blob);
+      return { designId, fileId, published: false };
+    }
+
+    if (
+      committed.previousBlobHandle &&
+      committed.previousBlobHandle !== JSON.stringify(blob)
+    ) {
+      await discardStoredSnapshotBlob(committed.previousBlobHandle);
+    }
 
     return { designId, fileId, published: true };
   },
 });
+
+async function discardSnapshotBlob(blob: PrivateBlobHandle): Promise<void> {
+  try {
+    await deletePrivateBlob(blob);
+  } catch (error) {
+    console.warn(
+      "[visual-edit] Could not remove a superseded fallback snapshot blob:",
+      error,
+    );
+  }
+}
+
+async function discardStoredSnapshotBlob(value: string): Promise<void> {
+  try {
+    await discardSnapshotBlob(JSON.parse(value) as PrivateBlobHandle);
+  } catch (error) {
+    console.warn(
+      "[visual-edit] Could not parse a superseded fallback snapshot blob handle:",
+      error,
+    );
+  }
+}

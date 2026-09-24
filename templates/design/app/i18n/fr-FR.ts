@@ -1326,6 +1326,8 @@ export default {
       annotationSendError:
         "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
       codingHandoffError: "Impossible de créer le transfert de code",
+      visualEditPendingConflict:
+        "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
       clipboardBlocked: "Presse-papiers bloqué",
       htmlCreateError: "Impossible de créer le téléchargement HTML",

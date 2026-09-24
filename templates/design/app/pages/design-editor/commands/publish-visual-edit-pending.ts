@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 
 export interface PendingVisualEditHandoff {
   designId: string;
+  publisherId: string;
   revision: number;
   pending: {
     designId: string;
@@ -27,7 +28,7 @@ export interface PublishVisualEditPendingArgs {
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
   setPendingVisualEditPublicationFailed: (failed: boolean) => void;
-  showHandoffErrorToast: () => void;
+  showHandoffErrorToast: (error: unknown) => void;
 }
 
 export async function runPublishVisualEditPending(
@@ -64,7 +65,7 @@ export async function runPublishVisualEditPending(
         error,
       );
       setPendingVisualEditPublicationFailed(true);
-      showHandoffErrorToast();
+      showHandoffErrorToast(error);
     }
   }
 

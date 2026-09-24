@@ -1290,6 +1290,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",

@@ -55,8 +55,8 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
-  fail: (message: string) => {
-    throw new Error(message);
+  fail: (message: string, options: Record<string, unknown> = {}) => {
+    throw Object.assign(new Error(message), options);
   },
 }));
 
@@ -108,6 +108,7 @@ describe("visual-edit pending handoff", () => {
     mocks.resolveAccess.mockResolvedValue(null);
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
+    mocks.selectChain.limit.mockResolvedValue([]);
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
     mocks.insertChain.returning.mockReset();
@@ -319,9 +320,75 @@ describe("visual-edit pending handoff", () => {
     ]);
   });
 
+  it("rejects a second publisher instead of replacing another ready handoff", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.insertChain.returning.mockResolvedValueOnce([]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      { status: "ready", publisherId: "22222222-2222-4222-8222-222222222222" },
+    ]);
+
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: "design_public",
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: "design_public",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Do not replace the other collaborator's edits.",
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "visual_edit_pending_conflict",
+      message: expect.stringContaining("Apply or clear those edits"),
+    });
+
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    const setWhere = update?.setWhere;
+    expect(setWhere.strings.join(" ")).toContain("OR");
+    const differentPublisherCondition = setWhere.values[1];
+    expect(differentPublisherCondition.values[0].strings.join(" ")).toContain(
+      "IS DISTINCT FROM excluded.publisher_id",
+    );
+    expect(differentPublisherCondition.values[1]).toBe("pending.status");
+    expect(differentPublisherCondition.strings.join(" ")).toContain(
+      "<> 'ready'",
+    );
+  });
+
+  it("lets an owner clear a ready handoff published by another collaborator", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.insertChain.returning.mockResolvedValueOnce([{ revision: 3 }]);
+
+    await expect(
+      publishPendingAction.run(
+        { designId: "design_public", publisherId, revision: 3, pending: null },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({ status: "empty", revision: 3 });
+
+    const update = mocks.insertChain.onConflictDoUpdate.mock.calls[0]?.[0];
+    const publisherCondition = update?.setWhere.values[1];
+    expect(publisherCondition.strings.join(" ")).toContain(
+      "IS DISTINCT FROM excluded.publisher_id",
+    );
+    expect(publisherCondition.strings.join(" ")).not.toContain(
+      "pending.status",
+    );
+    expect(mocks.selectChain.limit).not.toHaveBeenCalled();
+  });
+
   it("returns an explicit stale result when a browser publication is out of order", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
     mocks.insertChain.returning.mockResolvedValueOnce([]);
+    mocks.selectChain.limit.mockResolvedValueOnce([
+      { status: "ready", publisherId },
+    ]);
 
     await expect(
       publishPendingAction.run(
