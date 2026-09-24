@@ -1438,9 +1438,10 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
       [], // no existing recording -> triggers insert
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
       [recording],
       [],
     ]);
@@ -1483,6 +1484,43 @@ describe("session replay ingest parsing", () => {
     }
   });
 
+  it("rejects a rate-limited ingest before looking up the recording", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 2,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 2 }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).rejects.toMatchObject({ statusCode: 429, retryAfterSeconds: 60 });
+
+    // key, daily bytes, per-minute count, and no session_recordings lookup
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(inserts).toHaveLength(0);
+  });
+
   it("removes a new recording's placeholder when the usage reservation fails", async () => {
     const recording = {
       id: "sr_new",
@@ -1508,9 +1546,10 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
       [], // no existing recording -> placeholder insert
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
       [recording],
       [],
     ]);
@@ -1591,9 +1630,9 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
       [recording], // existing recording found directly, no reselect
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
       [],
     ]);
     db.insert.mockImplementation((table: unknown) => ({
@@ -1655,9 +1694,10 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM (100% cap)
+      [{ requests: 0 }], // per-minute COUNT
       [], // no existing recording -> triggers insert
-      [{ bytes: 0 }],
-      [{ requests: 0 }],
+      [{ bytes: 0 }], // new-recording admission SUM (85% ceiling)
       [
         {
           id: "sr_new",
@@ -1820,6 +1860,8 @@ describe("session replay ingest parsing", () => {
           replayMaxRequestsPerMinute: 120,
         },
       ],
+      [{ bytes: 0 }], // assertReplayKeyBudget's daily SUM at the 100% cap -> passes
+      [{ requests: 0 }], // per-minute COUNT -> passes
       [], // no existing recording
       [{ bytes: 900 }], // 90% used -> above the 85% new-recording ceiling
     ]);

@@ -1125,6 +1125,45 @@ export interface SessionReplayIngestContext {
   isNewRecording?: boolean;
 }
 
+/** Daily byte check. A new recording is held to the lower admission ceiling;
+ * see REPLAY_NEW_RECORDING_ADMISSION_RATIO. */
+export async function assertReplayDailyByteBudget(
+  key: { id: string; replayMaxBytesPerDay?: number | null },
+  context: SessionReplayIngestContext,
+  maxBytesPerDay = positiveReplayLimit(
+    key.replayMaxBytesPerDay,
+    DEFAULT_REPLAY_MAX_BYTES_PER_DAY,
+  ),
+): Promise<void> {
+  const requestBytes = Math.max(0, context.requestBytes ?? 0);
+  const sinceDay = isoBefore(context.now ?? new Date(), 24 * 60 * 60_000);
+  const db = getDb() as any;
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
+  const [dailyUsage] = await db
+    .select({
+      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
+    })
+    .from(schema.sessionReplayIngests)
+    .where(
+      and(
+        eq(schema.sessionReplayIngests.publicKeyId, key.id),
+        gte(schema.sessionReplayIngests.createdAt, sinceDay),
+      ),
+    );
+
+  const bytesToday = Number(dailyUsage?.bytes ?? 0);
+  const admissionCeiling = context.isNewRecording
+    ? Math.floor(maxBytesPerDay * REPLAY_NEW_RECORDING_ADMISSION_RATIO)
+    : maxBytesPerDay;
+  if (bytesToday + requestBytes > admissionCeiling) {
+    throw replayError(
+      "Replay ingest byte quota exceeded for this public key",
+      429,
+      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
+    );
+  }
+}
+
 export async function assertReplayKeyBudget(
   key: {
     id: string;
@@ -1161,39 +1200,15 @@ export async function assertReplayKeyBudget(
     );
   }
 
+  await assertReplayDailyByteBudget(key, context, maxBytesPerDay);
+
   const maxRequestsPerMinute = positiveReplayLimit(
     key.replayMaxRequestsPerMinute,
     DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE,
   );
   const now = context.now ?? new Date();
-  const sinceDay = isoBefore(now, 24 * 60 * 60_000);
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
-  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
-  const [dailyUsage] = await db
-    .select({
-      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
-    })
-    .from(schema.sessionReplayIngests)
-    .where(
-      and(
-        eq(schema.sessionReplayIngests.publicKeyId, key.id),
-        gte(schema.sessionReplayIngests.createdAt, sinceDay),
-      ),
-    );
-
-  const bytesToday = Number(dailyUsage?.bytes ?? 0);
-  const admissionCeiling = context.isNewRecording
-    ? Math.floor(maxBytesPerDay * REPLAY_NEW_RECORDING_ADMISSION_RATIO)
-    : maxBytesPerDay;
-  if (bytesToday + requestBytes > admissionCeiling) {
-    throw replayError(
-      "Replay ingest byte quota exceeded for this public key",
-      429,
-      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
-    );
-  }
-
   // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
   const [minuteUsage] = await db
     .select({
@@ -1416,6 +1431,7 @@ export async function recordSessionReplayChunks(
   totalBytes: number;
 }> {
   const key = await resolveReplayPublicKey(input.publicKey);
+  await assertReplayKeyBudget(key, context);
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1435,10 +1451,12 @@ export async function recordSessionReplayChunks(
     .limit(1);
 
   // Before the insert below: a rejected new recording must not leave a row.
-  await assertReplayKeyBudget(key, {
-    ...context,
-    isNewRecording: !recording,
-  });
+  if (!recording) {
+    await assertReplayDailyByteBudget(key, {
+      ...context,
+      isNewRecording: true,
+    });
+  }
 
   if (!recording) {
     const newRecordingId = replayId("sr");
