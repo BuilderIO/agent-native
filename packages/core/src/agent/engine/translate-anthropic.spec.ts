@@ -1,7 +1,10 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { actionsToEngineTools } from "../production-agent.js";
 import {
   createProviderToolNameMap,
   PROVIDER_TOOL_NAME_MAX_LENGTH,
@@ -72,8 +75,71 @@ describe("engineToolsToAnthropic", () => {
     });
     expect(result[0].input_schema).not.toHaveProperty("oneOf");
     expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(result[0].input_schema.required).toEqual(["maybe"]);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("flattens a union action schema instead of dropping its parameters", () => {
+    const branches = [
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("doc"),
+        docId: z.string(),
+      }),
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("app"),
+        appId: z.string(),
+      }),
+    ] as const;
+
+    for (const schema of [
+      z.union(branches),
+      z.discriminatedUnion("kind", branches),
+    ]) {
+      const tools = actionsToEngineTools({
+        probe: defineAction({
+          description: "Open a surface",
+          schema,
+          run: async () => "ok",
+        }),
+      });
+      expect(tools.map((tool) => tool.name)).toEqual(["probe"]);
+      const inputSchema = engineToolsToAnthropic(tools)[0]!
+        .input_schema as Record<string, any>;
+
+      for (const key of ["anyOf", "oneOf", "allOf"]) {
+        expect(inputSchema).not.toHaveProperty(key);
+      }
+      expect(inputSchema.type).toBe("object");
+      expect(Object.keys(inputSchema.properties).sort()).toEqual([
+        "appId",
+        "conversationId",
+        "docId",
+        "kind",
+      ]);
+      expect([...inputSchema.required].sort()).toEqual([
+        "conversationId",
+        "kind",
+      ]);
+      expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
+        /"doc".*"app"/,
+      );
+    }
+  });
+
+  it("passes a plain object schema through unchanged", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+    };
+    const [tool] = engineToolsToAnthropic([
+      { name: "search", description: "Search", inputSchema },
+    ]);
+
+    expect(tool!.input_schema).toBe(inputSchema);
   });
 
   it("narrows db-exec to statements for Anthropic compatibility", () => {
