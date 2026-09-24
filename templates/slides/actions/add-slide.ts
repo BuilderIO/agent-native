@@ -27,6 +27,12 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  buildThemeContractFromSlide,
+  isDeckThemeContract,
+  themeContractMismatch,
+} from "../shared/deck-theme-contract.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -117,7 +123,8 @@ export default defineAction({
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
     "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows. " +
+    "For an unlinked deck, the first slide's literal --deck-bg/--deck-ink establishes a persisted theme contract; a later slide whose literal background flips light/dark against it comes back with themeContractWarning instead of failing the write — restyle that slide to match, or restyle the whole deck together if the theme is intentionally changing.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -425,6 +432,29 @@ export default defineAction({
       const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
+      // No linked design system means no persisted source of truth for the
+      // deck's light/dark direction beyond this contract — a linked design
+      // system's own tokens already serve that role.
+      let themeContractWarning: string | null = null;
+      if (!resolveDeckDesignSystemId(row, deck)) {
+        const existingContract = isDeckThemeContract(deck.themeContract)
+          ? deck.themeContract
+          : null;
+        if (existingContract) {
+          themeContractWarning = themeContractMismatch(
+            existingContract,
+            newSlideId,
+            newSlide.content,
+          );
+        } else {
+          const contract = buildThemeContractFromSlide(
+            newSlideId,
+            newSlide.content,
+          );
+          if (contract) deck.themeContract = contract;
+        }
+      }
+
       const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
       const sourceImportCleared =
@@ -531,6 +561,7 @@ export default defineAction({
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
         ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
+        ...(themeContractWarning ? { themeContractWarning } : {}),
         layoutFit: {
           status: "pending" as const,
           slideId: newSlideId,

@@ -41,6 +41,11 @@ import {
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
+  buildThemeContractFromSlide,
+  isDeckThemeContract,
+  themeContractMismatch,
+} from "../shared/deck-theme-contract.js";
+import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
@@ -809,7 +814,8 @@ export default defineAction({
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "get-layout-overflows later when you need the browser's fit result. " +
     "Agents can add, delete, and reorder slides through operations in this action. " +
-    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
+    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required. " +
+    "For an unlinked deck, a patched slide's literal --deck-bg/--deck-ink that flips light/dark against the deck's established theme contract comes back in themeContractWarnings instead of failing the write; restyle to match, or restyle every slide together if the theme is intentionally changing. Linking a design system (patch-deck-fields designSystemId) does not retroactively restyle already-authored slides — it takes effect for new writes, not existing HTML.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     rewriteSource: z
@@ -1165,6 +1171,34 @@ export default defineAction({
             : undefined,
         );
 
+      // No linked design system means no persisted source of truth for the
+      // deck's light/dark direction beyond this contract — a linked design
+      // system's own tokens already serve that role, so linking one
+      // supersedes and clears any ad-hoc contract from before it was linked.
+      const themeContractWarnings: string[] = [];
+      if (sqlDesignSystemId) {
+        if (deck.themeContract !== undefined) delete deck.themeContract;
+      } else {
+        for (const slideId of contentChangedSlideIds) {
+          const content = contentsAfterOperations.get(slideId);
+          if (content === undefined) continue;
+          const existingContract = isDeckThemeContract(deck.themeContract)
+            ? deck.themeContract
+            : null;
+          if (existingContract) {
+            const warning = themeContractMismatch(
+              existingContract,
+              slideId,
+              content,
+            );
+            if (warning) themeContractWarnings.push(warning);
+          } else {
+            const contract = buildThemeContractFromSlide(slideId, content);
+            if (contract) deck.themeContract = contract;
+          }
+        }
+      }
+
       let generationRecord:
         | {
             contextMode: "off" | "auto" | "pinned";
@@ -1431,6 +1465,7 @@ export default defineAction({
         ...(sourceImportCleared && !sourceRewriteRequested
           ? { sourceImportCleared: true }
           : {}),
+        ...(themeContractWarnings.length ? { themeContractWarnings } : {}),
         ...(layoutFitSlideIdList.length
           ? {
               layoutFit: {

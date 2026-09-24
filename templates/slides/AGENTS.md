@@ -35,7 +35,7 @@ Read the relevant skill before deeper work:
 | `duplicate-deck` | Duplicate a deck, minting new slide ids |
 | `get-deck` | Read a deck or one targeted slide's full HTML |
 | `list-decks` | List decks with metadata, paged |
-| `apply-design-system` | Link a design system's colors and typography to a deck |
+| `apply-design-system` | Link a design system to a deck (no retroactive restyle) |
 | `export-pptx` | Export a deck as a PowerPoint file |
 | `export-html` | Export a deck as a standalone HTML file |
 | `export-google-slides` | Export a deck as a Google-Slides-importable PPTX |

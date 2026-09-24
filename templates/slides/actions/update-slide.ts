@@ -33,6 +33,12 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import {
+  buildThemeContractFromSlide,
+  isDeckThemeContract,
+  themeContractMismatch,
+} from "../shared/deck-theme-contract.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -352,7 +358,7 @@ function assertStyleOnlyEdit(
 export default defineAction({
   title: "Edit one Slides slide",
   description:
-    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; then use ordered edits and an optional baseContentHash. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; in that mode the action rejects fullContent and the top-level legacy find/replace/objectId fields, so express even a single replacement as edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; reserve styleOnly update-slide for one or a few targeted slides, passing that slide\'s contentHash as baseContentHash. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.',
+    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; then use ordered edits and an optional baseContentHash. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; in that mode the action rejects fullContent and the top-level legacy find/replace/objectId fields, so express even a single replacement as edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; reserve styleOnly update-slide for one or a few targeted slides, passing that slide\'s contentHash as baseContentHash. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later. For an unlinked deck, a literal --deck-bg/--deck-ink that flips light/dark against the deck\'s established theme contract comes back with themeContractWarning instead of failing the write; restyle to match, or restyle the whole deck together if the theme is intentionally changing.',
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -807,6 +813,32 @@ export default defineAction({
         delete slide.animations;
       }
 
+      // No linked design system means no persisted source of truth for the
+      // deck's light/dark direction beyond this contract — a linked design
+      // system's own tokens already serve that role.
+      let themeContractWarning: string | null = null;
+      if (
+        applied &&
+        !resolveDeckDesignSystemId({ designSystemId: row.designSystemId }, deck)
+      ) {
+        const existingContract = isDeckThemeContract(deck.themeContract)
+          ? deck.themeContract
+          : null;
+        if (existingContract) {
+          themeContractWarning = themeContractMismatch(
+            existingContract,
+            slideId,
+            String(slide.content ?? ""),
+          );
+        } else {
+          const contract = buildThemeContractFromSlide(
+            slideId,
+            String(slide.content ?? ""),
+          );
+          if (contract) deck.themeContract = contract;
+        }
+      }
+
       // ─── Persist to SQL ───────────────────────────────────────────────────
       //
       // The fresh `updatedAt` (on both the deck JSON and the row) is the signal
@@ -959,6 +991,7 @@ export default defineAction({
                 reuseLabels: creativeContext.reuseLabels,
               }
             : {}),
+          ...(themeContractWarning ? { themeContractWarning } : {}),
         };
       }
 
@@ -1071,6 +1104,9 @@ export default defineAction({
             contextPackId: rmw.contextPackId,
             reuseLabels: rmw.reuseLabels,
           }
+        : {}),
+      ...(rmw.themeContractWarning
+        ? { themeContractWarning: rmw.themeContractWarning }
         : {}),
     };
 

@@ -1243,4 +1243,75 @@ describe("update-slide", () => {
       layoutFitRevision: expect.any(String),
     });
   });
+
+  describe("deck theme contract", () => {
+    const darkWrapper = (label: string) =>
+      `<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6;">${label}</div>`;
+    const lightWrapper = (label: string) =>
+      `<div class="fmd-slide" style="--deck-bg: #FFFFFF; --deck-ink: #171717;">${label}</div>`;
+
+    it("establishes the contract from the first edit on an unlinked deck", async () => {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        slides: [{ id: "slide-1", content: "<div>Old</div>" }],
+      });
+
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: darkWrapper("One"),
+      });
+
+      const deck = JSON.parse(lastUpdateSet!.data as string);
+      expect(deck.themeContract).toMatchObject({
+        mode: "dark",
+        sourceSlideId: "slide-1",
+      });
+    });
+
+    it("flags an edit that flips the deck's established mode", async () => {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        themeContract: {
+          mode: "dark",
+          vars: { bg: "#10261C", ink: "#F2EFE6" },
+          sourceSlideId: "slide-1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        slides: [
+          { id: "slide-1", content: darkWrapper("One") },
+          { id: "slide-2", content: darkWrapper("Two") },
+        ],
+      });
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        slideId: "slide-2",
+        fullContent: lightWrapper("Two"),
+      })) as Record<string, unknown>;
+
+      expect(result.themeContractWarning).toContain("slide-2");
+      expect(result.themeContractWarning).toContain("dark");
+      // The edit still persists — the warning is advisory, not a rejection.
+      const deck = JSON.parse(lastUpdateSet!.data as string);
+      expect(deck.slides[1].content).toContain("--deck-bg: #FFFFFF");
+    });
+
+    it("does not check or persist a contract when a design system is linked", async () => {
+      mockDeckRow!.designSystemId = "design-system-1";
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        slides: [{ id: "slide-1", content: "<div>Old</div>" }],
+      });
+
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: lightWrapper("One"),
+      });
+
+      const deck = JSON.parse(lastUpdateSet!.data as string);
+      expect(deck).not.toHaveProperty("themeContract");
+    });
+  });
 });

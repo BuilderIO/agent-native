@@ -2640,3 +2640,135 @@ describe("run() — explicit dismissal survives a content change", () => {
     ).toBeUndefined();
   });
 });
+
+describe("run() — deck theme contract", () => {
+  const darkWrapper = (label: string) =>
+    `<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6;">${label}</div>`;
+  const lightWrapper = (label: string) =>
+    `<div class="fmd-slide" style="--deck-bg: #FFFFFF; --deck-ink: #171717;">${label}</div>`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+  });
+
+  it("establishes the contract from the first content change on an unlinked deck", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>Old</div>" }],
+      }),
+    };
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: darkWrapper("One") },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const deck = JSON.parse(lastUpdatedDeckData!);
+    expect(deck.themeContract).toMatchObject({
+      mode: "dark",
+      sourceSlideId: "slide-1",
+    });
+  });
+
+  it("flags a patched slide that flips the deck's established mode", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        themeContract: {
+          mode: "dark",
+          vars: { bg: "#10261C", ink: "#F2EFE6" },
+          sourceSlideId: "slide-1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        slides: [
+          { id: "slide-1", content: darkWrapper("One") },
+          { id: "slide-2", content: darkWrapper("Two") },
+        ],
+      }),
+    };
+
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: lightWrapper("Two") },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.themeContractWarnings).toHaveLength(1);
+    expect(String((result.themeContractWarnings as string[])[0])).toContain(
+      "slide-2",
+    );
+    // The write still succeeds — the warning is advisory, not a rejection.
+    expect(JSON.parse(lastUpdatedDeckData!).slides[1].content).toContain(
+      "--deck-bg: #FFFFFF",
+    );
+  });
+
+  it("clears the ad-hoc contract when a design system is linked in the same batch", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        themeContract: {
+          mode: "dark",
+          vars: { bg: "#10261C", ink: "#F2EFE6" },
+          sourceSlideId: "slide-1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        slides: [{ id: "slide-1", content: darkWrapper("One") }],
+      }),
+    };
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { designSystemId: "design-system-1" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!)).not.toHaveProperty(
+      "themeContract",
+    );
+  });
+});

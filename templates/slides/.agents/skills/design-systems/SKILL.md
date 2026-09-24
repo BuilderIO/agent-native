@@ -130,6 +130,12 @@ control.
 
 ## Applying to Slides
 
+`apply-design-system` links a system going forward only — it never rewrites
+existing slide HTML. Linking to a deck that already has authored slides does
+not make them match the new system; report the link and, separately, whether
+those slides still need an explicit `update-slide`/`patch-deck` restyle to
+adopt the linked `--ds-*` tokens.
+
 Before creating or extending a system, read the `creative-context` skill and
 retrieve approved brand primitives separately from factual or layout examples.
 Apply its reuse ladder exactly: native template/component/asset unchanged,
@@ -158,6 +164,20 @@ Before calling a deck ready, render the changed slides and perform one bounded
 review for system consistency, hierarchy, contrast, overflow, missing assets,
 placeholder remnants, and editable-object preservation. Fix the batch once and
 recheck; do not claim brand fidelity from successful action responses alone.
+
+### Persisted theme contract for an unlinked deck
+
+For a deck with no linked design system, the "choose once and repeat it"
+contract above is not only a prompting convention: `add-slide`, `update-slide`,
+and `patch-deck` read the first slide's literal `--deck-bg`/`--deck-ink` and
+persist it on the deck as `themeContract` (`shared/deck-theme-contract.ts`). A
+later write whose literal background flips light/dark against that stored mode
+comes back with `themeContractWarning` (`patch-deck` returns
+`themeContractWarnings`, plural, for a batch) instead of failing outright —
+treat it as a signal to restyle that slide to match, or to restyle the whole
+deck together when the theme is intentionally changing. Linking a design
+system supersedes and clears this ad-hoc contract; its own tokens become the
+consistency boundary instead.
 
 ## Tweaks
 

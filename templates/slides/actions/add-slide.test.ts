@@ -660,4 +660,82 @@ describe("add-slide", () => {
       expect.any(Object),
     );
   });
+
+  describe("deck theme contract", () => {
+    const darkWrapper = (label: string) =>
+      `<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6;">${label}</div>`;
+    const lightWrapper = (label: string) =>
+      `<div class="fmd-slide" style="--deck-bg: #FFFFFF; --deck-ink: #171717;">${label}</div>`;
+
+    it("establishes the contract from the first slide of an unlinked deck", async () => {
+      deckData.slides = [];
+
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: darkWrapper("One"),
+      });
+
+      const updated = JSON.parse(updatedFields!.data as string);
+      expect(updated.themeContract).toMatchObject({
+        mode: "dark",
+        sourceSlideId: "slide-1",
+      });
+    });
+
+    it("flags a slide that flips light/dark against the established contract", async () => {
+      deckData.slides = [{ id: "slide-1", content: darkWrapper("One") }];
+      deckData.themeContract = {
+        mode: "dark",
+        vars: { bg: "#10261C", ink: "#F2EFE6" },
+        sourceSlideId: "slide-1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: lightWrapper("New"),
+      })) as Record<string, unknown>;
+
+      expect(result.themeContractWarning).toContain("slide-new");
+      expect(result.themeContractWarning).toContain("dark");
+      // The write still succeeds — the deck's stored slides are updated even
+      // though the new slide diverges from the contract.
+      const updated = JSON.parse(updatedFields!.data as string);
+      expect(updated.slides).toHaveLength(2);
+    });
+
+    it("does not flag a slide matching the established contract", async () => {
+      deckData.slides = [{ id: "slide-1", content: darkWrapper("One") }];
+      deckData.themeContract = {
+        mode: "dark",
+        vars: { bg: "#10261C", ink: "#F2EFE6" },
+        sourceSlideId: "slide-1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+
+      const result = (await action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: darkWrapper("New"),
+      })) as Record<string, unknown>;
+
+      expect(result.themeContractWarning).toBeUndefined();
+    });
+
+    it("does not persist or check a contract when a design system is linked", async () => {
+      deckData.designSystemId = "design-system-1";
+      deckData.themeContract = undefined;
+
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: lightWrapper("New"),
+      });
+
+      const updated = JSON.parse(updatedFields!.data as string);
+      expect(updated).not.toHaveProperty("themeContract");
+    });
+  });
 });

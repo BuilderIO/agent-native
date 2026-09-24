@@ -26,6 +26,7 @@ import {
 } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
+import { buildThemeContractFromSlide } from "../shared/deck-theme-contract.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -124,7 +125,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette. The first slide's literal --deck-bg/--deck-ink establishes a persisted theme contract for the deck; later add-slide, update-slide, and patch-deck calls check new content against it and flag a light/dark divergence instead of silently drifting.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
@@ -312,6 +313,7 @@ export default defineAction({
         existing[0],
         prevData,
       );
+      const effectiveDesignSystemId = designSystemId ?? previousDesignSystemId;
       const data = {
         ...prevData,
         title: existingDeckTitle,
@@ -321,6 +323,19 @@ export default defineAction({
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
+      // A bulk replace rewrites every slide, so any stale contract from
+      // before this call is recomputed fresh from the new first slide rather
+      // than carried over from `prevData` — a linked design system supersedes
+      // it entirely.
+      const replacedContract =
+        effectiveDesignSystemId || slides.length === 0
+          ? undefined
+          : buildThemeContractFromSlide(slides[0]!.id, slides[0]!.content);
+      if (replacedContract) {
+        data.themeContract = replacedContract;
+      } else {
+        delete data.themeContract;
+      }
       await db.transaction(async (tx: any) => {
         await createDeckVersionSnapshot(
           {
@@ -414,6 +429,13 @@ export default defineAction({
     if (aspectRatio) data.aspectRatio = aspectRatio;
     if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
     data.creativeContext = creativeContextProvenance;
+    if (!resolvedDesignSystemId && slides.length > 0) {
+      const contract = buildThemeContractFromSlide(
+        slides[0]!.id,
+        slides[0]!.content,
+      );
+      if (contract) data.themeContract = contract;
+    }
     await db.insert(schema.decks).values({
       id,
       title: resolvedTitle,

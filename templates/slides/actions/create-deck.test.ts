@@ -479,3 +479,88 @@ describe("create-deck — aspectRatio", () => {
     );
   });
 });
+
+describe("create-deck — theme contract", () => {
+  const darkWrapper = (label: string) =>
+    `<div class="fmd-slide" style="--deck-bg: #10261C; --deck-ink: #F2EFE6;">${label}</div>`;
+
+  it("establishes the contract from the first slide of a new unlinked deck", async () => {
+    await action.run({
+      title: "T",
+      slides: [{ id: "slide-1", content: darkWrapper("One") }],
+    });
+
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data.themeContract).toMatchObject({
+      mode: "dark",
+      sourceSlideId: "slide-1",
+    });
+  });
+
+  it("does not establish a contract for a new deck with a linked design system", async () => {
+    await action.run({
+      title: "T",
+      slides: [{ id: "slide-1", content: darkWrapper("One") }],
+      designSystemId: "ds-explicit",
+    });
+
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data).not.toHaveProperty("themeContract");
+  });
+
+  it("recomputes the contract fresh from the new first slide on bulk replace", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        themeContract: {
+          mode: "light",
+          vars: { bg: "#FFFFFF" },
+          sourceSlideId: "stale-slide",
+          updatedAt: "2025-01-01T00:00:00.000Z",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "slide-new", content: darkWrapper("New") }],
+      deckId: "deck-1",
+    });
+
+    const data = JSON.parse(updatedFields!.data as string);
+    expect(data.themeContract).toMatchObject({
+      mode: "dark",
+      sourceSlideId: "slide-new",
+    });
+  });
+
+  it("clears the ad-hoc contract on bulk replace when a design system is linked", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        themeContract: {
+          mode: "dark",
+          vars: { bg: "#10261C" },
+          sourceSlideId: "slide-1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "slide-new", content: darkWrapper("New") }],
+      deckId: "deck-1",
+      designSystemId: "ds-explicit",
+    });
+
+    const data = JSON.parse(updatedFields!.data as string);
+    expect(data).not.toHaveProperty("themeContract");
+  });
+});
