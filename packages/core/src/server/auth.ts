@@ -985,7 +985,7 @@ function setCookieNames(headers: Headers): string[] {
 }
 
 function extractSessionTokenFromSetCookies(
-  response: Response,
+  response: Pick<Response, "headers">,
 ): string | undefined {
   try {
     for (const sc of getSetCookieHeaders(response.headers)) {
@@ -1087,6 +1087,29 @@ function forwardBetterAuthSetCookies(
       event.res?.headers?.append("set-cookie", upgraded);
     }
   }
+}
+
+async function rotateTwoFactorSession(
+  event: H3Event,
+  session: AuthSession,
+  result: unknown,
+): Promise<void> {
+  const headers = (result as { headers?: Headers } | null)?.headers;
+  const cookieToken = headers && extractSessionTokenFromSetCookies({ headers });
+  if (!cookieToken) return;
+  if (!session.token) throw new Error("The current session token is missing.");
+
+  const replacement = await resolveBetterAuthSessionToken(cookieToken);
+  if (replacement?.token === session.token) return;
+  await removeSession(session.token);
+  if (!replacement) {
+    throw new Error(
+      "Better Auth replaced the session without a resolvable token.",
+    );
+  }
+
+  await addSession(replacement.token, replacement.email);
+  setFrameworkSessionCookie(event, replacement.token);
 }
 
 function betterAuthApiBody(result: unknown): Record<string, any> {
@@ -5968,6 +5991,7 @@ async function mountBetterAuthRoutes(
           returnHeaders: true,
         });
         forwardBetterAuthSetCookies(event, result);
+        await rotateTwoFactorSession(event, session, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);
@@ -5993,6 +6017,7 @@ async function mountBetterAuthRoutes(
           returnHeaders: true,
         });
         forwardBetterAuthSetCookies(event, result);
+        await rotateTwoFactorSession(event, session, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);
