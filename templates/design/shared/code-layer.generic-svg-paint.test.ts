@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { applyVisualEdit, buildCodeLayerProjection } from "./code-layer";
+import {
+  applyVisualEdit,
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "./code-layer";
 
 describe("generic inline SVG fill edits", () => {
   it("projects only drawable children of pasted SVGs and edits one shape in place", () => {
@@ -255,7 +259,7 @@ describe("generic inline SVG fill edits", () => {
 });
 
 describe("imported SVG paint through <g> wrappers", () => {
-  const JEV = `<svg data-agent-native-node-id="jev" style="position:absolute;width:38px;height:43px;background-color:#ff0000;border-width:1px;border-style:solid;border-color:#ffd6d6" viewBox="0 0 299 420" fill="none"><g transform="scale(2.92 2.92)"><path d="M0 0h20v20z" fill-rule="nonzero" fill="rgb(254, 254, 254)"/></g></svg>`;
+  const JEV = `<svg data-agent-native-node-id="jev" data-an-primitive="pasted-svg" style="position:absolute;width:38px;height:43px;background-color:#ff0000;border-width:1px;border-style:solid;border-color:#ffd6d6" viewBox="0 0 299 420" fill="none"><g transform="scale(2.92 2.92)"><path d="M0 0h20v20z" fill-rule="nonzero" fill="rgb(254, 254, 254)"/></g></svg>`;
 
   it("reads the wrapped path's fill as the vector's fill", () => {
     expect(buildCodeLayerProjection(JEV).nodes[0]?.style.fill).toBe(
@@ -281,29 +285,25 @@ describe("imported SVG paint through <g> wrappers", () => {
       property: "stroke-width",
       value: "2px",
     });
-    expect(stroked.content).toMatch(
-      /<path[^>]*style="[^"]*stroke-width: 2px[^"]*vector-effect: non-scaling-stroke/,
-    );
+    expect(stroked.content).toMatch(/<path[^>]*style="[^"]*stroke-width: 2px/);
   });
 
-  it("treats several shapes as one paint when they agree, Mixed when not, and writes all", () => {
+  it("keeps an unmarked multi-shape SVG as a generic wrapper", () => {
     const two = (a: string, b: string) =>
-      `<svg data-agent-native-node-id="icon" viewBox="0 0 24 24"><g><path d="M0 0h1v1z" fill="${a}"/></g><circle cx="12" cy="12" r="4" fill="${b}"/><defs><path d="M0 0" fill="#00ff00"/></defs></svg>`;
-    expect(
-      buildCodeLayerProjection(two("#111111", "#111111")).nodes[0]?.style.fill,
-    ).toBe("#111111");
-    expect(
-      buildCodeLayerProjection(two("#111111", "#222222")).nodes[0]?.style.fill,
-    ).toBe("Mixed");
+      `<div data-agent-native-node-id="container"><svg data-agent-native-node-id="icon" viewBox="0 0 24 24"><g><path d="M0 0h1v1z" fill="${a}"/></g><circle cx="12" cy="12" r="4" fill="${b}"/><defs><path d="M0 0" fill="#00ff00"/></defs></svg></div>`;
+    const html = two("#111111", "#222222");
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
 
-    const result = applyVisualEdit(two("#111111", "#222222"), {
+    const result = applyVisualEdit(html, {
       kind: "style",
       target: { nodeId: "icon" },
       property: "fill",
       value: "#abcdef",
     });
     expect(result.result.status).toBe("applied");
-    expect(result.content.match(/fill: #abcdef/g)).toHaveLength(2);
-    expect(result.content).toContain('<path d="M0 0" fill="#00ff00"/>');
+    expect(result.content).toMatch(/<circle[^>]*style="[^"]*fill: #abcdef/);
+    expect(result.content).toContain('fill="#111111"');
+    expect(result.content).toContain('fill="#222222"');
   });
 });

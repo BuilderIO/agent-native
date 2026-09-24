@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { readSystemClipboard } from "@/lib/design-clipboard";
@@ -133,6 +135,28 @@ describe("runContextMenuPaste", () => {
     });
   });
 
+  it("routes SVG clipboard files through the same screen-local paste path", async () => {
+    const a = {
+      ...args(),
+      clipboardFiles: [
+        new File(["<svg></svg>"], "icon.svg", { type: "image/svg+xml" }),
+      ],
+    };
+    await runContextMenuPaste(a, {
+      clientX: 30,
+      clientY: 40,
+      canvasX: 12,
+      canvasY: 18,
+      screenId: "screen-svg",
+    });
+    expect(a.insertDroppedImageFiles).toHaveBeenCalledWith(
+      a.clipboardFiles,
+      "screen-svg",
+      { x: 12, y: 18 },
+    );
+    expect(a.handlePastedImageFiles).not.toHaveBeenCalled();
+  });
+
   it("pastes the copied Design layer when the OS clipboard has no image", async () => {
     const a = { ...args(), clipboardFiles: [] };
     await runContextMenuPaste(a, {
@@ -142,5 +166,41 @@ describe("runContextMenuPaste", () => {
       canvasY: 6,
     });
     expect(a.handlePasteSelection).toHaveBeenCalledWith({ x: 5, y: 6 });
+  });
+});
+
+describe("DesignEditor context-menu clipboard snapshot", () => {
+  it("clears stale files on reopen and ignores reads from older menu sessions", () => {
+    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const menuSection = source.slice(
+      source.indexOf("// U4/U8: hasCanvasClipboard"),
+    );
+    const openChange = menuSection.match(
+      /onOpenChange=\{\(open\) => \{([\s\S]*?)\n            \}\}/,
+    )?.[1];
+
+    if (!openChange) throw new Error("Expected context-menu open handler");
+    expect(openChange).toMatch(
+      /if \(!open\)[\s\S]*?menuClipboardReadIdRef\.current \+= 1/,
+    );
+    expect(openChange).toMatch(
+      /if \(open\)[\s\S]*?menuClipboardFilesRef\.current = \[\]/,
+    );
+    expect(openChange).toMatch(
+      /if \(readId !== menuClipboardReadIdRef\.current\) return/,
+    );
+    expect(source).toContain("clipboardFiles: menuClipboardFilesRef.current");
+    expect(
+      openChange.indexOf("menuClipboardFilesRef.current = []"),
+    ).toBeLessThan(openChange.indexOf("readSystemClipboard().then"));
+    expect(
+      openChange.indexOf(
+        "if (readId !== menuClipboardReadIdRef.current) return",
+      ),
+    ).toBeLessThan(
+      openChange.indexOf(
+        "menuClipboardFilesRef.current = contents?.files ?? []",
+      ),
+    );
   });
 });

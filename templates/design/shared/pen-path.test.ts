@@ -22,6 +22,7 @@ import {
   movePenAnchor,
   movePenHandle,
   parsePenNodes,
+  penCornerRadiusFromAttribute,
   resumePenPathAtEnd,
   scalePenPathToGeometry,
   serializePenNodes,
@@ -35,6 +36,13 @@ import {
 } from "./pen-path";
 
 describe("pen path helpers", () => {
+  it("reads only finite positive corner radii from attributes", () => {
+    expect(penCornerRadiusFromAttribute("8.5")).toBe(8.5);
+    expect(penCornerRadiusFromAttribute(null)).toBe(0);
+    expect(penCornerRadiusFromAttribute("0")).toBe(0);
+    expect(penCornerRadiusFromAttribute("nope")).toBe(0);
+  });
+
   it("serializes click-created corner anchors as line segments", () => {
     const path = appendPenNode(
       appendPenNode(null, createCornerNode({ x: 10, y: 20 })),

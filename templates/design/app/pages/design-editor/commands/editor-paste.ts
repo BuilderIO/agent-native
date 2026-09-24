@@ -94,11 +94,12 @@ export function runEditorPaste(
     svgMarkup &&
     canEditDesign &&
     !readDesignClipboardPayloadFromDataTransfer(event.clipboardData) &&
-    handlePastedImageFiles([
-      new File([svgMarkup], "", { type: "image/svg+xml" }),
-    ])
+    typeof File !== "undefined"
   ) {
     event.preventDefault();
+    void handlePastedFiles([
+      new File([svgMarkup], "pasted.svg", { type: "image/svg+xml" }),
+    ]);
     return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {

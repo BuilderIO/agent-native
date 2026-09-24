@@ -1061,7 +1061,7 @@ describe("inline text style roots", () => {
 });
 
 describe("isVectorShapeElement for imported svg", () => {
-  it("treats an unprimitived svg as a vector so Fill/Stroke paint its shapes", () => {
-    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(true);
+  it("keeps an unmarked svg out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });

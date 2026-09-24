@@ -3,6 +3,7 @@ import { screenToCanvasPoint } from "@shared/canvas-math";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
+import { getScreenContentPointFromClient } from "@/components/design/design-canvas/coordinate-transforms";
 import { SURFACE_PADDING } from "@/components/design/multi-screen/overview-layout";
 import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
@@ -65,13 +66,17 @@ async function pastedImageDisplaySize(
 ): Promise<{ width: number; height: number } | null> {
   let width: number;
   let height: number;
+  let previewUrl: string | null = null;
   try {
-    ({ width, height } = await readPastedImageDimensions(
-      file,
-      previewUrl ?? URL.createObjectURL(file),
-    ));
+    previewUrl =
+      typeof URL.createObjectURL === "function"
+        ? URL.createObjectURL(file)
+        : null;
+    ({ width, height } = await readPastedImageDimensions(file, previewUrl));
   } catch {
     return null;
+  } finally {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
   }
   const scale =
     file.type === "image/png"
@@ -92,7 +97,8 @@ function pastedImageHtml(
   nodeId: string,
 ): string {
   // object-fit:cover is Figma's default Fill mode for a placed image.
-  return `<img src="${escapeHtmlAttributeValue(src)}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:${size.width}px;height:${size.height}px;object-fit:cover;" />`;
+  const name = file.name || "Pasted image";
+  return `<img src="${escapeHtmlAttributeValue(src)}" alt="${escapeHtmlAttributeValue(name)}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="${escapeHtmlAttributeValue(name)}" style="position:absolute;width:${size.width}px;height:${size.height}px;object-fit:cover;" />`;
 }
 
 export type PastedFileLayer =

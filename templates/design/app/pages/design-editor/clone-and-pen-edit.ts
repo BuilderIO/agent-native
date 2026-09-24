@@ -23,6 +23,7 @@ import {
   createSmoothNode,
   getPenPathGeometry,
   penCornerRadiusFromAttribute,
+  serializePenPath,
   serializePenNodes,
   serializeRoundedPenPath,
   type PenPath,
@@ -151,9 +152,8 @@ export function writeBackVectorEditedPenPath(
     const path = svg.querySelector("path");
     if (!path) return null;
 
-    const cornerRadius = penCornerRadiusFromAttribute(
-      svg.getAttribute(PEN_CORNER_RADIUS_ATTRIBUTE),
-    );
+    const cornerRadiusAttribute = svg.getAttribute(PEN_CORNER_RADIUS_ATTRIBUTE);
+    const cornerRadius = penCornerRadiusFromAttribute(cornerRadiusAttribute);
     const d = serializeRoundedPenPath(penPath, cornerRadius);
     const geometry = getPenPathGeometry(penPath);
     const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
@@ -179,10 +179,10 @@ export function writeBackVectorEditedPenPath(
     if (isClosed) {
       // Reopening added that stroke to keep a filled shape visible; closing
       // again restores the shape instead of keeping it as if chosen.
+      if (path.getAttribute("fill") === "none") {
+        path.setAttribute("fill", DEFAULT_SHAPE_FILL);
+      }
       if (path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) {
-        if (path.getAttribute("fill") === "none") {
-          path.setAttribute("fill", DEFAULT_SHAPE_FILL);
-        }
         path.setAttribute("stroke", "none");
         path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
       }

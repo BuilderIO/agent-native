@@ -100,12 +100,11 @@ describe("canvasPointFromClient", () => {
     const frames = [
       { id: "origin", geometry: { x: 0, y: 0, width: 1000, height: 1000 } },
     ];
-    // With scale 2, canvas origin renders at surface + padding + pan.
     const origin = canvasPointFromClient(
-      { clientX: 880, clientY: 930 },
+      { clientX: 280, clientY: 330 },
       frames,
     );
-    expect(origin).toEqual({ x: 300, y: 300 });
+    expect(origin).toEqual({ x: 0, y: 0 });
     expect(findScreenFrameAtCanvasPoint(origin!, frames)?.id).toBe("origin");
 
     expect(

@@ -15,6 +15,8 @@ import {
 } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_SHAPE_FILL } from "@/components/design/canvas-primitive-style";
+
 import {
   penPathScreenContentOffset,
   primitiveVectorEditSource,
@@ -336,7 +338,7 @@ describe("continuing a committed open Pen path", () => {
       "M 0 0 L 40 0 L 40 30 L 0 0 Z",
     );
     expect(closedSvg?.querySelector("path")?.getAttribute("fill")).toBe(
-      "rgb(218 218 218)",
+      DEFAULT_SHAPE_FILL,
     );
     expect(
       parsePenNodes(closedSvg?.getAttribute("data-an-pen-nodes") ?? ""),

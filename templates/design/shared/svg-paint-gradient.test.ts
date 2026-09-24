@@ -43,15 +43,15 @@ describe("vector stroke gradient source edits", () => {
     const result = applyVisualEdit(PATH, {
       kind: "style",
       target: { nodeId: "v1" },
-      property: "--an-vector-stroke-gradient",
+      property: "stroke",
       value: gradient,
     });
     expect(result.result.status).toBe("applied");
     expect(result.content).toContain(
-      '<defs data-an-vector-paint-gradient="stroke"><linearGradient id="v1-stroke-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="200" y2="50">',
+      '<defs data-an-vector-stroke-gradient=""><linearGradient id="v1-stroke-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="200" y2="50">',
     );
     expect(result.content).toMatch(
-      /<path[^>]*stroke="url\(#v1-stroke-gradient\)"/,
+      /<path[^>]*style="[^"]*stroke: url\(#v1-stroke-gradient\)/,
     );
     expect(result.content).not.toContain("stroke: #a62e2e");
     expect(
@@ -61,7 +61,7 @@ describe("vector stroke gradient source edits", () => {
     const cleared = applyVisualEdit(result.content, {
       kind: "style",
       target: { nodeId: "v1" },
-      property: "--an-vector-stroke-gradient",
+      property: "stroke",
       value: "none",
     });
     expect(cleared.result.status).toBe("applied");
@@ -74,7 +74,7 @@ describe("vector stroke gradient source edits", () => {
     const result = applyVisualEdit(PATH, {
       kind: "style",
       target: { nodeId: "v1" },
-      property: "--an-vector-stroke-gradient",
+      property: "stroke",
       value: "conic-gradient(from 0deg, red, blue)",
     });
     expect(result.result.status).not.toBe("applied");

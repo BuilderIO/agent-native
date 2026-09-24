@@ -24,6 +24,13 @@ export interface PenPath {
   closed: boolean;
 }
 
+export function penCornerRadiusFromAttribute(
+  value: string | null | undefined,
+): number {
+  const radius = Number(value);
+  return value != null && Number.isFinite(radius) && radius > 0 ? radius : 0;
+}
+
 export interface PenGeometry {
   x: number;
   y: number;

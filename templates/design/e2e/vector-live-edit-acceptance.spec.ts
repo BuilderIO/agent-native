@@ -274,7 +274,7 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
     await expect.poll(() => path.getAttribute("d")).not.toBe(originalPathData);
     const editedPathData = await path.getAttribute("d");
     expect(await readSource(page, designId)).toContain(editedPathData);
-    await page.keyboard.press("Escape");
+    await page.keyboard.press("Enter");
 
     const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
     const redo =
@@ -686,6 +686,119 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
     await expect
       .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
       .toBe(14);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Pen continues an open vector from its selected endpoint while editing", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(await pasteSvg(page.locator("body"), OPEN_PASTED_SVG)).toBe(true);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+    const frame = designFrame(page, screenId);
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const originalSource = await readSource(page, designId);
+    await page.keyboard.press("p");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const endpoint = page.locator("[data-vector-anchor]").first();
+    const endpointBox = await endpoint.boundingBox();
+    if (!endpointBox) throw new Error("vector endpoint has no bounds");
+    const otherEndpointBox = await page
+      .locator("[data-vector-anchor]")
+      .nth(1)
+      .boundingBox();
+    if (!otherEndpointBox)
+      throw new Error("other vector endpoint has no bounds");
+    const start = {
+      x: endpointBox.x + endpointBox.width / 2,
+      y: endpointBox.y + endpointBox.height / 2,
+    };
+    const pathScale =
+      (otherEndpointBox.x + otherEndpointBox.width / 2 - start.x) / 60;
+    await page.mouse.click(start.x, start.y);
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await expect(page.locator("[data-pen-path-overlay]")).toBeVisible();
+    await expect(
+      page.locator("[data-pen-path-overlay] [data-pen-anchor]"),
+    ).toHaveCount(2);
+    expect(await readSource(page, designId)).toBe(originalSource);
+
+    await page.mouse.click(start.x - 30, start.y + 28);
+    await expect(
+      page.locator("[data-pen-path-overlay] [data-pen-anchor]"),
+    ).toHaveCount(3);
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(
+        async () => pastedPathNodes(await readSource(page, designId)).length,
+      )
+      .toBe(4);
+    const nodes = pastedPathNodes(await readSource(page, designId));
+    expect(nodes[1]?.slice(0, 2)).toEqual([70, 30]);
+    expect(nodes[2]?.slice(0, 2)).toEqual([10, 30]);
+    expect(nodes[3]?.[0]).toBeCloseTo(10 - 30 / pathScale, 3);
+    expect(nodes[3]?.[1]).toBeCloseTo(30 + 28 / pathScale, 3);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("dragging a vector segment previews its bend and commits both handles", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page, PEN_HTML);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Nested path");
+    const frame = designFrame(page, screenId);
+    const renderedPath = frame.locator(
+      '[data-agent-native-node-id="nested-path"] path',
+    );
+    const originalSource = await readSource(page, designId);
+    const originalPathData = await renderedPath.getAttribute("d");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const anchors = page.locator("[data-vector-anchor]");
+    const firstBox = await anchors.nth(0).boundingBox();
+    const secondBox = await anchors.nth(1).boundingBox();
+    if (!firstBox || !secondBox) throw new Error("segment anchors are missing");
+    const origin = {
+      x: (firstBox.x + secondBox.x + firstBox.width + secondBox.width) / 2,
+      y: (firstBox.y + secondBox.y + firstBox.height + secondBox.height) / 2,
+    };
+    await page.mouse.move(origin.x, origin.y);
+    await page.mouse.down();
+    await page.mouse.move(origin.x, origin.y + 24, { steps: 4 });
+    const preview = page.locator("[data-vector-edit-overlay] svg path").first();
+    await expect.poll(() => preview.getAttribute("d")).toContain("C");
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await page.mouse.up();
+    await expect
+      .poll(() => renderedPath.getAttribute("d"))
+      .not.toBe(originalPathData);
+    const nodes = nestedPathNodes(await readSource(page, designId));
+    expect(nodes[1]?.slice(0, 2)).toEqual([0, 0]);
+    expect(nodes[2]?.slice(0, 2)).toEqual([100, 0]);
+    expect(nodes[1]?.[4]).not.toBeNull();
+    expect(nodes[1]?.[5]).toBeGreaterThan(0);
+    expect(nodes[2]?.[2]).not.toBeNull();
+    expect(nodes[2]?.[3]).toBeGreaterThan(0);
+    expect(nodes[1]?.[5]).toBeCloseTo(nodes[2]?.[3] ?? 0, 4);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

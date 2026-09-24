@@ -93,10 +93,12 @@ export function runVectorVertexStyleChange(
     return false;
   }
   if (!Number.isFinite(radius)) return true;
-  args.onVectorEditChange(
-    setPenNodeCornerRadius(state.path, state.selectedNodeIndex, radius),
-    "commit",
+  const nextPath = setPenNodeCornerRadius(
+    state.path,
+    state.selectedNodeIndex,
+    radius,
   );
+  if (nextPath) args.onVectorEditChange(nextPath, "commit");
   return true;
 }
 

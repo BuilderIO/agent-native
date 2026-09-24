@@ -3,6 +3,12 @@ import CssSyntaxError from "postcss/lib/css-syntax-error";
 import parseCss from "postcss/lib/parse";
 
 import {
+  BORDER_AREA_FALLBACK_PROPERTIES,
+  borderAreaFallback,
+  borderAreaLayerIndex,
+  borderAreaSupportedBranch,
+} from "./border-area-fallback.js";
+import {
   isSafeCssUrlReference,
   removeBreakpointMediaDeclaration,
   setBreakpointMediaDeclaration,
@@ -4407,6 +4413,45 @@ function setStyleValue(
   return serializeStyleDeclarations(declarations);
 }
 
+function lastDeclarationValue(
+  parsed: ParsedStyleDeclarations,
+  property: string,
+): string | undefined {
+  const key = cssPropertyKey(property);
+  const matches = parsed.declarations.filter(
+    (declaration) => cssPropertyKey(declaration.prop) === key,
+  );
+  return matches[matches.length - 1]?.value;
+}
+
+function withBorderAreaFallback(style: string, editedProperty: string): string {
+  const parsed = parseStyleDeclarations(style);
+  const clip = lastDeclarationValue(parsed, "background-clip") ?? "";
+  const plainSize = lastDeclarationValue(parsed, "background-size");
+  const aliasSize = lastDeclarationValue(parsed, "-webkit-background-size");
+  const hasFallback = aliasSize !== undefined;
+  const realSize =
+    editedProperty === "background-size"
+      ? plainSize
+      : (borderAreaSupportedBranch(aliasSize) ?? plainSize);
+  const index = borderAreaLayerIndex(clip);
+  if (index < 0 && !hasFallback) return style;
+  removeStyleDeclarations(parsed, [...BORDER_AREA_FALLBACK_PROPERTIES]);
+  if (index < 0) {
+    if (realSize) setStyleDeclaration(parsed, "background-size", realSize);
+    return serializeStyleDeclarations(parsed);
+  }
+  const fallback = borderAreaFallback(
+    lastDeclarationValue(parsed, "background-image") ?? "",
+    realSize ?? "auto",
+    index,
+  );
+  for (const [property, value] of Object.entries(fallback)) {
+    setStyleDeclaration(parsed, property, value);
+  }
+  return serializeStyleDeclarations(parsed);
+}
+
 const VECTOR_PAINT_PRIMITIVES = new Set([
   "pasted-svg",
   "path",
@@ -5021,9 +5066,9 @@ function withVectorPaintStyle(
     }
     return merged;
   }
+  const kind = attributeValue(element, "data-an-primitive");
   const child = vectorShapeChild(element, elements);
   if (!child) return style;
-  const kind = attributeValue(element, "data-an-primitive");
   if (kind === "boolean-operand" || kind === "boolean") {
     const merged = { ...style };
     for (const [property, customProperty] of Object.entries(
@@ -5835,7 +5880,7 @@ type StyleEditTargetRoute =
 
 type StyleEditTargetIntent = Pick<
   StyleEditIntent | StyleRemoveEditIntent,
-  "property"
+  "property" | "operation"
 >;
 
 function resolveStyleEditTargetRoute(
@@ -6236,10 +6281,9 @@ function applyStyleEdit(
     property === "stroke" ? vectorStyleValue(element, "stroke") : null;
   const previousFill =
     property === "fill" ? vectorStyleValue(element, "fill") : null;
-  const nextStyle = setStyleValue(
-    attributeValue(element, "style"),
+  const nextStyle = withBorderAreaFallback(
+    setStyleValue(attributeValue(element, "style"), property, storedValue),
     property,
-    storedValue,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
   if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {

@@ -243,7 +243,6 @@ function AdjustmentSlider({
         {/* Figma's adjustment slider: a neutral pill, the knob at the centre
             for zero, and an accent fill from the centre once it moves. */}
         <SliderPrimitive.Root
-          aria-label={label}
           value={[value]}
           min={-100}
           max={100}
@@ -267,7 +266,10 @@ function AdjustmentSlider({
             ) : null}
           </SliderPrimitive.Track>
           {/* guard:allow-raw-color — Figma's knob is white in both themes. */}
-          <SliderPrimitive.Thumb className="flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SliderPrimitive.Thumb
+            aria-label={label}
+            className="flex size-4 items-center justify-center rounded-full border border-black/10 bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {value !== 0 ? (
               <span className="size-1.5 rounded-full bg-[var(--design-editor-accent-color)]" />
             ) : null}
