@@ -781,6 +781,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [
     true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open—not PR #123, but PR #456.",
+  ],
+  [
+    true,
     "I asked to leave PR #456 open. The agent stopped /ship with PR #123 unmerged.",
   ],
   [
