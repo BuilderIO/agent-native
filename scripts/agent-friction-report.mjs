@@ -158,8 +158,9 @@ const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`(?:post|draft|send|leave)\s+(?:(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|a\s+follow[- ]?up)[^.!?\n]{0,120}(?:until|while)[^.!?\n]{0,100}(?:contributor|author|they)[^.!?\n]{0,80}(?:update|respond|reply|address)[^.!?\n]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
   String.raw`(?:wait(?:ed)?|another\s+comment|another\s+reply)[^.!?\n]{0,100}(?:contributor|author|their)[^.!?\n]{0,100}(?:update|respond|reply|address)`,
 ].join("|");
+const PR_REVIEW_HANDOFF_ANCHORS = String.raw`(?:you|we|the handoff|the (?:recap|summary|report|output)|(?:do not|don't|never|avoid)(?=[^.!?\n]{0,220}\b(?:prior|previous|earlier|outstanding|unanswered)\b)(?=[^.!?\n]{0,220}\b(?:request|comment|ask)\b))`;
 const PR_REVIEW_HANDOFF_RE = new RegExp(
-  String.raw`\b(?:you|we|the handoff|the (?:recap|summary|report|output)|do not|don't|never|avoid)\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  String.raw`\b${PR_REVIEW_HANDOFF_ANCHORS}\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=(?:[^.!?\n]{1,280}[.!?]\s*)?[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
   "i",
 );
 
@@ -202,9 +203,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You failed to report screenshot availability."],
   [true, "The recap omitted the merge-readiness recommendation."],
   [true, "The recap did not say whether screenshots were present."],
+  [true, "You didn't explain the blocker. The screenshot status was omitted."],
   [false, "Please tell me which PRs are ready to merge and draft replies."],
   [false, "This PR updates the UI and includes screenshots."],
   [false, "I would like screenshots for new UX changes."],
+  [
+    false,
+    "Don't draft author replies for internal PRs; include screenshot status in the recap.",
+  ],
   [
     false,
     "Please wait for the contributor to update before drafting another comment.",
