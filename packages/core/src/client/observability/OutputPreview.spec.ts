@@ -223,6 +223,34 @@ describe("parseOutputPreview", () => {
 
     expect(
       parseOutputPreview(
+        JSON.stringify({
+          type: "design",
+          url: "https://design.agent-native.com/design/site-42",
+        }),
+        "https://design.agent-native.com",
+      ),
+    ).toMatchObject({
+      kind: "design",
+      previewUrl:
+        "https://design.agent-native.com/present/site-42?reviewEmbed=1",
+    });
+
+    expect(
+      parseOutputPreview(
+        JSON.stringify({
+          type: "design",
+          url: "https://beta.design.agent-native.com/design/site-42",
+        }),
+        "https://beta.design.agent-native.com",
+      ),
+    ).toMatchObject({
+      kind: "design",
+      previewUrl:
+        "https://beta.design.agent-native.com/present/site-42?reviewEmbed=1",
+    });
+
+    expect(
+      parseOutputPreview(
         JSON.stringify({ type: "design", url: `${origin}/design/another_1` }),
         origin,
       ),
