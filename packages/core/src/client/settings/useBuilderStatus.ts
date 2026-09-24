@@ -256,6 +256,8 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
+  /** Stop waiting for an OAuth attempt that cannot be closed by the app. */
+  cancel: () => void;
   /**
    * Retry the status request before choosing a connection path. Returns true
    * when a read actually started. A disabled flow never reads, so a caller
@@ -974,6 +976,10 @@ export function useBuilderConnectFlow(
   }, [enabled, fetchStatus]);
 
   const retry = useCallback(() => retryStatusRef.current(), []);
+  const cancel = useCallback(() => {
+    if (connectStartedAtRef.current === null) return;
+    popupClosedAtRef.current ??= Date.now();
+  }, []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
@@ -1538,6 +1544,7 @@ export function useBuilderConnectFlow(
     accountExists,
     hasFetchedStatus,
     start,
+    cancel,
     retry,
   };
 }

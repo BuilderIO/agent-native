@@ -73,6 +73,15 @@ function BuilderConnectProbe({
       >
         Connect
       </button>
+      {flow.connecting ? (
+        <button
+          type="button"
+          data-testid="cancel-connect"
+          onClick={flow.cancel}
+        >
+          Cancel
+        </button>
+      ) : null}
       <output data-testid="status">
         {flow.configured ? "configured" : "not-configured"}{" "}
         {flow.connecting ? "connecting" : "idle"}{" "}
@@ -1616,9 +1625,21 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Didn't finish connecting");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+      await vi.advanceTimersByTimeAsync(24_000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain(
+      "Didn't finish connecting to Builder.io",
+    );
   });
 
-  it("does not cancel a real success that confirms shortly after the popup-close grace window", async () => {
+  it("keeps a real success during the explicit cancel grace window", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -1662,9 +1683,11 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured connecting");
 
-    // The popup closes almost immediately, as it does when the OAuth
-    // success page closes itself right after posting the success message.
-    (popup as unknown as { closed: boolean }).closed = true;
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
+        ?.click();
+    });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
