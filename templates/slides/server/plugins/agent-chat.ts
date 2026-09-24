@@ -15,6 +15,7 @@ const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "get-layout-overflows",
+  "audit-contrast",
   "list-decks",
   "get-deck",
   "get-design-system",
@@ -277,6 +278,8 @@ For new decks, resolve precedence in this order: an explicit designSystemId or e
 When adding slides to an existing deck, first read get-deck and match the established visual treatment - background, foreground, typography, spacing, and component language - unless the user explicitly asks to change the theme. Never default continuation slides to a new white or dark theme.
 
 Layout-fit workflow is strict. After creating or structurally rewriting slides, verify their layout in the same turn even when the user did not explicitly ask about overflow. At the final verification point, call get-layout-overflows once and use only measurements whose contentHash and layoutFitRevision match the current persisted slides. If measurements are unknown, do not claim the deck fits. For each measured overflow, read that slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the repair action result and verify the persisted HTML with get-deck slideId=<id> compact=true before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone. When the user asks to fix an existing overflow, first call view-screen and inspect the deck-wide layout-fit section, then follow this same bounded workflow.
+
+For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked.
 
 Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
 
