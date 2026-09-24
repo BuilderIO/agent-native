@@ -40,6 +40,8 @@ const TABLE_SQL = `CREATE TABLE IF NOT EXISTS token_usage (
   cache_read_tokens BIGINT NOT NULL DEFAULT 0,
   cache_write_tokens BIGINT NOT NULL DEFAULT 0,
   cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+  builder_credits_used NUMERIC,
+  engine_name TEXT,
   cost_source TEXT NOT NULL DEFAULT 'estimated',
   model TEXT NOT NULL DEFAULT '',
   label TEXT NOT NULL DEFAULT 'chat',
