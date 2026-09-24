@@ -631,6 +631,7 @@ export type ThreadUpsertInput = {
 
 export async function upsertInboxThreadRows(
   rows: ThreadUpsertInput[],
+  db: any = getDb(),
 ): Promise<void> {
   if (rows.length === 0) return;
   const now = Date.now();
@@ -670,7 +671,7 @@ export async function upsertInboxThreadRows(
       localMutationFields: null,
     }));
 
-  await getDb()
+  await db
     .insert(schema.mailInboxThreads)
     .values(values)
     .onConflictDoUpdate({
@@ -747,6 +748,7 @@ export async function deleteInboxThreadRow(
   accountEmail: string,
   threadId: string,
   readStartedAt?: number,
+  db: any = getDb(),
 ): Promise<void> {
   const conditions = [
     eq(
@@ -757,9 +759,7 @@ export async function deleteInboxThreadRow(
   if (readStartedAt !== undefined) {
     conditions.push(lt(schema.mailInboxThreads.updatedAt, readStartedAt));
   }
-  await getDb()
-    .delete(schema.mailInboxThreads)
-    .where(and(...conditions));
+  await db.delete(schema.mailInboxThreads).where(and(...conditions));
 }
 
 /**
@@ -770,8 +770,9 @@ export async function markThreadsOutOfInboxBeforeSync(
   ownerEmail: string,
   accountEmail: string,
   cutoffSyncedAt: number,
+  db: any = getDb(),
 ): Promise<void> {
-  await getDb()
+  await db
     .update(schema.mailInboxThreads)
     .set({ inInbox: 0, updatedAt: Date.now() })
     .where(
@@ -827,26 +828,25 @@ export class SyncClaimLostError extends Error {
   }
 }
 
-/**
- * Guards a batch of row writes (`upsertInboxThreadRows`,
- * `markThreadsOutOfInboxBeforeSync`, `deleteInboxThreadRow`) that have no
- * `sync_claim_id` column of their own to fence against, unlike
- * {@link patchSyncAccount}'s `opts.claimId`. One SELECT immediately before
- * the write; throws {@link SyncClaimLostError} when the claim no longer
- * matches instead of letting a lapsed worker overwrite a newer worker's rows.
- */
-export async function assertSyncClaimHeld(
+export async function withSyncClaim<T>(
   ownerEmail: string,
   accountEmail: string,
   claimId: string,
-): Promise<void> {
-  const rows = await getDb()
-    .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
-    .from(schema.mailSyncAccounts)
-    .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
-    .limit(1);
-  if (rows[0]?.syncClaimId !== claimId)
-    throw new SyncClaimLostError(accountEmail);
+  write: (tx: any) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx: any) => {
+    const rows = await tx
+      .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
+      .for("update")
+      .limit(1);
+    if (rows[0]?.syncClaimId !== claimId)
+      throw new SyncClaimLostError(accountEmail);
+
+    // Keep inbox mutations in this callback; push invalidation revokes this claim.
+    return write(tx);
+  });
 }
 
 /**
@@ -960,7 +960,7 @@ export async function patchSyncAccount(
  * running against the reset row keeps its claim, and a later fenced write
  * from that same stale run would succeed and could restore the old
  * watermark. Clearing the claim here means that worker's next fenced write
- * (via `patchSyncAccount`'s `opts.claimId` or `assertSyncClaimHeld`) raises
+ * (via `patchSyncAccount`'s `opts.claimId` or `withSyncClaim`) raises
  * {@link SyncClaimLostError} and stops it instead.
  */
 export async function resetSyncAccountProgress(

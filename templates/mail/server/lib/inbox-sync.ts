@@ -27,7 +27,6 @@ import {
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
 import {
-  assertSyncClaimHeld,
   claimSyncAccount,
   deleteInboxThreadRow,
   ensureSyncAccountRow,
@@ -38,6 +37,7 @@ import {
   resetSyncAccountProgress,
   SyncClaimLostError,
   upsertInboxThreadRows,
+  withSyncClaim,
   type CachedGmailLabel,
   type SyncAccountPatch,
   type SyncAccountRow,
@@ -297,12 +297,17 @@ async function hydrateAndApply(
       else deletes.push({ id: part.id, readStartedAt });
     }
   }
-  // Fenced immediately before this step's row writes: a claim lost to a
-  // newer worker during the Gmail round trips above must not land here.
-  await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-  if (upserts.length > 0) await upsertInboxThreadRows(upserts);
-  for (const { id, readStartedAt } of deletes)
-    await deleteInboxThreadRow(ownerEmail, accountEmail, id, readStartedAt);
+  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+    if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
+    for (const { id, readStartedAt } of deletes)
+      await deleteInboxThreadRow(
+        ownerEmail,
+        accountEmail,
+        id,
+        readStartedAt,
+        tx,
+      );
+  });
 }
 
 async function runFullSyncStep(
@@ -348,10 +353,9 @@ async function runFullSyncStep(
         accountEmail,
         connected,
       );
-      // Fenced immediately before the page's row writes: a claim lost to a
-      // newer worker during the Gmail round trips above must not land here.
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-      await upsertInboxThreadRows(rows);
+      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
+        upsertInboxThreadRows(rows, tx),
+      );
     }
     pageToken = page.nextPageToken;
     await patchProgress(ownerEmail, accountEmail, claimId, {
@@ -359,11 +363,13 @@ async function runFullSyncStep(
     });
 
     if (!pageToken) {
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-      await markThreadsOutOfInboxBeforeSync(
-        ownerEmail,
-        accountEmail,
-        fullSyncStartedAt!,
+      await withSyncClaim(ownerEmail, accountEmail, claimId, (tx) =>
+        markThreadsOutOfInboxBeforeSync(
+          ownerEmail,
+          accountEmail,
+          fullSyncStartedAt!,
+          tx,
+        ),
       );
       await patchProgress(ownerEmail, accountEmail, claimId, {
         historyId: fullSyncHistoryId,

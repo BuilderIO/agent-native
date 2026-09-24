@@ -14,6 +14,8 @@ const dbState = vi.hoisted(() => ({
   updates: [] as Array<{ table: string; set: any; cond: any }>,
   conflictUpdates: [] as any[],
   deletes: [] as any[],
+  lockModes: [] as string[],
+  transactions: 0,
   // When true, the next update().set().where().returning() call reports 0
   // matched rows — simulates a fenced write whose claimId no longer matches
   // the row (another worker already claimed it).
@@ -45,7 +47,10 @@ vi.mock("../db/index.js", () => {
     const obj: any = {
       orderBy: () => chainable(getRows),
       limit: () => chainable(getRows),
-      for: () => chainable(getRows),
+      for: (mode: string) => {
+        dbState.lockModes.push(mode);
+        return chainable(getRows);
+      },
       then: (resolve: any, reject: any) =>
         Promise.resolve(getRows()).then(resolve, reject),
     };
@@ -88,7 +93,10 @@ vi.mock("../db/index.js", () => {
         dbState.deletes.push(cond);
       },
     }),
-    transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
+    transaction: async (fn: (tx: any) => Promise<unknown>) => {
+      dbState.transactions++;
+      return fn(db);
+    },
   };
 
   return { schema, getDb: () => db };
@@ -96,7 +104,6 @@ vi.mock("../db/index.js", () => {
 
 import {
   applyLocalLabelDelta,
-  assertSyncClaimHeld,
   patchSyncAccount,
   readCachedLabels,
   resetSyncAccountProgress,
@@ -104,6 +111,7 @@ import {
   deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
+  withSyncClaim,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -134,6 +142,8 @@ beforeEach(() => {
   dbState.updates = [];
   dbState.conflictUpdates = [];
   dbState.deletes = [];
+  dbState.lockModes = [];
+  dbState.transactions = 0;
   dbState.forceNoRowsMatched = false;
 });
 
@@ -540,29 +550,31 @@ describe("patchSyncAccount", () => {
   });
 });
 
-describe("assertSyncClaimHeld", () => {
-  it("resolves when the row's claim still matches", async () => {
+describe("withSyncClaim", () => {
+  it("runs inbox writes under a lock on the matching claim", async () => {
     dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-1" })];
+    const write = vi.fn(async () => undefined);
 
-    await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
-    ).resolves.toBeUndefined();
+    await withSyncClaim(
+      "owner@example.com",
+      "acct1@example.com",
+      "claim-1",
+      write,
+    );
+
+    expect(dbState.transactions).toBe(1);
+    expect(dbState.lockModes).toEqual(["update"]);
+    expect(write).toHaveBeenCalledOnce();
   });
 
-  it("throws SyncClaimLostError when a newer worker holds the claim", async () => {
+  it("skips inbox writes after a push or newer worker clears the claim", async () => {
     dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-2" })];
+    const write = vi.fn(async () => undefined);
 
     await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
+      withSyncClaim("owner@example.com", "acct1@example.com", "claim-1", write),
     ).rejects.toThrow(SyncClaimLostError);
-  });
-
-  it("throws SyncClaimLostError when the account row is gone", async () => {
-    dbState.syncAccounts = [];
-
-    await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
-    ).rejects.toThrow(SyncClaimLostError);
+    expect(write).not.toHaveBeenCalled();
   });
 });
 

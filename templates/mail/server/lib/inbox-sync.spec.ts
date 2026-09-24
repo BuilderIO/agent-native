@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => {
     deleteInboxThreadRow: vi.fn(),
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     readSyncAccounts: vi.fn(),
-    assertSyncClaimHeld: vi.fn(),
+    withSyncClaim: vi.fn(),
     SyncClaimLostError,
   };
 });
@@ -65,7 +65,7 @@ vi.mock("./inbox-store.js", () => ({
   deleteInboxThreadRow: mocks.deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   readSyncAccounts: mocks.readSyncAccounts,
-  assertSyncClaimHeld: mocks.assertSyncClaimHeld,
+  withSyncClaim: mocks.withSyncClaim,
   SyncClaimLostError: mocks.SyncClaimLostError,
 }));
 
@@ -171,7 +171,9 @@ beforeEach(() => {
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
-  mocks.assertSyncClaimHeld.mockResolvedValue(undefined);
+  mocks.withSyncClaim.mockImplementation(
+    async (_owner, _account, _claimId, write) => write({}),
+  );
 });
 
 // The row `claimSyncAccount` hands back for the call under test — tests set
@@ -245,6 +247,7 @@ describe("syncInboxAccount — full sync", () => {
       OWNER,
       ACCOUNT,
       123,
+      expect.anything(),
     );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
@@ -269,7 +272,7 @@ describe("syncInboxAccount — full sync", () => {
     ]);
     // A newer worker has already taken the claim by the time this page's
     // hydrate round trip finishes.
-    mocks.assertSyncClaimHeld.mockRejectedValueOnce(
+    mocks.withSyncClaim.mockRejectedValueOnce(
       new mocks.SyncClaimLostError(ACCOUNT),
     );
 
@@ -409,6 +412,7 @@ describe("syncInboxAccount — incremental sync", () => {
       ACCOUNT,
       "t1",
       expect.any(Number),
+      expect.anything(),
     );
     expect(mocks.deleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
       batchCalledAt,
