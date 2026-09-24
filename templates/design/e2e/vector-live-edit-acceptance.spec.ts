@@ -18,7 +18,7 @@ const GROUPED_EDITABLE_SVG =
 const OPEN_PASTED_SVG =
   '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="none" stroke="#111827" stroke-width="2" /></svg>';
 const OPEN_PASTED_SVG_WITH_AUTHORED_OPACITY =
-  '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="#f97316" fill-opacity="0.4" stroke="#111827" stroke-width="2" /></svg>';
+  '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="#f97316" fill-opacity="0.4" style="fill-opacity: 0.4" stroke="#111827" stroke-width="2" /></svg>';
 const PEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px"><div data-agent-native-node-id="frame" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:40px;top:120px;width:600px;height:400px"><div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:80px;top:70px;width:280px;height:200px;transform:translate(10px,5px)"><svg data-agent-native-node-id="nested-path" data-agent-native-layer-name="Nested path" data-an-primitive="path" data-an-pen-nodes='[1,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,80,null,null,null,null],[0,80,null,null,null,null]]' viewBox="0 0 100 80" preserveAspectRatio="none" style="position:absolute;left:15.25px;top:20.5px;width:100px;height:80px;overflow:visible;opacity:0.5;filter:drop-shadow(0 1px 2px #000)"><path d="M 0 0 L 100 0 L 100 80 L 0 80 Z" fill="#336699" stroke="none" /></svg></div></div></main></body></html>`;
 
 async function action(
@@ -211,14 +211,8 @@ test("grouped clipboard SVG keeps path identities and edits only the selected si
     await hex.press("Enter");
     await expect(target).toHaveCSS("fill", "rgb(59, 130, 246)");
     await expect(sibling).toHaveCSS("fill", siblingBefore);
-    const source = await page.request
-      .get(
-        appPath(
-          `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
-        ),
-      )
-      .then((response) => response.json());
-    const html = source.content ?? "";
+    await expect.poll(() => readSource(page, designId)).toContain(pathIds[0]!);
+    const html = await readSource(page, designId);
     expect(html).toContain(pathIds[0]!);
     expect(html).toMatch(/fill:\s*#3b82f6/i);
     await page.reload();
@@ -276,7 +270,9 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
     await page.mouse.up();
     await expect.poll(() => path.getAttribute("d")).not.toBe(originalPathData);
     const editedPathData = await path.getAttribute("d");
-    expect(await readSource(page, designId)).toContain(editedPathData);
+    await expect
+      .poll(() => readSource(page, designId))
+      .toContain(editedPathData);
     await page.keyboard.press("Enter");
 
     const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
@@ -329,6 +325,7 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
     );
     if (!targetPathBefore || !targetPathId)
       throw new Error("grouped target path identity was not persisted");
+    await expect.poll(() => readSource(page, designId)).toContain(targetPathId);
     const originalSource = await readSource(page, designId);
 
     const layers = page.getByRole("tree", { name: "Layers" });
@@ -445,6 +442,9 @@ test("an open pasted SVG continues from its endpoint and closes without adding a
       'svg[data-agent-native-layer-name="Pasted SVG"] path',
     );
     await expect(path).toHaveAttribute("d", "M10 30L70 30");
+    await expect
+      .poll(() => readSource(page, designId))
+      .toMatch(/data-an-pen-nodes=/);
     const originalSource = await readSource(page, designId);
     const originalNodes = pastedPathNodes(originalSource);
 
@@ -757,6 +757,18 @@ test("closing an edited pasted SVG restores authored fill opacity through histor
     await expect
       .poll(() => readSource(page, designId))
       .not.toBe(originalSource);
+    await expect
+      .poll(() =>
+        path.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0");
+    await expect
+      .poll(() =>
+        path.evaluate((element) =>
+          (element as SVGPathElement).style.getPropertyPriority("fill-opacity"),
+        ),
+      )
+      .toBe("important");
     const movedTerminalAnchorBox = await anchors.nth(1).boundingBox();
     if (!movedTerminalAnchorBox) {
       throw new Error("moved pasted path endpoint has no bounds");
@@ -806,6 +818,11 @@ test("closing an edited pasted SVG restores authored fill opacity through histor
     );
     await expect.poll(() => closedPath.getAttribute("d")).toMatch(/Z\s*$/i);
     await expect(closedPath).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(() =>
+        closedPath.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0.4");
 
     const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
     const redo =
@@ -815,6 +832,11 @@ test("closing an edited pasted SVG restores authored fill opacity through histor
     await page.keyboard.press(redo);
     await expect.poll(() => readSource(page, designId)).toBe(closedSource);
     await expect(closedPath).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(() =>
+        closedPath.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0.4");
 
     await page.reload();
     await enterDirectMode(page);

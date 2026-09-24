@@ -22,6 +22,13 @@ import {
   writeBackVectorEditedPenPath,
 } from "./clone-and-pen-edit";
 
+function expectFillOpacityHidden(path: Element | null) {
+  expect(path).not.toBeNull();
+  const style = (path as SVGPathElement).style;
+  expect(style.getPropertyValue("fill-opacity")).toBe("0");
+  expect(style.getPropertyPriority("fill-opacity")).toBe("important");
+}
+
 const editedPath: PenPath = {
   closed: true,
   nodes: [
@@ -114,7 +121,7 @@ describe("nested Pen path commits", () => {
       .parseFromString(reopened!, "text/html")
       .querySelector("path");
     expect(reopenedPath?.getAttribute("fill")).toBe("none");
-    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0");
+    expectFillOpacityHidden(reopenedPath);
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened!,
@@ -154,7 +161,8 @@ describe("nested Pen path commits", () => {
     const reopenedPath = new DOMParser()
       .parseFromString(reopened!, "text/html")
       .querySelector("path");
-    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0");
+    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0.4");
+    expectFillOpacityHidden(reopenedPath);
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened!,
@@ -207,7 +215,10 @@ describe("nested Pen path commits", () => {
     svg = new DOMParser()
       .parseFromString(reopened!, "text/html")
       .querySelector("svg");
-    expect(svg?.querySelector("path")?.getAttribute("fill-opacity")).toBe("0");
+    expect(svg?.querySelector("path")?.getAttribute("fill-opacity")).toBe(
+      "0.4",
+    );
+    expectFillOpacityHidden(svg?.querySelector("path") ?? null);
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened!,
@@ -440,6 +451,141 @@ describe("continuing a committed open Pen path", () => {
 
       expect(closedPath?.getAttribute("fill-opacity")).toBe("0");
     }
+  });
+
+  it("preserves a fill-opacity style edit made while the path is open", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="edited-opacity" data-an-pen-nodes="${serializePenNodes(closedPath)}"
+        d="${serializePenPath(closedPath)}" fill="#000000" style="fill-opacity: 0.4" />
+    </svg>`;
+
+    const reopened = writeBackVectorEditedPenPath(
+      html,
+      "edited-opacity",
+      openPath,
+    );
+    expect(reopened).not.toBeNull();
+    const openedPath = new DOMParser()
+      .parseFromString(reopened!, "text/html")
+      .querySelector("path")!;
+    expectFillOpacityHidden(openedPath);
+
+    openedPath.style.setProperty("fill-opacity", "0.7");
+    const updatedWhileOpen = writeBackVectorEditedPenPath(
+      `<!doctype html>\n${openedPath.ownerDocument.documentElement.outerHTML}`,
+      "edited-opacity",
+      translatePenPath(openPath, 1, 1),
+    );
+    expect(updatedWhileOpen).not.toBeNull();
+    expectFillOpacityHidden(
+      new DOMParser()
+        .parseFromString(updatedWhileOpen!, "text/html")
+        .querySelector("path"),
+    );
+    const reclosed = writeBackVectorEditedPenPath(
+      updatedWhileOpen!,
+      "edited-opacity",
+      closePenPath(translatePenPath(openPath, 1, 1)),
+    );
+    const restoredPath = new DOMParser()
+      .parseFromString(reclosed!, "text/html")
+      .querySelector("path");
+
+    expect(restoredPath?.style.getPropertyValue("fill-opacity")).toBe("0.7");
+    expect(restoredPath?.style.getPropertyPriority("fill-opacity")).toBe("");
+  });
+
+  it("preserves an authored zero-opacity edit made while the path is open", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const html = `<!doctype html><svg data-agent-native-node-id="zero-opacity" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-an-pen-nodes="${serializePenNodes(closedPath)}" d="${serializePenPath(closedPath)}"
+        fill="#000000" fill-opacity="0.4" />
+    </svg>`;
+    const opened = writeBackVectorEditedPenPath(
+      html,
+      "zero-opacity",
+      openPath,
+    )!;
+    const openedPath = new DOMParser()
+      .parseFromString(opened, "text/html")
+      .querySelector("path")!;
+    openedPath.setAttribute("fill-opacity", "0");
+    const edited = writeBackVectorEditedPenPath(
+      `<!doctype html>\n${openedPath.ownerDocument.documentElement.outerHTML}`,
+      "zero-opacity",
+      translatePenPath(openPath, 1, 1),
+    )!;
+    const closed = writeBackVectorEditedPenPath(
+      edited,
+      "zero-opacity",
+      closePenPath(translatePenPath(openPath, 1, 1)),
+    );
+
+    const restoredPath = new DOMParser()
+      .parseFromString(closed!, "text/html")
+      .querySelector("path");
+    expect(restoredPath?.getAttribute("fill-opacity")).toBe("0");
+  });
+
+  it("migrates legacy opacity markers before an open-path edit", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="legacy-opacity" data-an-pen-nodes='${serializePenNodes(openPath)}'
+        d="${serializePenPath(openPath)}" fill="#000000" fill-opacity="0"
+        data-an-open-fill-opacity="value:0.4" style="fill-opacity: 0.6;" />
+    </svg>`;
+
+    const edited = writeBackVectorEditedPenPath(
+      html,
+      "legacy-opacity",
+      translatePenPath(openPath, 1, 1),
+    );
+    expect(edited).not.toBeNull();
+    const editedPath = new DOMParser()
+      .parseFromString(edited!, "text/html")
+      .querySelector("path")!;
+    expectFillOpacityHidden(editedPath);
+
+    const closed = writeBackVectorEditedPenPath(
+      edited!,
+      "legacy-opacity",
+      closePenPath(translatePenPath(openPath, 1, 1)),
+    );
+    expect(closed).not.toBeNull();
+    const closedPath = new DOMParser()
+      .parseFromString(closed!, "text/html")
+      .querySelector("path")!;
+    expect(closedPath.getAttribute("fill-opacity")).toBe("0.4");
+    expect(closedPath.style.getPropertyValue("fill-opacity")).toBe("0.6");
+    expect(closedPath.style.getPropertyPriority("fill-opacity")).toBe("");
+    expect(closedPath.hasAttribute("data-an-open-fill-opacity")).toBe(false);
   });
 
   it("preserves authored zero fill opacity on a closed path", () => {
