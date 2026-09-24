@@ -588,6 +588,103 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("re-pushes the current editor chrome scale after every bridge-ready handshake, without any zoom change", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const render = (contentKey: string, content: string) => (
+      <DesignCanvas
+        content={content}
+        contentKey={contentKey}
+        screenId="screen-a"
+        // A non-1 overview scale (like a zoomed-out overview frame) is the
+        // case that goes stale: at 100% there is nothing to distinguish a
+        // missed re-push from the baked default.
+        zoom={31}
+        deviceFrame="none"
+        interactMode={false}
+        editMode
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+    const dispatchReady = async (contentWindow: Window) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: contentWindow,
+          }),
+        );
+      });
+    };
+    const lastScaleMessage = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls
+        .map(
+          ([message]) =>
+            message as { type?: string; scaleX?: number; scaleY?: number },
+        )
+        .filter((message) => message.type === "set-editor-chrome-scale")
+        .slice(-1)[0];
+
+    try {
+      await act(async () =>
+        root.render(
+          render(
+            "chrome-scale-k1",
+            "<!doctype html><html><body>one</body></html>",
+          ),
+        ),
+      );
+      const firstIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(firstIframe?.contentWindow).toBeTruthy();
+      const firstPostMessage = vi.spyOn(
+        firstIframe!.contentWindow!,
+        "postMessage",
+      );
+      await dispatchReady(firstIframe!.contentWindow!);
+      expect(lastScaleMessage(firstPostMessage)).toMatchObject({
+        scaleX: 0.31,
+        scaleY: 0.31,
+      });
+
+      // A content-key change swaps in a brand-new document (new iframe, new
+      // bridge instance) without touching `zoom` — the same shape as a live
+      // frame's bridge re-registering. `zoom` never changes here, so the old
+      // effect (missing `readyIframeDocumentIdentity` from its deps) has no
+      // other signal telling it to re-push the scale for the new document.
+      await act(async () =>
+        root.render(
+          render(
+            "chrome-scale-k2",
+            "<!doctype html><html><body>two</body></html>",
+          ),
+        ),
+      );
+      const secondIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(secondIframe).not.toBe(firstIframe);
+      expect(secondIframe?.contentWindow).toBeTruthy();
+      const secondPostMessage = vi.spyOn(
+        secondIframe!.contentWindow!,
+        "postMessage",
+      );
+      await dispatchReady(secondIframe!.contentWindow!);
+      expect(lastScaleMessage(secondPostMessage)).toMatchObject({
+        scaleX: 0.31,
+        scaleY: 0.31,
+      });
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("enters Interact mode with the latest persisted content instead of the edit-mode snapshot", async () => {
     const container = document.createElement("div");
     document.body.append(container);

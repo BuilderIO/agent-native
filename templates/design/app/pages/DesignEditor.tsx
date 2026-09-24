@@ -1430,6 +1430,10 @@ function DesignEditor() {
   const [overviewInteractScreenId, setOverviewInteractScreenId] = useState<
     string | null
   >(null);
+  const overviewInteractScreenIdRef = useRef(overviewInteractScreenId);
+  useEffect(() => {
+    overviewInteractScreenIdRef.current = overviewInteractScreenId;
+  }, [overviewInteractScreenId]);
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
   // Drawing drops activeTool back to move (Figma parity), so the shape group
   // button cannot read its own identity off it.
@@ -18476,11 +18480,32 @@ function DesignEditor() {
       files,
     ],
   );
-  const handleOverviewFrameAction = useCallback((screenId: string) => {
-    setOverviewInteractScreenId((current) =>
-      current === screenId ? null : screenId,
-    );
-  }, []);
+  // The single path that decides per-frame Interact entry: runModeChange
+  // guards the same way for the toolbar/single-screen path, and this is the
+  // only other caller that can flip a frame into Interact
+  // (handleFrameInteract, the locked-screen double-click, and
+  // handleOverviewEditBreakpoint all funnel through here). Leaving Interact
+  // (re-clicking the active frame) is always allowed. Reads refs rather than
+  // depending on the pending-edit arrays or overviewInteractScreenId itself
+  // so this stays the one stable callback every Screen instance shares
+  // (PF18) instead of invalidating memo(Screen) on every pending edit.
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (overviewInteractScreenIdRef.current === screenId) {
+        setOverviewInteractScreenId(null);
+        return;
+      }
+      if (
+        pendingVisualStyleEditsRef.current.length > 0 ||
+        pendingLiveNonStyleEditsRef.current.length > 0
+      ) {
+        toast.error(t("designEditor.pendingVisualStyles.interactBlocked"));
+        return;
+      }
+      setOverviewInteractScreenId(screenId);
+    },
+    [t],
+  );
   // Closing the responsive view returns to the infinite canvas. Dropping to
   // Edit while still in single view was the forbidden third state: a focused
   // screen with no device chrome and no canvas around it.
@@ -19735,6 +19760,13 @@ function DesignEditor() {
   );
   useEffect(() => {
     if (!id) return;
+    // The durable handoff action requires editor access; a signed-out or
+    // read-only visual-edit viewer always fails it and surfaces a spurious
+    // "Could not create agent handoff" error. Those viewers still get the
+    // pending prompt through the page-local Copy-prompt flow below, which
+    // reads pendingVisualEditCount/pendingVisualStylePrompt directly rather
+    // than this durable publication.
+    if (!canEditDesign) return;
     if (
       pendingVisualEditCount === 0 &&
       pendingVisualEditClearRequestedRef.current !== id &&
@@ -19828,6 +19860,7 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    canEditDesign,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,

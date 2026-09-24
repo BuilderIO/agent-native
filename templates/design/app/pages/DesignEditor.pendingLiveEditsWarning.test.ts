@@ -98,4 +98,61 @@ describe("DesignEditor pending live edits", () => {
     expect(source).toContain('callAction("publish-visual-edit-pending"');
     expect(source).toContain("pendingVisualStylePrompt");
   });
+
+  it("gates the durable visual-edit handoff publish on canEditDesign so a public viewer never sees the handoff error", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const publishCallIndex = source.indexOf(
+      'await callAction("publish-visual-edit-pending", pending);',
+    );
+    expect(publishCallIndex).toBeGreaterThan(-1);
+    const effectStart = source.lastIndexOf(
+      "useEffect(() => {",
+      publishCallIndex,
+    );
+    expect(effectStart).toBeGreaterThan(-1);
+    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    expect(depsStart).toBeGreaterThan(publishCallIndex);
+    const depsEnd = source.indexOf("]);", depsStart);
+    const effectBody = source.slice(effectStart, depsStart);
+    const deps = source.slice(depsStart, depsEnd);
+    // publish-visual-edit-pending requires editor access; a signed-out or
+    // read-only viewer can never satisfy it, so auto-calling it for them
+    // only produces a spurious "Could not create agent handoff" error. They
+    // still get the pending prompt via the page-local Copy-prompt flow,
+    // which reads pendingVisualEditCount directly.
+    expect(effectBody).toContain("if (!canEditDesign) return;");
+    expect(deps).toContain("canEditDesign,");
+  });
+
+  it("blocks per-frame Interact entry the same way runModeChange blocks it, but always allows leaving", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handlerStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback(",
+    );
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = source.slice(
+      handlerStart,
+      source.indexOf("[t],", handlerStart),
+    );
+    // Leaving (re-clicking the already-interacting frame) is unconditional —
+    // checked, and returned from, before the pending-edit guard below.
+    const leaveIndex = handler.indexOf(
+      "overviewInteractScreenIdRef.current === screenId",
+    );
+    const guardIndex = handler.indexOf(
+      "pendingVisualStyleEditsRef.current.length > 0",
+    );
+    expect(leaveIndex).toBeGreaterThan(-1);
+    expect(guardIndex).toBeGreaterThan(leaveIndex);
+    expect(handler).toContain("pendingLiveNonStyleEditsRef.current.length > 0");
+    expect(handler).toContain(
+      'toast.error(t("designEditor.pendingVisualStyles.interactBlocked"))',
+    );
+  });
 });
