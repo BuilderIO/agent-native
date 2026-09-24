@@ -1337,14 +1337,24 @@ the review item populated the body. The accepted content persisted on the full
 page after navigation. The full-page menu also offered Suggest edits at an
 800-pixel viewport without clipping. The separate nonempty-row proposal and
 acceptance path also persisted after reload. These are sampled real-interface
-checks for DSI-01, DSI-02, DSI-03, and DSI-07; the remaining role, multi-field,
-multi-membership, conflict, and rejection cases have automated coverage where
-added but have not all been replayed through the UI. The disposable fixture is
-in local development data only and was not created on Content Beta.
+checks for DSI-01, DSI-02, DSI-03, and DSI-07. A second preview proposal was
+rejected and left the canonical body unchanged. After adding a secondary Blocks
+field, its editor became read-only during suggesting and editable on exit,
+while its existing value stayed visible. Collection containers had no Suggest
+edits menu item. Adding that secondary field initially failed because the UI
+sent Blocks options excluded by the property's action schema; omitting those
+options lets the action create the field with its own safe default. The
+disposable collection and its two rows were moved to local Trash. A targeted
+permanent-delete attempt remains pending in the local Trash UI, so that local
+data has not been verified purged. No fixture was created on Content Beta.
+Role, multi-membership, conflict, and additional formatting cases have
+automated coverage where added but have not all been replayed through the UI.
 
 `guard:i18n-changed-copy` passes. `guard:i18n-catalogs` and
 `guard:content-product-docs` fail on repository-wide Windows path/line-ending
 baseline mismatches unrelated to this diff. The aggregate `pnpm guards`
 runner exits before checks with Node `spawn EINVAL` on this Windows host.
+The targeted `DocumentProperties.test.ts` suite passes (24 tests); its
+source-layout companion has one Windows CRLF-sensitive assertion failure.
 Before integration, finish the full DSI-01–07 real-interface matrix and run
 the affected repository guards in a working CI environment.
