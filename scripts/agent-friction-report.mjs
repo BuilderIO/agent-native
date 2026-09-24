@@ -138,7 +138,7 @@ const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?
 const PR_REVIEW_HANDOFF_DETAILS = [
   String.raw`which\s+PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
   String.raw`(?:the\s+)?merge[- ]readiness(?:\s+(?:recommendation|status))?`,
-  String.raw`(?:(?:the|an?)\s+)?(?:(?:author[- ]facing|author)\s+)?(?:repl(?:y|ies)|comments?)(?:\s+drafts?)?`,
+  String.raw`(?:(?:the|an?)\s+)?(?:drafts?\s+)?(?:(?:author[- ]facing|author)\s+)?(?:repl(?:y|ies)|comments?)(?:\s+drafts?)?`,
   String.raw`(?:the\s+)?(?:(?:UI|UX)\s+)?screenshots?(?:\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface))?`,
   String.raw`(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
   String.raw`(?:whether|if)\s+(?:(?:the|a|any|all|which|these|those)\s+)?PRs?\s+(?:were|are|was|is)\s+ready(?:\s+to\s+merge)?`,
@@ -178,6 +178,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You didn't request screenshots for the UI changes."],
   [true, "You didn't draft an author reply."],
   [true, "You didn't draft author replies."],
+  [true, "The handoff omitted the draft reply."],
+  [true, "You forgot to draft a reply."],
   [true, "You did not say which PRs were ready to merge."],
   [true, "You didn't say whether the UI screenshots were present."],
   [true, "You omitted whether screenshots were present."],
