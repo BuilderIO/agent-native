@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   filterUnmutedReviewThreadRecipients: vi.fn(),
   reviewCommentNotificationCompleted: vi.fn(),
   markReviewCommentNotificationCompleted: vi.fn(),
+  claimReviewNotificationDelivery: vi.fn(),
+  finishReviewNotificationDelivery: vi.fn(),
+  releaseReviewNotificationDelivery: vi.fn(),
 }));
 
 vi.mock("../server/activity-notifications.js", async () => {
@@ -51,6 +54,12 @@ vi.mock("./registry.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  claimReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.claimReviewNotificationDelivery(...args),
+  finishReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.finishReviewNotificationDelivery(...args),
+  releaseReviewNotificationDelivery: (...args: unknown[]) =>
+    mocks.releaseReviewNotificationDelivery(...args),
   reviewCommentNotificationCompleted: (...args: unknown[]) =>
     mocks.reviewCommentNotificationCompleted(...args),
   markReviewCommentNotificationCompleted: (...args: unknown[]) =>
@@ -109,6 +118,10 @@ beforeEach(() => {
     failed: [],
   });
   mocks.reviewCommentNotificationCompleted.mockResolvedValue(false);
+  mocks.claimReviewNotificationDelivery.mockResolvedValue({
+    status: "claimed",
+    token: "claim-1",
+  });
   mocks.queryReviewComments.mockResolvedValue([]);
   mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
     async (_threadId: string, recipients: string[]) => recipients,
@@ -123,6 +136,70 @@ beforeEach(() => {
 });
 
 describe("notifyReviewCommentWithReceipt", () => {
+  it("does not resend successful recipients when another recipient fails", async () => {
+    const delivered = new Set<string>();
+    mocks.notifyActivity.mockImplementation(
+      async ({ send }: { send: (to: string) => Promise<void> }) => {
+        const sent: string[] = [];
+        const failed: { email: string; error: string }[] = [];
+        for (const email of ["first@example.com", "second@example.com"]) {
+          try {
+            await send(email);
+            sent.push(email);
+          } catch (error) {
+            failed.push({ email, error: String(error) });
+          }
+        }
+        return {
+          status: failed.length ? "delivered" : "delivered",
+          sent,
+          failed,
+        };
+      },
+    );
+    mocks.claimReviewNotificationDelivery.mockImplementation(
+      async (_id: string, email: string) =>
+        delivered.has(email)
+          ? { status: "sent" }
+          : { status: "claimed", token: email },
+    );
+    mocks.finishReviewNotificationDelivery.mockImplementation(
+      async (_id: string, email: string) => {
+        delivered.add(email);
+      },
+    );
+    mocks.sendEmail
+      .mockImplementationOnce(async () => {})
+      .mockImplementationOnce(async () => {
+        throw new Error("offline");
+      })
+      .mockImplementationOnce(async () => {});
+
+    expect(
+      (await notifyReviewCommentWithReceipt(comment()))?.failed,
+    ).toHaveLength(1);
+    expect(
+      (await notifyReviewCommentWithReceipt(comment()))?.failed,
+    ).toHaveLength(0);
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(3);
+    expect(mocks.sendEmail.mock.calls.map(([input]) => input.to)).toEqual([
+      "first@example.com",
+      "second@example.com",
+      "second@example.com",
+    ]);
+  });
+
+  it("reports a receipt read failure without rejecting an already saved comment", async () => {
+    mocks.reviewCommentNotificationCompleted.mockRejectedValue(
+      new Error("database unavailable"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "notification-error",
+    );
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
   it("retries after a failed delivery, then suppresses a completed replay", async () => {
     mocks.notifyActivity.mockResolvedValueOnce({
       status: "delivery-failed",

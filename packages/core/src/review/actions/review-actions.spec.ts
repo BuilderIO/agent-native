@@ -6,6 +6,7 @@ let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 const notifyReviewCommentWithReceipt = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const notifyReviewComment = vi.hoisted(() => vi.fn(async () => ({ sent: [] })));
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -28,7 +29,10 @@ vi.mock("../../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
-vi.mock("../notifications.js", () => ({ notifyReviewCommentWithReceipt }));
+vi.mock("../notifications.js", () => ({
+  notifyReviewComment,
+  notifyReviewCommentWithReceipt,
+}));
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))
   .default;
@@ -61,10 +65,12 @@ const { __resetReviewableResourcesForTests, registerReviewableResource } =
   await import("../registry.js");
 const {
   __resetReviewInitForTests,
+  claimReviewNotificationDelivery,
   consumeReviewFeedback,
   ensureReviewTables,
   insertReviewComment,
   insertReviewReply,
+  finishReviewNotificationDelivery,
   queryReviewComments,
   upsertReviewStatus,
 } = await import("../store.js");
@@ -280,6 +286,24 @@ afterEach(async () => {
 });
 
 describe("review actions", () => {
+  it("claims a notification recipient once across concurrent retries", async () => {
+    const [first, second] = await Promise.all([
+      claimReviewNotificationDelivery("comment-1", OWNER_EMAIL),
+      claimReviewNotificationDelivery("comment-1", OWNER_EMAIL),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(["busy", "claimed"]);
+    const claimed = first.status === "claimed" ? first : second;
+    if (claimed.status !== "claimed") throw new Error("Missing claim");
+    await finishReviewNotificationDelivery(
+      "comment-1",
+      OWNER_EMAIL,
+      claimed.token,
+    );
+    expect(
+      (await claimReviewNotificationDelivery("comment-1", OWNER_EMAIL)).status,
+    ).toBe("sent");
+  });
+
   it("replays after display name and resource access snapshots change", async () => {
     const rootArgs = {
       resourceType: "doc",

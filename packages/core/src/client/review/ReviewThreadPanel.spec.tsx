@@ -457,6 +457,126 @@ describe("ReviewThreadPanel sidebar layout", () => {
       await staleFailure.promise.catch(() => undefined);
     });
     expect(composer?.value).toBe("Newer draft");
+    const failedCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-create]",
+    );
+    expect(failedCard?.textContent).toContain("First draft");
+    const failedOperationId = failedCard?.dataset.reviewFailedCreate;
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-2"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+    expect(container.querySelector("[data-review-failed-create]")).toBeNull();
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+    const restoredCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-create]",
+    );
+    await act(async () => restoredCard?.querySelector("button")?.click());
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "First draft",
+        clientOperationId: failedOperationId,
+      }),
+    );
+    expect(composer?.value).toBe("Newer draft");
+    expect(container.querySelector("[data-review-failed-create]")).toBeNull();
+  });
+
+  it("preserves a failed reply separately from newer reply text", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    const input = () =>
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="Reply to this thread"]',
+      );
+    setTextareaValue(input()!, "Submitted reply");
+    const failedReply = deferredMutation();
+    act(() =>
+      input()?.closest("form")?.querySelector("button[type=submit]")?.click(),
+    );
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
+        ?.click(),
+    );
+    setTextareaValue(input()!, "Newer reply");
+    await act(async () => {
+      failedReply.reject(new Error("offline"));
+      await failedReply.promise.catch(() => undefined);
+    });
+    expect(input()?.value).toBe("Newer reply");
+    const failedCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-reply]",
+    );
+    expect(failedCard?.textContent).toContain("Submitted reply");
+    const failedOperationId = failedCard?.dataset.reviewFailedReply;
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-2"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    expect(container.querySelector("[data-review-failed-reply]")).toBeNull();
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+          replyPlaceholder="Reply to this thread"
+        />,
+      );
+    });
+    const restoredCard = container.querySelector<HTMLElement>(
+      "[data-review-failed-reply]",
+    );
+    await act(async () => restoredCard?.querySelector("button")?.click());
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        body: "Submitted reply",
+        clientOperationId: failedOperationId,
+      }),
+    );
+    expect(input()?.value).toBe("Newer reply");
+    expect(container.querySelector("[data-review-failed-reply]")).toBeNull();
   });
 
   it("hands a submitted reply to the optimistic thread and restores it after a definite failure", async () => {

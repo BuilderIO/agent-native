@@ -264,6 +264,19 @@ export function ReviewThreadPanel({
   const draftMentionsRef = useRef<ReviewMention[]>([]);
   const draftGenerationRef = useRef(0);
   const createRetryRef = useRef<{ key: string; id: string } | null>(null);
+  const [failedCreates, setFailedCreates] = useState<
+    Array<{
+      id: string;
+      resourceType: string;
+      resourceId: string;
+      body: string;
+      mentions: ReviewMention[];
+      resolutionTarget: ReviewResolutionTarget;
+      targetId?: string | null;
+      anchor?: ReviewComment["anchor"];
+      metadata?: ReviewComment["metadata"];
+    }>
+  >([]);
   const createPendingRef = useRef(false);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const replyingThreadIdRef = useRef<string | null>(null);
@@ -277,6 +290,18 @@ export function ReviewThreadPanel({
   const replyRetriesRef = useRef<Record<string, { key: string; id: string }>>(
     {},
   );
+  const [failedReplies, setFailedReplies] = useState<
+    Record<
+      string,
+      Array<{
+        id: string;
+        resourceType: string;
+        resourceId: string;
+        body: string;
+        mentions: ReviewMention[];
+      }>
+    >
+  >({});
   const replyPendingRef = useRef<Set<string>>(new Set());
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
@@ -442,6 +467,23 @@ export function ReviewThreadPanel({
         draftGenerationRef.current !== generation ||
         draftRef.current !== ""
       ) {
+        setFailedCreates((current) => [
+          ...current,
+          {
+            id: operationId,
+            resourceType,
+            resourceId,
+            body,
+            mentions: submittedMentions,
+            resolutionTarget: showComposerTargetPicker
+              ? resolutionTarget
+              : "human",
+            targetId:
+              composerTargetId === undefined ? targetId : composerTargetId,
+            anchor: composerAnchor,
+            metadata: composerMetadata,
+          },
+        ]);
         return;
       }
       createRetryRef.current = { key: retryKey, id: operationId };
@@ -449,6 +491,37 @@ export function ReviewThreadPanel({
       draftMentionsRef.current = submittedMentions;
       setDraft(submittedDraft);
       setDraftMentions(submittedMentions);
+    } finally {
+      createPendingRef.current = false;
+    }
+  };
+
+  const retryFailedCreate = async (failed: (typeof failedCreates)[number]) => {
+    if (
+      createPendingRef.current ||
+      failed.resourceType !== resourceType ||
+      failed.resourceId !== resourceId
+    )
+      return;
+    createPendingRef.current = true;
+    try {
+      const comment = await createComment.mutateAsync({
+        resourceType: failed.resourceType,
+        resourceId: failed.resourceId,
+        targetId: failed.targetId,
+        ...(failed.anchor !== undefined ? { anchor: failed.anchor } : {}),
+        ...(failed.metadata ? { metadata: failed.metadata } : {}),
+        body: failed.body,
+        ...(failed.mentions.length ? { mentions: failed.mentions } : {}),
+        resolutionTarget: failed.resolutionTarget,
+        clientOperationId: failed.id,
+      });
+      setFailedCreates((current) =>
+        current.filter((item) => item.id !== failed.id),
+      );
+      onCommentCreated?.(comment);
+    } catch {
+      return;
     } finally {
       createPendingRef.current = false;
     }
@@ -564,6 +637,19 @@ export function ReviewThreadPanel({
         (replyGenerationsRef.current[comment.id] ?? 0) !== generation ||
         (replyDraftsRef.current[comment.id] ?? "") !== ""
       ) {
+        setFailedReplies((current) => ({
+          ...current,
+          [comment.id]: [
+            ...(current[comment.id] ?? []),
+            {
+              id: operationId,
+              resourceType,
+              resourceId,
+              body,
+              mentions: submittedMentions,
+            },
+          ],
+        }));
         return;
       }
       replyRetriesRef.current[comment.id] = { key: retryKey, id: operationId };
@@ -584,6 +670,39 @@ export function ReviewThreadPanel({
         [comment.id]: submittedMentions,
       }));
       if (replyingThreadIdRef.current === null) startReplying(threadId);
+    } finally {
+      replyPendingRef.current.delete(comment.id);
+    }
+  };
+
+  const retryFailedReply = async (
+    comment: ReviewComment,
+    failed: (typeof failedReplies)[string][number],
+  ) => {
+    if (
+      replyPendingRef.current.has(comment.id) ||
+      failed.resourceType !== resourceType ||
+      failed.resourceId !== resourceId
+    )
+      return;
+    replyPendingRef.current.add(comment.id);
+    try {
+      await replyComment.mutateAsync({
+        resourceType: failed.resourceType,
+        resourceId: failed.resourceId,
+        commentId: comment.id,
+        body: failed.body,
+        ...(failed.mentions.length ? { mentions: failed.mentions } : {}),
+        clientOperationId: failed.id,
+      });
+      setFailedReplies((current) => ({
+        ...current,
+        [comment.id]: (current[comment.id] ?? []).filter(
+          (item) => item.id !== failed.id,
+        ),
+      }));
+    } catch {
+      return;
     } finally {
       replyPendingRef.current.delete(comment.id);
     }
@@ -715,6 +834,35 @@ export function ReviewThreadPanel({
             contextLabel={composerContextLabel}
           />
         ) : null}
+        {failedCreates
+          .filter(
+            (failed) =>
+              failed.resourceType === resourceType &&
+              failed.resourceId === resourceId,
+          )
+          .map((failed) => (
+            <div
+              key={failed.id}
+              className="flex items-start gap-2 border-b border-border px-3 py-2 text-sm"
+              data-review-failed-create={failed.id}
+            >
+              <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+                {failed.body}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={createPendingRef.current}
+                onClick={() => void retryFailedCreate(failed)}
+              >
+                {failed.resolutionTarget === "agent"
+                  ? composerAgentLabel
+                  : composerCommentLabel}
+              </Button>
+            </div>
+          ))}
 
         {showFilter ? (
           <div className="flex items-center justify-end border-b border-border px-3 py-1.5">
@@ -917,6 +1065,35 @@ export function ReviewThreadPanel({
                     </div>
                   ) : null}
 
+                  {(failedReplies[thread.root.id] ?? [])
+                    .filter(
+                      (failed) =>
+                        failed.resourceType === resourceType &&
+                        failed.resourceId === resourceId,
+                    )
+                    .map((failed) => (
+                      <div
+                        key={failed.id}
+                        className="mt-2 flex items-start gap-2 text-sm"
+                        data-review-failed-reply={failed.id}
+                      >
+                        <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+                          {failed.body}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={replyPendingRef.current.has(thread.root.id)}
+                          onClick={() =>
+                            void retryFailedReply(thread.root, failed)
+                          }
+                        >
+                          {replyLabel}
+                        </Button>
+                      </div>
+                    ))}
                   {replying && replyAllowed ? (
                     <div
                       className="mt-3 flex min-w-0 items-start gap-1.5"

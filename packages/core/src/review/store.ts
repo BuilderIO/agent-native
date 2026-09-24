@@ -159,6 +159,14 @@ export async function ensureReviewTables(): Promise<void> {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (thread_id, user_email)
     )`;
+      const createNotificationDeliveriesSql = `CREATE TABLE IF NOT EXISTS agent_review_notification_deliveries (
+      comment_id TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      claim_token TEXT NOT NULL,
+      claimed_at TEXT NOT NULL,
+      sent_at TEXT,
+      PRIMARY KEY (comment_id, recipient_email)
+    )`;
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
            ON agent_review_comments (resource_type, resource_id, created_at)`,
@@ -201,6 +209,10 @@ export async function ensureReviewTables(): Promise<void> {
         await ensureTableExists(
           "agent_review_thread_preferences",
           createPreferencesSql,
+        );
+        await ensureTableExists(
+          "agent_review_notification_deliveries",
+          createNotificationDeliveriesSql,
         );
         await ensureIndexExists(
           "idx_agent_review_comments_resource",
@@ -429,6 +441,61 @@ export async function markReviewCommentNotificationCompleted(
   await getDbExec().execute({
     sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
     args: [new Date().toISOString(), id],
+  });
+}
+
+export async function claimReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+): Promise<{ status: "claimed"; token: string } | { status: "sent" | "busy" }> {
+  await ensureReviewTables();
+  const token = globalThis.crypto.randomUUID();
+  const now = new Date();
+  const expiredBefore = new Date(now.getTime() - 30 * 60_000).toISOString();
+  const result = await getDbExec().execute({
+    sql: `INSERT INTO agent_review_notification_deliveries
+      (comment_id, recipient_email, claim_token, claimed_at, sent_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT (comment_id, recipient_email) DO UPDATE
+      SET claim_token = excluded.claim_token, claimed_at = excluded.claimed_at
+      WHERE agent_review_notification_deliveries.sent_at IS NULL
+        AND agent_review_notification_deliveries.claimed_at < ?`,
+    args: [commentId, recipientEmail, token, now.toISOString(), expiredBefore],
+  });
+  if ((result.rowsAffected ?? 0) > 0) return { status: "claimed", token };
+  const existing = await getDbExec().execute({
+    sql: `SELECT sent_at FROM agent_review_notification_deliveries
+      WHERE comment_id = ? AND recipient_email = ?`,
+    args: [commentId, recipientEmail],
+  });
+  if (!existing.rows?.length)
+    throw new Error("Review notification receipt is unavailable");
+  return { status: existing.rows[0].sent_at ? "sent" : "busy" };
+}
+
+export async function finishReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+  token: string,
+): Promise<void> {
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_review_notification_deliveries SET sent_at = ?
+      WHERE comment_id = ? AND recipient_email = ? AND claim_token = ? AND sent_at IS NULL`,
+    args: [new Date().toISOString(), commentId, recipientEmail, token],
+  });
+  if (result.rowsAffected !== 1)
+    throw new Error("Review notification delivery claim was lost");
+}
+
+export async function releaseReviewNotificationDelivery(
+  commentId: string,
+  recipientEmail: string,
+  token: string,
+): Promise<void> {
+  await getDbExec().execute({
+    sql: `DELETE FROM agent_review_notification_deliveries
+      WHERE comment_id = ? AND recipient_email = ? AND claim_token = ? AND sent_at IS NULL`,
+    args: [commentId, recipientEmail, token],
   });
 }
 

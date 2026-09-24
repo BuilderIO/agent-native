@@ -4,7 +4,10 @@ import { defineAction } from "../../action.js";
 import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
-import { notifyReviewCommentWithReceipt } from "../notifications.js";
+import {
+  notifyReviewComment,
+  notifyReviewCommentWithReceipt,
+} from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
@@ -99,7 +102,9 @@ export default defineAction({
     return {
       ...result.comment,
       replayed: result.replayed,
-      notified: await notifyReviewCommentWithReceipt(result.comment),
+      notified: args.clientOperationId
+        ? await notifyReviewCommentWithReceipt(result.comment)
+        : await notifyReviewComment(result.comment),
     };
   },
   audit: {
