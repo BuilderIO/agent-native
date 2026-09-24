@@ -483,6 +483,70 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
+  it.each(["container", "leaf"] as const)(
+    "only writes the edited margin side for a %s",
+    async (kind) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const onStyleChange = vi.fn();
+      const onStylesChange = vi.fn();
+      const isContainer = kind === "container";
+      const element = {
+        tagName: isContainer ? "div" : "span",
+        primitiveKind: isContainer ? undefined : "text",
+        classes: [],
+        computedStyles: {
+          display: isContainer ? "flex" : "inline",
+          flexDirection: "row",
+          flexWrap: "nowrap",
+          width: "120px",
+          height: "80px",
+          marginTop: "auto",
+          marginRight: "12px",
+          marginBottom: "Mixed",
+          marginLeft: "8px",
+        },
+        boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+        isFlexChild: false,
+        isFlexContainer: isContainer,
+        isGridContainer: false,
+        childElementCount: isContainer ? 1 : 0,
+        sourceId: `${kind}-1`,
+      } as ElementInfo;
+
+      await act(async () => {
+        root.render(
+          <LayoutContextProperties
+            element={element}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+          />,
+        );
+      });
+
+      const leftMargin = container.querySelector<HTMLInputElement>(
+        'input[aria-label="editPanel.labels.marginLeft"]',
+      );
+      expect(leftMargin).not.toBeNull();
+      await act(async () => {
+        leftMargin?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+        );
+      });
+
+      expect(onStylesChange).toHaveBeenCalledOnce();
+      expect(onStylesChange).toHaveBeenCalledWith(
+        { marginLeft: "9px" },
+        expect.objectContaining({ source: "keyboard", phase: "commit" }),
+      );
+      expect(onStyleChange).not.toHaveBeenCalled();
+
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  );
+
   it("keeps W/H sizing primary and reveals flex CSS fields in a popover", async () => {
     const container = document.createElement("div");
     document.body.append(container);

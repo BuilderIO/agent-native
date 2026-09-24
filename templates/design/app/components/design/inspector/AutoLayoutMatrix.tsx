@@ -334,7 +334,8 @@ export interface AutoLayoutMatrixProps {
   onPaddingLinkedChange: (linked: boolean) => void;
   onMarginChange?: (
     margin: AutoLayoutMargin,
-    meta?: ScrubInputChangeMeta,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
   ) => void;
   onClipContentChange?: (clipContent: boolean) => void;
   /** Clipping is a container's decision. A drawn rectangle or text node has
@@ -827,7 +828,9 @@ export function AutoLayoutMatrix({
             mixed={value.marginMixed}
             textValues={value.marginTextValues}
             labels={copy}
-            onChange={(margin, meta) => onMarginChange?.(margin, meta)}
+            onChange={(margin, meta, changedSides) =>
+              onMarginChange?.(margin, meta, changedSides)
+            }
             disabled={disabled}
           />
         ) : null}
@@ -1764,7 +1767,11 @@ interface FourSideSpacingPropertiesProps {
   min?: number;
   disabled: boolean;
   onLinkedChange: (linked: boolean) => void;
-  onChange: (value: AutoLayoutPadding, meta?: ScrubInputChangeMeta) => void;
+  onChange: (
+    value: AutoLayoutPadding,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
+  ) => void;
   mirrorOppositeOnAlt?: boolean;
 }
 
@@ -1792,11 +1799,17 @@ function FourSideSpacingProperties({
     side: keyof AutoLayoutPadding,
     next: AutoLayoutPadding,
     meta?: PaddingChangeMeta,
-  ) =>
+  ) => {
+    const changedSides = new Set<keyof AutoLayoutPadding>([side]);
+    if (linked || (mirrorOppositeOnAlt && meta?.altKey)) {
+      changedSides.add(OPPOSITE_PADDING_SIDE[side]);
+    }
     onChange(
       mirrorOppositeOnAlt ? mirrorSpacingChange(next, side, meta) : next,
       meta,
+      [...changedSides],
     );
+  };
 
   return (
     <div className="design-sidebar-property-group">
@@ -1907,7 +1920,11 @@ export function MarginProperties({
   mixed?: AutoLayoutSidesMixed;
   textValues?: AutoLayoutMarginTextValues;
   labels?: Partial<AutoLayoutMatrixLabels>;
-  onChange: (margin: AutoLayoutMargin, meta?: ScrubInputChangeMeta) => void;
+  onChange: (
+    margin: AutoLayoutMargin,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
+  ) => void;
   disabled?: boolean;
 }) {
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };

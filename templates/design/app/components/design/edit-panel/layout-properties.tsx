@@ -400,6 +400,18 @@ function marginValuesForStyles(styles: Record<string, string>) {
   return { value, mixed, textValues };
 }
 
+function marginStylesForSides(
+  margin: AutoLayoutMargin,
+  sides: Array<keyof AutoLayoutMargin>,
+): Record<string, string> {
+  const styles: Record<string, string> = {};
+  for (const side of sides) {
+    const property = `margin${side[0].toUpperCase()}${side.slice(1)}`;
+    styles[property] = `${margin[side]}px`;
+  }
+  return styles;
+}
+
 function marginInspectorLabels(
   t: ReturnType<typeof useT>,
 ): Partial<AutoLayoutMatrixLabels> {
@@ -748,13 +760,8 @@ function FlexContainerControls({
           // each linked axis's representative value and applies both sides on
           // the next real field edit, so no style write belongs here.
         }}
-        onMarginChange={(nextMargin, meta) => {
-          const patch = {
-            marginTop: `${nextMargin.top}px`,
-            marginRight: `${nextMargin.right}px`,
-            marginBottom: `${nextMargin.bottom}px`,
-            marginLeft: `${nextMargin.left}px`,
-          };
+        onMarginChange={(nextMargin, meta, changedSides) => {
+          const patch = marginStylesForSides(nextMargin, changedSides);
           if (onStylesChange) {
             onStylesChange(patch, meta);
             return;
@@ -1247,13 +1254,8 @@ export function LayoutContextProperties({
           mixed={marginProperties.mixed}
           textValues={marginProperties.textValues}
           labels={marginLabels}
-          onChange={(margin, meta) => {
-            const patch = {
-              marginTop: `${margin.top}px`,
-              marginRight: `${margin.right}px`,
-              marginBottom: `${margin.bottom}px`,
-              marginLeft: `${margin.left}px`,
-            };
+          onChange={(margin, meta, changedSides) => {
+            const patch = marginStylesForSides(margin, changedSides);
             if (onStylesChange) {
               onStylesChange(patch, meta);
               return;
