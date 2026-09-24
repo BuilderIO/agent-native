@@ -367,9 +367,9 @@ function buildAxisScale(
 }
 
 /**
- * Segment edges for a stacked bar group. Positives and negatives stack away
+ * Segment edges for a stacked chart group. Positives and negatives stack away
  * from zero separately, and the y-domain has to cover every segment edge — the
- * running total alone puts a mixed-sign stack's tallest bar off-canvas.
+ * running total alone puts a mixed-sign stack's tallest mark off-canvas.
  */
 function stackSegments(
   series: ResolvedSeries[],
@@ -464,17 +464,19 @@ function renderCartesianChartSvg({
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
-  // Stacks group per axis, matching how the dashboard renderer stacks them, so
-  // a dual-axis chart never sums two different units into one bar.
-  const stackedSegments = stackedBars
-    ? new Map([
-        ...stackSegments(series, leftAxisIndexes, labels.length),
-        ...stackSegments(series, rightAxisIndexes, labels.length),
-      ])
-    : new Map<string, { base: number; top: number }>();
+  const stackedAreas = stacked && type === "area";
+  // Stacks group per axis, matching the dashboard renderer, so a dual-axis
+  // chart never sums different units onto one scale.
+  const stackedSegments =
+    stackedBars || stackedAreas
+      ? new Map([
+          ...stackSegments(series, leftAxisIndexes, labels.length),
+          ...stackSegments(series, rightAxisIndexes, labels.length),
+        ])
+      : new Map<string, { base: number; top: number }>();
 
   const axisValues = (seriesIndexes: number[]): number[] =>
-    stackedBars
+    stackedBars || stackedAreas
       ? seriesIndexes.flatMap((seriesIndex) =>
           labels.flatMap((_, labelIndex) => {
             const segment = stackedSegments.get(`${labelIndex}:${seriesIndex}`);
@@ -583,15 +585,19 @@ function renderCartesianChartSvg({
         const zeroText = formatCoord(zeroY);
         const segments: Array<{
           start: number;
-          points: Array<[string, string]>;
+          points: Array<[string, string, string]>;
         }> = [];
         labels.forEach((_, index) => {
           const value = entry.data[index];
           if (value === null) return;
+          const stack = stackedAreas
+            ? stackedSegments.get(`${index}:${seriesIndex}`)
+            : undefined;
           const x = chartLeft + slot * index + slot / 2;
-          const point: [string, string] = [
+          const point: [string, string, string] = [
             x.toFixed(1),
-            yFor(value).toFixed(1),
+            yFor(stack?.top ?? value).toFixed(1),
+            yFor(stack?.base ?? 0).toFixed(1),
           ];
           const open = segments[segments.length - 1];
           if (open && open.start + open.points.length === index) {
@@ -613,7 +619,15 @@ function renderCartesianChartSvg({
               .join(" ");
             const area =
               type === "area"
-                ? `<path d="${path} L ${chartLeft + slot * (start + points.length - 0.5)},${zeroText} L ${chartLeft + slot * (start + 0.5)},${zeroText} Z" fill="${entry.color}" fill-opacity="0.18"/>`
+                ? `<path d="${path} ${
+                    stackedAreas
+                      ? points
+                          .slice()
+                          .reverse()
+                          .map(([x, , baseY]) => `L ${x},${baseY}`)
+                          .join(" ")
+                      : `L ${chartLeft + slot * (start + points.length - 0.5)},${zeroText} L ${chartLeft + slot * (start + 0.5)},${zeroText}`
+                  } Z" fill="${entry.color}" fill-opacity="0.18"/>`
                 : "";
             return `${area}<path d="${path}" fill="none" stroke="${entry.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
           })
