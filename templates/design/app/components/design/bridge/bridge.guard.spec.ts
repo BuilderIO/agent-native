@@ -2176,6 +2176,18 @@ it(
       });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (
+          window as Window & { __retainedDocument?: Document }
+        ).__retainedDocument = document;
+      });
+      await page.mouse.move(150, 160);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="highlight"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
       await page.mouse.click(400, 160);
       await page.waitForFunction(() => {
         const overlay = document.querySelector<HTMLElement>(
@@ -2221,7 +2233,17 @@ it(
         const shield = document.querySelector<HTMLElement>(
           '[data-agent-native-edit-overlay="shield"]',
         );
-        return shield?.style.pointerEvents === "none";
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        const highlight = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="highlight"]',
+        );
+        return (
+          shield?.style.pointerEvents === "none" &&
+          selection?.style.display === "none" &&
+          highlight?.style.display === "none"
+        );
       });
       expect(
         await page.evaluate(() =>
@@ -2249,6 +2271,13 @@ it(
       await page.waitForFunction(
         () => window.location.hash === "#spaces-destination",
       );
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __retainedDocument?: Document })
+              .__retainedDocument === document,
+        ),
+      ).toBe(true);
 
       await page.evaluate(() => {
         window.postMessage(
@@ -2261,7 +2290,13 @@ it(
         const shield = document.querySelector<HTMLElement>(
           '[data-agent-native-edit-overlay="shield"]',
         );
-        return shield?.style.pointerEvents === "auto";
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return (
+          shield?.style.pointerEvents === "auto" &&
+          selection?.style.display === "block"
+        );
       });
       await page.mouse.click(400, 160);
       await page.waitForFunction(() => {
