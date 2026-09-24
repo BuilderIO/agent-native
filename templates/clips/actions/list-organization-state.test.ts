@@ -69,6 +69,32 @@ vi.mock("drizzle-orm", () => ({
 
 import action from "./list-organization-state";
 
+type Builder = Record<string, unknown> & { label: string; thenCalls: number };
+
+/**
+ * A drizzle-like builder: chain methods return itself and awaiting it resolves
+ * `rows`. `gate` holds every read open so a test can see which reads were
+ * issued before any of them settled.
+ */
+function builder(
+  label: string,
+  rows: unknown[] = [],
+  gate: Promise<void> = Promise.resolve(),
+): Builder {
+  const b: Builder = { label, thenCalls: 0 };
+  for (const method of ["from", "where", "orderBy", "groupBy", "limit"]) {
+    b[method] = () => b;
+  }
+  b.then = (
+    resolve: (value: unknown) => unknown,
+    reject: (e: unknown) => unknown,
+  ) => {
+    b.thenCalls += 1;
+    return gate.then(() => rows).then(resolve, reject);
+  };
+  return b;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.select.mockReset();
@@ -121,11 +147,7 @@ describe("list-organization-state action", () => {
       email: "owner@example.com",
       role: "owner",
     });
-    mockDb.select.mockReturnValueOnce({
-      from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue([]),
-    });
+    mockDb.select.mockImplementation(() => builder("read"));
 
     await expect(action.run({}, undefined)).resolves.toEqual({
       currentUserEmail: "owner@example.com",
@@ -149,5 +171,58 @@ describe("list-organization-state action", () => {
 
     expect(mockGetActiveOrganizationId).not.toHaveBeenCalled();
     expect(mockRequireOrganizationAccess).toHaveBeenCalledWith("org_explicit");
+  });
+
+  it("issues every organization read in one round-trip window", async () => {
+    mockGetActiveOrganizationId.mockResolvedValue("org_1");
+    mockRequireOrganizationAccess.mockResolvedValue({
+      organizationId: "org_1",
+      email: "owner@example.com",
+      role: "owner",
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const rowsByOrder: unknown[][] = [
+      [], // meetings subquery (never awaited on its own)
+      [{ id: "m1", email: "owner@example.com", role: "owner", joinedAt: 1 }],
+      [{ id: "org_1", name: "Org", createdAt: 1 }],
+      [], // settings
+      [], // invitations
+      [{ id: "s1", name: "Space", isAllCompany: 0 }],
+      [{ id: "f1", name: "Folder", spaceId: null, position: 0 }],
+      [{ folderId: "f1", recordingCount: 2 }],
+    ];
+    const builders: Builder[] = [];
+    mockDb.select.mockImplementation(() => {
+      const b = builder(
+        `read-${builders.length}`,
+        rowsByOrder[builders.length] ?? [],
+        gate,
+      );
+      builders.push(b);
+      return b;
+    });
+
+    const pending = action.run({}, undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // All seven awaited reads are in flight before any of them has settled.
+    const awaited = builders.filter((b) => b.thenCalls > 0);
+    expect(awaited).toHaveLength(7);
+    // The members read feeds both the member list and the profile lookup,
+    // but must hit the database once.
+    expect(builders[1].thenCalls).toBe(1);
+
+    release();
+    const result = (await pending) as any;
+    expect(result.organization).toMatchObject({ id: "org_1", name: "Org" });
+    expect(result.members).toEqual([
+      { id: "m1", email: "owner@example.com", role: "owner", joinedAt: 1 },
+    ]);
+    expect(result.folders).toEqual([
+      expect.objectContaining({ id: "f1", recordingCount: 2 }),
+    ]);
   });
 });

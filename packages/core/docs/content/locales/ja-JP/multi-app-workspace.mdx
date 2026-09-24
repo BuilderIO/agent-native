@@ -401,7 +401,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### アプリごとに独立したデプロイ
 
-独自のドメイン (`mail.company.com`、`calendar.company.com`) 上の各アプリを好みますか?ワークスペース内のすべてのアプリは依然として独立して展開可能です。`cd apps/mail && npx @agent-native/core@latest build` はスタンドアロンの足場とまったく同じように動作します。次に、クロスアプリ A2A は、共有 `A2A_SECRET` を使用して、標準の JWT 署名付きパスを通過します。個別にデプロイされたアプリ間のクロスドメイン SSO は、ハブとして Dispatch を使用する ID フェデレーションによって処理されます。「[Cross-App SSO](/docs/cross-app-sso)」を参照してください。統合されたシングルオリジンのデプロイにより、その必要がなくなります。
+独自のドメイン (`mail.company.com`、`calendar.company.com`) 上の各アプリを好みますか?ワークスペース内のすべてのアプリは依然として独立して展開可能です。`cd apps/mail && pnpm build` はスタンドアロンの足場とまったく同じように動作します。次に、クロスアプリ A2A は、共有 `A2A_SECRET` を使用して、標準の JWT 署名付きパスを通過します。個別にデプロイされたアプリ間のクロスドメイン SSO は、ハブとして Dispatch を使用する ID フェデレーションによって処理されます。「[Cross-App SSO](/docs/cross-app-sso)」を参照してください。統合されたシングルオリジンのデプロイにより、その必要がなくなります。
 
 ### 共有データベース、共有資格情報
 

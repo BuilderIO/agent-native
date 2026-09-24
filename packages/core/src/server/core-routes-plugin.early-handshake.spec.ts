@@ -50,7 +50,7 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
       "export function createCoreRoutesPlugin(",
     );
     const appState = source.indexOf(
-      "mountApplicationStateRoutes(nitroApp, P);",
+      "mountApplicationStateRoutes(nitroApp, P,",
       source.indexOf("ensureS3FileUploadProvider();", pluginStart),
     );
     expect(appState).toBeGreaterThan(-1);

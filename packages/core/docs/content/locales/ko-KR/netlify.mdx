@@ -5,7 +5,7 @@ description: "Netlify Nitro 프리셋으로 agent-native 앱을 Netlify에 배�
 
 # Netlify
 
-Nitro `netlify` 프리셋은 잘 작동하며, 실제로 외부 Postgres(Neon)와 통신하는 템플릿에서 Cloudflare Pages보다 훨씬 빠른 콜드 스타트(TTFB 약 200ms 대 약 9초)를 보여주었습니다. `vite.config.ts`에서 프리셋을 설정하거나:
+Nitro `netlify` 프리셋은 잘 작동하며, 실제로 외부 Postgres(Neon)와 통신하는 템플릿에서 Cloudflare Pages보다 훨씬 빠른 콜드 스타트(TTFB 약 200ms 대 약 9초)를 보여주었습니다. 생성된 스캐폴드 외부의 최소 구성에서는 `vite.config.ts`에서 프리셋을 설정하거나:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

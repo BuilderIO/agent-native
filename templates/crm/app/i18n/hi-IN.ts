@@ -600,6 +600,19 @@ const messages = {
     evaluatedThroughAsk: "Ask CRM के माध्यम से मूल्यांकित।",
   },
   recordActions: {
+    reviewDuplicates: "डुप्लिकेट देखें",
+    duplicateReviewTitle: "संभावित डुप्लिकेट रिकॉर्ड",
+    duplicateReviewDescription:
+      "इस रिकॉर्ड की तुलना उपलब्ध उम्मीदवारों से करें। Jev रिकॉर्ड के नाम, प्रकार और अधिकतम पाँच उम्मीदवारों के मिलान संकेत TypeSafe को भेजता है। संभावना केवल सुझाव है; मर्ज के लिए अलग समीक्षा आवश्यक है।",
+    duplicateReviewRun: "डुप्लिकेट जाँचें",
+    duplicateReviewLoading: "जाँच जारी है…",
+    duplicateReviewFailed: "डुप्लिकेट समीक्षा पूरी नहीं हो सकी।",
+    duplicateReviewUnavailable:
+      "Jev इन रिकॉर्ड की समीक्षा नहीं कर सका। नियमों से मिले उम्मीदवार दिखते रहेंगे।",
+    duplicateReviewEmpty: "कोई संभावित डुप्लिकेट नहीं मिला।",
+    duplicateRuleConfidence: "नियम आधारित मिलान: {{percent}}%",
+    duplicateJevProbability: "Jev के अनुसार समान इकाई की संभावना: {{percent}}%",
+    duplicateMatchedOn: "मिलान आधार: {{values}}",
     evidenceAttached: "कॉल प्रमाण संलग्न किया गया।",
     evidenceAttachFailed: "प्रमाण संलग्न नहीं किया जा सका।",
     addEvidence: "प्रमाण जोड़ें",

@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, createElement } from "react";
 
-import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
+import {
+  routesToCodeFrame,
+  sendToAgentChat,
+  type AgentChatMessage,
+} from "./agent-chat.js";
 import { isInBuilderFrame, isTrustedBuilderMessage } from "./builder-frame.js";
 import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 import { isInFrame, isTrustedFrameMessage } from "./frame.js";
@@ -54,7 +58,7 @@ export function useSendToAgentChat(): {
   }, [codeAgentWorking]);
 
   const send = useCallback((opts: AgentChatMessage): string | null => {
-    const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+    const isCodeRequest = routesToCodeFrame(opts);
 
     if (isCodeRequest && !isInFrame() && !isInBuilderFrame()) {
       setFeatureLabel(opts.message?.slice(0, 80));

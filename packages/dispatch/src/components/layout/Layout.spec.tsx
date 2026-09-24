@@ -461,6 +461,51 @@ describe("Dispatch NavContent", () => {
     );
   });
 
+  it("accepts a custom workspace name and icon", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const brandLink = container.querySelector('a[href="/overview"]');
+    expect(brandLink?.getAttribute("aria-label")).toBe("Acme Workspace");
+    expect(brandLink?.textContent?.trim()).toBe("Acme Workspace");
+    expect(brandLink?.querySelector("[data-acme-mark]")).not.toBeNull();
+    expect(brandLink?.querySelector("[data-agent-native-icon]")).toBeNull();
+    expect(container.textContent).not.toContain("Dispatch");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              collapsed
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const collapsedBrandLink = container.querySelector('a[href="/overview"]');
+    expect(collapsedBrandLink?.getAttribute("aria-label")).toBe(
+      "Acme Workspace",
+    );
+    expect(
+      collapsedBrandLink?.querySelector("[data-acme-mark]"),
+    ).not.toBeNull();
+    expect(collapsedBrandLink?.textContent?.trim()).toBe("");
+  });
+
   it("keeps Admin above Settings in the chat-first left sidebar", async () => {
     await act(async () => {
       root.render(

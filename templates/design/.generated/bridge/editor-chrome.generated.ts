@@ -947,7 +947,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
-          routePath: window.location.pathname + window.location.search
+          routePath: window.location.pathname + window.location.search,
+          documentId: runtimeDocumentId
         },
         "*"
       );
