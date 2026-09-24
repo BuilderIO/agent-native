@@ -1155,14 +1155,20 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
  * chats cannot carry the keys: Builder's chat (`builder.submitChat` has no
  * field for them and Builder holds none of this app's grants) and an MCP
  * host's chat (every host transport — the direct follow-up API and the
- * wrapper's `sendHostChat` — forwards only the message text). Anywhere else
- * the normal relay carries the keys to the chat that owns the run.
+ * wrapper's `sendHostChat` — forwards only the message text). That holds for
+ * both MCP App embeds: with the chat bridge, and direct, where the parent is
+ * the MCP host itself. Anywhere else the normal relay carries the keys to the
+ * chat that owns the run.
  */
 function keepsApprovalInAppChat(
   opts: Pick<AgentChatMessage, "approvedToolCalls">,
 ): boolean {
   if (!opts.approvedToolCalls?.length) return false;
-  return isInBuilderFrame() || isMcpAppChatBridgeEnabled();
+  return (
+    isInBuilderFrame() ||
+    isMcpAppChatBridgeEnabled() ||
+    isDirectMcpAppEmbedSession()
+  );
 }
 
 /**

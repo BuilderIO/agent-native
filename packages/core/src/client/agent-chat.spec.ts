@@ -803,6 +803,35 @@ describe("sendToAgentChat", () => {
     expect(payload.data.context).toBe("Dashboard: traffic");
   });
 
+  it("keeps a direct MCP App embed code approval continuation in the app chat", () => {
+    vi.useFakeTimers();
+    window.location.search = "?embedded=1&__an_embed_token=signed-token";
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    // A direct embed's chat is this app's own chat, which owns the paused
+    // run; the parent is the MCP host, which has no field for the keys.
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
   it("keeps MCP App prefill-only messages on the existing local path", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
