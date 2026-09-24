@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import { parse } from "yaml";
@@ -9,6 +11,7 @@ import {
   NPM_PUBLISH_PACKAGE_NAMES,
   isAlreadyStaged,
 } from "./changeset-publish-sequential.ts";
+import { packagesCoveredBy } from "./check-changeset.mjs";
 
 type Workflow = Record<string, unknown>;
 
@@ -136,6 +139,30 @@ describe("npm package release workflow", () => {
       publisherSource,
       /if \(isAlreadyStaged\(output\)\)[\s\S]*?return true;/,
     );
+  });
+
+  it("rejects malformed changeset entries and unsupported bump values", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agent-native-changeset-"));
+    const changeset = path.join(dir, "invalid.md");
+
+    try {
+      writeFileSync(changeset, "Not a changeset\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /missing YAML frontmatter/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": nonsense\n---\nInvalid bump\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected package entries with patch, minor, or major bumps/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("consumes concurrent public changesets after stable publication", () => {
