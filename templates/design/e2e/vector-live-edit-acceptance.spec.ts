@@ -15,6 +15,8 @@ const EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><path d="M0 0L30 0L30 30L0 30Z" fill="#f97316"/></svg>';
 const GROUPED_EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z" fill="#f97316"/><path d="M50 0L80 0L80 30Z" fill="#16a34a"/></g></svg>';
+const OPEN_PASTED_SVG =
+  '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="none" stroke="#111827" stroke-width="2" /></svg>';
 const PEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px"><div data-agent-native-node-id="frame" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:40px;top:120px;width:600px;height:400px"><div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:80px;top:70px;width:280px;height:200px;transform:translate(10px,5px)"><svg data-agent-native-node-id="nested-path" data-agent-native-layer-name="Nested path" data-an-primitive="path" data-an-pen-nodes='[1,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,80,null,null,null,null],[0,80,null,null,null,null]]' viewBox="0 0 100 80" preserveAspectRatio="none" style="position:absolute;left:15.25px;top:20.5px;width:100px;height:80px;overflow:visible;opacity:0.5;filter:drop-shadow(0 1px 2px #000)"><path d="M 0 0 L 100 0 L 100 80 L 0 80 Z" fill="#336699" stroke="none" /></svg></div></div></main></body></html>`;
 
 async function action(
@@ -51,6 +53,40 @@ function nestedPathNodes(source: string) {
   const attribute = element?.[0].match(/\bdata-an-pen-nodes=(["'])(.*?)\1/);
   if (!attribute) throw new Error("nested-path source nodes are missing");
   return JSON.parse(attribute[2]) as [number, ...Array<Array<number | null>>];
+}
+
+function pastedPathMarkup(source: string) {
+  const svg = source.match(
+    /<svg[^>]*data-agent-native-layer-name=(['"])Pasted SVG\1[^>]*>([\s\S]*?)<\/svg>/,
+  );
+  if (!svg) throw new Error("pasted SVG source is missing");
+  const path = svg[2].match(/<path\b([^>]*)>/);
+  if (!path) throw new Error("pasted SVG path source is missing");
+  return {
+    d: path[1].match(/\bd=(['"])(.*?)\1/)?.[2] ?? "",
+    fill: path[1].match(/\bfill=(['"])(.*?)\1/)?.[2] ?? "",
+  };
+}
+
+function pastedPathNodes(source: string) {
+  const svg = source.match(
+    /<svg[^>]*data-agent-native-layer-name=(['"])Pasted SVG\1[^>]*>/,
+  );
+  const nodes = svg?.[0].match(/\bdata-an-pen-nodes=(['"])(.*?)\1/);
+  if (!nodes) throw new Error("pasted SVG path nodes are missing");
+  return JSON.parse(nodes[2]) as [
+    number,
+    ...Array<
+      [
+        number,
+        number,
+        number | null,
+        number | null,
+        number | null,
+        number | null,
+      ]
+    >,
+  ];
 }
 
 async function createDesign(page: Page, content = HTML) {
@@ -379,6 +415,189 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
           .getAttribute("d"),
       )
       .toBe(editedTargetPath);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("an open pasted SVG continues from its endpoint and closes with a filled path", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(await pasteSvg(page.locator("body"), OPEN_PASTED_SVG)).toBe(true);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+
+    const frame = designFrame(page, screenId);
+    const path = frame.locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] path',
+    );
+    await expect(path).toHaveAttribute("d", "M10 30L70 30");
+    const originalSource = await readSource(page, designId);
+    const originalNodes = pastedPathNodes(originalSource);
+
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const vectorPreview = page
+      .locator("[data-vector-edit-overlay] svg path")
+      .first();
+    const originalVectorPreview = await vectorPreview.getAttribute("d");
+    const terminalAnchor = page.locator("[data-vector-anchor]").nth(1);
+    const terminalAnchorBox = await terminalAnchor.boundingBox();
+    if (!terminalAnchorBox) throw new Error("terminal anchor has no bounds");
+    const dragDelta = { x: 24, y: 12 };
+    const terminalOrigin = {
+      x: terminalAnchorBox.x + terminalAnchorBox.width / 2,
+      y: terminalAnchorBox.y + terminalAnchorBox.height / 2,
+    };
+    const screenScale = await page
+      .locator(`iframe[data-screen-iframe-id="${screenId}"]`)
+      .evaluate((iframe) => {
+        const element = iframe as HTMLIFrameElement;
+        return element.getBoundingClientRect().width / element.clientWidth;
+      });
+    await page.mouse.move(terminalOrigin.x, terminalOrigin.y);
+    await page.mouse.down();
+    await page.mouse.move(
+      terminalOrigin.x + dragDelta.x,
+      terminalOrigin.y + dragDelta.y,
+      { steps: 4 },
+    );
+    await expect
+      .poll(() => vectorPreview.getAttribute("d"))
+      .not.toBe(originalVectorPreview);
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await page.mouse.up();
+    await expect
+      .poll(() => readSource(page, designId))
+      .not.toBe(originalSource);
+    const movedSource = await readSource(page, designId);
+    const movedNodes = pastedPathNodes(movedSource);
+    expect(movedNodes[2]![0] - originalNodes[2]![0]).toBeCloseTo(
+      dragDelta.x / screenScale,
+      1,
+    );
+    expect(movedNodes[2]![1] - originalNodes[2]![1]).toBeCloseTo(
+      dragDelta.y / screenScale,
+      1,
+    );
+    expect(movedNodes[1]).toEqual(originalNodes[1]);
+    await expect
+      .poll(() => readSource(page, designId))
+      .toContain(pastedPathMarkup(movedSource).d);
+    const movedTerminalAnchorBox = await terminalAnchor.boundingBox();
+    if (!movedTerminalAnchorBox)
+      throw new Error("moved terminal anchor has no bounds");
+    const terminal = {
+      x: movedTerminalAnchorBox.x + movedTerminalAnchorBox.width / 2,
+      y: movedTerminalAnchorBox.y + movedTerminalAnchorBox.height / 2,
+    };
+
+    await page.keyboard.press("Escape");
+
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.click(terminal.x, terminal.y);
+    await expect
+      .poll(() =>
+        page.locator("[data-pen-path-overlay] [data-pen-anchor]").count(),
+      )
+      .toBe(2);
+    const resumedAnchorCenters = await page
+      .locator("[data-pen-path-overlay] [data-pen-anchor]")
+      .evaluateAll((anchors) =>
+        anchors.map((anchor) => {
+          const rect = anchor.getBoundingClientRect();
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }),
+      );
+    expect(
+      Math.hypot(
+        resumedAnchorCenters[1]!.x - terminal.x,
+        resumedAnchorCenters[1]!.y - terminal.y,
+      ),
+    ).toBeLessThan(3);
+
+    const appended = { x: terminal.x + 32, y: terminal.y + 28 };
+    await page.mouse.move(appended.x, appended.y);
+    await page.mouse.down();
+    await expect
+      .poll(() =>
+        page.locator("[data-pen-path-overlay] [data-pen-anchor]").count(),
+      )
+      .toBe(3);
+    const appendedAnchorBox = await page
+      .locator("[data-pen-path-overlay] [data-pen-anchor]")
+      .nth(2)
+      .boundingBox();
+    if (!appendedAnchorBox) throw new Error("preview anchor has no bounds");
+    expect(
+      Math.hypot(
+        appendedAnchorBox.x + appendedAnchorBox.width / 2 - appended.x,
+        appendedAnchorBox.y + appendedAnchorBox.height / 2 - appended.y,
+      ),
+    ).toBeLessThan(3);
+    const previewBeforeRelease = await page
+      .locator("[data-pen-path-overlay] svg path")
+      .first()
+      .getAttribute("d");
+    expect(previewBeforeRelease).toContain("L");
+    expect(await readSource(page, designId)).toBe(movedSource);
+    await page.mouse.up();
+    expect(await readSource(page, designId)).toBe(movedSource);
+    const closeTarget = resumedAnchorCenters[0]!;
+    await page.mouse.move(closeTarget.x, closeTarget.y);
+    await page.mouse.down();
+    await expect
+      .poll(() =>
+        page
+          .locator("[data-pen-path-overlay] svg path")
+          .first()
+          .getAttribute("d"),
+      )
+      .toMatch(/Z\s*$/i);
+    expect(await readSource(page, designId)).toBe(movedSource);
+    await page.mouse.up();
+    await expect
+      .poll(async () => pastedPathMarkup(await readSource(page, designId)).d)
+      .toMatch(/Z\s*$/i);
+    const closedSource = await readSource(page, designId);
+    const closed = pastedPathMarkup(closedSource);
+    expect(closed.fill).not.toMatch(/none/i);
+
+    const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redo =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undo);
+    await expect.poll(() => readSource(page, designId)).toBe(movedSource);
+    await page.keyboard.press(undo);
+    await expect.poll(() => readSource(page, designId)).toBe(originalSource);
+    await page.keyboard.press(redo);
+    await expect.poll(() => readSource(page, designId)).toBe(movedSource);
+    await page.keyboard.press(redo);
+    await expect.poll(() => readSource(page, designId)).toBe(closedSource);
+    await expect
+      .poll(async () => pastedPathMarkup(await readSource(page, designId)).d)
+      .toMatch(/Z\s*$/i);
+
+    await page.reload();
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+    const reopened = pastedPathMarkup(await readSource(page, designId));
+    expect(reopened.d).toMatch(/Z\s*$/i);
+    expect(reopened.fill).not.toMatch(/none/i);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

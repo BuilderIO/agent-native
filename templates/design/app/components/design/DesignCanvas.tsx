@@ -30,6 +30,7 @@ import {
   createPenCuspLatch,
   createPenDragNode,
   isPenCloseTarget,
+  parsePenNodes,
   resumePenPathAtEnd,
   serializePenPath,
   translatePenPath,
@@ -74,6 +75,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
+import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import {
   pendingVisualStyleRouteMatches,
   runtimeStyleTarget,
@@ -7728,6 +7730,45 @@ function SingleScreenCreationOverlay({
     nodeId: string;
     path: PenPath;
   } | null>(null);
+
+  const seedSelectedPenContinuation = useCallback(() => {
+    if (
+      tool !== "pen" ||
+      !selectedPenPathNodeId ||
+      penPathRef.current ||
+      continuationPenPathRef.current
+    ) {
+      return;
+    }
+    const document = iframeRef.current?.contentDocument;
+    if (!document) return;
+    const element = Array.from(
+      document.querySelectorAll<SVGElement>("[data-agent-native-node-id]"),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("data-agent-native-node-id") ===
+        selectedPenPathNodeId,
+    );
+    const sourceElement =
+      element?.closest<SVGElement>("[data-an-pen-nodes]") ??
+      (document.querySelectorAll<SVGElement>("[data-an-pen-nodes]").length === 1
+        ? document.querySelector<SVGElement>("[data-an-pen-nodes]")
+        : null);
+    const serialized = sourceElement?.getAttribute("data-an-pen-nodes");
+    const path = serialized ? parsePenNodes(serialized) : null;
+    if (!path || path.closed || path.nodes.length < 2) return;
+    const svg = sourceElement?.closest("svg");
+    const offset = svg ? penPathScreenContentOffset(svg) : null;
+    if (!offset) return;
+    continuationPenPathRef.current = {
+      nodeId: selectedPenPathNodeId,
+      path: translatePenPath(path, offset.x, offset.y),
+    };
+  }, [iframeRef, selectedPenPathNodeId, tool]);
+
+  useEffect(() => {
+    seedSelectedPenContinuation();
+  }, [seedSelectedPenContinuation]);
   const [penGesturePreview, setPenGesturePreview] = useState<PenPath | null>(
     null,
   );
@@ -7942,6 +7983,7 @@ function SingleScreenCreationOverlay({
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
+        seedSelectedPenContinuation();
         const currentPath = penPathRef.current?.closed
           ? null
           : penPathRef.current;
@@ -8003,6 +8045,7 @@ function SingleScreenCreationOverlay({
       finishPenPath,
       getPenAnchor,
       penHitRadius,
+      seedSelectedPenContinuation,
       selectedPenPathNodeId,
       tool,
       toContentPoint,

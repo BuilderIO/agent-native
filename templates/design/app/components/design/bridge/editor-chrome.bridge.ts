@@ -4835,6 +4835,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // A multi-shape pasted SVG has no single paint target. Its wrapper's
+    // computed `fill` is the SVG initial value (black), not an authored fill.
+    // Keep authored wrapper fills visible, while leaving child paints to the
+    // Selection colors inspector.
+    if (
+      el.tagName.toLowerCase() === "svg" &&
+      el.getAttribute("data-an-primitive") === "pasted-svg" &&
+      !vectorPaintTarget(el) &&
+      !el.hasAttribute("fill") &&
+      !(el as HTMLElement).style.getPropertyValue("fill")
+    ) {
+      computed.fill = "";
+    }
     if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
       computed.strokeWidth =
         strokeTarget.getAttribute("data-an-vector-logical-width") ||

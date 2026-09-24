@@ -4222,6 +4222,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      if (el.tagName.toLowerCase() === "svg" && el.getAttribute("data-an-primitive") === "pasted-svg" && !vectorPaintTarget(el) && !el.hasAttribute("fill") && !el.style.getPropertyValue("fill")) {
+        computed.fill = "";
+      }
       if (strokeTarget?.hasAttribute("data-an-vector-stroke-overlay")) {
         computed.strokeWidth = strokeTarget.getAttribute("data-an-vector-logical-width") || strokeCs.strokeWidth;
       }

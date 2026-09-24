@@ -480,6 +480,7 @@ import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
+  isNativeKeyboardActivationTarget,
   isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
   type DesignHotkeyAlignEdge,
@@ -11839,6 +11840,7 @@ function DesignEditor() {
       if (event.repeat) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (!canEditDesignRef.current) return;
+      if (isNativeKeyboardActivationTarget(event.target)) return;
       if (isDesignHotkeyEditableTarget(event.target)) return;
       const armKeydown = resolveSpaceForwardTransition(
         "keydown",
@@ -27213,6 +27215,21 @@ function DesignEditor() {
     onEditCode: handleShaderEditCode,
   };
 
+  const selectedLayerId =
+    selectedLayerIdsState.length === 1
+      ? (selectedLayerIdsState[0] ?? null)
+      : null;
+  const selectedLayerNode = selectedLayerId
+    ? codeLayerOwnerByNodeId.get(selectedLayerId)?.node
+    : undefined;
+  const selectedPenPathNodeId =
+    (selectedCodeLayerNode
+      ? bridgeSourceIdForCodeLayerNode(selectedCodeLayerNode)
+      : selectedElement?.sourceId) ??
+    (selectedLayerNode
+      ? bridgeSourceIdForCodeLayerNode(selectedLayerNode)
+      : selectedLayerId);
+
   return (
     // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
     // so flex-1 on the child doesn't resolve to the available height. h-full
@@ -28104,12 +28121,7 @@ function DesignEditor() {
                         selectedScreenIds={overviewSelectedScreenIds}
                         exportPreviewScreenId={exportPreviewScreenId}
                         selectedElementScreenId={selectedElementScreenId}
-                        selectedPenPathNodeId={
-                          selectedElement?.sourceId ??
-                          (selectedLayerIdsState.length === 1
-                            ? (selectedLayerIdsState[0] ?? null)
-                            : null)
-                        }
+                        selectedPenPathNodeId={selectedPenPathNodeId}
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
@@ -28586,12 +28598,7 @@ function DesignEditor() {
                         handToolActive={activeTool === "hand"}
                         spacePanActive={spacePanActive}
                         activeCreationTool={activeSingleScreenCreationTool}
-                        selectedPenPathNodeId={
-                          selectedElement?.sourceId ??
-                          (selectedLayerIdsState.length === 1
-                            ? (selectedLayerIdsState[0] ?? null)
-                            : null)
-                        }
+                        selectedPenPathNodeId={selectedPenPathNodeId}
                         onCreatePrimitive={handleSingleScreenCreatePrimitive}
                         onUpdatePenPath={
                           canEditDesign

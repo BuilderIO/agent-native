@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, expandAllLayers } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const FRAME_LEFT = 40;
@@ -17,6 +17,11 @@ const SCREEN_HTML = `<!doctype html>
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px">
   <div data-agent-native-node-id="frame" data-an-primitive="frame" data-agent-native-layer-name="Frame" style="position:absolute;left:${FRAME_LEFT}px;top:${FRAME_TOP}px;width:600px;height:400px;border:1px solid #ccc"></div>
 </main></body></html>`;
+const AUTHORED_OPEN_SVG_HTML = SCREEN_HTML.replace(
+  "</main>",
+  `<svg data-agent-native-node-id="authored-open-svg" data-agent-native-layer-name="Pasted SVG" data-an-primitive="pasted-svg" data-an-pen-nodes='[0,[10,30,null,null,null,null,null],[70,30,null,null,null,null,null]]' viewBox="0 0 120 80" style="position:absolute;left:200px;top:200px;width:120px;height:80px;overflow:visible"><path d="M10 30L70 30" fill="none" stroke="#111827" stroke-width="2" /></svg>
+</main>`,
+);
 
 async function action(
   request: APIRequestContext,
@@ -33,7 +38,10 @@ async function action(
   return response.json();
 }
 
-async function createDesign(request: APIRequestContext) {
+async function createDesign(
+  request: APIRequestContext,
+  screenHtml = SCREEN_HTML,
+) {
   const created = await action(request, "create-design", {
     title: `Pen in frame QA ${Date.now()}`,
     projectType: "prototype",
@@ -43,7 +51,7 @@ async function createDesign(request: APIRequestContext) {
   const file = await action(request, "create-file", {
     designId,
     filename: "index.html",
-    content: SCREEN_HTML,
+    content: screenHtml,
     fileType: "html",
   });
   const fileId = file.id ?? file.data?.id;
@@ -193,6 +201,33 @@ async function terminalPenPoint(page: Page) {
   });
   if (!point) throw new Error("committed path has no rendered terminal point");
   return point;
+}
+
+async function authoredOpenPathEndpoints(page: Page) {
+  const points = await page.evaluate(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      "iframe[data-screen-iframe-id]",
+    );
+    const svg = iframe?.contentDocument?.querySelector<SVGSVGElement>(
+      'svg[data-agent-native-node-id="authored-open-svg"]',
+    );
+    const path = svg?.querySelector("path");
+    const matrix = svg?.getScreenCTM();
+    const frameBox = iframe?.getBoundingClientRect();
+    if (!iframe || !svg || !path || !matrix || !frameBox) return null;
+    return [0, path.getTotalLength()].map((length) => {
+      const endpoint = path.getPointAtLength(length);
+      const local = new DOMPoint(endpoint.x, endpoint.y).matrixTransform(
+        matrix,
+      );
+      return {
+        x: frameBox.left + (local.x / iframe.clientWidth) * frameBox.width,
+        y: frameBox.top + (local.y / iframe.clientHeight) * frameBox.height,
+      };
+    });
+  });
+  if (!points) throw new Error("authored open SVG has no rendered endpoints");
+  return { start: points[0]!, terminal: points[1]! };
 }
 
 test("a pen path drawn inside a frame paints where it was drawn and stays draggable", async ({
@@ -584,6 +619,87 @@ test("Pen continues a selected open path in place and persists undo/redo", async
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect.poll(async () => (await vectors(page)).length).toBe(1);
     expect((await persistedVectors(request, designId))[0]).toEqual(restarted);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("overview Pen continues a selected authored open SVG in place", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request, AUTHORED_OPEN_SVG_HTML);
+  try {
+    await page.goto(appPath(`/design/${designId}?view=overview`), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect
+      .poll(async () => page.locator("[data-screen-shell]").count(), {
+        timeout: 40_000,
+      })
+      .toBeGreaterThan(0);
+    await page.locator("[data-frame-title]").first().click();
+    await expandAllLayers(page);
+    const layerButton = page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Pasted SVG", exact: true });
+    await expect(layerButton).toBeVisible();
+    await layerButton.click();
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Pasted SVG");
+
+    const before = await persistedVectors(request, designId);
+    expect(before).toHaveLength(1);
+    expect(before[0]!.id).toBe("authored-open-svg");
+    expect(before[0]!.pathData).toBe("M10 30L70 30");
+
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    const endpoints = await authoredOpenPathEndpoints(page);
+    await page.mouse.click(endpoints.terminal.x, endpoints.terminal.y);
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(2);
+    const resumed = await penPreview(page);
+    for (const [actual, expected] of [
+      [resumed.anchors[0]!, endpoints.start],
+      [resumed.anchors[1]!, endpoints.terminal],
+    ] as const) {
+      expect(Math.abs(actual.x - expected.x)).toBeLessThan(3);
+      expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
+    }
+    expect(await persistedVectors(request, designId)).toEqual(before);
+
+    const appended = {
+      x: endpoints.terminal.x + 36,
+      y: endpoints.terminal.y + 36,
+    };
+    await page.mouse.move(appended.x, appended.y);
+    await page.mouse.down();
+    await expect
+      .poll(async () => (await penPreview(page)).anchors.length)
+      .toBe(3);
+    expect((await penPreview(page)).pathData).not.toBe(before[0]!.pathData);
+    expect(await persistedVectors(request, designId)).toEqual(before);
+    await page.mouse.up();
+    expect(await persistedVectors(request, designId)).toEqual(before);
+    await page.keyboard.press("Enter");
+
+    await expect
+      .poll(async () => {
+        const vectors = await persistedVectors(request, designId);
+        return (
+          vectors.length === 1 && vectors[0]?.pathData !== before[0]!.pathData
+        );
+      })
+      .toBe(true);
+    const after = (await persistedVectors(request, designId))[0]!;
+    expect(after.id).toBe(before[0]!.id);
+    expect(after.pathData).not.toBe(before[0]!.pathData);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

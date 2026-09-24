@@ -64,7 +64,12 @@ describe("DesignEditor forwarded Space source handler", () => {
   afterAll(async () => browser?.close());
 
   async function run(
-    events: Array<{ type: string; repeat?: boolean; drag?: boolean }>,
+    events: Array<{
+      type: string;
+      repeat?: boolean;
+      drag?: boolean;
+      target?: "layer-row";
+    }>,
   ) {
     return page.evaluate(
       ({
@@ -74,7 +79,12 @@ describe("DesignEditor forwarded Space source handler", () => {
       }: {
         handlerSource: string;
         helperSource: string;
-        events: Array<{ type: string; repeat?: boolean; drag?: boolean }>;
+        events: Array<{
+          type: string;
+          repeat?: boolean;
+          drag?: boolean;
+          target?: "layer-row";
+        }>;
       }) => {
         const spaceForwardArmedRef = { current: false };
         const activeEditorDragRef = { current: false };
@@ -97,6 +107,14 @@ describe("DesignEditor forwarded Space source handler", () => {
         const broadcastSpaceHeldToIframes = (held: boolean) =>
           broadcasts.push(held);
         const isDesignHotkeyEditableTarget = () => false;
+        const rowButton = document.createElement("button");
+        rowButton.setAttribute("data-layer-row-button", "");
+        document.body.append(rowButton);
+        const isNativeKeyboardActivationTarget = (target: EventTarget | null) =>
+          target instanceof Element &&
+          Boolean(
+            target.closest("a[href], button, input, select, textarea, summary"),
+          );
         const resolveSpaceForwardTransition = new Function(
           `return (${helperSource});`,
         )();
@@ -112,6 +130,7 @@ describe("DesignEditor forwarded Space source handler", () => {
           "setSpacePanActive",
           "broadcastSpaceHeldToIframes",
           "isDesignHotkeyEditableTarget",
+          "isNativeKeyboardActivationTarget",
           `${handlerSource}\nreturn { handleWindowKeyDown, handleWindowKeyUp, handleWindowBlur };`,
         )(
           window,
@@ -125,6 +144,7 @@ describe("DesignEditor forwarded Space source handler", () => {
           setSpacePanActive,
           broadcastSpaceHeldToIframes,
           isDesignHotkeyEditableTarget,
+          isNativeKeyboardActivationTarget,
         );
         window.addEventListener("keydown", handlers.handleWindowKeyDown, {
           capture: true,
@@ -143,9 +163,12 @@ describe("DesignEditor forwarded Space source handler", () => {
             cancelable: true,
             repeat: step.repeat ?? false,
           });
-          window.dispatchEvent(event);
+          (step.target === "layer-row" ? rowButton : window).dispatchEvent(
+            event,
+          );
           prevented.push(event.defaultPrevented);
         }
+        rowButton.remove();
         const result = {
           broadcasts,
           prevented,
@@ -199,6 +222,17 @@ describe("DesignEditor forwarded Space source handler", () => {
     expect(result.prevented).toEqual([true, true]);
     expect(result.activeTool).toBe("move");
     expect(result.stashedTool).toBeNull();
+    expect(result.spacePanActive).toBe(false);
+  });
+
+  it("does not arm canvas Space-pan while a layer-row button owns activation", async () => {
+    const result = await run([
+      { type: "keydown", target: "layer-row" },
+      { type: "keyup", target: "layer-row" },
+    ]);
+    expect(result.prevented).toEqual([false, false]);
+    expect(result.broadcasts).toEqual([]);
+    expect(result.activeTool).toBe("move");
     expect(result.spacePanActive).toBe(false);
   });
 

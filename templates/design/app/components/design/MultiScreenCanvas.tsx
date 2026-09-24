@@ -51,6 +51,7 @@ import {
   isPenCloseTarget,
   movePenAnchor,
   movePenHandle,
+  parsePenNodes,
   resumePenPathAtEnd,
   serializePenNodes,
   serializePenPath,
@@ -110,6 +111,7 @@ import { Input } from "@/components/ui/input";
 import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
+import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
@@ -844,6 +846,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     nodeId: string;
     path: PenPath;
   } | null>(null);
+  const seedSelectedPenContinuationRef = useRef<() => void>(() => {});
   useEffect(() => {
     const continuation = continuationPenPathRef.current;
     if (
@@ -6279,6 +6282,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
       suppressNextPick.current = true;
+      seedSelectedPenContinuationRef.current();
 
       let pathBefore = activePenPathRef.current?.closed
         ? null
@@ -10273,6 +10277,80 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const penActive = !readOnly && effectiveTool === "pen";
   const creationToolActive =
     !readOnly && Boolean(getDraftCreationTool(effectiveTool));
+  const seedSelectedPenContinuation = useCallback(() => {
+    if (
+      !penActive ||
+      !selectedPenPathNodeId ||
+      activePenPathRef.current ||
+      continuationPenPathRef.current
+    ) {
+      return;
+    }
+
+    const matches: Array<{
+      iframe: HTMLIFrameElement;
+      sourceElement: SVGElement;
+    }> = [];
+    for (const iframe of Array.from(
+      document.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-screen-iframe-id]",
+      ),
+    )) {
+      const frameDocument = iframe.contentDocument;
+      if (!frameDocument) continue;
+      const element = Array.from(
+        frameDocument.querySelectorAll<SVGElement>(
+          "[data-agent-native-node-id]",
+        ),
+      ).find(
+        (candidate) =>
+          candidate.getAttribute("data-agent-native-node-id") ===
+          selectedPenPathNodeId,
+      );
+      const sourceElement = element?.closest<SVGElement>("[data-an-pen-nodes]");
+      if (sourceElement) matches.push({ iframe, sourceElement });
+    }
+    if (matches.length !== 1) return;
+
+    const { iframe, sourceElement } = matches[0]!;
+    const serialized = sourceElement.getAttribute("data-an-pen-nodes");
+    const path = serialized ? parsePenNodes(serialized) : null;
+    if (!path || path.closed || path.nodes.length < 2) return;
+    const svg = sourceElement.closest("svg");
+    const offset = svg ? penPathScreenContentOffset(svg) : null;
+    const rect = iframe.getBoundingClientRect();
+    if (!offset || iframe.clientWidth <= 0 || iframe.clientHeight <= 0) return;
+    const renderedScale = rect.width / iframe.clientWidth;
+    if (!Number.isFinite(renderedScale) || renderedScale <= 0) return;
+    const scrollX = iframe.contentWindow?.scrollX ?? 0;
+    const scrollY = iframe.contentWindow?.scrollY ?? 0;
+    const toCanvasPoint = (point: { x: number; y: number }) => {
+      const clientX =
+        rect.left + (offset.x + point.x - scrollX) * renderedScale;
+      const clientY = rect.top + (offset.y + point.y - scrollY) * renderedScale;
+      return getCanvasPoint(clientX, clientY);
+    };
+    const canvasPath: PenPath = {
+      closed: false,
+      nodes: path.nodes.map((node) => {
+        const mapped: PenNode = { ...node, point: toCanvasPoint(node.point) };
+        if (node.handleIn) mapped.handleIn = toCanvasPoint(node.handleIn);
+        if (node.handleOut) mapped.handleOut = toCanvasPoint(node.handleOut);
+        return mapped;
+      }),
+    };
+    const frameId = iframe.getAttribute("data-screen-iframe-id");
+    if (!frameId) return;
+    continuationPenPathRef.current = {
+      frameId,
+      nodeId: selectedPenPathNodeId,
+      path: canvasPath,
+    };
+  }, [getCanvasPoint, penActive, selectedPenPathNodeId]);
+  seedSelectedPenContinuationRef.current = seedSelectedPenContinuation;
+  useEffect(() => {
+    seedSelectedPenContinuation();
+  }, [seedSelectedPenContinuation]);
   // PERF9-WHEEL: an in-flight wheel pan/zoom also mutes iframe pointer
   // events, but imperatively (see markWheelGestureActive) rather than via
   // this flag — flipping React state here at gesture start re-rendered every
