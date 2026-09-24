@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Allow app-driven continuations to submit to their original chat tab after the user changes focus.
+Keep app-driven continuations in their original chat, reopening closed tabs and waiting for delivery confirmation.

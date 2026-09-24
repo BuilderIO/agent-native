@@ -348,6 +348,7 @@ describe("useNewDeckGeneration", () => {
       expect(request).toMatchObject({
         message: `Guided question ${choice}`,
         context: "Continue the original deck generation.",
+        chatTarget: "local",
         submit: true,
         targetTabId: "original-generation-tab",
       });
@@ -430,6 +431,47 @@ describe("useNewDeckGeneration", () => {
     });
     expect(result.current.questionContinuationPending).toBe(false);
     await act(async () => submission);
+  });
+
+  it("clears stored run identity when the deck route is left", async () => {
+    const submitMessageId = "submit-leaving-route";
+    const deckId = "deck-leaving-route";
+    const storageKey = `slides:new-deck-generation:${deckId}:${submitMessageId}`;
+    const initialProps: {
+      deckId: string;
+      isNewDeckRoute: boolean;
+      submitMessageId: string | null;
+    } = {
+      deckId,
+      isNewDeckRoute: true,
+      submitMessageId,
+    };
+    const { rerender } = renderHook(
+      (props) =>
+        useNewDeckGenerationRun(
+          props.deckId,
+          props.isNewDeckRoute,
+          props.submitMessageId,
+        ),
+      { initialProps },
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "route-chat-tab" },
+        }),
+      );
+    });
+    expect(sessionStorage.getItem(storageKey)).toBe("route-chat-tab");
+
+    rerender({
+      deckId: "another-deck",
+      isNewDeckRoute: false,
+      submitMessageId: null,
+    });
+    await act(async () => Promise.resolve());
+    expect(sessionStorage.getItem(storageKey)).toBeNull();
   });
 
   it("clears pending continuation state when targeted delivery is rejected", async () => {

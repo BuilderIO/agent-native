@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
@@ -152,6 +153,22 @@ describe("new deck generation state", () => {
         phase: "pending",
       }),
     ).toBe(false);
+  });
+
+  it("keeps run correlation after timeout until generation actually finishes", () => {
+    const abandoned = {
+      generating: false,
+      waitingOnQuestions: false,
+      phase: "abandoned" as const,
+    };
+    expect(shouldClearNewDeckGeneratingState(abandoned)).toBe(true);
+    expect(shouldClearNewDeckGenerationRun(abandoned)).toBe(false);
+    expect(
+      shouldClearNewDeckGenerationRun({
+        ...abandoned,
+        phase: "started" as const,
+      }),
+    ).toBe(true);
   });
 
   describe("nextNewDeckGenerationPhase", () => {

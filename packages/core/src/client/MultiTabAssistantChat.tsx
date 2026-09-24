@@ -2040,12 +2040,10 @@ export function MultiTabAssistantChat({
 
       if (targetTabId) {
         if (!openTabIds.includes(targetTabId)) {
-          reportAgentChatSubmitResult(
-            submitMessageId,
-            false,
-            "target-tab-not-open",
+          mountedTabsRef.current.add(targetTabId);
+          setOpenTabIds((prev) =>
+            prev.includes(targetTabId) ? prev : [...prev, targetTabId],
           );
-          return;
         }
         if (!chatRefs.current.has(targetTabId)) {
           switchThread(targetTabId);

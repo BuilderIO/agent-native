@@ -99,3 +99,15 @@ export function shouldClearNewDeckGeneratingState({
     (phase === "started" || phase === "abandoned")
   );
 }
+
+export function shouldClearNewDeckGenerationRun({
+  generating,
+  waitingOnQuestions,
+  phase,
+}: {
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  phase: NewDeckGenerationPhase;
+}): boolean {
+  return !generating && !waitingOnQuestions && phase === "started";
+}

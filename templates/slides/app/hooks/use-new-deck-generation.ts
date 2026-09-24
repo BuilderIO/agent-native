@@ -177,6 +177,42 @@ export function useNewDeckGenerationRun(
     setRun(currentRun);
   }
 
+  const previousRunRef = useRef(currentRun);
+  useEffect(() => {
+    const previous = previousRunRef.current;
+    if (
+      previous.submitMessageId &&
+      (previous.deckId !== currentRun.deckId ||
+        previous.submitMessageId !== currentRun.submitMessageId)
+    ) {
+      clearNewDeckGenerationRun(previous.deckId, previous.submitMessageId);
+    }
+    previousRunRef.current = currentRun;
+  }, [currentRun.deckId, currentRun.submitMessageId]);
+
+  const currentRunRef = useRef(currentRun);
+  currentRunRef.current = currentRun;
+  const routeCleanupTokenRef = useRef<symbol | null>(null);
+  useEffect(() => {
+    const token = Symbol();
+    routeCleanupTokenRef.current = token;
+    return () => {
+      const runAtExit = currentRunRef.current;
+      // Let a StrictMode effect replay replace the token before cleanup runs.
+      queueMicrotask(() => {
+        if (
+          routeCleanupTokenRef.current === token &&
+          runAtExit.submitMessageId
+        ) {
+          clearNewDeckGenerationRun(
+            runAtExit.deckId,
+            runAtExit.submitMessageId,
+          );
+        }
+      });
+    };
+  }, []);
+
   const runKey = `${currentRun.deckId}:${currentRun.submitMessageId}:${currentRun.tabId}`;
   const [activeRun, setActiveRun] = useState({ runKey, generating: false });
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,6 +253,7 @@ export function useNewDeckGenerationRun(
         {
           message,
           context,
+          chatTarget: "local",
           submit: true,
           ...(currentRun.tabId ? { targetTabId: currentRun.tabId } : {}),
         },

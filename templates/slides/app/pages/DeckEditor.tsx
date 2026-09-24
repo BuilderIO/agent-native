@@ -130,6 +130,7 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
@@ -378,7 +379,7 @@ export default function DeckEditor() {
         sendToAgentChat({ message, context, submit: true });
         return;
       }
-      submitTrackedQuestionContinuation({ message, context });
+      return submitTrackedQuestionContinuation({ message, context });
     },
     [generationSubmitId, submitTrackedQuestionContinuation],
   );
@@ -1060,7 +1061,7 @@ export default function DeckEditor() {
     if (
       !id ||
       !submitMessageId ||
-      !shouldClearNewDeckGeneratingState({
+      !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating,
         waitingOnQuestions: waitingOnNewDeckQuestions,
         phase: newDeckGenerationPhase,

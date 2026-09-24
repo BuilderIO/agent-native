@@ -485,6 +485,48 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
   });
 
+  it("reopens a closed target tab before delivering a continuation", async () => {
+    const generationThread = {
+      id: "closed-generation-thread",
+      title: "Generation thread",
+      preview: "Create a presentation",
+      messageCount: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    threadMocks.threads = [...threadMocks.threads, generationThread];
+    threadMocks.switchThread.mockImplementation((threadId: string) => {
+      threadMocks.activeThreadId = threadId;
+    });
+    threadMocks.switchThread.mockClear();
+    chatHandleMocks.sendMessage.mockClear();
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Continue the deck generation.",
+        submit: true,
+        targetTabId: generationThread.id,
+        submitMessageId: "closed-generation-submit",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith(generationThread.id);
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Continue the deck generation.",
+      undefined,
+      { submitMessageId: "closed-generation-submit" },
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(openTabsStorageKey("bridge-test")) ?? "[]",
+      ),
+    ).toContain(generationThread.id);
+  });
+
   it("activates an open targeted tab when it has no mounted chat ref", async () => {
     const generationThread = {
       id: "unmounted-generation-thread",
