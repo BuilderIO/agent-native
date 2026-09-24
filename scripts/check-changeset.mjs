@@ -26,6 +26,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { parseDocument } from "yaml";
+
 const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 
 function sh(cmd) {
@@ -128,33 +130,45 @@ function listPendingChangesets() {
 
 export function packagesCoveredBy(changesetPath) {
   const content = fs.readFileSync(changesetPath, "utf8");
-  // Frontmatter is between two `---` lines at the top.
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!m) {
     throw new Error(
       "Invalid changeset .changeset/" +
         path.basename(changesetPath) +
-        ": missing YAML frontmatter",
+        ": expected YAML frontmatter between --- lines",
     );
   }
-  const packages = m[1]
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const mm = line.match(
-        /^(?:"([^"]+)"|'([^']+)'|([a-zA-Z0-9._/-]+))\s*:\s*(patch|minor|major)$/,
+  const document = parseDocument(m[1], { uniqueKeys: true });
+  if (document.errors.length > 0) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": invalid YAML frontmatter",
+      { cause: document.errors[0] },
+    );
+  }
+  const entries = document.toJS();
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": expected a YAML package-to-bump map",
+    );
+  }
+  const packages = Object.entries(entries).map(([packageName, bump]) => {
+    if (
+      packageName.length === 0 ||
+      typeof bump !== "string" ||
+      !["none", "patch", "minor", "major"].includes(bump)
+    ) {
+      throw new Error(
+        "Invalid changeset .changeset/" +
+          path.basename(changesetPath) +
+          ": expected package entries with none, patch, minor, or major bumps",
       );
-      const packageName = (mm && mm[1]) || (mm && mm[2]) || (mm && mm[3]);
-      if (!packageName) {
-        throw new Error(
-          "Invalid changeset .changeset/" +
-            path.basename(changesetPath) +
-            ": expected package entries with patch, minor, or major bumps",
-        );
-      }
-      return packageName;
-    });
+    }
+    return packageName;
+  });
   if (packages.length === 0) {
     throw new Error(
       "Invalid changeset .changeset/" +

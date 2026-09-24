@@ -141,7 +141,7 @@ describe("npm package release workflow", () => {
     );
   });
 
-  it("rejects malformed changeset entries and unsupported bump values", () => {
+  it("validates Changesets YAML frontmatter", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "agent-native-changeset-"));
     const changeset = path.join(dir, "invalid.md");
 
@@ -149,7 +149,7 @@ describe("npm package release workflow", () => {
       writeFileSync(changeset, "Not a changeset\n");
       assert.throws(
         () => packagesCoveredBy(changeset),
-        /missing YAML frontmatter/,
+        /expected YAML frontmatter between --- lines/,
       );
 
       writeFileSync(
@@ -158,8 +158,43 @@ describe("npm package release workflow", () => {
       );
       assert.throws(
         () => packagesCoveredBy(changeset),
-        /expected package entries with patch, minor, or major bumps/,
+        /expected package entries with none, patch, minor, or major bumps/,
       );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n---not-a-closing-delimiter\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected YAML frontmatter between --- lines/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n"@agent-native/core": minor\n---\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /invalid YAML frontmatter/,
+      );
+
+      writeFileSync(changeset, "---\n- patch\n---\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected a YAML package-to-bump map/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": "patch" # release\n"@agent-native/dispatch": none\n"@agent-native/pinpoint": minor\n"@agent-native/toolkit": major\n---\nValid bumps\n',
+      );
+      assert.deepEqual(packagesCoveredBy(changeset), [
+        "@agent-native/core",
+        "@agent-native/dispatch",
+        "@agent-native/pinpoint",
+        "@agent-native/toolkit",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
