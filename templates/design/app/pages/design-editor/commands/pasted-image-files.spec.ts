@@ -15,6 +15,7 @@ vi.mock("@/lib/svg-paste", async (importOriginal) => ({
       : null,
 }));
 
+import { findScreenFrameAtCanvasPoint } from "../overview-camera";
 import type { DesignFile } from "../types";
 import {
   canvasPointFromClient,
@@ -72,7 +73,7 @@ function args(
 const file = new File(["image"], "photo.png", { type: "image/png" });
 
 describe("canvasPointFromClient", () => {
-  it("inverts the overview camera for paste anchors anywhere on the board", () => {
+  it("removes surface padding when mapping overview paste anchors", () => {
     const surface = document.createElement("div");
     surface.dataset.multiScreenCanvasSurface = "";
     const world = document.createElement("div");
@@ -92,10 +93,19 @@ describe("canvasPointFromClient", () => {
       toJSON: () => ({}),
     } as DOMRect);
 
-    expect(canvasPointFromClient({ clientX: 200, clientY: 150 }, [])).toEqual({
-      x: 200,
-      y: 150,
-    });
+    const frames = [
+      { id: "origin", geometry: { x: 0, y: 0, width: 1000, height: 1000 } },
+    ];
+    const origin = canvasPointFromClient(
+      { clientX: 280, clientY: 330 },
+      frames,
+    );
+    expect(origin).toEqual({ x: 0, y: 0 });
+    expect(findScreenFrameAtCanvasPoint(origin!, frames)?.id).toBe("origin");
+
+    expect(
+      canvasPointFromClient({ clientX: 1480, clientY: 1230 }, frames),
+    ).toEqual({ x: 600, y: 450 });
     surface.remove();
   });
 });

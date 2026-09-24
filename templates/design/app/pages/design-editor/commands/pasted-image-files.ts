@@ -1,8 +1,10 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { screenToCanvasPoint } from "@shared/canvas-math";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
 import { getScreenContentPointFromClient } from "@/components/design/design-canvas/coordinate-transforms";
+import { SURFACE_PADDING } from "@/components/design/multi-screen/overview-layout";
 import type { VisibleCanvasRect } from "@/components/design/multi-screen/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
@@ -524,16 +526,15 @@ export function canvasPointFromClient(
         ? [1, 0, 0, 1, 0, 0]
         : /^matrix\(([^)]+)\)$/.exec(transform)?.[1]?.split(",").map(Number);
     if (matrixValues?.length === 6 && matrixValues.every(Number.isFinite)) {
-      const [a, b, c, d, e, f] = matrixValues;
-      const determinant = a! * d! - b! * c!;
-      if (Math.abs(determinant) > Number.EPSILON) {
+      const [scaleX, skewY, skewX, scaleY, panX, panY] = matrixValues;
+      if (scaleX !== 0 && scaleX === scaleY && skewY === 0 && skewX === 0) {
         const rect = surface.getBoundingClientRect();
-        const x = clientX - rect.left - e!;
-        const y = clientY - rect.top - f!;
-        return {
-          x: (d! * x - c! * y) / determinant,
-          y: (-b! * x + a! * y) / determinant,
-        };
+        return screenToCanvasPoint(
+          { x: clientX, y: clientY },
+          { x: panX!, y: panY!, zoom: scaleX! * 100 },
+          { x: rect.left, y: rect.top },
+          SURFACE_PADDING,
+        );
       }
     }
   }
