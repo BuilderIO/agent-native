@@ -74,6 +74,16 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const STALE_PR_WATCHER_RE = new RegExp(
+  [
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
+    String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b[^.!?\n]{0,100}\b(?:PR|pull request|ship[- ]watchdog)\b`,
+    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:merged|closed|complete|finished)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat|scheduled task)\b`,
+    String.raw`\b(?:pointless|duplicate|stale|redundant)\b[^.!?\n]{0,80}\b(?:scheduled tasks?|monitors?|watchers?)\b[^.!?\n]{0,80}\b(?:repeat(?:ed)?|same thing|same status|again)\b`,
+  ].join("|"),
+  "i",
+);
+
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
 // A bare namespace mention is routine documentation. Count it only when the
@@ -150,6 +160,23 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const STALE_PR_WATCHER_REGEX_CASES = [
+  [true, "PR #6329 is merged; please stop this scheduled task."],
+  [
+    true,
+    "These pointless scheduled tasks repeat the same status; remove them.",
+  ],
+  [true, "Stop the duplicate ship-watchdog heartbeat."],
+  [true, "Please cancel the PR babysitter."],
+  [true, "Please disable the babysitter for PR #6329."],
+  [false, "Please check back every hour until deployment."],
+  [false, "The merged PR has not deployed yet."],
+  [false, "Run one scan of open PRs."],
+  [false, "Disable the heartbeat for my weekly report."],
+  [false, "Stop this scheduled dashboard refresh."],
+  [false, "These scheduled tasks are pointless."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
@@ -158,6 +185,11 @@ if (process.argv.includes("--self-test")) {
   failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...STALE_PR_WATCHER_REGEX_CASES.filter(
+      ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -182,7 +214,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -206,6 +238,13 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "stale-pr-watchers",
+    label: "Had to stop a monitor after its PR was complete",
+    fixedBy:
+      ".agents/skills/babysit-pr + ship-watchdog (terminal-state and opt-in gates, 2026-09-23)",
+    re: STALE_PR_WATCHER_RE,
   },
   {
     key: "branch-moves",

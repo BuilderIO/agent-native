@@ -2131,7 +2131,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex justify-center">
             <p
               role="status"
-              className="max-w-xs rounded-md bg-black/70 px-3 py-2 text-center text-xs font-medium text-white/85 ring-1 ring-white/10"
+              className="max-w-xs rounded-md bg-background px-3 py-2 text-center text-xs font-medium text-foreground ring-1 ring-border"
             >
               {playError}
             </p>

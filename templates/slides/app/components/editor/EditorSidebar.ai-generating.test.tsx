@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -204,6 +205,10 @@ describe("EditorSidebar AI-active slide", () => {
       <EditorSidebar {...props} describeSlideId={null} />,
     );
     rerender(<EditorSidebar {...props} describeSlideId="slide-2" />);
+    await act(async () => {
+      await import("./AddSlidePopover");
+    });
+    await waitFor(() => screen.getByText("submit-prompt"));
 
     await act(async () => {
       fireEvent.click(screen.getByText("submit-prompt"));

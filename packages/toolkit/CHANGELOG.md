@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.20.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.20.7
 
 ### Patch Changes
@@ -896,8 +902,4 @@
   panels) and looked broken/invisible even though they were mounted. This mirrors
   how `@agent-native/core` self-registers its client styles.
 
-## 0.2.0
-
-### Minor Changes
-
-- b24446e: Add `@agent-native/toolkit` for reusable app-building UI, move shared template primitives into it, and keep core UI shim imports working through compatibility re-exports.
+For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -18,6 +18,10 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   // catalog otherwise hides them from Claude Code/Codex hosts without a
   // browser WebMCP surface.
   "open-visual-edit",
+  // Keep the durable handoff visible to Claude Code/Codex without requiring
+  // the user's Design tab or a page-local WebMCP host.
+  "get-visual-edit-pending",
+  "acknowledge-visual-edit-pending",
   "connect-localhost",
   "add-localhost-screens",
   "list-localhost-connections",
@@ -72,8 +76,8 @@ const INITIAL_TOOL_NAMES = [
   "create-design",
   "create-design-from-template",
   "get-design-template",
-  "save-design-as-template",
   "open-visual-edit",
+  "get-visual-edit-pending",
   "add-localhost-screens",
   "list-localhost-connections",
   "update-screen-source",
@@ -250,9 +254,10 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
+    keyToolNames: ["get-visual-edit-pending"],
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
-      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. In a page-capable WebMCP host, call the page-local get-visual-edit-prompt tool after visual edits to retrieve the latest source handoff; no separate MCP install is required.',
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,

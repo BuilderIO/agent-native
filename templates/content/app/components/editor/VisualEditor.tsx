@@ -1344,6 +1344,7 @@ function writeContentSelectionState(value: unknown) {
 
 interface VisualEditorProps {
   documentId?: string;
+  contentSpaceId?: string;
   content: string;
   /**
    * Server `updatedAt` for `content`. Used to tell a genuinely-newer external
@@ -2920,6 +2921,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 
 export function VisualEditor({
   documentId,
+  contentSpaceId,
   content,
   contentUpdatedAt,
   contentRevision,
@@ -4314,6 +4316,7 @@ export function VisualEditor({
         <SlashCommandMenu
           editor={editor}
           documentId={documentId}
+          contentSpaceId={contentSpaceId}
           suggesting={suggesting}
           notionPageId={notionPageId}
           onDraftCommitted={() =>

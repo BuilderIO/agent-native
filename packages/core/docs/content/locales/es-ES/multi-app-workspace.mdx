@@ -407,6 +407,8 @@ Estas configuraciones solo afectan la navegación de páginas de solo lectura. L
 
 Independientemente de lo que elija, apunte cada aplicación al mismo `DATABASE_URL` para el estado entre aplicaciones listo para usar: un conjunto de cuentas de usuario, un conjunto de organizaciones, un conjunto de configuraciones compartidas. Si cada aplicación tiene su propia base de datos, el patrón del espacio de trabajo aún funciona; simplemente se pierde esa historia de estado compartido.
 
+La demanda de conexiones se suma entre los procesos que comparten una base de datos. Si cinco procesos de aplicaciones Node.js de larga duración usan cada uno un pool compartido para el mismo `DATABASE_URL`, pueden mantener hasta 100 conexiones con el límite predeterminado de 20 por pool (`5 × 1 pool × 20`). En espacios de trabajo sin servidor, calcule las instancias de función activas por aplicación usando los límites predeterminados específicos del entorno. Consulte [Base de datos del servidor](/docs/server-database) para ver `AGENT_NATIVE_DB_POOL_MAX` y las pautas completas de cálculo.
+
 El paquete compartido en sí nunca se implementa de forma independiente. Es un departamento de `workspace:*` que pnpm enlaza simbólicamente con el `node_modules/` de cada aplicación, por lo que cada aplicación agrupa de forma transparente lo que necesita en el momento de la compilación.
 
 ## Fuera de alcance (por ahora) {#out-of-scope}

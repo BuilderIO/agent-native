@@ -106,6 +106,7 @@ import {
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
+import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { getPreset } from "@/lib/design-systems";
 import {
   isGoogleSlidesCommentShortcut,
@@ -1835,6 +1836,7 @@ export default function DeckEditor() {
   const handleNewSlideAfter = useCallback(
     (afterSlideId: string) => {
       if (!deck || !id) return;
+      preloadAddSlidePopover();
       const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
       // Immediate persistence: mirrors handleAddEmptySlide, since this also
       // opens the "describe this slide" popover right away.
@@ -2529,6 +2531,7 @@ export default function DeckEditor() {
   const handleAddEmptySlide = () => insertSlideAfterActive("blank");
 
   const handleNewSlideClick = () => {
+    preloadAddSlidePopover();
     const newId = handleAddEmptySlide();
     if (newId) {
       // The rail owns the anchor node the describe-slide popover attaches

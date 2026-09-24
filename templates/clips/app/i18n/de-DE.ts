@@ -145,7 +145,6 @@ const messages = {
     createFolderError: "Erstellen fehlgeschlagen",
     folderCreated: "Ordner erstellt",
     folderNamePlaceholder: "Ordnername",
-    breadcrumbBack: "Zurück zu {{label}}",
   },
   empty: {
     library: {

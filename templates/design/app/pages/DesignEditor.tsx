@@ -234,7 +234,6 @@ import {
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
-import { DeepSelectGuidance } from "@/components/design/DeepSelectGuidance";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import type {
   IframeContextMenuPayload,
@@ -407,7 +406,9 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "@/components/editor/FigmaLinkComposerBubble";
-import PromptPopover from "@/components/editor/PromptDialog";
+import PromptPopover, {
+  preloadPromptComposer,
+} from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -1046,7 +1047,6 @@ import {
   sameStringIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
-  shouldShowDeepSelectGuidance,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
   shouldUseOverviewRuntimeReplacement,
@@ -1529,53 +1529,6 @@ function DesignEditor() {
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
-  const [deepSelectGuidanceKey, setDeepSelectGuidanceKey] = useState<
-    string | null
-  >(null);
-  const deepSelectGuidanceCountsRef = useRef(new Map<string, number>());
-  const deepSelectGuidanceKeyRef = useRef<string | null>(null);
-  const deepSelectGuidanceDesignIdRef = useRef(id);
-  useEffect(() => {
-    if (deepSelectGuidanceDesignIdRef.current === id) return;
-    // React Router can reuse this editor instance across design routes; the
-    // visible hint belongs to the old design and must not cross that boundary.
-    deepSelectGuidanceDesignIdRef.current = id;
-    deepSelectGuidanceKeyRef.current = null;
-    setDeepSelectGuidanceKey(null);
-  }, [id]);
-  const maybeShowDeepSelectGuidance = useCallback(
-    (
-      screenId: string,
-      info: ElementInfo | null | undefined,
-      intent?: ElementSelectionIntent,
-    ) => {
-      if (!shouldShowDeepSelectGuidance(info, intent)) return;
-      if (deepSelectGuidanceKeyRef.current !== null) return;
-      const key = `design-deep-select-guidance:${id ?? "shell"}:${screenId}`;
-      let count = deepSelectGuidanceCountsRef.current.get(key);
-      if (count === undefined) {
-        const stored = window.localStorage.getItem(key);
-        const parsed = stored === null ? 0 : Number.parseInt(stored, 10);
-        count = Number.isFinite(parsed) ? parsed : 0;
-      }
-      if (count >= 2) return;
-      const nextCount = count + 1;
-      deepSelectGuidanceCountsRef.current.set(key, nextCount);
-      window.localStorage.setItem(key, String(nextCount));
-      deepSelectGuidanceKeyRef.current = key;
-      setDeepSelectGuidanceKey(key);
-    },
-    [id],
-  );
-  const dismissDeepSelectGuidance = useCallback(() => {
-    const key = deepSelectGuidanceKeyRef.current;
-    if (key) {
-      deepSelectGuidanceCountsRef.current.set(key, 2);
-      window.localStorage.setItem(key, "2");
-    }
-    deepSelectGuidanceKeyRef.current = null;
-    setDeepSelectGuidanceKey(null);
-  }, []);
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -1599,6 +1552,10 @@ function DesignEditor() {
   const [pendingLiveNonStyleEdits, setPendingLiveNonStyleEdits] = useState<
     PendingLiveNonStyleEdit[]
   >([]);
+  const [
+    pendingVisualEditPublicationFailed,
+    setPendingVisualEditPublicationFailed,
+  ] = useState(false);
   const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
@@ -1798,6 +1755,18 @@ function DesignEditor() {
   ] = useState<number | null>(null);
   const pendingVisualStyleEditsRef = useRef<PendingVisualStyleEdit[]>([]);
   const pendingLiveNonStyleEditsRef = useRef<PendingLiveNonStyleEdit[]>([]);
+  const pendingVisualEditPublicationRevisionRef = useRef(0);
+  const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const pendingVisualEditClearRequestedRef = useRef<string | null>(null);
+  const pendingVisualEditHadPendingRef = useRef<string | null>(null);
+  useEffect(() => {
+    pendingVisualEditPublicationRevisionRef.current = 0;
+    pendingVisualEditClearRequestedRef.current = null;
+    pendingVisualEditHadPendingRef.current = null;
+    setPendingVisualEditPublicationFailed(false);
+  }, [id]);
   const localhostConnectionRootPathByIdRef = useRef<Map<string, string>>(
     new Map(),
   );
@@ -2019,6 +1988,13 @@ function DesignEditor() {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
+    if (
+      id &&
+      (pendingVisualStyleEditsRef.current.length > 0 ||
+        pendingLiveNonStyleEditsRef.current.length > 0)
+    ) {
+      pendingVisualEditClearRequestedRef.current = id;
+    }
     stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
     if (pendingEditSessionDesignIdRef.current === id) {
@@ -5045,6 +5021,7 @@ function DesignEditor() {
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
+      if (open) preloadPromptComposer();
       setShowPrompt(open);
       if (open) {
         setPromptDesignSystemId(design?.designSystemId ?? undefined);
@@ -5058,6 +5035,7 @@ function DesignEditor() {
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && (!canEditDesign || !tweaksEnabled)) return;
+      if (open) preloadPromptComposer();
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
@@ -5069,6 +5047,7 @@ function DesignEditor() {
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
       if (!canEditDesign || !tweaksEnabled) return;
+      preloadPromptComposer();
       tweakPromptAnchorRef.current = anchor;
       setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
@@ -12250,7 +12229,7 @@ function DesignEditor() {
       } = {},
     ) => {
       const run = () => {
-        const selectionAccepted = runScreenElementSelect(
+        runScreenElementSelect(
           {
             activeBreakpointWidthStateRef,
             applyFileContentUpdate,
@@ -12285,9 +12264,6 @@ function DesignEditor() {
           options,
         );
         rehydrateRenderedInfoAfterPreview();
-        if (selectionAccepted) {
-          maybeShowDeepSelectGuidance(screenId, info, intent);
-        }
       };
       // Only a genuine user pick is a selection-only undo step. The
       // selection command may also persist an infrastructure node id, but
@@ -12310,7 +12286,6 @@ function DesignEditor() {
       handleBreakpointBarSelect,
       id,
       liveScreenIds,
-      maybeShowDeepSelectGuidance,
       rehydrateRenderedInfoAfterPreview,
       selectedLayerIdsState,
       t,
@@ -19384,43 +19359,104 @@ function DesignEditor() {
     ],
   );
   useEffect(() => {
-    if (!id || !activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-    const body =
+    if (!id) return;
+    if (
+      pendingVisualEditCount === 0 &&
+      pendingVisualEditClearRequestedRef.current !== id &&
+      pendingVisualEditHadPendingRef.current !== id
+    ) {
+      return;
+    }
+    const revision = Math.max(
+      Date.now(),
+      pendingVisualEditPublicationRevisionRef.current + 1,
+    );
+    pendingVisualEditPublicationRevisionRef.current = revision;
+    const pending =
       pendingVisualEditCount > 0
         ? {
             designId: id,
+            revision,
             pending: {
               designId: id,
               pendingEditCount: pendingVisualEditCount,
-              status: "ready",
+              status: "ready" as const,
               prompt: pendingVisualStylePrompt,
             },
           }
         : {
             designId: id,
+            revision,
             pending: null,
           };
-    void fetch(
-      `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-design-preview-token": activeScreenPreviewToken,
-        },
-        body: JSON.stringify(body),
-      },
-    ).catch(() => {
-      // The bridge is optional for static screens and may be offline while a
-      // coding agent is starting the local app; the in-tab prompt remains the
-      // authoritative fallback.
-    });
+    if (pendingVisualEditCount > 0) {
+      pendingVisualEditClearRequestedRef.current = null;
+      pendingVisualEditHadPendingRef.current = id;
+    }
+    const clearRequested = pending.pending === null;
+    const publish = async () => {
+      try {
+        await callAction("publish-visual-edit-pending", pending);
+        setPendingVisualEditPublicationFailed(false);
+        if (
+          clearRequested &&
+          pendingVisualEditClearRequestedRef.current === id
+        ) {
+          pendingVisualEditClearRequestedRef.current = null;
+          pendingVisualEditHadPendingRef.current = null;
+        }
+      } catch (error) {
+        console.error(
+          "[design:visual-edit] durable handoff publication failed",
+          error,
+        );
+        setPendingVisualEditPublicationFailed(true);
+        toast.error(t("designEditor.toasts.codingHandoffError"), {
+          id: "design-visual-edit-pending-publication",
+        });
+      }
+
+      if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
+      try {
+        const response = await fetch(
+          `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-design-preview-token": activeScreenPreviewToken,
+            },
+            body: JSON.stringify(pending.pending),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Bridge returned HTTP ${response.status}`);
+        }
+      } catch (error) {
+        // The bridge is optional for static screens; durable MCP publication
+        // remains authoritative when the local app is offline.
+        console.warn(
+          "[design:visual-edit] local bridge handoff publication failed",
+          error,
+        );
+      }
+    };
+    pendingVisualEditPublicationQueueRef.current =
+      pendingVisualEditPublicationQueueRef.current
+        .catch((error) => {
+          console.error(
+            "[design:visual-edit] queued handoff publication failed",
+            error,
+          );
+        })
+        .then(publish);
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
     id,
     pendingVisualEditCount,
     pendingVisualStylePrompt,
+    t,
   ]);
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
@@ -24156,11 +24192,8 @@ function DesignEditor() {
       // mouseup "final" report — see coalesceMarqueeSelectionHistory's doc
       // comment); every other caller of this handler is a single, complete
       // selection change. Route on the marquee-only `intent.final` field.
-      const acceptedPrimary: {
-        current: { screenId: string; info: ElementInfo } | null;
-      } = { current: null };
       recordMarqueeSelectionHistoryAroundChange(() => {
-        acceptedPrimary.current = runLayerMarqueeSelectionChange(
+        runLayerMarqueeSelectionChange(
           {
             clearPendingOverviewLayerSelectionTimer,
             focusDesignInspectorForSelection,
@@ -24184,19 +24217,11 @@ function DesignEditor() {
           intent,
         );
       }, intent);
-      if (selection.length === 1 && acceptedPrimary.current) {
-        maybeShowDeepSelectGuidance(
-          acceptedPrimary.current.screenId,
-          acceptedPrimary.current.info,
-          intent,
-        );
-      }
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
-      maybeShowDeepSelectGuidance,
       recordMarqueeSelectionHistoryAroundChange,
     ],
   );
@@ -24654,6 +24679,11 @@ function DesignEditor() {
         (breakpointWidthPx === undefined
           ? activeBreakpointWidthState === undefined
           : activeBreakpointWidthState === breakpointWidthPx);
+      const screenSelectedLayerGroups =
+        selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS;
+      const screenOwnsSelection =
+        selectedElementScreenId === screen.id ||
+        screenSelectedLayerGroups.length > 0;
       const screenContent = getScreenContent(screen.id);
       const screenSourceType = resolveOverviewScreenSourceType(
         screen,
@@ -24871,13 +24901,13 @@ function DesignEditor() {
           spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
           registerRuntimeBridge={screenIsActive}
-          selectedSelector={screenIsActive ? selectedCanvasSelector : null}
+          selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
-            screenIsActive ? selectedCanvasSelectorCandidates : NO_SELECTORS
+            screenOwnsSelection
+              ? selectedCanvasSelectorCandidates
+              : NO_SELECTORS
           }
-          selectedSelectorGroups={
-            selectedLayerSelectorGroupsByScreen[screen.id] ?? NO_SELECTOR_GROUPS
-          }
+          selectedSelectorGroups={screenSelectedLayerGroups}
           passiveSelectionStyle={
             screen.breakpointWidths?.length && !screenIsActive
               ? "soft"
@@ -25063,6 +25093,7 @@ function DesignEditor() {
       selectedCanvasSelector,
       selectedCanvasSelectorCandidates,
       selectedLayerSelectorGroupsByScreen,
+      selectedElementScreenId,
       hoveredElementScreenId,
       hoveredCanvasSelector,
       hoveredCanvasSelectorCandidates,
@@ -26979,6 +27010,21 @@ function DesignEditor() {
                       </>
                     }
                   />
+                ) : publicVisualEdit ? (
+                  <div
+                    data-design-public-agent-empty-state
+                    className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center"
+                  >
+                    <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <IconClipboard className="size-5" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">
+                      {t("designEditor.pendingVisualStyles.copyPrompt")}
+                    </p>
+                    <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
+                      {t("designEditor.pendingVisualStyles.agentMessage")}
+                    </p>
+                  </div>
                 ) : (
                   <ReadOnlyEditorPanel
                     title={
@@ -27582,6 +27628,17 @@ function DesignEditor() {
                       deployedUrl={fusionApp.deployedUrl}
                     />
                   )}
+                  {pendingVisualEditPublicationFailed ? (
+                    <div
+                      data-design-visual-edit-publication-warning
+                      role="status"
+                      className="pointer-events-none absolute inset-x-0 top-16 z-[70] flex justify-center px-4"
+                    >
+                      <div className="pointer-events-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {t("designEditor.toasts.codingHandoffError")}
+                      </div>
+                    </div>
+                  ) : null}
                   {showPendingVisualStyleApply ? (
                     <div
                       data-design-pending-visual-style-toolbar
@@ -27592,38 +27649,45 @@ function DesignEditor() {
                           className={cn(
                             // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
                             "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
-                            !shellMode && "rounded-r-none",
+                            (!shellMode || !canEditDesign) && "rounded-r-none",
                           )}
                           aria-label={t(
-                            "designEditor.pendingVisualStyles.applyAria",
+                            publicVisualEdit
+                              ? "designEditor.pendingVisualStyles.copyPrompt"
+                              : "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={
                             applyingViaHost ||
                             pendingAgentHandoffBusy ||
                             pendingStructureVerificationBusy
                           }
-                          onClick={handleApplyPendingVisualStylesWithAgent}
+                          onClick={
+                            canEditDesign
+                              ? handleApplyPendingVisualStylesWithAgent
+                              : handleCopyPendingVisualStylePrompt
+                          }
                         >
                           {applyingViaHost ? (
                             <Spinner className="mr-2 h-4 w-4 shrink-0" />
                           ) : null}
                           <span className="truncate">
                             {t(
-                              applyingViaHost
-                                ? "designEditor.pendingVisualStyles.applying"
-                                : pendingStructureVerificationBusy
-                                  ? "designEditor.pendingVisualStyles.verifying"
-                                  : pendingStructureVerificationStatus ===
-                                      "conflict"
-                                    ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                    : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                              publicVisualEdit
+                                ? "designEditor.pendingVisualStyles.copyPrompt"
+                                : applyingViaHost
+                                  ? "designEditor.pendingVisualStyles.applying"
+                                  : pendingStructureVerificationBusy
+                                    ? "designEditor.pendingVisualStyles.verifying"
+                                    : pendingStructureVerificationStatus ===
+                                        "conflict"
+                                      ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                      : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
                           </span>
                         </Button>
-                        {/* The host runs the turn and owns the chat, so copying
-                            the prompt or aborting into interact mode have no
-                            meaning here. */}
-                        {shellMode ? null : (
+                        {/* Public visual-edit viewers cannot start an agent turn,
+                            so keep Copy prompt and Abort available there too. */}
+                        {shellMode && canEditDesign ? null : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -27670,9 +27734,6 @@ function DesignEditor() {
                         )}
                       </div>
                     </div>
-                  ) : null}
-                  {deepSelectGuidanceKey !== null ? (
-                    <DeepSelectGuidance onDismiss={dismissDeepSelectGuidance} />
                   ) : null}
                   {viewMode === "overview" ? (
                     <>

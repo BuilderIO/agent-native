@@ -37,6 +37,8 @@ import {
   IconTrash,
   IconGitBranch,
   IconSearch,
+  IconDatabase,
+  IconFileText,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -398,6 +400,7 @@ function WorkspaceSidebarItem({
   deferInitialReadUntilDocumentId,
   reorder,
   createDocumentPending,
+  createDatabasePending,
   activeDocumentId,
   expandedDocumentIds,
   documentMetadata,
@@ -406,6 +409,7 @@ function WorkspaceSidebarItem({
   onActivate,
   onToggleExpanded,
   onCreatePageInSpace,
+  onCreateDatabaseInSpace,
   onCreateChildPage,
   onCreateChildDatabase,
   onDeleteItem,
@@ -419,6 +423,7 @@ function WorkspaceSidebarItem({
   deferInitialReadUntilDocumentId: string | null;
   reorder?: ContentFilesSidebarRenderReorder;
   createDocumentPending: boolean;
+  createDatabasePending: boolean;
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   documentMetadata: ReadonlyMap<string, Document>;
@@ -427,6 +432,7 @@ function WorkspaceSidebarItem({
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
   onCreatePageInSpace: (space: ContentSpaceSummary) => void;
+  onCreateDatabaseInSpace: (space: ContentSpaceSummary) => void;
   onCreateChildPage: (
     space: ContentSpaceSummary,
     item: ContentDatabaseItem,
@@ -749,15 +755,28 @@ function WorkspaceSidebarItem({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <button
-            type="button"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-            disabled={createDocumentPending}
-            aria-label={`${t("sidebar.newPage")} — ${space.name}`}
-            onClick={() => onCreatePageInSpace(space)}
-          >
-            <IconPlus size={14} />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+                disabled={createDocumentPending || createDatabasePending}
+                aria-label={`${t("sidebar.new")} — ${space.name}`}
+              >
+                <IconPlus size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => onCreatePageInSpace(space)}>
+                <IconFileText className="me-2 size-4" />
+                {t("sidebar.page")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateDatabaseInSpace(space)}>
+                <IconDatabase className="me-2 size-4" />
+                {t("sidebar.collection")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
       {expanded ? (
@@ -1232,8 +1251,10 @@ export function DocumentSidebar({
     async (
       space: (typeof contentSpaces)[number],
       targetDocumentId?: string | null,
+      explicitSelection = targetDocumentId === undefined,
     ) => {
-      if (targetDocumentId === undefined) {
+      const previousExplicitSelection = explicitSpaceSelectionRef.current;
+      if (explicitSelection) {
         explicitSpaceSelectionRef.current = space.id;
       }
       try {
@@ -1269,6 +1290,12 @@ export function DocumentSidebar({
         );
         return true;
       } catch (error) {
+        if (
+          explicitSelection &&
+          explicitSpaceSelectionRef.current === space.id
+        ) {
+          explicitSpaceSelectionRef.current = previousExplicitSelection;
+        }
         toast.error(error instanceof Error ? error.message : String(error));
         return false;
       }
@@ -1765,15 +1792,31 @@ export function DocumentSidebar({
     ],
   );
 
+  const selectSpaceForCreation = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (selectedSpace?.id !== space.id) {
+        return handleSelectContentSpace(space, null, true);
+      }
+      return true;
+    },
+    [handleSelectContentSpace, selectedSpace?.id],
+  );
+
   const handleCreatePageInSpace = useCallback(
     async (space: ContentSpaceSummary) => {
       const id = nanoid();
-      if (selectedSpace?.id !== space.id) {
-        void handleSelectContentSpace(space, null);
-      }
+      if (!(await selectSpaceForCreation(space))) return;
       await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
     },
-    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+    [handleCreatePage, selectSpaceForCreation],
+  );
+
+  const handleCreateDatabaseInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      if (!(await selectSpaceForCreation(space))) return;
+      await handleCreateDatabase(undefined, space.id);
+    },
+    [handleCreateDatabase, selectSpaceForCreation],
   );
 
   const handleDelete = useCallback(
@@ -2029,20 +2072,37 @@ export function DocumentSidebar({
 
   const renderCollapsedNewButton = () =>
     selectedSpace ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-            aria-label={`${t("sidebar.newPage")} — ${selectedSpace.name}`}
-            disabled={createDocument.isPending}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
+                disabled={createDocument.isPending || createDatabase.isPending}
+              >
+                <IconPlus size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("sidebar.new")}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent side="right" align="start" className="w-44">
+          <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconPlus size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
-      </Tooltip>
+            <IconFileText className="me-2 size-4" />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
+          >
+            <IconDatabase className="me-2 size-4" />
+            {t("sidebar.collection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     ) : null;
 
   const renderSettingsNavButton = () => (
@@ -2120,23 +2180,10 @@ export function DocumentSidebar({
   );
   const contentSpaceSelector = selectedSpace ? (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
-            aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
-          >
-            <span className="truncate ps-2 text-start">
-              {selectedSpace.name}
-            </span>
-            <IconChevronDown className="size-3.5 justify-self-center" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
-        >
+      <WorkspaceSourceMenu
+        onCreated={handleWorkspaceCreated}
+        contentClassName="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
+        menuStart={
           <DropdownMenuRadioGroup
             value={selectedSpace.id}
             onValueChange={(spaceId) => {
@@ -2159,18 +2206,44 @@ export function DocumentSidebar({
               </Tooltip>
             ))}
           </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
+        }
+      >
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          aria-label={t("sidebar.addWorkspace")}
+          className="grid h-8 min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center p-0"
+          aria-label={`${t("sidebar.contentSpace")}: ${selectedSpace.name}`}
         >
-          <IconPlus className="size-4" />
+          <span className="truncate ps-2 text-start">{selectedSpace.name}</span>
+          <IconChevronDown className="size-3.5 justify-self-center" />
         </Button>
       </WorkspaceSourceMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
+            disabled={createDocument.isPending || createDatabase.isPending}
+          >
+            <IconPlus className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
+          >
+            <IconFileText className="me-2 size-4" />
+            {t("sidebar.page")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
+          >
+            <IconDatabase className="me-2 size-4" />
+            {t("sidebar.collection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   ) : null;
   const feedbackButton = (
@@ -2220,6 +2293,7 @@ export function DocumentSidebar({
       }
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
+      createDatabasePending={createDatabase.isPending}
       activeDocumentId={sidebarActiveDocumentId}
       expandedDocumentIds={visibleExpandedDocumentIds}
       documentMetadata={documentMetadata}
@@ -2243,17 +2317,22 @@ export function DocumentSidebar({
       onCreatePageInSpace={(nextSpace) =>
         void handleCreatePageInSpace(nextSpace)
       }
-      onCreateChildPage={(nextSpace, item) =>
-        void handleCreatePage(
+      onCreateDatabaseInSpace={(nextSpace) =>
+        void handleCreateDatabaseInSpace(nextSpace)
+      }
+      onCreateChildPage={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreatePage(
           item.document.id,
           nextSpace.id,
           undefined,
           nextSpace.filesDatabaseId,
-        )
-      }
-      onCreateChildDatabase={(nextSpace, item) =>
-        void handleCreateDatabase(item.document.id, nextSpace.id)
-      }
+        );
+      }}
+      onCreateChildDatabase={async (nextSpace, item) => {
+        if (!(await selectSpaceForCreation(nextSpace))) return;
+        await handleCreateDatabase(item.document.id, nextSpace.id);
+      }}
       onDeleteItem={(item) =>
         requestDelete(
           item.document.id,

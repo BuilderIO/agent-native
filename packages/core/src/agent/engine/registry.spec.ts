@@ -3046,8 +3046,46 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("replaces caller-supplied fetch for a configured provider endpoint", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const customFetch = vi.fn();
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({
+        engineOption: {
+          name: "ai-sdk:openai",
+          config: {
+            baseUrl: "https://93.184.216.34/v1",
+            requestFetch: customFetch,
+          },
+        },
+      });
+
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      expect(requestFetch).not.toBe(customFetch);
+      await expect(
+        requestFetch("https://other.example/v1/chat/completions"),
+      ).rejects.toThrow(/escaped its configured origin/);
+      expect(customFetch).not.toHaveBeenCalled();
     });
 
     it("allows an operator-provided private OpenAI-compatible endpoint", async () => {
@@ -3077,8 +3115,131 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "http://127.0.0.1:43123/v1",
+        requestFetch: expect.any(Function),
       });
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = openAiCreate.mock.calls[0][0]
+        .requestFetch as typeof fetch;
+      try {
+        await requestFetch("http://127.0.0.1:43123/v1/chat/completions");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await expect(
+          requestFetch("http://127.0.0.1:43124/v1/chat/completions"),
+        ).rejects.toThrow(/escaped its configured origin/);
+      } finally {
+        vi.unstubAllGlobals();
+      }
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("reuses the shared dispatcher for a public deployment endpoint", async () => {
+      process.env.OPENAI_API_KEY = "sk-operator-test"; // guard:allow-env-credential — verifies operator-owned endpoint classification
+      process.env.OPENAI_BASE_URL = "https://provider.example.invalid/v1"; // guard:allow-env-credential — public endpoint should use the shared dispatcher
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:openai",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create,
+      });
+      await resolveEngine({ engineOption: "ai-sdk:openai" });
+
+      const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", fetchMock);
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      const url = "https://provider.example.invalid/v1/chat/completions";
+      try {
+        await requestFetch(url);
+        await requestFetch(url);
+
+        const dispatcher = (
+          fetchMock.mock.calls[0]?.[1] as
+            | (RequestInit & { dispatcher?: unknown })
+            | undefined
+        )?.dispatcher;
+        expect(dispatcher).toBeDefined();
+        expect(
+          (
+            fetchMock.mock.calls[1]?.[1] as
+              | (RequestInit & { dispatcher?: unknown })
+              | undefined
+          )?.dispatcher,
+        ).toBe(dispatcher);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("rejects a private camelCase provider endpoint before engine creation", async () => {
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn();
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await expect(
+        resolveEngine({
+          engineOption: {
+            name: "ai-sdk:openai",
+            config: { baseUrl: "http://127.0.0.1:43123/v1" },
+          },
+        }),
+      ).rejects.toThrow(/private\/internal address/);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("guards Ollama's implicit loopback endpoint outside trusted self-hosted runtimes", async () => {
+      vi.stubEnv("OLLAMA_BASE_URL", "");
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          isTrustedSelfHostedRuntime: () => false,
+        }),
+      );
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const create = vi.fn().mockReturnValue({
+        name: "ai-sdk:ollama",
+        stream: vi.fn(),
+      });
+      registerAgentEngine({
+        name: "ai-sdk:ollama",
+        label: "Ollama",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "llama3.2",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create,
+      });
+
+      await resolveEngine({ engineOption: "ai-sdk:ollama" });
+      const requestFetch = create.mock.calls[0][0].requestFetch as typeof fetch;
+      await expect(
+        requestFetch("http://127.0.0.1:11434/api/chat"),
+      ).rejects.toThrow(/private\/internal address/);
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
@@ -3126,6 +3287,7 @@ describe("AgentEngine registry", () => {
         apiKey: "sk-e2e",
         allowEnvFallback: true,
         baseUrl: "https://api.openai.com/v1",
+        requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
     });

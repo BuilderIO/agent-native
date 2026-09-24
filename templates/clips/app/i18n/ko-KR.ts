@@ -140,7 +140,6 @@ const messages = {
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
-    breadcrumbBack: "{{label}}(으)로 돌아가기",
   },
   empty: {
     library: {

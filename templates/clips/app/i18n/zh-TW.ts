@@ -135,7 +135,6 @@ const messages = {
     createFolderError: "建立失敗",
     folderCreated: "資料夾已建立",
     folderNamePlaceholder: "資料夾名稱",
-    breadcrumbBack: "返回 {{label}}",
   },
   empty: {
     library: {

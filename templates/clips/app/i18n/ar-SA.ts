@@ -137,7 +137,6 @@ const messages = {
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
-    breadcrumbBack: "العودة إلى {{label}}",
   },
   empty: {
     library: {

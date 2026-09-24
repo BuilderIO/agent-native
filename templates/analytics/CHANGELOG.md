@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Analytics opens faster by loading translation catalogs and rarely used surfaces only when needed.
+
 ## 2026-09-22
 
 ### Added
