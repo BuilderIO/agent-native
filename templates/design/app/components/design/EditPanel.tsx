@@ -3378,7 +3378,9 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
-                  {activeTool === "scale" && scaleToolControls ? (
+                  {activeTool === "scale" &&
+                  scaleToolControls &&
+                  effectiveSelectedElements.length === 1 ? (
                     <ScaleProperties
                       key={`scale:${inspectorElementSectionKey}`}
                       element={

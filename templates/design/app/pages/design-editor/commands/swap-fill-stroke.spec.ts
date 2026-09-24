@@ -79,6 +79,25 @@ describe("runSwapFillStroke", () => {
     expect(patch?.fillOpacity).toBe("");
   });
 
+  it("overrides an authored opacity so it cannot multiply the swapped colour", () => {
+    const patch = swap(
+      element("path", {
+        fill: "rgb(255, 0, 0)",
+        fillOpacity: "0.5",
+        stroke: "rgb(0, 0, 255)",
+        strokeWidth: "1px",
+        strokeOpacity: "0.25",
+      }),
+    );
+
+    expect(patch).toEqual({
+      fill: "rgba(0, 0, 255, 0.25)",
+      fillOpacity: "1",
+      stroke: "rgba(255, 0, 0, 0.5)",
+      strokeOpacity: "1",
+    });
+  });
+
   it("swaps a box's background and border colours", () => {
     const patch = swap(
       element("div", {

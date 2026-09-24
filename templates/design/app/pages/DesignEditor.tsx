@@ -12016,6 +12016,7 @@ function DesignEditor() {
           {
             selectedElement,
             boardFileId,
+            activeBreakpointWidthPx: activeBreakpointWidthState,
             fallbackIframe: canvasIframeRef.current,
           },
           factor,
@@ -12023,7 +12024,13 @@ function DesignEditor() {
         ),
       onExit: handleMoveTool,
     }),
-    [boardFileId, canvasIframeRef, handleMoveTool, selectedElement],
+    [
+      activeBreakpointWidthState,
+      boardFileId,
+      canvasIframeRef,
+      handleMoveTool,
+      selectedElement,
+    ],
   );
 
   const handleDrawTool = useCallback(() => {

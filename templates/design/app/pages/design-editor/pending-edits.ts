@@ -1764,17 +1764,24 @@ export function applyScopedVisualStyleEdit(args: {
     source,
   } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
-  // An empty value clears the base declaration; breakpoint overrides reset
-  // through handleClearBreakpointOverride instead.
-  if (value === "" && upperBoundPx == null) {
+  // An empty value clears the declaration at the edit's own scope.
+  if (value === "") {
     return applyVisualEdit(
       content,
-      {
-        kind: "style",
-        operation: "remove",
-        target,
-        property: normalizedProperty,
-      },
+      upperBoundPx == null
+        ? {
+            kind: "style",
+            operation: "remove",
+            target,
+            property: normalizedProperty,
+          }
+        : {
+            kind: "breakpoint-style",
+            operation: "remove",
+            target,
+            maxWidthPx: upperBoundPx,
+            property: normalizedProperty,
+          },
       { source },
     );
   }

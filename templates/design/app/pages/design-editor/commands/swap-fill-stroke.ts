@@ -74,11 +74,24 @@ export function runSwapFillStroke({
     const nextStroke = fillHasPaint
       ? swappedPaint(fill, styles.fillOpacity)
       : { paint: "none", opacity: "" };
+    // Removing only the inline value would leave an imported SVG's
+    // presentation opacity multiplying the swapped colour.
+    const opacityFor = (
+      next: { paint: string; opacity: string },
+      current: string | undefined,
+    ) =>
+      next.opacity === "" &&
+      next.paint !== "none" &&
+      Number.parseFloat(current ?? "1") < 1
+        ? "1"
+        : next.opacity;
+    const fillOpacity = opacityFor(nextFill, styles.fillOpacity);
+    const strokeOpacityValue = opacityFor(nextStroke, styles.strokeOpacity);
     handleStylesChange({
       fill: nextFill.paint,
-      fillOpacity: nextFill.opacity,
+      fillOpacity,
       stroke: nextStroke.paint,
-      strokeOpacity: nextStroke.opacity,
+      strokeOpacity: strokeOpacityValue,
       ...(fillHasPaint && !strokeHasPaint ? { strokeWidth: "1px" } : {}),
     });
     return;

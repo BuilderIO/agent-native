@@ -1321,6 +1321,22 @@ test("K opens the inspector Scale section, tracks the live factor, and applies a
       afterDrag.frame.width,
     );
     await expect(factor).toBeHidden();
+
+    // The section scales one element, so a multi-selection must not show it.
+    await layerRow(page, "Fixed child")
+      .locator("[data-layer-row-button]")
+      .click();
+    await layerRow(page, "Fill child")
+      .locator("[data-layer-row-button]")
+      .click({ modifiers: ["Shift"] });
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+    await page.keyboard.press("k");
+    await expect(
+      page.locator('button[aria-label="Scale"][aria-pressed="true"]'),
+    ).toBeVisible();
+    await expect(factor).toBeHidden();
   } finally {
     await action(request, "delete-design", { id: designId });
   }
