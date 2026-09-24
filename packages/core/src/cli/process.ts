@@ -82,7 +82,13 @@ export function runDevServer(
     const handler = () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      if (restartTimer) clearTimeout(restartTimer);
+      if (restartTimer) {
+        clearTimeout(restartTimer);
+        restartTimer = undefined;
+        cleanup();
+        exitProcess(128 + osConstants.signals[signal]);
+        return;
+      }
       child?.kill(signal);
       forceExitTimer = setTimeout(() => {
         child?.kill("SIGKILL");

@@ -11,6 +11,7 @@ import {
 } from "./process.js";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -98,6 +99,34 @@ describe("cli process launch options", () => {
     child.emit("exit", null, "SIGTERM");
 
     expect(exitProcess).toHaveBeenCalledWith(128 + osConstants.signals.SIGTERM);
+    for (const signal of signals) {
+      expect(process.listenerCount(signal)).toBe(baseline.get(signal));
+    }
+  });
+  it("exits immediately when a signal cancels a recovery restart", async () => {
+    vi.useFakeTimers();
+    const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+    const baseline = new Map(
+      signals.map((signal) => [signal, process.listenerCount(signal)]),
+    );
+    const child = Object.assign(new EventEmitter(), { kill: vi.fn() });
+    const spawnProcess = vi.fn(() => child);
+    const exitProcess = vi.fn();
+
+    runDevServer("vite", ["--host"], {
+      spawnProcess: spawnProcess as never,
+      exitProcess,
+    });
+    child.emit("exit", DEV_SERVER_RECOVERY_EXIT_CODE, null);
+
+    const signalHandler = process.listeners("SIGINT").at(-1);
+    expect(signalHandler).toBeDefined();
+    signalHandler?.();
+
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(exitProcess).toHaveBeenCalledWith(128 + osConstants.signals.SIGINT);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(spawnProcess).toHaveBeenCalledOnce();
     for (const signal of signals) {
       expect(process.listenerCount(signal)).toBe(baseline.get(signal));
     }
