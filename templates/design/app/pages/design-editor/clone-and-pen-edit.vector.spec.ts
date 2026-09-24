@@ -88,6 +88,47 @@ describe("nested Pen path commits", () => {
     expect(svg?.style.overflow).toBe("visible");
   });
 
+  it("preserves fill and stroke when a nested stroke-only path is reopened", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="stroke-only" data-an-pen-nodes="${serializePenNodes(closedPath)}"
+        d="${serializePenPath(closedPath)}" fill="none" stroke="#000000" />
+    </svg>`;
+
+    const reopened = writeBackVectorEditedPenPath(
+      html,
+      "stroke-only",
+      openPath,
+    );
+    expect(reopened).not.toBeNull();
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened!, "text/html")
+      .querySelector("path");
+    expect(reopenedPath?.getAttribute("fill")).toBe("none");
+    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0");
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened!,
+      "stroke-only",
+      closedPath,
+    );
+    const reclosedPath = new DOMParser()
+      .parseFromString(reclosed!, "text/html")
+      .querySelector("path");
+    expect(reclosedPath?.getAttribute("fill")).toBe("none");
+    expect(reclosedPath?.getAttribute("stroke")).toBe("#000000");
+    expect(reclosedPath?.getAttribute("fill-opacity")).toBeNull();
+  });
+
   it("persists one rounded anchor through vector writeback and node rehydration", () => {
     const path = closePenPath(
       appendPenNode(
@@ -276,7 +317,7 @@ describe("nested Pen path commits", () => {
 });
 
 describe("continuing a committed open Pen path", () => {
-  it("appends and closes in place while persisting the path nodes and fill", () => {
+  it("appends and closes in place while preserving stroke-only paint", () => {
     const path: PenPath = {
       closed: false,
       nodes: [
@@ -335,8 +376,9 @@ describe("continuing a committed open Pen path", () => {
     expect(closedSvg?.querySelector("path")?.getAttribute("d")).toBe(
       "M 0 0 L 40 0 L 40 30 L 0 0 Z",
     );
-    expect(closedSvg?.querySelector("path")?.getAttribute("fill")).toBe(
-      "rgb(218 218 218)",
+    expect(closedSvg?.querySelector("path")?.getAttribute("fill")).toBe("none");
+    expect(closedSvg?.querySelector("path")?.getAttribute("stroke")).toBe(
+      "#000000",
     );
     expect(
       parsePenNodes(closedSvg?.getAttribute("data-an-pen-nodes") ?? ""),

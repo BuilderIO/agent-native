@@ -2154,6 +2154,12 @@ describe("board render style tracks the editor scheme", () => {
   const boardHtml =
     '<!doctype html><html><head></head><body><div data-agent-native-node-id="a"></div></body></html>';
 
+  it("keeps the light default text colour under the dark scheme", () => {
+    expect(getBoardSurfaceRenderContent(boardHtml, true)).toContain(
+      "html{color-scheme:dark!important;color:#000}",
+    );
+  });
+
   it("replaces a stale scheme instead of trusting the marker", () => {
     const dark = getBoardSurfaceRenderContent(boardHtml, true);
     expect(dark).toContain("color-scheme:dark");

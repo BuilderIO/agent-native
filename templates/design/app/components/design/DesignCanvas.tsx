@@ -1173,6 +1173,54 @@ function getExternalPreviewUrl(content: string): string | null {
   }
 }
 
+function isCurrentLiveEditReadyMessage(
+  liveEditUrl: string,
+  routePath: unknown,
+  previousRoutePath: string | null,
+): "current" | "stale" | "invalid" {
+  try {
+    const liveEdit = new URL(liveEditUrl);
+    const targetUrl = liveEdit.searchParams.get("url");
+    const targetPathParam = liveEdit.searchParams.get("path");
+    const targetPath = targetUrl
+      ? new URL(targetUrl)
+      : targetPathParam
+        ? new URL(targetPathParam, liveEdit.origin)
+        : null;
+    if (!targetPath) return "invalid";
+    const expectedRoutePath = targetPath.pathname + targetPath.search;
+    if (typeof routePath === "string" && routePath) {
+      return routePath === expectedRoutePath ? "current" : "stale";
+    }
+    return previousRoutePath === null || previousRoutePath === expectedRoutePath
+      ? "current"
+      : "stale";
+  } catch {
+    return "invalid";
+  }
+}
+
+function liveEditDocumentIdentityForRoute(
+  liveEditUrl: string,
+  routePath: string,
+): { status: "ready"; identity: string } | { status: "invalid" } {
+  try {
+    const liveEdit = new URL(liveEditUrl);
+    const targetUrl = liveEdit.searchParams.get("url");
+    if (!targetUrl) return { status: "invalid" };
+    const target = new URL(targetUrl);
+    const route = new URL(routePath, target.origin);
+    if (route.origin !== target.origin) return { status: "invalid" };
+    target.pathname = route.pathname;
+    target.search = route.search;
+    target.hash = route.hash;
+    liveEdit.searchParams.set("url", target.toString());
+    return { status: "ready", identity: `src:${liveEdit.toString()}` };
+  } catch {
+    return { status: "invalid" };
+  }
+}
+
 function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
   const endpoint = new URL("/snapshot", bridgeUrl);
   endpoint.searchParams.set("url", previewUrl);
@@ -1452,6 +1500,11 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
   }
 }
 
+// Inspector selects and pickers portal outside the right panel; while a text
+// range is being styled they are still part of that inspector gesture.
+const INSPECTOR_POPUP_SELECTOR =
+  '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -1593,7 +1646,7 @@ export function DesignCanvas({
   });
   const textEditInspectorFocusedRef = useRef(false);
   const pendingTextEditResumeRef = useRef<{
-    input: HTMLInputElement;
+    origin: HTMLElement;
     iframe: HTMLIFrameElement;
     contentWindow: Window;
     screenId: string;
@@ -1736,6 +1789,8 @@ export function DesignCanvas({
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
     useState<string | null>(null);
   const liveRoutePathRef = useRef<string | null>(null);
+  const liveEditDocumentIdsRef = useRef(new Set<string>());
+  const liveEditDocumentIdRef = useRef<string | null>(null);
   const previousIframeDocumentIdentityRef = useRef<string | null>(null);
   const pendingOneShotMessagesRef = useRef<unknown[]>([]);
   const flushPendingOneShotMessages = useCallback(() => {
@@ -1846,7 +1901,18 @@ export function DesignCanvas({
     if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
-      !!target.closest('[data-design-chrome-region="right-panel"]');
+      (!!target.closest('[data-design-chrome-region="right-panel"]') ||
+        (textEditInspectorFocusedRef.current &&
+          !!target.closest(INSPECTOR_POPUP_SELECTOR)));
+    const isTextEntry = (target: Element | null): boolean =>
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable) ||
+      (target instanceof HTMLInputElement &&
+        !["button", "checkbox", "radio", "range", "color"].includes(
+          target.type,
+        ));
+    let focusVisitedInspectorPopup = false;
     const cancelPendingTextEditResume = () => {
       const pending = pendingTextEditResumeRef.current;
       if (pending) window.cancelAnimationFrame(pending.frameId);
@@ -1866,6 +1932,67 @@ export function DesignCanvas({
         focused,
       });
     };
+    const scheduleTextEditResume = (origin: HTMLElement) => {
+      const state = textEditingStateRef.current;
+      const owningScreenId = screenId ?? contentKey ?? "";
+      const iframe = iframeRef.current;
+      const contentWindow = iframe?.contentWindow;
+      if (
+        !owningScreenId ||
+        !textEditInspectorFocusedRef.current ||
+        !state.hasRange ||
+        !state.selector ||
+        !iframe ||
+        !contentWindow
+      ) {
+        return;
+      }
+
+      cancelPendingTextEditResume();
+      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
+        {
+          origin,
+          iframe,
+          contentWindow,
+          screenId: owningScreenId,
+          selector: state.selector,
+          sourceId: state.sourceId,
+          phase: "waiting",
+          frameId: 0,
+        };
+      pendingTextEditResumeRef.current = resumeIntent;
+      resumeIntent.frameId = window.requestAnimationFrame(() => {
+        if (pendingTextEditResumeRef.current !== resumeIntent) return;
+        const latest = textEditingStateRef.current;
+        const currentScreenId = screenId ?? contentKey ?? "";
+        const focused = document.activeElement;
+        if (
+          isTextEntry(focused) ||
+          !!focused?.closest(INSPECTOR_POPUP_SELECTOR) ||
+          iframeRef.current !== iframe ||
+          iframe.contentWindow !== contentWindow ||
+          currentScreenId !== resumeIntent.screenId ||
+          !registerRuntimeBridge ||
+          !latest.hasRange ||
+          latest.selector !== resumeIntent.selector ||
+          latest.sourceId !== resumeIntent.sourceId
+        ) {
+          cancelPendingTextEditResume();
+          return;
+        }
+
+        resumeIntent.phase = "resuming";
+        textEditInspectorFocusedRef.current = false;
+        iframe.focus();
+        postOneShotBridgeMessage({
+          type: "resume-text-edit",
+          screenId: resumeIntent.screenId,
+          selector: resumeIntent.selector,
+          sourceId: resumeIntent.sourceId,
+        });
+        pendingTextEditResumeRef.current = null;
+      });
+    };
     const handleFocusIn = (event: FocusEvent) => {
       const pending = pendingTextEditResumeRef.current;
       if (
@@ -1878,10 +2005,27 @@ export function DesignCanvas({
       }
       if (!textEditingStateRef.current.hasRange) return;
       if (isInspectorTarget(event.target)) {
-        if (pending?.phase === "waiting" && event.target !== pending.input) {
+        if (pending?.phase === "waiting" && event.target !== pending.origin) {
           cancelPendingTextEditResume();
         }
         setInspectorFocus(true);
+        // A closing select or picker hands focus back to its trigger (after
+        // unmounting, so relatedTarget is null): the range style is
+        // committed, so return the keyboard to the text.
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest(INSPECTOR_POPUP_SELECTOR)
+        ) {
+          focusVisitedInspectorPopup = true;
+        } else if (
+          focusVisitedInspectorPopup &&
+          target instanceof HTMLElement &&
+          !isTextEntry(target)
+        ) {
+          focusVisitedInspectorPopup = false;
+          scheduleTextEditResume(target);
+        }
       } else if (textEditInspectorFocusedRef.current) {
         setInspectorFocus(false);
       }
@@ -1899,18 +2043,21 @@ export function DesignCanvas({
       cancelPendingTextEditResume();
       if (isInspectorTarget(event.target)) {
         if (textEditingStateRef.current.hasRange) setInspectorFocus(true);
-      } else if (
-        textEditingStateRef.current.hasRange ||
-        textEditInspectorFocusedRef.current
-      ) {
-        setInspectorFocus(false);
+      } else {
+        focusVisitedInspectorPopup = false;
+        if (
+          textEditingStateRef.current.hasRange ||
+          textEditInspectorFocusedRef.current
+        ) {
+          setInspectorFocus(false);
+        }
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const pendingResume = pendingTextEditResumeRef.current;
       if (
         pendingResume?.phase === "waiting" &&
-        event.target !== pendingResume.input
+        event.target !== pendingResume.origin
       ) {
         cancelPendingTextEditResume();
       }
@@ -1940,64 +2087,7 @@ export function DesignCanvas({
       ) {
         return;
       }
-      const state = textEditingStateRef.current;
-      const owningScreenId = screenId ?? contentKey ?? "";
-      const iframe = iframeRef.current;
-      const contentWindow = iframe?.contentWindow;
-      if (
-        !owningScreenId ||
-        !textEditInspectorFocusedRef.current ||
-        !state.hasRange ||
-        !state.selector ||
-        !iframe ||
-        !contentWindow
-      ) {
-        return;
-      }
-
-      cancelPendingTextEditResume();
-      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
-        {
-          input: target,
-          iframe,
-          contentWindow,
-          screenId: owningScreenId,
-          selector: state.selector,
-          sourceId: state.sourceId,
-          phase: "waiting",
-          frameId: 0,
-        };
-      pendingTextEditResumeRef.current = resumeIntent;
-      resumeIntent.frameId = window.requestAnimationFrame(() => {
-        if (pendingTextEditResumeRef.current !== resumeIntent) return;
-        const latest = textEditingStateRef.current;
-        const currentScreenId = screenId ?? contentKey ?? "";
-        if (
-          document.activeElement === target ||
-          isInspectorTarget(document.activeElement) ||
-          iframeRef.current !== iframe ||
-          iframe.contentWindow !== contentWindow ||
-          currentScreenId !== resumeIntent.screenId ||
-          !registerRuntimeBridge ||
-          !latest.hasRange ||
-          latest.selector !== resumeIntent.selector ||
-          latest.sourceId !== resumeIntent.sourceId
-        ) {
-          cancelPendingTextEditResume();
-          return;
-        }
-
-        resumeIntent.phase = "resuming";
-        textEditInspectorFocusedRef.current = false;
-        iframe.focus();
-        postOneShotBridgeMessage({
-          type: "resume-text-edit",
-          screenId: resumeIntent.screenId,
-          selector: resumeIntent.selector,
-          sourceId: resumeIntent.sourceId,
-        });
-        pendingTextEditResumeRef.current = null;
-      });
+      scheduleTextEditResume(target);
     };
     document.addEventListener("focusin", handleFocusIn, true);
     document.addEventListener("focusout", handleFocusOut, true);
@@ -3648,6 +3738,10 @@ export function DesignCanvas({
     : waitingForLiveEditBridge
       ? `live-edit-pending:${liveEditBridgeKey}`
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
+  const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
+  iframeDocumentIdentityRef.current = iframeDocumentIdentity;
+  const externalPreviewUrlRef = useRef(externalPreviewUrl);
+  externalPreviewUrlRef.current = externalPreviewUrl;
   // Route navigation inside a live URL updates `externalPreviewUrl`, but it
   // must not replace the host iframe. Keeping the element stable lets the
   // running app navigate in place while the document identity below still
@@ -3659,9 +3753,11 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
-    bridgeReadyRef.current = false;
-    editorChromeReadyRef.current = false;
-    bootReadyRef.current = false;
+    if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
+      bridgeReadyRef.current = false;
+      editorChromeReadyRef.current = false;
+      bootReadyRef.current = false;
+    }
   }
   // Edit mode must never let a live URL receive native app input before the
   // injected editor bridge has proved that it owns the document. A cached
@@ -3690,9 +3786,18 @@ export function DesignCanvas({
   // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
   // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const markPreviewFrameReady = useCallback(() => {
+    setPreviewFrameLoaded(true);
+    if (!onBootReady || bootReadyRef.current) return;
+    bootReadyRef.current = true;
+    onBootReady();
+  }, [onBootReady]);
   useEffect(() => {
-    setPreviewFrameLoaded(false);
-  }, [iframeDocumentIdentity]);
+    if (!externalPreviewUrl) return;
+    setPreviewFrameLoaded(
+      readyIframeDocumentIdentity === iframeDocumentIdentity,
+    );
+  }, [externalPreviewUrl, iframeDocumentIdentity, readyIframeDocumentIdentity]);
   // No snapshot is ever painted over the live frame, not even for the few
   // frames of a document swap. Covering the real iframe with a frozen copy is
   // the same false-success shape as rendering the snapshot outright: when the
@@ -3802,6 +3907,55 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      let readyDocumentIdentity = iframeDocumentIdentityRef.current;
+      if (
+        trustedCurrentFrame &&
+        sourceType === "localhost" &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        externalPreviewUrlRef.current
+      ) {
+        const documentId =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
+        const knownDocumentId =
+          documentId !== null && liveEditDocumentIdsRef.current.has(documentId);
+        if (
+          documentId !== null &&
+          knownDocumentId &&
+          documentId !== liveEditDocumentIdRef.current
+        ) {
+          return;
+        }
+        if (documentId === null || knownDocumentId) {
+          if (
+            isCurrentLiveEditReadyMessage(
+              externalPreviewUrlRef.current,
+              e.data.routePath,
+              liveRoutePathRef.current,
+            ) !== "current"
+          ) {
+            return;
+          }
+        } else {
+          if (typeof e.data.routePath === "string" && e.data.routePath) {
+            const routeIdentity = liveEditDocumentIdentityForRoute(
+              externalPreviewUrlRef.current,
+              e.data.routePath,
+            );
+            if (routeIdentity.status === "invalid") return;
+            readyDocumentIdentity = routeIdentity.identity;
+          }
+          if (liveEditDocumentIdRef.current !== null) {
+            bridgeReadyRef.current = false;
+            editorChromeReadyRef.current = false;
+            bootReadyRef.current = false;
+            pendingOneShotMessagesRef.current = [];
+          }
+          liveEditDocumentIdsRef.current.add(documentId);
+          liveEditDocumentIdRef.current = documentId;
+        }
+      }
       // A srcdoc editor has booted once its chrome bridge, the last script in
       // the body, reports ready; `load` would also wait for every image. Not
       // any message: the session-replay bootstrap posts a probe from <head>.
@@ -3814,6 +3968,14 @@ export function DesignCanvas({
       ) {
         bootReadyRef.current = true;
         onBootReady();
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "agent-native:editor-chrome-ready" &&
+        sourceType === "localhost" &&
+        externalPreviewUrl
+      ) {
+        markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
       if (e.data.type === "agent-native:live-route-path") {
@@ -3862,7 +4024,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
       if (typeof e.data.routePath === "string" && e.data.routePath) {
@@ -3909,14 +4071,10 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
-        if (typeof e.data.routePath === "string" && e.data.routePath) {
-          liveRoutePathRef.current = e.data.routePath;
-          onRoutePathChange?.(screenId, e.data.routePath);
-        }
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
-        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        setReadyIframeDocumentIdentity(readyDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
         // is genuinely live — clear the suspected-restart attempt counter so
         // a later transient hiccup gets the full retry budget again instead
@@ -4696,6 +4854,14 @@ export function DesignCanvas({
             !Array.isArray(e.data.inlineStyles)
               ? (e.data.inlineStyles as Record<string, string>)
               : undefined,
+          rect:
+            Number.isFinite(e.data.rect?.width) &&
+            Number.isFinite(e.data.rect?.height)
+              ? {
+                  width: Number(e.data.rect.width),
+                  height: Number(e.data.rect.height),
+                }
+              : undefined,
         };
         textEditingStateRef.current = textState;
         onTextEditingStateChange?.(textState);
@@ -4969,6 +5135,7 @@ export function DesignCanvas({
     onRuntimeLayerSnapshot,
     onBridgeReady,
     onBootReady,
+    markPreviewFrameReady,
     onBootStart,
     externalPreviewUrl,
     onScreenRootComputedStyles,
@@ -5381,6 +5548,13 @@ export function DesignCanvas({
   // Routed through the one-shot queue too: a zoom settle that lands while the
   // iframe is mid-reload would otherwise be silently dropped, leaving the
   // chrome at a stale scale until the next zoom change.
+  //
+  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
+  // embedded-canvas-gesture-mode effect below: a document swap resets
+  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
+  // message if it queued before the swap. Without this dep, a URL-backed frame
+  // that loads at a non-1 overview scale never gets a live scale push after the
+  // swap (only the baked-at-1 script value applies) until the next zoom change.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "set-editor-chrome-scale",
@@ -5391,6 +5565,7 @@ export function DesignCanvas({
     effectiveEditorChromeScaleX,
     effectiveEditorChromeScaleY,
     postOneShotBridgeMessage,
+    readyIframeDocumentIdentity,
   ]);
 
   // Overview/focused placement is presentation state, not document identity.
@@ -5860,7 +6035,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
@@ -5871,6 +6050,7 @@ export function DesignCanvas({
         value,
         selectorCandidates: options?.selectorCandidates ?? [],
         nodeId: options?.nodeId ?? "",
+        phase: options?.phase,
       });
     },
     [postOneShotBridgeMessage],
@@ -6559,7 +6739,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const isBreakpointScopedPreview =
         typeof previewFrameId === "string" && previewFrameId.includes("::bp-");
@@ -6768,7 +6952,14 @@ export function DesignCanvas({
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
-    if (textEditingStateRef.current.active) return;
+    // A picker drag ending over the canvas must not take focus from the open
+    // picker: losing it ends the inspector gesture and drops a styled text range.
+    if (
+      textEditingStateRef.current.active ||
+      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+    ) {
+      return;
+    }
     const focusedElement = document.activeElement;
     if (focusedElement instanceof HTMLIFrameElement) {
       try {
@@ -7036,11 +7227,7 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            setPreviewFrameLoaded(true);
-            if (onBootReady && !bootReadyRef.current) {
-              bootReadyRef.current = true;
-              onBootReady();
-            }
+            markPreviewFrameReady();
             sendBridgeToContainer();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
@@ -7075,6 +7262,10 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            // An inline screen is light unless it says otherwise; inheriting the dark
+            // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
+            colorScheme:
+              boardSurface || externalPreviewUrl ? undefined : "light",
             pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({

@@ -401,7 +401,7 @@ Essas configurações afetam apenas a navegação da página somente leitura. Fe
 
 ### Implantação independente por aplicativo
 
-Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && npx @agent-native/core@latest build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
+Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && pnpm build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
 
 ### Banco de dados compartilhado, credenciais compartilhadas
 

@@ -321,4 +321,48 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       expect(styles?.pointerEvents).toBeUndefined();
     },
   );
+
+  it(
+    "carries no inherited colour, font, empty border or outline onto a moved vector or image",
+    { timeout: 30_000 },
+    async () => {
+      const page = `<!doctype html><html><head><style>*{box-sizing:border-box}</style></head><body style="margin:0;color:#111827;font-family:Inter">
+        <svg data-agent-native-node-id="vec" viewBox="0 0 10 10" style="position:absolute;left:10px;top:10px;width:100px;height:100px"><path d="M0 0 L10 10" stroke="#fff"></path></svg>
+        <img data-agent-native-node-id="img" alt="" style="position:absolute;left:200px;top:10px;width:100px;height:60px">
+      </body></html>`;
+      for (const id of ["vec", "img"]) {
+        const styles = await portableStyleSnapshotStylesFor(
+          page,
+          `[data-agent-native-node-id="${id}"]`,
+        );
+        for (const property of [
+          "border",
+          "outline",
+          "color",
+          "font",
+          "textDecorationColor",
+          "transformOrigin",
+          "boxSizing",
+          "display",
+        ]) {
+          expect(styles?.[property], `${id} ${property}`).toBeUndefined();
+        }
+      }
+    },
+  );
+
+  it(
+    "keeps a border that paints and the colour a currentColor stroke reads",
+    { timeout: 30_000 },
+    async () => {
+      const styles = await portableStyleSnapshotStylesFor(
+        `<!doctype html><html><body style="margin:0;color:rgb(10, 20, 30)">
+          <div data-agent-native-node-id="box" style="position:absolute;width:40px;height:40px;border:2px solid"></div>
+        </body></html>`,
+        '[data-agent-native-node-id="box"]',
+      );
+      expect(styles?.borderTopWidth).toBe("2px");
+      expect(styles?.borderTopColor).toBe("rgb(10, 20, 30)");
+    },
+  );
 });
