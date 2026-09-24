@@ -948,8 +948,23 @@ export const NotionToggle = Node.create({
   },
 });
 
-function CalloutView({ node, updateAttributes }: NodeViewProps) {
+function CalloutView({ editor, getPos, node }: NodeViewProps) {
   const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
+  const updateIcon = (value: IconValue | null) => {
+    if (!editor.isEditable) throw new Error("Callout is not editable");
+    const pos = getPos();
+    if (typeof pos !== "number") throw new Error("Callout is unavailable");
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (currentNode?.type.name !== "notionCallout")
+      throw new Error("Callout is unavailable");
+    const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+      ...currentNode.attrs,
+      icon: value ? serializeIconValue(value) : "💡",
+    });
+    tr.setMeta("preventClearDocument", true);
+    tr.setMeta("uiEvent", "pointer");
+    editor.view.dispatch(tr);
+  };
   return (
     <NodeViewWrapper
       data-notion-callout="true"
@@ -957,13 +972,7 @@ function CalloutView({ node, updateAttributes }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
     >
       <div data-notion-callout-icon="true" contentEditable={false}>
-        <EmojiPicker
-          icon={icon}
-          variant="compact"
-          onSelect={(value) =>
-            updateAttributes({ icon: value ? serializeIconValue(value) : "💡" })
-          }
-        />
+        <EmojiPicker icon={icon} variant="compact" onSelect={updateIcon} />
       </div>
       <NodeViewContent data-notion-callout-content="true" />
     </NodeViewWrapper>
