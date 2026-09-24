@@ -733,6 +733,7 @@ export function useBuilderConnectFlow(
   const activePopupRef = useRef<Window | null>(null);
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
+  const callbackSuccessInFlightAtRef = useRef<number | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
   const mountedRef = useRef(true);
@@ -979,6 +980,11 @@ export function useBuilderConnectFlow(
   const cancel = useCallback(() => {
     if (connectStartedAtRef.current === null) return;
     popupClosedAtRef.current ??= Date.now();
+    try {
+      activePopupRef.current?.close();
+    } catch {
+      // The bounded cancellation path still applies if the browser refuses.
+    }
   }, []);
 
   const start = useCallback(
@@ -994,6 +1000,7 @@ export function useBuilderConnectFlow(
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
       callbackSuccessStartedAtRef.current = null;
+      callbackSuccessInFlightAtRef.current = null;
       activePopupRef.current = null;
       popupClosedAtRef.current = null;
       activeTrackingRef.current = {
@@ -1303,17 +1310,15 @@ export function useBuilderConnectFlow(
       } else if (
         (isPopupClosed(activePopupRef.current) ||
           popupClosedAtRef.current !== null) &&
-        callbackSuccessStartedAtRef.current !== started
+        callbackSuccessInFlightAtRef.current !== started
       ) {
         // The user closed or cancelled the popup before Builder confirmed
         // credentials. Give a slow-but-real confirmation a grace window
         // (see POPUP_CLOSED_CONFIRMATION_GRACE_MS) before giving up, but do
         // not leave the button spinning for the full 5-minute ceiling below.
-        // Skipped entirely once the postMessage/BroadcastChannel success
-        // handler has started for this attempt (callbackSuccessStartedAtRef
-        // set): that handler owns its own bounded retry and must be the one
-        // to resolve `connecting`, or this branch would race it and discard
-        // a real success that lands a moment after the grace window closes.
+        // Suppressed only while the postMessage/BroadcastChannel handler's
+        // bounded confirmation retries are in flight; after they finish, this
+        // branch can still clear a cancelled attempt without racing success.
         popupClosedAtRef.current ??= Date.now();
         if (
           Date.now() - popupClosedAtRef.current >
@@ -1395,6 +1400,7 @@ export function useBuilderConnectFlow(
         return;
       }
       callbackSuccessStartedAtRef.current = started;
+      callbackSuccessInFlightAtRef.current = started;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
       for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
         s = await fetchStatus(
@@ -1410,6 +1416,9 @@ export function useBuilderConnectFlow(
         if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
           await delay(CALLBACK_SUCCESS_STATUS_RETRY_MS);
         }
+      }
+      if (callbackSuccessInFlightAtRef.current === started) {
+        callbackSuccessInFlightAtRef.current = null;
       }
       if (!mountedRef.current || connectStartedAtRef.current !== started) {
         return;
