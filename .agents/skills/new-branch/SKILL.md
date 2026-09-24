@@ -31,10 +31,13 @@ branch movement.
 These are mistakes other agents have made that stranded concurrent work:
 
 - The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push. The only exception is `/ship`'s authorized rotation after its merge is verified on `origin/main`.
-- The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
+- The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them. The verified post-merge `/ship` exception applies only to the current user-owned checkout.
 - You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI. This rule also exempts `/ship` from its post-merge rotation in that checkout.
-- The working tree has uncommitted changes. Checkpoint all nonignored local work
-  before branching; do not classify changes by authorship or stash them silently.
+- The working tree has uncommitted changes. For normal branch requests,
+  checkpoint all nonignored work before branching; do not classify by authorship
+  or stash it silently. `/ship` may carry only its documented `learnings.md`,
+  `bridge/**`, and `data/**` exclusions to its post-merge branch, preserving and
+  verifying those local changes. Any other dirty path blocks rotation.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
 When in doubt: stay on the current branch. Ask the user before moving.
