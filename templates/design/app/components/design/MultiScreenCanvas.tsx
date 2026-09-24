@@ -13325,22 +13325,26 @@ const Screen = memo(function Screen({
           data-frame-full-view
           data-compact={compactFullView || undefined}
           className={cn(
-            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute left-1/2 top-1/2 z-40 flex h-5 shrink-0 -translate-x-1/2 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             fullViewVisible && "opacity-100",
           )}
           style={{
             maxWidth: fullViewMaxWidth,
-            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-            transformOrigin: "right center",
+            transform: `translate(-50%, -50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+            transformOrigin: "center center",
             transition: getChromeLabelTransition(
               chromeSettling && fullViewVisible,
             ),
           }}
           aria-label={frameActionLabel}
           title={frameActionLabel}
-          onClick={(event) => onEdit(screen.id, event)}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onEdit(screen.id, event);
+          }}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();

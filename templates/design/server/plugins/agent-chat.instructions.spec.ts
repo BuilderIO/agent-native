@@ -57,6 +57,9 @@ describe("external design authoring catalog", () => {
       "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
     );
     expect(agentChatSource).toContain(
+      'keyToolNames: ["get-visual-edit-pending"]',
+    );
+    expect(agentChatSource).toContain(
       'externalAgents: { writes: "allowlisted" }',
     );
     expect(agentChatSource).toContain("designSystem.agentContext");

@@ -3932,6 +3932,11 @@ export function DesignCanvas({
         liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
         setLiveEditSameInstanceStalledError(null);
         flushPendingOneShotMessages();
+        // Re-send every persistent editor mode after the queue is flushed.
+        // This covers a ready handshake that wins the race with the initial
+        // effects, including the bridge's baked-off wheel default.
+        forceSelectionMirrorResyncRef.current = true;
+        replayIframeEditorStateRef.current?.();
         return;
       }
       if (e.data.type === "clear-selection") {
@@ -4995,6 +5000,8 @@ export function DesignCanvas({
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
   const interactModeRef = useRef(interactMode);
   interactModeRef.current = interactMode;
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
   // Render-synced committed selection so the message handler reads current
   // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
@@ -5006,11 +5013,24 @@ export function DesignCanvas({
     const iframe = iframeRef.current;
     if (!iframe) return;
     iframe.contentWindow?.postMessage(
-      { type: "agent-native:editor-chrome-ready-probe" },
+      { type: "set-interaction-mode", interact: interactModeRef.current },
+      "*",
+    );
+    iframe.contentWindow?.postMessage({ type: "set-read-only", readOnly }, "*");
+    iframe.contentWindow?.postMessage(
+      {
+        type: "set-text-editing-enabled",
+        enabled: editModeRef.current,
+      },
       "*",
     );
     iframe.contentWindow?.postMessage(
-      { type: "set-interaction-mode", interact: interactModeRef.current },
+      {
+        type: "embedded-canvas-gesture-mode",
+        wheelEnabled: isEmbeddedFrame && !interactModeRef.current,
+        spaceKeyForwardingEnabled: interactModeRef.current || readOnly,
+        editingSafetyEnabled: !interactModeRef.current,
+      },
       "*",
     );
     iframe.contentWindow?.postMessage(
@@ -5136,6 +5156,7 @@ export function DesignCanvas({
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
+    isEmbeddedFrame,
     lockedSelectors,
     motionTracks,
     motionDefaultEase,
@@ -5145,6 +5166,7 @@ export function DesignCanvas({
     selectedSelectorCandidates,
     selectedSelectorGroups,
     passiveSelectionStyle,
+    readOnly,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
@@ -5508,8 +5530,6 @@ export function DesignCanvas({
   // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
   // covers first paint; subsequent changes arrive here. Also re-send on
   // iframe load so the bridge is in sync after any content-key-driven reload.
-  const editModeRef = useRef(editMode);
-  editModeRef.current = editMode;
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;

@@ -560,10 +560,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message: "{{modifier}} दबाकर क्लिक करें और अंदर की लेयर चुनें।",
-      dismiss: "लेयर चयन की टिप बंद करें",
-    },
     autoLayoutSuggestion: {
       menuLabel: "ऑटो लेआउट सुझाएँ…",
       title: "ऑटो लेआउट सुझाएँ",

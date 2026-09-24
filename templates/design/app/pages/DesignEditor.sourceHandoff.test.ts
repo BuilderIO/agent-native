@@ -63,11 +63,11 @@ describe("DesignEditor pending source handoff", () => {
       source.indexOf('viewMode === "overview"', start),
     );
     expect(toolbar).not.toBe("");
-    expect(toolbar).toContain("{shellMode ? null : (");
+    expect(toolbar).toContain("{shellMode && canEditDesign ? null : (");
     expect(toolbar).toContain("<DropdownMenu>");
-    expect(toolbar.indexOf("{shellMode ? null : (")).toBeLessThan(
-      toolbar.indexOf("<DropdownMenu>"),
-    );
+    expect(
+      toolbar.indexOf("{shellMode && canEditDesign ? null : ("),
+    ).toBeLessThan(toolbar.indexOf("<DropdownMenu>"));
     expect(toolbar).toContain('"designEditor.pendingVisualStyles.applying"');
     expect(toolbar).toContain("applyingViaHost ||");
     expect(toolbar).toContain("{applyingViaHost ? (");

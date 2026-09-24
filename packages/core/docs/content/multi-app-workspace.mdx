@@ -311,6 +311,8 @@ You have two options: **unified deploy** (the default for workspaces) or per-app
 
 Whichever you pick, point every app at the same `DATABASE_URL` for cross-app state out of the box: one set of user accounts, one set of organizations, one set of shared settings. The shared package itself is never deployed standalone — pnpm symlinks it into each app's `node_modules/` at build time.
 
+Connection demand adds up across processes that share a database. If five long-lived Node.js app processes each use one shared pool for the same `DATABASE_URL`, they can hold up to 100 connections at the default of 20 per pool (`5 × 1 pool × 20`). For serverless workspaces, estimate warm function instances per app using the runtime-specific pool defaults. See [Server database](/docs/server-database) for `AGENT_NATIVE_DB_POOL_MAX` and the full budgeting guidance.
+
 ### Public app routes
 
 Workspace apps are internal by default. For a public site with login-only admin pages, set a public audience and protect the admin prefix in that app's `package.json`:

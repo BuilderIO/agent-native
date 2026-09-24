@@ -407,6 +407,8 @@ Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.c
 
 Was auch immer Sie auswählen, verweisen Sie jede App auf den gleichen `DATABASE_URL` für einen App-übergreifenden Status: ein Satz Benutzerkonten, ein Satz Organisationen, ein Satz gemeinsamer Einstellungen. Wenn jede App über eine eigene Datenbank verfügt, funktioniert das Arbeitsbereichsmuster weiterhin – Sie verlieren nur die Geschichte des gemeinsamen Status.
 
+Der Verbindungsbedarf summiert sich über alle Prozesse, die dieselbe Datenbank verwenden. Wenn fünf dauerhaft laufende Node.js-App-Prozesse jeweils einen gemeinsamen Pool für dieselbe `DATABASE_URL` nutzen, können sie beim Standardwert von 20 Verbindungen pro Pool bis zu 100 Verbindungen belegen (`5 × 1 Pool × 20`). Bei serverlosen Workspaces schätzen Sie die Zahl warmer Funktionsinstanzen pro App anhand der laufzeitspezifischen Pool-Standardwerte. Unter [Serverdatenbank](/docs/server-database) finden Sie `AGENT_NATIVE_DB_POOL_MAX` und die vollständigen Hinweise zur Verbindungsplanung.
+
 Das freigegebene Paket selbst wird niemals eigenständig bereitgestellt. Es handelt sich um eine `workspace:*`-Abhängigkeit, die mit dem `node_modules/` jeder App symbolisch mit pnpm verknüpft ist, sodass jede App zur Erstellungszeit transparent alles bündelt, was sie benötigt.
 
 ## Außerhalb des Gültigkeitsbereichs (vorerst) {#out-of-scope}
