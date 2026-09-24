@@ -85,9 +85,9 @@ const STALE_PR_WATCHER_RE = new RegExp(
 );
 
 const SHIP_USER = String.raw`(?:i|we|(?:the\s+)?user)`;
-const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge|do\s+not\s+merge|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
+const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge|do\s+not\s+merge|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
 const SHIP_AFFIRMATIVE_OPT_OUT_RE = new RegExp(
-  String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)\b`,
+  String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*|^\s*(?:please\s+)?(?:don['’]?t|do\s+not)\s+merge\s+.{0,40}\b(?:PR|pull request)\s*#?\d+|^\s*(?:please\s+)?keep\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged))\b`,
   "i",
 );
 const SHIP_FALSE_OPT_OUT_BEFORE_RE = new RegExp(
@@ -141,7 +141,7 @@ function sentenceBoundsAt(text, index) {
 
 function prNumbers(text) {
   return new Set(
-    [...text.matchAll(/\b(?:PR|pull request)\s*#(\d+)\b/gi)].map(
+    [...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi)].map(
       (match) => match[1],
     ),
   );
@@ -154,7 +154,7 @@ function prNumbersNearMatch(text, match) {
   const start = match.index;
   const end = start + match[0].length;
   const references = [
-    ...text.matchAll(/\b(?:PR|pull request)\s*#(\d+)\b/gi),
+    ...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi),
   ].map((reference) => ({
     number: reference[1],
     distance:
@@ -664,6 +664,19 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     false,
     "The agent stopped /ship with PR #123 unmerged. I said to leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. Please don’t merge PR #123.",
+  ],
+  [false, "The agent stopped /ship with PR 123 unmerged. Keep PR 123 open."],
+  [
+    true,
+    "The agent stopped /ship with PR 123 unmerged. I explicitly asked to leave PR 456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. A reviewer said “Please don’t merge PR #123.”",
   ],
   [
     true,
