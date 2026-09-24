@@ -315,7 +315,7 @@ Use this shape:
 
 | PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Why and evidence |
 | --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Needs updates / Cannot assess | No UI / UI; screenshot present or requested | ... |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | No UI / UI; screenshot present or requested | ... |
 
 Unavailable or unverified: ...
 ```
