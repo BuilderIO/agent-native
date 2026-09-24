@@ -45,6 +45,17 @@ export interface PullRequestGovernanceDecision {
   guardResults: GuardResult[];
 }
 
+export function hasAcceptableGovernanceCheckEvidence(input: {
+  checksPassed: boolean;
+  checksCoverage: TriageCoverage;
+  internalBuilderMember: boolean;
+}): boolean {
+  return (
+    input.checksCoverage === "complete" &&
+    (input.internalBuilderMember || input.checksPassed)
+  );
+}
+
 export function detectOwnerOwnedArea(
   values: readonly (string | null | undefined)[],
 ): OwnerOwnedArea | null {
@@ -135,9 +146,11 @@ export function decidePullRequestGovernance(
     },
     {
       code: "security",
-      passed:
-        checksCoverage === "complete" &&
-        (internalEvidenceException || input.checksPassed),
+      passed: hasAcceptableGovernanceCheckEvidence({
+        checksPassed: input.checksPassed,
+        checksCoverage,
+        internalBuilderMember: internalEvidenceException,
+      }),
       reason:
         checksCoverage !== "complete"
           ? `CI check evidence is ${checksCoverage}; complete check coverage is required before autonomous approval.`
@@ -427,6 +440,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/ingest-github-observation.ts") ||
       normalized.endsWith("/reconcile-triage-run.ts") ||
       normalized.endsWith("/approve-factory-item.ts") ||
+      normalized.endsWith("/govern-factory-pull-request.ts") ||
       normalized.endsWith("/start-builder-for-item.ts") ||
       normalized.endsWith("/agent-chat.ts") ||
       normalized.endsWith("/builder-executor.ts") ||

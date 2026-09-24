@@ -45,6 +45,7 @@ import {
   hasActiveCredibleSafetyFinding,
   currentPullRequestApprovals,
   FACTORY_APPROVAL_BODY_MARKER,
+  hasAcceptableGovernanceCheckEvidence,
   hasCurrentBlockingPullRequestReview,
   isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
@@ -59,6 +60,17 @@ function hasUsableChangedFiles(
       (file) => typeof file === "string" && file.trim().length > 0,
     )
   );
+}
+
+export function hasSafeFinalApprovalChecks(
+  evidence: Parameters<typeof hasCompletePassingChecks>[0],
+  internalBuilderMember: boolean,
+): boolean {
+  return hasAcceptableGovernanceCheckEvidence({
+    checksPassed: hasCompletePassingChecks(evidence),
+    checksCoverage: evidence.checksCoverage ?? "unknown",
+    internalBuilderMember,
+  });
 }
 
 async function hasVerifiedFactoryRun(input: {
@@ -980,7 +992,10 @@ export default defineAction({
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
-          !hasCompletePassingChecks(finalReviewSnapshot) ||
+          !hasSafeFinalApprovalChecks(
+            finalReviewSnapshot,
+            postClaimInternalMember.isMember,
+          ) ||
           finalReviewSnapshot.commentsTruncated ||
           finalReviewSnapshot.reviewsTruncated ||
           hasActiveCredibleSafetyFinding(

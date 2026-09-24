@@ -159,6 +159,11 @@ describe("pull-request governance", () => {
       isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
     ).toBe(true);
     expect(
+      isUltraScaryChange([
+        "templates/factory/actions/govern-factory-pull-request.ts",
+      ]),
+    ).toBe(true);
+    expect(
       hasActiveCredibleSafetyFinding(
         [{ state: "commented", body: "No security issues found." }],
         [],
@@ -450,6 +455,31 @@ describe("pull-request governance", () => {
         changedFiles: [".agents/skills/review-prs/SKILL.md"],
       }),
     ).toMatchObject({ ownerException: null, autoApprove: false });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        changedFiles: [
+          "templates/factory/actions/govern-factory-pull-request.ts",
+        ],
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
+  });
+
+  it("requires complete check evidence while allowing the internal-member exception", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        checksPassed: false,
+        checksCoverage: "complete",
+      }).autoApprove,
+    ).toBe(true);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        checksPassed: false,
+        checksCoverage: "partial",
+      }).autoApprove,
+    ).toBe(false);
   });
 
   it("applies the verified docs-only exception", () => {
