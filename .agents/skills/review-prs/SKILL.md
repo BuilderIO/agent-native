@@ -248,9 +248,10 @@ approval or merge action: this skill never merges a PR, and external authors
 remain ineligible for approval. Use the BuilderIO membership API; a confirmed
 nonmember is external, while lookup or visibility failures leave membership
 unknown. Only prepare author-facing reply drafts for authors verified as
-external. For verified internal authors, report any requested updates or
-missing UX evidence in the recap without drafting or posting a comment. If
-membership is unknown, do not treat the author as external or draft a reply.
+external. Never draft a reply for a verified BuilderIO member, including a
+thank-you; report requested updates or missing UX evidence in the recap
+instead. If membership is unknown, do not treat the author as external or
+draft a reply.
 
 Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
 **Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
@@ -271,13 +272,16 @@ draft a concise reply that names the concrete change or evidence requested and
 links the relevant review thread or check when useful. Before drafting, inspect
 the PR timeline, commits, and review threads for all actionable requests from
 the exact login `steve8708`. If any request remains unaddressed, do not draft or
-post another author-facing comment. A contributor commit or substantive reply
-clears only the requests it actually addresses; an unrelated commit or bare
-acknowledgment does not. Mark the PR as waiting on the contributor and link
-each outstanding request. Once all prior requests are addressed, reassess the
-current head and draft only the remaining code or screenshot requests. This
-also applies when another comment or bot event is newer than Steve's request;
-bot activity alone does not reopen the handoff.
+post another author-facing comment. In particular, if the latest PR activity is
+Steve asking for an update and no later contributor reply or relevant commit
+addresses it, mark the PR as waiting and do not add another comment. A
+contributor commit or substantive reply clears only the requests it actually
+addresses; an unrelated commit or bare acknowledgment does not. Mark the PR as
+waiting on the contributor and link each outstanding request. Once all prior
+requests are addressed, reassess the current head and draft only the remaining
+code or screenshot requests. This also applies when another comment or bot
+event is newer than Steve's request; bot activity alone does not reopen the
+handoff.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
 comment on that PR, begin the draft by thanking the contributor. Do not repeat

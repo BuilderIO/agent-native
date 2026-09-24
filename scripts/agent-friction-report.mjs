@@ -137,6 +137,8 @@ const FEEDBACK_EYES_REGEX_CASES = [
 const PR_REVIEW_HANDOFF_CORRECTIONS = [
   String.raw`didn['’]?t|did not|missed|forgot|failed to|left out|left off|omitted|should have waited|(?:sent|posted|drafted|added|left) another|commented again|replied again|followed up again`,
   String.raw`(?:marked|called|classified)[^.!?\n]{0,80}(?:despite|although|without|ignoring|in spite of)`,
+  String.raw`(?:do not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
+  String.raw`(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
 ].join("|");
 const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness(?:\s+recommendation)?`,
@@ -148,11 +150,13 @@ const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`(?:UI|UX)\s+screenshots?\s+(?:status|presence|availability|evidence|disposition)|screenshot\s+(?:status|disposition)`,
   String.raw`screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
   String.raw`ready(?:\s+to\s+merge)?[^.!?\n]{0,80}(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)`,
-  String.raw`(?:another|additional|further|repeat(?:ed)?)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?\n]{0,100}(?:prior|previous|earlier|last|unanswered|unaddressed|outstanding)\s+(?:Steve\s+)?(?:request|comment|ask)|(?:prior|previous|earlier|last|unanswered|unaddressed|outstanding)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?\n]{0,100}(?:another|additional|further|follow[- ]?up)|(?:wait(?:ed)?|another\s+comment|another\s+reply)[^.!?\n]{0,100}(?:contributor|author|their)[^.!?\n]{0,100}(?:update|respond|reply|address)`,
-  String.raw`(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?\n]{0,100}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
+  String.raw`(?:(?:another|additional|further|repeat(?:ed)?)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|commented again|replied again|followed up again)[^.!?\n]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?\n]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
+  String.raw`(?:(?:another|additional|further|repeat(?:ed)?)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|commented again|replied again|followed up again)[^.!?\n]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?\n]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
+  String.raw`(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?\n]{0,120}(?:until|while)[^.!?\n]{0,100}(?:contributor|author|they)[^.!?\n]{0,80}(?:update|respond|reply|address)[^.!?\n]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
+  String.raw`(?:wait(?:ed)?|another\s+comment|another\s+reply)[^.!?\n]{0,100}(?:contributor|author|their)[^.!?\n]{0,100}(?:update|respond|reply|address)`,
 ].join("|");
 const PR_REVIEW_HANDOFF_RE = new RegExp(
-  String.raw`\b(?:you|we|the handoff|the (?:recap|summary|report|output))\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
+  String.raw`\b(?:you|we|the handoff|the (?:recap|summary|report|output)|do not|don't|never|avoid)\b(?=[^.!?\n]{0,80}\b(?:${PR_REVIEW_HANDOFF_CORRECTIONS})\b)(?=[^.!?\n]{0,260}\b(?:${PR_REVIEW_HANDOFF_OMISSIONS})\b)[^.!?\n]{1,280}`,
   "i",
 );
 
@@ -175,6 +179,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "You sent another comment while my prior request was unanswered."],
   [
     true,
+    "Do not post another author-facing reply until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
     "You should have waited for the author to address my previous request before a follow-up.",
   ],
   [true, "You commented again even though my prior ask was still unaddressed."],
@@ -191,6 +199,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "Please wait for the contributor to update before drafting another comment.",
   ],
   [false, "The author addressed my prior request in a new commit."],
+  [
+    false,
+    "You drafted another reply after Steve's prior request was addressed in the latest commit.",
+  ],
   [
     false,
     "You classified the PR as ready to merge and included screenshot status.",
