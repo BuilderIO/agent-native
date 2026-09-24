@@ -85,7 +85,7 @@ const STALE_PR_WATCHER_RE = new RegExp(
 );
 
 const SHIP_USER = String.raw`(?:i|we|(?:the\s+)?user)`;
-const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge|do\s+not\s+merge|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
+const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|do\s+not\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
 const SHIP_AFFIRMATIVE_OPT_OUT_RE = new RegExp(
   String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*|^\s*(?:please\s+)?(?:don['’]?t|do\s+not)\s+merge\s+.{0,40}\b(?:PR|pull request)\s*#?\d+|^\s*(?:please\s+)?keep\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged))\b`,
   "i",
@@ -103,6 +103,7 @@ const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
 
 const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   String.raw`(?:${[
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
     String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
     String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
@@ -204,7 +205,7 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
     const prs = prNumbersNearMatch(text, match);
     const refersBackToShipment =
       previousShipmentPrs.size === 1 &&
-      /(?:\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
+      /(?:\bleave\s+(?:it|(?:the\s+)?(?:PR|pull request))\s+(?:open|unmerged)\b|\b(?:don['’]?t|do not)\s+merge\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?)\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
         match[0],
       );
     return {
@@ -581,6 +582,14 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
     "They just stop after opening the PR; /ship should keep checking until merged.",
   ],
   [false, "Do not stop /ship until the PR is merged."],
+  [
+    true,
+    "I asked /ship to merge PR #123, but it merely opened the PR and returned.",
+  ],
+  [
+    false,
+    "I asked /ship to merge PR #123, and it opened the PR while CI runs; it will merge after the checks pass.",
+  ],
   [true, "I already asked: do not stop /ship until the PR is merged."],
   [true, "The agent ended /ship before the PR was merged."],
   [true, "Why did /ship finish before merging the pull request?"],
@@ -652,6 +661,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     false,
     "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly said don’t merge it.",
   ],
   [
     false,

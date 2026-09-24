@@ -527,13 +527,13 @@ before pausing the watcher or releasing its lease:
    fails or ownership changed, stop audits, branch disposition, and cleanup;
    wait read-only until this invocation can safely reacquire the lease under
    the normal claim rules. Never mutate another owner's lease.
-2. Before the final inline-thread and review-summary audits below, fetch origin
-   and renew/verify this invocation's lease with the observed-version
-   compare-and-swap. If renewal fails, do no audits or checkout mutations;
-   wait read-only and resume only after safely reacquiring under the normal
-   lease rules. If new actionable feedback appears after merge, record it as a
-   post-merge follow-up, retain the source branch, and do not restart this PR's
-   merge soak.
+2. Before any branch disposition, fetch origin and renew/verify this
+   invocation's lease with the observed-version compare-and-swap. If renewal
+   fails, do no audits or checkout mutations; wait read-only and resume only
+   after safely reacquiring under the normal lease rules. Then rerun both final
+   review audits described below. If new actionable feedback appears after
+   merge, record it as a post-merge follow-up, retain the source branch, and do
+   not restart this PR's merge soak.
 3. If Step 2 recorded a post-merge follow-up, retain the source branch and skip
    branch mutation. Otherwise, complete `/ship`'s authorized post-merge branch
    disposition, passing the saved `ship_merge_head_oid` to `/new-branch`.
@@ -552,9 +552,10 @@ PR merge by itself is not a watcher stop, parent handoff completion, or goal
 completion. If the exact head OID is unavailable, preserve the source branch
 and report that safe disposition rather than guessing.
 
-Before the guarded merge or ready-only cleanup, re-run the unaddressed
-inline-comments command and inspect every review body while this task still
-owns its watcher and lease:
+Before the guarded merge or ready-only cleanup, and at Step 2 of the post-merge
+continuation before branch disposition, re-run the unaddressed inline-comments
+command and inspect every review body while this task still owns its watcher
+and lease:
 
 ```bash
 gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
