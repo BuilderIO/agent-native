@@ -65,6 +65,7 @@ function pastedPathMarkup(source: string) {
   return {
     d: path[1].match(/\bd=(['"])(.*?)\1/)?.[2] ?? "",
     fill: path[1].match(/\bfill=(['"])(.*?)\1/)?.[2] ?? "",
+    stroke: path[1].match(/\bstroke=(['"])(.*?)\1/)?.[2] ?? "",
   };
 }
 
@@ -420,7 +421,7 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
   }
 });
 
-test("an open pasted SVG continues from its endpoint and closes with a filled path", async ({
+test("an open pasted SVG continues from its endpoint and closes without adding a fill", async ({
   page,
 }) => {
   const { designId, screenId } = await createDesign(page);
@@ -574,7 +575,8 @@ test("an open pasted SVG continues from its endpoint and closes with a filled pa
       .toMatch(/Z\s*$/i);
     const closedSource = await readSource(page, designId);
     const closed = pastedPathMarkup(closedSource);
-    expect(closed.fill).not.toMatch(/none/i);
+    expect(closed.fill).toMatch(/none/i);
+    expect(closed.stroke).toBe("#111827");
 
     const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
     const redo =
@@ -597,7 +599,8 @@ test("an open pasted SVG continues from its endpoint and closes with a filled pa
     await selectLayer(page, "Pasted SVG");
     const reopened = pastedPathMarkup(await readSource(page, designId));
     expect(reopened.d).toMatch(/Z\s*$/i);
-    expect(reopened.fill).not.toMatch(/none/i);
+    expect(reopened.fill).toMatch(/none/i);
+    expect(reopened.stroke).toBe("#111827");
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
