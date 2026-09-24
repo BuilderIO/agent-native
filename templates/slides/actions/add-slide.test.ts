@@ -231,6 +231,66 @@ describe("add-slide", () => {
     });
   });
 
+  it("rejects completion before a valid target override without writing", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 2,
+      generationAttemptId: "attempt-1",
+    };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-premature",
+          content: "<div>Not final</div>",
+          generationComplete: true,
+          targetSlideCountOverride: 4,
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "generation_completed_before_target_reached",
+      details: {
+        deckId: "deck-1",
+        currentSlideCount: 2,
+        postWriteSlideCount: 3,
+        targetSlideCount: 4,
+      },
+    });
+
+    expect(transactionFn).not.toHaveBeenCalled();
+    expect(updateFn).not.toHaveBeenCalled();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
+  it("completes when the final slide reaches the persisted target", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 3,
+      generationAttemptId: "attempt-1",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      slide_count: 3,
+      outcome: "completed",
+    });
+    expect(transactionFn).toHaveBeenCalledOnce();
+  });
+
   it.each(["tool", "webmcp"] as const)(
     "rejects agent additions after the requested slide count for %s callers",
     async (caller) => {

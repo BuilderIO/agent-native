@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockHydrateBuilderDesignSystemReference = vi.fn();
 const mockParseBuilderDesignSystemProxyReference = vi.fn();
 const mockResolveAccess = vi.fn();
+const mockAccessFilter = vi.fn((..._args: unknown[]) => "owner-scope");
 const mockWhere = vi.fn();
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
@@ -17,13 +18,18 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: (...args: Parameters<typeof mockAccessFilter>) =>
+    mockAccessFilter(...args),
   resolveAccess: (...args: Parameters<typeof mockResolveAccess>) =>
     mockResolveAccess(...args),
 }));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
-  schema: { designSystems: { id: "id", data: "data" } },
+  schema: {
+    designSystems: { id: "id", data: "data", ownerEmail: "ownerEmail" },
+    designSystemShares: {},
+  },
 }));
 
 import action from "./get-design-system.js";
@@ -34,6 +40,7 @@ describe("get-design-system", () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({
@@ -102,12 +109,19 @@ describe("get-design-system", () => {
         docCount: 1,
       }),
     });
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "ownerEmail" }),
+      {},
+      undefined,
+      "editor",
+    );
   });
 
   it("does not write when the hydrated docCount matches the cached row", async () => {
     mockResolveAccess.mockResolvedValue({
       resource: {
         id: "builder-ds-1",
+        ownerEmail: "owner@example.com",
         title: "Acme Slides",
         description: "Acme presentation system",
         data: JSON.stringify({

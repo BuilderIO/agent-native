@@ -7351,6 +7351,7 @@ describe("server/auth", () => {
       await expect(getSession(event)).resolves.toMatchObject({
         email: "real@example.com",
         userId: "real-user",
+        authUserId: "real-user",
         token: "real-session",
       });
     });
@@ -7394,6 +7395,7 @@ describe("server/auth", () => {
       await expect(getSession(event)).resolves.toMatchObject({
         email: "ba@example.com",
         userId: "ba-user",
+        authUserId: "ba-user",
         token: "ba_cookie_token",
       });
       expect(getSessionApi).toHaveBeenCalledOnce();
@@ -7443,12 +7445,17 @@ describe("server/auth", () => {
       const authModule = await import("./auth.js");
       const app = createMockApp();
       await authModule.autoMountAuth(app, {
-        getSession: async () => ({ email: "custom@auth.com" }),
+        getSession: async () => ({
+          email: "custom@auth.com",
+          userId: "custom-user-id",
+          authUserId: "must-not-be-trusted",
+        }),
       });
 
       const event = createMockEvent();
       expect(await authModule.getSession(event)).toEqual({
         email: "custom@auth.com",
+        userId: "custom-user-id",
       });
     });
 

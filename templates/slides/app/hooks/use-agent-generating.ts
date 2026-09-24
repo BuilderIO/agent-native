@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 // This is only a lost-signal recovery guard. A long deck legitimately takes
 // several minutes because each slide is written and fit-checked separately.
-const MAX_GENERATING_MS = 30 * 60 * 1000;
+export const MAX_GENERATING_MS = 30 * 60 * 1000;
 
 // Gateway continuations can briefly report a stopped chat between model/tool
 // chunks. Keep generation UI and presence steady across that transport gap.
@@ -71,7 +71,7 @@ type AgentGeneratingSubmitOptions = Pick<
 export function useAgentGenerating(options?: { tabId: string | null }) {
   const hasTabScope = options !== undefined;
   const scopedTabId = options?.tabId ?? null;
-  const [generating, send, stopReason] = useAgentChatGenerating(
+  const [generating, send, stopReason, observedRun] = useAgentChatGenerating(
     hasTabScope ? { tabId: scopedTabId } : undefined,
   );
   const engineConfigured = useAgentEngineConfigured();
@@ -199,6 +199,12 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
       return clearStopDebounce;
     }
     if (generating) {
+      if (hasTabScope && timeoutRef.current === null) {
+        timeoutRef.current = setTimeout(() => {
+          timeoutRef.current = null;
+          setTimedOut(true);
+        }, MAX_GENERATING_MS);
+      }
       clearStopDebounce();
       setRecentlyGenerating(true);
     } else if (recentlyGenerating) {
@@ -220,6 +226,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
     recentlyGenerating,
     stopReason,
     runError,
+    hasTabScope,
     clearStopDebounce,
     clearWatchdog,
   ]);
@@ -289,6 +296,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
       !runError,
     runError,
     stopReason,
+    observedRun,
     timedOut,
     submit,
   };

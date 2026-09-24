@@ -204,6 +204,7 @@ export type TrackingIdentityUser = {
 
 type TrackingIdentity = {
   userId?: string;
+  authUserId?: string;
   userEmail?: string;
   userName?: string;
   orgId?: string | null;
@@ -475,8 +476,9 @@ function setTrackingIdentityFromSession(data: unknown): void {
     return;
   }
   const email = readTrackingString(session.email);
+  const canonicalAuthUserId = readTrackingString(session.authUserId);
   const authUserId = readTrackingString(session.userId);
-  const userId = email || authUserId;
+  const userId = email || canonicalAuthUserId || authUserId;
   if (!userId) {
     clearTrackingIdentity();
     return;
@@ -484,6 +486,7 @@ function setTrackingIdentityFromSession(data: unknown): void {
   const userName = readTrackingString(session.name);
   _trackingIdentity = {
     userId,
+    ...(canonicalAuthUserId ? { authUserId: canonicalAuthUserId } : {}),
     ...(email ? { userEmail: email } : {}),
     ...(userName ? { userName } : {}),
     orgId: readTrackingString(session.orgId) ?? null,
@@ -522,11 +525,12 @@ function applyTrackingIdentity(
   properties: Record<string, unknown>,
   identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  if (!identity) return properties;
-  let next = properties;
+  let next = { ...properties };
+  delete next.auth_user_id;
+  delete next.authUserId;
+  if (!identity) return next;
   const assign = (key: string, value: unknown) => {
     if (value !== undefined && value !== null && next[key] === undefined) {
-      if (next === properties) next = { ...properties };
       next[key] = value;
     }
   };
@@ -544,6 +548,10 @@ function applyTrackingIdentity(
  */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+function getTrackingAuthUserId(): string | undefined {
+  return _trackingIdentity?.authUserId;
 }
 
 export function getAnalyticsIdentityKey(): string | undefined {
@@ -1175,8 +1183,13 @@ export function setSentryUser(
   if (user) {
     const userId = user.email || user.id;
     if (userId) {
+      const authUserId =
+        user.email && user.email === _trackingIdentity?.userEmail
+          ? _trackingIdentity.authUserId
+          : undefined;
       _trackingIdentity = {
         userId,
+        ...(authUserId ? { authUserId } : {}),
         ...(user.email ? { userEmail: user.email } : {}),
         ...(user.username ? { userName: user.username } : {}),
         orgId: orgId ?? null,
@@ -2282,7 +2295,11 @@ function emitBrowserTrackingEvent(
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
   }
-  sendAgentNativeAnalytics(name, props);
+  const authUserId = getTrackingAuthUserId();
+  sendAgentNativeAnalytics(
+    name,
+    authUserId ? { ...props, auth_user_id: authUserId } : props,
+  );
 }
 
 export function trackEvent(

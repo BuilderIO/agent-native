@@ -195,6 +195,13 @@ export default defineAction({
       .describe(
         "If provided, update this existing deck instead of creating a new one",
       ),
+    generationAttemptId: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .optional()
+      .describe(
+        "Browser-owned generation attempt ID; only joins an existing deck when it exactly matches that deck's persisted generationContext",
+      ),
     aspectRatio: z
       .enum(ASPECT_RATIO_VALUES)
       .optional()
@@ -245,6 +252,7 @@ export default defineAction({
       title,
       slides: rawSlides,
       deckId,
+      generationAttemptId: browserGenerationAttemptId,
       aspectRatio,
       designSystemId: explicitDesignSystemId,
       designSystem,
@@ -254,10 +262,40 @@ export default defineAction({
     },
     ctx,
   ) => {
-    const generationAttemptId = createGenerationAttemptId();
+    const generationAttemptId =
+      browserGenerationAttemptId ?? createGenerationAttemptId();
+    const actionOwnsGenerationLifecycle =
+      browserGenerationAttemptId === undefined;
     const generationStartedAt = Date.now();
     let generationOutputId = deckId;
     const db = getDb();
+    let browserOwnedDeck: typeof schema.decks.$inferSelect | undefined;
+    if (browserGenerationAttemptId !== undefined) {
+      if (!deckId) {
+        throw new Error(
+          "generationAttemptId requires a matching existing deck",
+        );
+      }
+      await assertAccess("deck", deckId, "editor");
+      const existing = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .limit(1);
+      browserOwnedDeck = existing[0];
+      const persistedAttemptId = browserOwnedDeck
+        ? (
+            JSON.parse(browserOwnedDeck.data) as {
+              generationContext?: { generationAttemptId?: string };
+            }
+          ).generationContext?.generationAttemptId
+        : undefined;
+      if (persistedAttemptId !== browserGenerationAttemptId) {
+        throw new Error(
+          "generationAttemptId does not match the deck's persisted generationContext",
+        );
+      }
+    }
     const now = new Date().toISOString();
     const normalizedSlides = ensureUniqueSlideIds(
       rawSlides.map((s) => ({
@@ -270,20 +308,22 @@ export default defineAction({
       normalizedSlides.originalIds,
     );
     const incrementalGeneration = !deckId && slides.length === 0;
-    trackGenerationEvent(
-      "generation_started",
-      {
-        app_name: "slides",
-        template_name: "slides",
-        generation_attempt_id: generationAttemptId,
-        source: "create_deck_action",
-        generation_mode: incrementalGeneration ? "incremental" : "bulk",
-        has_reference_deck: Boolean(contextPackId),
-        slide_count: slides.length,
-        ...(deckId ? { output_id: deckId } : {}),
-      },
-      ctx,
-    );
+    if (actionOwnsGenerationLifecycle) {
+      trackGenerationEvent(
+        "generation_started",
+        {
+          app_name: "slides",
+          template_name: "slides",
+          generation_attempt_id: generationAttemptId,
+          source: "create_deck_action",
+          generation_mode: incrementalGeneration ? "incremental" : "bulk",
+          has_reference_deck: Boolean(contextPackId),
+          slide_count: slides.length,
+          ...(deckId ? { output_id: deckId } : {}),
+        },
+        ctx,
+      );
+    }
     try {
       const validatedCreativeContext = await validateGenerationCreativeContext({
         contextPackId,
@@ -363,26 +403,30 @@ export default defineAction({
           await assertAccess("design-system", designSystemId, "viewer");
         }
         // Update existing deck — requires editor access.
-        await assertAccess("deck", deckId, "editor");
-        const existing = await db
-          .select()
-          .from(schema.decks)
-          .where(eq(schema.decks.id, deckId))
-          .limit(1);
-        if (!existing[0]) {
+        let existingDeck = browserOwnedDeck;
+        if (!existingDeck) {
+          await assertAccess("deck", deckId, "editor");
+          const existing = await db
+            .select()
+            .from(schema.decks)
+            .where(eq(schema.decks.id, deckId))
+            .limit(1);
+          existingDeck = existing[0];
+        }
+        if (!existingDeck) {
           throw new Error(`Deck not found: ${deckId}`);
         }
         const existingDeckTitle =
           repairGeneratedDeckTitle(
             title,
             firstSlideContent,
-            existing[0].title,
+            existingDeck.title,
           ) ?? resolvedTitle;
         assertHumanReadableDeckTitle(existingDeckTitle);
-        const writeNow = nextDeckRevision(existing[0].updatedAt);
-        const prevData = JSON.parse(existing[0].data);
+        const writeNow = nextDeckRevision(existingDeck.updatedAt);
+        const prevData = JSON.parse(existingDeck.data);
         const previousDesignSystemId = resolveDeckDesignSystemId(
-          existing[0],
+          existingDeck,
           prevData,
         );
         const data = {
@@ -397,10 +441,10 @@ export default defineAction({
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(
             {
-              id: existing[0].id,
-              title: existing[0].title,
-              data: existing[0].data,
-              ownerEmail: existing[0].ownerEmail,
+              id: existingDeck.id,
+              title: existingDeck.title,
+              data: existingDeck.data,
+              ownerEmail: existingDeck.ownerEmail,
             },
             { force: true, label: "Before bulk replace", db: tx },
           );
@@ -413,7 +457,7 @@ export default defineAction({
               updatedAt: writeNow,
             })
             .where(
-              deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+              deckRevisionWhere(schema.decks, deckId, existingDeck.updatedAt),
             );
           assertDeckWriteApplied(updateResult, deckId, "deck replacement");
         });
@@ -445,15 +489,12 @@ export default defineAction({
             getDesignSystem,
             { full: true },
           );
-          if (loadedDesignSystem?.status === "unavailable") {
-            postProcessErrorType = "DesignSystemUnavailable";
-          }
         } catch (error) {
           postProcessErrorType =
             error instanceof Error ? error.name : "unknown_error";
         }
         const postProcessStatus = postProcessErrorType ? "failed" : "completed";
-        if (postProcessErrorType) {
+        if (postProcessErrorType && actionOwnsGenerationLifecycle) {
           trackGenerationEvent(
             "generation_outcome_unresolved",
             {
@@ -472,7 +513,7 @@ export default defineAction({
             },
             ctx,
           );
-        } else {
+        } else if (!postProcessErrorType && actionOwnsGenerationLifecycle) {
           trackGenerationEvent(
             "generation_completed",
             {
@@ -485,6 +526,9 @@ export default defineAction({
               output_type: "deck",
               slide_count: slides.length,
               duration_ms: Date.now() - generationStartedAt,
+              ...(loadedDesignSystem
+                ? { design_system_status: loadedDesignSystem.status }
+                : {}),
             },
             ctx,
           );
@@ -582,15 +626,12 @@ export default defineAction({
           getDesignSystem,
           { full: true },
         );
-        if (loadedDesignSystem?.status === "unavailable") {
-          postProcessErrorType = "DesignSystemUnavailable";
-        }
       } catch (error) {
         postProcessErrorType =
           error instanceof Error ? error.name : "unknown_error";
       }
       const postProcessStatus = postProcessErrorType ? "failed" : "completed";
-      if (postProcessErrorType) {
+      if (postProcessErrorType && actionOwnsGenerationLifecycle) {
         trackGenerationEvent(
           "generation_outcome_unresolved",
           {
@@ -626,7 +667,10 @@ export default defineAction({
           },
           ctx,
         );
-      } else if (postProcessStatus === "completed") {
+      } else if (
+        postProcessStatus === "completed" &&
+        actionOwnsGenerationLifecycle
+      ) {
         trackGenerationEvent(
           "generation_completed",
           {
@@ -639,6 +683,9 @@ export default defineAction({
             output_type: "deck",
             slide_count: slides.length,
             duration_ms: Date.now() - generationStartedAt,
+            ...(loadedDesignSystem
+              ? { design_system_status: loadedDesignSystem.status }
+              : {}),
           },
           ctx,
         );
@@ -670,25 +717,27 @@ export default defineAction({
         ...creativeContextProvenance,
       };
     } catch (error) {
-      const terminal = generationTerminalEvent(ctx?.signal);
-      trackGenerationEvent(
-        terminal.name,
-        {
-          app_name: "slides",
-          template_name: "slides",
-          generation_attempt_id: generationAttemptId,
-          source: "create_deck_action",
-          ...(generationOutputId
-            ? { output_id: generationOutputId, output_type: "deck" }
-            : {}),
-          slide_count: slides.length,
-          duration_ms: Date.now() - generationStartedAt,
-          outcome: terminal.outcome,
-          failure_code: terminal.failure_code,
-          error_type: error instanceof Error ? error.name : "unknown_error",
-        },
-        ctx,
-      );
+      if (actionOwnsGenerationLifecycle) {
+        const terminal = generationTerminalEvent(ctx?.signal);
+        trackGenerationEvent(
+          terminal.name,
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            source: "create_deck_action",
+            ...(generationOutputId
+              ? { output_id: generationOutputId, output_type: "deck" }
+              : {}),
+            slide_count: slides.length,
+            duration_ms: Date.now() - generationStartedAt,
+            outcome: terminal.outcome,
+            failure_code: terminal.failure_code,
+            error_type: error instanceof Error ? error.name : "unknown_error",
+          },
+          ctx,
+        );
+      }
       throw error;
     }
   },

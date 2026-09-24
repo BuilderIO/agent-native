@@ -308,6 +308,27 @@ export default defineAction({
         );
       }
 
+      const effectiveTargetSlideCount =
+        targetSlideCountOverride ?? targetSlideCount;
+      if (
+        generationComplete &&
+        effectiveTargetSlideCount !== null &&
+        slides.length + 1 < effectiveTargetSlideCount
+      ) {
+        throw new ActionContractError(
+          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides.`,
+          {
+            errorCode: "generation_completed_before_target_reached",
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              postWriteSlideCount: slides.length + 1,
+              targetSlideCount: effectiveTargetSlideCount,
+            },
+          },
+        );
+      }
+
       if (targetSlideCountOverride !== undefined) {
         deck.generationContext = {
           ...(generationContext ?? {}),

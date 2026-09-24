@@ -110,3 +110,33 @@ describe("generation outcome cleanup", () => {
     expect(pageHideBody).toContain("generationRunStartedRef.current = false;");
   });
 });
+
+describe("new-deck generation signal wiring", () => {
+  it("uses the attempt-scoped signal for progress, overlay, and URL cleanup", () => {
+    const progressStart = deckEditorSource.indexOf(
+      "const isNewDeckGenerating =",
+    );
+    const progressEnd = deckEditorSource.indexOf(
+      "const { designSystem, imageStyleReferenceUrls }",
+      progressStart,
+    );
+    const progressBody = deckEditorSource.slice(progressStart, progressEnd);
+    const cleanupStart = deckEditorSource.indexOf(
+      "shouldClearNewDeckGeneratingState({",
+    );
+    const cleanupEnd = deckEditorSource.indexOf("\n  }, [", cleanupStart);
+    const cleanupBody = deckEditorSource.slice(cleanupStart, cleanupEnd);
+
+    expect(deckEditorSource).toContain("} = useNewDeckGenerationSignal({");
+    expect(deckEditorSource).toContain("tabId: generationAttemptTabId");
+    expect(progressBody).toContain("generating: newDeckGenerationSignal");
+    expect(progressBody).toContain(
+      "generationStarted: newDeckGenerationStarted",
+    );
+    expect(cleanupBody).toContain("generating: newDeckGenerationSignal");
+    expect(cleanupBody).toContain(
+      "generationStarted: newDeckGenerationStarted",
+    );
+    expect(cleanupBody).not.toContain("generating,");
+  });
+});

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const agentChatState = vi.hoisted(() => ({
   generating: false,
   stopReason: null as "stopped" | null,
+  observedRun: false,
   send: vi.fn(),
   tabId: null as string | null,
 }));
@@ -23,6 +24,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
       agentChatState.generating,
       agentChatState.send,
       agentChatState.stopReason,
+      agentChatState.observedRun,
     ] as const;
   },
   useAgentEngineConfigured: () => ({
@@ -44,6 +46,7 @@ afterEach(() => {
   vi.useRealTimers();
   agentChatState.generating = false;
   agentChatState.stopReason = null;
+  agentChatState.observedRun = false;
   agentChatState.send.mockReset();
   agentChatState.tabId = null;
   agentEngineState.state = "configured";
@@ -186,6 +189,24 @@ describe("useAgentGenerating", () => {
   it("scopes its chat status to a selected tab", () => {
     renderHook(() => useAgentGenerating({ tabId: "generation-tab" }));
     expect(agentChatState.tabId).toBe("generation-tab");
+  });
+
+  it("starts a watchdog for a scoped observer after its submitter unmounts", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(() =>
+      useAgentGenerating({ tabId: "generation-tab" }),
+    );
+
+    agentChatState.generating = true;
+    rerender();
+    expect(result.current.generating).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(30 * 60 * 1000);
+    });
+
+    expect(result.current.timedOut).toBe(true);
+    expect(result.current.generating).toBe(false);
   });
 
   it("ignores a run error until the active tab is correlated", () => {

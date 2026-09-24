@@ -737,16 +737,17 @@ describe("browser analytics pageviews", () => {
   });
 
   it("attaches the signed-in session identity to first-party analytics", async () => {
-    installBrowser();
+    const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
         email: "dev@example.com",
         userId: "auth-user-1",
+        authUserId: "better-auth-user-1",
         name: "Dev User",
         orgId: "org_123",
       },
     });
-    const { configureTracking } = await freshAnalytics();
+    const { configureTracking, trackEvent } = await freshAnalytics();
 
     configureTracking({
       key: "anpk_configured",
@@ -775,6 +776,54 @@ describe("browser analytics pageviews", () => {
       template_name: "clips",
       session_id: expect.any(String),
     });
+
+    trackEvent("authenticated_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "authenticated_event");
+    expect(trackedEvent?.properties.auth_user_id).toBe("better-auth-user-1");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "authenticated_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
+  });
+
+  it("drops caller-supplied auth ids when no session identity is available", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    trackEvent("anonymous_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "anonymous_event");
+    expect(trackedEvent?.properties).not.toHaveProperty("auth_user_id");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "anonymous_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
   });
 
   it("suppresses browser telemetry for QA signup identities", async () => {

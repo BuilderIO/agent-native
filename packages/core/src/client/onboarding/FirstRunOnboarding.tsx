@@ -180,7 +180,6 @@ export function FirstRunOnboarding({
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
-        completionAttemptRef.current = null;
         return false;
       }
     },

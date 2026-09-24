@@ -836,14 +836,11 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,
-  // so a failed completion never surfaced — the click looked like it did
-  // nothing, and a rejecting mock here would fail the test via an unhandled
-  // rejection under the old behavior.
-  it("surfaces a failed Skip instead of silently doing nothing", async () => {
-    mocks.completeFirstRun.mockRejectedValue(
-      new Error("first-run completion failed: 500"),
-    );
+  // Keep the final-step identity until completion succeeds so retry records it.
+  it("preserves the completed step when first-run completion succeeds on retry", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -858,10 +855,15 @@ describe("FirstRunOnboarding", () => {
     });
     registerFirstRunOnboardingExtension({
       id: "test-extension",
-      component: ({ onSkip }) => (
-        <button type="button" onClick={onSkip}>
-          Extension Skip
-        </button>
+      component: ({ onComplete, onSkip }) => (
+        <>
+          <button type="button" onClick={onComplete}>
+            Extension Complete
+          </button>
+          <button type="button" onClick={onSkip}>
+            Extension Skip
+          </button>
+        </>
       ),
     });
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -893,14 +895,14 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain("Extension Complete");
     expect(
       document.body.querySelector('[data-testid="first-run-dismiss"]'),
     ).not.toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Extension Skip")
+        .find((button) => button.textContent === "Extension Complete")
         ?.click();
       await Promise.resolve();
       await Promise.resolve();
@@ -909,20 +911,30 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
     // Stays on the same step — no crash, no misleading full-screen bounce —
     // and the failure is visible with a way forward.
-    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
     );
     expect(document.body.textContent).toContain("Try again");
-    expect(
+    const completedExtensionEvents = () =>
       mocks.trackOnboardingEvent.mock.calls.some(
         ([event, properties]) =>
           event === "onboarding_step_completed" &&
-          (properties as { step_id?: string }).step_id?.startsWith(
-            "extension:",
-          ),
-      ),
-    ).toBe(false);
+          (properties as { step_id?: string }).step_id ===
+            "extension:test-extension",
+      );
+    expect(completedExtensionEvents()).toBe(false);
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(completedExtensionEvents()).toBe(true);
   });
 
   it("renders the role step from the non-English core catalog", async () => {

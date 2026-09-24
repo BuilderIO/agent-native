@@ -101,6 +101,7 @@ import {
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useNewDeckGenerationSignal } from "@/hooks/use-new-deck-generation-signal";
 import {
   useSlideComments,
   type CommentThread,
@@ -413,7 +414,6 @@ export default function DeckEditor() {
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const newDeckGenerationStarted = useRef(false);
   const generationStartedAtRef = useRef<number | null>(null);
   const generationRunStartedRef = useRef(false);
   const generationSawActiveRef = useRef(false);
@@ -421,9 +421,6 @@ export default function DeckEditor() {
   const generationTerminalAttemptRef = useRef<string | null>(null);
   if (searchParams.get("generating") === "1") {
     wasNewDeckCreation.current = true;
-  }
-  if (wasNewDeckCreation.current && generating) {
-    newDeckGenerationStarted.current = true;
   }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
@@ -691,11 +688,21 @@ export default function DeckEditor() {
       : null,
   );
   const {
-    generating: attemptGenerating,
-    runError: attemptRunError,
-    stopReason: attemptStopReason,
-    timedOut: attemptTimedOut,
-  } = useAgentGenerating({ tabId: generationAttemptTabId });
+    attempt: {
+      generating: attemptGenerating,
+      observedRun: attemptObservedRun,
+      runError: attemptRunError,
+      stopReason: attemptStopReason,
+      timedOut: attemptTimedOut,
+    },
+    generating: newDeckGenerationSignal,
+    generationStarted: newDeckGenerationStarted,
+  } = useNewDeckGenerationSignal({
+    attemptId: generationAttemptId,
+    tabId: generationAttemptTabId,
+    broadGenerating: generating,
+    submitStarted: generationRunStartedRef.current,
+  });
   const targetSlideCount =
     typeof generationContext?.targetSlideCount === "number" &&
     Number.isInteger(generationContext.targetSlideCount) &&
@@ -750,7 +757,11 @@ export default function DeckEditor() {
     )
       return;
     if (!generationRunStartedRef.current) return;
-    if (attemptGenerating) {
+    if (attemptObservedRun) {
+      generationSawActiveRef.current = true;
+      generationStartedAtRef.current ??= Date.now();
+    }
+    if (newDeckGenerationSignal) {
       generationSawActiveRef.current = true;
       generationStartedAtRef.current ??= Date.now();
       return;
@@ -853,13 +864,14 @@ export default function DeckEditor() {
       }
     })();
   }, [
-    attemptGenerating,
+    attemptObservedRun,
     generationAttemptId,
     generationLifecycleOwnedByEditor,
     attemptRunError,
     attemptStopReason,
     attemptTimedOut,
     id,
+    newDeckGenerationSignal,
     refreshOpenDeck,
     slideCount,
     targetSlideCount,
@@ -985,14 +997,14 @@ export default function DeckEditor() {
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
-    generating,
+    generating: newDeckGenerationSignal,
     isNewDeckCreation: wasNewDeckCreation.current,
   });
   const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
-    generating,
+    generating: newDeckGenerationSignal,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
-    generationStarted: newDeckGenerationStarted.current,
+    generationStarted: newDeckGenerationStarted,
   });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
@@ -1284,8 +1296,8 @@ export default function DeckEditor() {
   useEffect(() => {
     if (
       !shouldClearNewDeckGeneratingState({
-        generating,
-        generationStarted: newDeckGenerationStarted.current,
+        generating: newDeckGenerationSignal,
+        generationStarted: newDeckGenerationStarted,
       })
     ) {
       return;
@@ -1305,7 +1317,12 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams]);
+  }, [
+    newDeckGenerationSignal,
+    newDeckGenerationStarted,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

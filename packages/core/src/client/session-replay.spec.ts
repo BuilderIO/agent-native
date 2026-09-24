@@ -1294,6 +1294,60 @@ describe("session replay", () => {
     });
   });
 
+  it("does not truncate the default replay at 30 minutes", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay, stopSessionReplay } =
+        await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(31 * 60 * 1000);
+      expect(stopRecorder).not.toHaveBeenCalled();
+      await stopSessionReplay("manual");
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still honors an explicitly configured replay duration", async () => {
+    vi.useFakeTimers();
+    installBrowser("https://app.agent-native.com/", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+    });
+    const stopRecorder = vi.fn();
+    recordMock.mockReturnValue(stopRecorder);
+    try {
+      const { startSessionReplay } = await freshSessionReplay();
+      const result = await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxDurationMs: 60_000,
+        flushIntervalMs: 60 * 60 * 1000,
+      });
+      expect(result.started).toBe(true);
+      expect(recordMock).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stopRecorder).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/inbox?code=secret&keep=1",

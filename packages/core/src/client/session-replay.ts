@@ -305,7 +305,7 @@ interface NormalizedSessionReplayOptions {
   allowUrls: SessionReplayUrlMatcher[];
   blockUrls: SessionReplayUrlMatcher[];
   flushIntervalMs: number;
-  maxDurationMs: number;
+  maxDurationMs?: number;
   maxEventsPerBatch: number;
   maxBatchBytes: number;
   checkoutEveryNth?: number;
@@ -396,7 +396,6 @@ const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
   week: true,
 };
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
-const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
@@ -992,6 +991,12 @@ function normalizeOptions(
       "VITE_SESSION_REPLAY_INGEST_URL",
     ]) ||
     defaultReplayEndpoint();
+  const maxDurationMs =
+    options.maxDurationMs ??
+    readFirstEnvNumber([
+      "VITE_AGENT_NATIVE_SESSION_REPLAY_MAX_DURATION_MS",
+      "VITE_SESSION_REPLAY_MAX_DURATION_MS",
+    ]);
   return {
     publicKey,
     endpoint,
@@ -1020,15 +1025,9 @@ function normalizeOptions(
         ]) ??
         DEFAULT_FLUSH_INTERVAL_MS,
     ),
-    maxDurationMs: Math.max(
-      1000,
-      options.maxDurationMs ??
-        readFirstEnvNumber([
-          "VITE_AGENT_NATIVE_SESSION_REPLAY_MAX_DURATION_MS",
-          "VITE_SESSION_REPLAY_MAX_DURATION_MS",
-        ]) ??
-        DEFAULT_MAX_DURATION_MS,
-    ),
+    ...(maxDurationMs === undefined
+      ? {}
+      : { maxDurationMs: Math.max(1000, maxDurationMs) }),
     maxEventsPerBatch: Math.max(
       1,
       options.maxEventsPerBatch ?? DEFAULT_MAX_EVENTS_PER_BATCH,
@@ -3687,10 +3686,12 @@ async function startSessionReplayRecorder(
       () => void flushSessionReplay("interval"),
       normalized.flushIntervalMs,
     );
-    state.maxDurationTimer = window.setTimeout(
-      () => stopSessionReplay("max-duration"),
-      normalized.maxDurationMs,
-    );
+    if (normalized.maxDurationMs !== undefined) {
+      state.maxDurationTimer = window.setTimeout(
+        () => stopSessionReplay("max-duration"),
+        normalized.maxDurationMs,
+      );
+    }
     installUrlMonitor(state);
     installLifecycleListeners(state);
     installSessionReplayIframeBridge(state, normalized);
