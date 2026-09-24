@@ -166,15 +166,12 @@ export interface WorkspaceAppSummary {
 }
 
 interface FinalizeWorkspaceAppsOptions {
-  /** Delete org rows absent from an authoritative manifest. */
-  reconcile?: boolean;
   /** Write registry rows. False for a source the caller could not authenticate. */
   persist?: boolean;
 }
 
 interface WorkspaceAppDiscovery {
   apps: WorkspaceAppSummary[];
-  authoritative: boolean;
 }
 
 export interface ListWorkspaceAppsOptions {
@@ -1322,18 +1319,16 @@ function appRecordTimestamp(value: string | null | undefined): number {
  */
 async function ensureWorkspaceAppRecords(
   apps: WorkspaceAppSummary[],
-  options: { reconcile?: boolean; persist?: boolean } = {},
+  options: { persist?: boolean } = {},
 ): Promise<WorkspaceAppSummary[]> {
   const readyApps = apps.filter(
     (app) => app.status !== "pending" && !app.isDispatch,
   );
   // A source the caller could not authenticate annotates from existing rows
   // only. Minting a row here would create the very authorization the access
-  // filter then checks, and reconciling would delete rows and shares on the
-  // word of a manifest no authoritative registry confirmed.
+  // filter then checks.
   const shouldPersist = options.persist !== false;
-  const shouldReconcile = options.reconcile === true && shouldPersist;
-  if (!shouldReconcile && readyApps.length === 0) {
+  if (readyApps.length === 0) {
     return apps;
   }
 
@@ -1503,34 +1498,6 @@ async function ensureWorkspaceAppRecords(
       console.warn(
         `[dispatch] unverified workspace app read has no access record for ${unresolvedIds.length} app(s); hidden from this response: ${unresolvedIds.join(", ")}`,
       );
-    }
-
-    if (shouldReconcile && orgId) {
-      const currentAppIds = new Set(readyApps.map((app) => app.id));
-      const result = await db.execute({
-        sql: "SELECT id FROM workspace_apps WHERE org_id = ?",
-        args: [orgId],
-      });
-      const staleIds = result.rows
-        .map((row) => cleanOptionalText((row as Record<string, unknown>).id))
-        .filter(
-          (id): id is string =>
-            !!id && id !== "dispatch" && !currentAppIds.has(id),
-        );
-
-      for (let start = 0; start < staleIds.length; start += 500) {
-        const ids = staleIds.slice(start, start + 500);
-        await db.execute({
-          sql: `WITH removed AS (
-                  DELETE FROM workspace_apps
-                  WHERE id IN (${ids.map(() => "?").join(", ")}) AND org_id = ?
-                  RETURNING id
-                )
-                DELETE FROM workspace_app_shares
-                WHERE resource_id IN (SELECT id FROM removed)`,
-          args: [...ids, orgId],
-        });
-      }
     }
   } catch (error) {
     console.warn("[dispatch] workspace app access records unavailable", error);
@@ -1839,7 +1806,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           // must fall through to the local manifest sources.
           await localResponse.json().catch(() => null),
         );
-        return apps ? { apps, authoritative: true } : null;
+        return apps ? { apps } : null;
       }
     }
 
@@ -1872,7 +1839,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       // must fall through to the local manifest sources.
       await actionResponse.json().catch(() => null),
     );
-    return apps ? { apps, authoritative: false } : null;
+    return apps ? { apps } : null;
   } catch (error) {
     if (error instanceof WorkspaceAppsGatewayAuthorizationError) throw error;
     return null;
@@ -2114,15 +2081,12 @@ export async function listWorkspaceApps(
 ): Promise<WorkspaceAppSummary[]> {
   const finalize = async (
     apps: WorkspaceAppSummary[],
-    { reconcile = false, persist = true }: FinalizeWorkspaceAppsOptions = {},
+    { persist = true }: FinalizeWorkspaceAppsOptions = {},
   ) => {
-    // Reconcile from the complete manifest. Archive and audience filters only
-    // control the response; treating hidden apps as absent deletes their rows.
+    // Record rows from the complete manifest. Archive and audience filters
+    // only control the response.
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, {
-      reconcile,
-      persist,
-    });
+    const recorded = await ensureWorkspaceAppRecords(annotated, { persist });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2143,7 +2107,7 @@ export async function listWorkspaceApps(
     gatewayDenial = error;
   }
   if (gatewayApps) {
-    return finalize(gatewayApps.apps, { reconcile: gatewayApps.authoritative });
+    return finalize(gatewayApps.apps);
   }
   const unverified = gatewayDenial !== null;
 
@@ -2154,20 +2118,14 @@ export async function listWorkspaceApps(
       : null;
   if (localFilesystemApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "local filesystem");
-    return finalize(localFilesystemApps, {
-      reconcile: !unverified,
-      persist: !unverified,
-    });
+    return finalize(localFilesystemApps, { persist: !unverified });
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
     warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment manifest");
-    return finalize(manifestApps, {
-      reconcile: !unverified,
-      persist: !unverified,
-    });
+    return finalize(manifestApps, { persist: !unverified });
   }
 
   if (gatewayDenial) throw gatewayDenial;

@@ -48,6 +48,7 @@ import {
   splitCssLayers,
   withLayerSizeMarker,
 } from "./fill-gradient-helpers";
+import { ImageElementFill } from "./image-element-fill";
 import {
   RowDragHandle,
   SectionIconButton,
@@ -566,6 +567,13 @@ export function FillProperties({
         </>
       }
     >
+      {element.tagName.toLowerCase() === "img" ? (
+        <ImageElementFill
+          element={element}
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />
+      ) : null}
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {

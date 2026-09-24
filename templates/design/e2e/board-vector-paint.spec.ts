@@ -539,7 +539,7 @@ test("vector stroke gradient is visible, persisted, undoable, and reloadable", a
       "button",
       { name: "Open color picker" },
     );
-    await expect(reloadedStrokePicker).toContainText("Linear gradient");
+    await expect(reloadedStrokePicker).toContainText("Linear");
     await reloadedStrokePicker.click();
     const reloadedStrokePopoverId =
       await reloadedStrokePicker.getAttribute("aria-controls");

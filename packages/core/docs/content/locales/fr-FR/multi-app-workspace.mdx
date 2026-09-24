@@ -401,7 +401,7 @@ Ces paramètres affectent uniquement la navigation dans les pages en lecture seu
 
 ### Déploiement indépendant par application
 
-Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && npx @agent-native/core@latest build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
+Vous préférez chaque application sur son propre domaine (`mail.company.com`, `calendar.company.com`) ? Chaque application de l'espace de travail est toujours un déployable indépendant : `cd apps/mail && pnpm build` se comporte exactement comme un échafaudage autonome. Le A2A inter-applications passe ensuite par le chemin signé JWT standard avec un `A2A_SECRET` partagé. Le SSO inter-domaines entre des applications déployées séparément est géré par la fédération d'identité avec Dispatch comme hub — voir [Cross-App SSO](/docs/cross-app-sso) ; le déploiement unifié à origine unique évite d'en avoir besoin.
 
 ### Base de données partagée, identifiants partagés
 

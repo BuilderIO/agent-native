@@ -947,7 +947,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
-          routePath: window.location.pathname + window.location.search
+          routePath: window.location.pathname + window.location.search,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -1100,7 +1101,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1273,7 +1274,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (signature) {
           var existing = findHeadNodeBySignature(signature);
           if (existing) {
+            var nextAnchor = existing.nextSibling;
             document.head.replaceChild(document.importNode(node, true), existing);
+            if (anchor === existing) anchor = nextAnchor;
             return;
           }
         }
@@ -2560,9 +2563,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var scope = selectionContainerScope;
       if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
         selectionContainerScope = null;
-        scope = document.body;
+        scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
       return containerScopeAncestor(resolved, scope);
+    }
+    function topLevelBoardFrameOwning(el) {
+      if (!designCanvasBoardSurface) return null;
+      var node = el;
+      while (node && node.parentElement && node.parentElement !== document.body) {
+        node = node.parentElement;
+      }
+      return node && node !== el && node.parentElement === document.body && node.getAttribute("data-an-primitive") === "frame" ? node : null;
     }
     function plainClickSelectionTarget(hit) {
       if (!designCanvasBoardSurface) {
@@ -3627,6 +3638,81 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
+    var PORTABLE_TEXT_PROPERTIES = {
+      color: true,
+      font: true,
+      fontFamily: true,
+      fontSize: true,
+      fontStyle: true,
+      fontWeight: true,
+      letterSpacing: true,
+      lineHeight: true,
+      textAlign: true,
+      textDecoration: true,
+      textDecorationColor: true,
+      textDecorationLine: true,
+      textDecorationStyle: true,
+      textShadow: true,
+      textTransform: true,
+      whiteSpace: true,
+      wordBreak: true
+    };
+    function portableBorderSidePaints(cs, side) {
+      var style = cs.getPropertyValue("border-" + side + "-style");
+      return style !== "none" && style !== "hidden" && parseFloat(cs.getPropertyValue("border-" + side + "-width")) > 0;
+    }
+    function portableValueRendersNothing(el, property, cs) {
+      var sides = ["top", "right", "bottom", "left"];
+      if (/^border(Top|Right|Bottom|Left)?(Color|Style|Width)?$/.test(property)) {
+        var sideMatch = /^border(Top|Right|Bottom|Left)/.exec(property);
+        var checked = sideMatch ? [sideMatch[1].toLowerCase()] : sides;
+        return !checked.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        });
+      }
+      if (/^outline(Color|Style|Width|Offset)?$/.test(property)) {
+        return cs.outlineStyle === "none" || !(parseFloat(cs.outlineWidth) > 0);
+      }
+      if (property === "boxSizing") {
+        return !sides.some(function(side) {
+          return portableBorderSidePaints(cs, side);
+        }) && !sides.some(function(side) {
+          return parseFloat(cs.getPropertyValue("padding-" + side)) > 0;
+        });
+      }
+      if (property === "display") {
+        return cs.display === "block" && (cs.position === "absolute" || cs.position === "fixed");
+      }
+      if (property === "transformOrigin") {
+        return cs.transform === "none" && (cs.rotate || "none") === "none" && (cs.scale || "none") === "none";
+      }
+      if (!PORTABLE_TEXT_PROPERTIES[property]) return false;
+      var tag = el.tagName.toLowerCase();
+      if (tag === "img") return true;
+      if (!(el instanceof SVGElement) || /^(text|tspan|textpath)$/.test(tag)) {
+        return false;
+      }
+      if (property !== "color") return true;
+      return !/currentcolor/i.test(
+        (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
+      );
+    }
+    function portableSizeIsLayoutResolved(el, property, cs) {
+      if (el.style?.getPropertyValue(property)) return false;
+      if (property !== "width" || cs.position !== "static") return false;
+      var parent = el.parentElement;
+      if (!parent) return false;
+      var parentStyle = window.getComputedStyle(parent);
+      if (/^(inline-)?flex$/.test(parentStyle.display)) {
+        return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+      }
+      if (/^(inline-)?grid$/.test(parentStyle.display)) {
+        return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+      }
+      if (cs.display !== "block" && cs.display !== "flow-root") return false;
+      var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
+      return parentContentWidth > 0 && Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1;
+    }
     function collectPortableComputedStyles(el, cache, computedStyle) {
       if (!el) return {};
       var cacheSafe = !cache || canReusePortableComputedStyles(el, cache);
@@ -3648,32 +3734,39 @@ export const editorChromeBridgeScript: string = `"use strict";
       var hostStyle = el.style;
       var styles = {};
       var typedElement = el;
+      var typedStyles = null;
       if (typeof typedElement.computedStyleMap !== "function") {
         dndLog("style:typed-om-unavailable", { tag: el.tagName });
-        return cacheFailure();
+      } else {
+        try {
+          typedStyles = typedElement.computedStyleMap();
+        } catch (_error) {
+          dndLog("style:typed-om-read-failed", { tag: el.tagName });
+          return cacheFailure();
+        }
+        if (!typedStyles) return cacheFailure();
       }
-      try {
-        var typedStyles = typedElement.computedStyleMap();
+      if (typedStyles) {
         for (var property of Object.keys(PORTABLE_STYLE_BOX_SIZE_PROPERTIES)) {
           var typedValue = typedStyles.get(property);
-          if (typedValue == null || !String(typedValue).trim()) {
-            dndLog("style:typed-om-value-missing", { property });
+          if (typedValue == null) {
+            dndLog("style:typed-om-value-unavailable", {
+              tag: el.tagName,
+              property
+            });
             return cacheFailure();
           }
           var size = String(typedValue).trim();
-          if (size !== "auto" || hostStyle?.getPropertyValue(property)) {
+          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && !portableSizeIsLayoutResolved(el, property, cs)) {
             styles[property] = size;
           }
         }
-      } catch (_error) {
-        dndLog("style:typed-om-read-failed", { tag: el.tagName });
-        return cacheFailure();
       }
       PORTABLE_STYLE_PROPERTIES.forEach(function(property2) {
         if (PORTABLE_STYLE_BOX_SIZE_PROPERTIES[property2]) return;
         var value = cs[property2] || cs.getPropertyValue(property2);
         var inlineValue = hostStyle && hostStyle.getPropertyValue(property2);
-        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2])) {
+        if (typeof value === "string" && value.trim() && (inlineValue || value !== defaults[property2] && !portableValueRendersNothing(el, property2, cs))) {
           styles[property2] = value;
         }
       });
@@ -7827,108 +7920,107 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
     }
-    function addMeasurementLine(x1, y1, x2, y2, label) {
-      var horizontal = Math.abs(x2 - x1) >= Math.abs(y2 - y1);
+    function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
+      var horizontal = y1 === y2;
       var line = document.createElement("div");
-      var labelEl = document.createElement("div");
       var scale = chromeLineScale();
-      var lineWidth = 1 * chromeLineScale();
-      var labelChrome = "transform-origin:center;border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      var border = scale + "px " + (dashed ? "dashed" : "solid") + " var(--design-editor-measure-color);";
       if (horizontal) {
         var left = Math.min(x1, x2);
-        var width = Math.max(1, Math.abs(x2 - x1));
-        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (left + width / 2) + "px;top:" + (y1 - 9 * scale) + "px;transform:translateX(-50%);" + labelChrome;
+        var width = Math.abs(x2 - x1);
+        line.style.cssText = "position:fixed;left:" + left + "px;top:" + y1 + "px;width:" + width + "px;border-top:" + border;
       } else {
         var top = Math.min(y1, y2);
-        var height = Math.max(1, Math.abs(y2 - y1));
-        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + lineWidth + "px dashed var(--design-editor-measure-color);";
-        labelEl.style.cssText = "position:fixed;left:" + (x1 + 5 * scale) + "px;top:" + (top + height / 2) + "px;transform:translateY(-50%);" + labelChrome;
+        var height = Math.abs(y2 - y1);
+        line.style.cssText = "position:fixed;left:" + x1 + "px;top:" + top + "px;height:" + height + "px;border-left:" + border;
       }
-      labelEl.textContent = label;
       measurementOverlay.appendChild(line);
+      if (!label) return;
+      var labelEl = document.createElement("div");
+      labelEl.style.cssText = "position:fixed;left:" + (horizontal ? (x1 + x2) / 2 : x1 + 8 * scale) + "px;top:" + (horizontal ? y1 + 7 * scale : (y1 + y2) / 2) + "px;transform:" + (horizontal ? "translateX(-50%)" : "translateY(-50%)") + ";border-radius:" + 3 * scale + "px;background:var(--design-editor-measure-color);color:white;padding:" + 1 * scale + "px " + 4 * scale + "px;font-size:" + 11 * scale + "px;";
+      labelEl.textContent = label;
       measurementOverlay.appendChild(labelEl);
+    }
+    function measurementSegments(s, t) {
+      var segments = [];
+      function add(x1, y1, x2, y2, dashed) {
+        var length = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+        if (length < 0.5) return;
+        segments.push({
+          x1,
+          y1,
+          x2,
+          y2,
+          label: dashed ? "" : String(Math.round(length)),
+          dashed
+        });
+      }
+      var apartX = t.left >= s.right || t.right <= s.left;
+      var apartY = t.top >= s.bottom || t.bottom <= s.top;
+      var intersect = !apartX && !apartY;
+      var sCx = (s.left + s.right) / 2;
+      var sCy = (s.top + s.bottom) / 2;
+      var y = intersect ? (Math.max(s.top, t.top) + Math.min(s.bottom, t.bottom)) / 2 : sCy;
+      var x = intersect ? (Math.max(s.left, t.left) + Math.min(s.right, t.right)) / 2 : sCx;
+      var tNearY = t.top >= sCy ? t.top : t.bottom;
+      var tNearX = t.left >= sCx ? t.left : t.right;
+      var yMissesT = y < t.top || y > t.bottom;
+      var xMissesT = x < t.left || x > t.right;
+      if (apartX) {
+        var gapEdge = t.left >= s.right ? t.left : t.right;
+        add(t.left >= s.right ? s.right : s.left, y, gapEdge, y, false);
+        if (yMissesT) add(gapEdge, y, gapEdge, tNearY, true);
+      } else {
+        var sFarY = tNearY === t.top ? s.top : s.bottom;
+        if (intersect || t.left < s.left) {
+          add(t.left, y, s.left, y, false);
+          if (!intersect) add(t.left, sFarY, t.left, tNearY, true);
+        }
+        if (intersect || t.right > s.right) {
+          add(s.right, y, t.right, y, false);
+          if (!intersect) add(t.right, sFarY, t.right, tNearY, true);
+        }
+      }
+      if (apartY) {
+        var gapEdgeY = t.top >= s.bottom ? t.top : t.bottom;
+        add(x, t.top >= s.bottom ? s.bottom : s.top, x, gapEdgeY, false);
+        if (xMissesT) add(x, gapEdgeY, tNearX, gapEdgeY, true);
+      } else {
+        var sFarX = tNearX === t.left ? s.left : s.right;
+        if (intersect || t.top < s.top) {
+          add(x, t.top, x, s.top, false);
+          if (!intersect) add(sFarX, t.top, tNearX, t.top, true);
+        }
+        if (intersect || t.bottom > s.bottom) {
+          add(x, s.bottom, x, t.bottom, false);
+          if (!intersect) add(sFarX, t.bottom, tNearX, t.bottom, true);
+        }
+      }
+      return segments;
     }
     function showMeasurements(a, b) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
       }
-      var selectedRect = a.getBoundingClientRect();
-      var hoverRect = b.getBoundingClientRect();
       if (!measurementOverlay.isConnected) {
         appendEditorChromeNode(measurementOverlay);
       }
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
-      if (hoverRect.right <= selectedRect.left) {
-        var yLeft = Math.max(
-          hoverRect.top,
-          Math.min(hoverRect.bottom, selectedRect.top + selectedRect.height / 2)
-        );
+      measurementSegments(
+        a.getBoundingClientRect(),
+        b.getBoundingClientRect()
+      ).forEach(function(segment) {
         addMeasurementLine(
-          hoverRect.right,
-          yLeft,
-          selectedRect.left,
-          yLeft,
-          Math.round(selectedRect.left - hoverRect.right) + "px"
+          segment.x1,
+          segment.y1,
+          segment.x2,
+          segment.y2,
+          segment.label,
+          segment.dashed
         );
-        return;
-      }
-      if (selectedRect.right <= hoverRect.left) {
-        var yRight = Math.max(
-          selectedRect.top,
-          Math.min(selectedRect.bottom, hoverRect.top + hoverRect.height / 2)
-        );
-        addMeasurementLine(
-          selectedRect.right,
-          yRight,
-          hoverRect.left,
-          yRight,
-          Math.round(hoverRect.left - selectedRect.right) + "px"
-        );
-        return;
-      }
-      if (hoverRect.bottom <= selectedRect.top) {
-        var xTop = Math.max(
-          hoverRect.left,
-          Math.min(hoverRect.right, selectedRect.left + selectedRect.width / 2)
-        );
-        addMeasurementLine(
-          xTop,
-          hoverRect.bottom,
-          xTop,
-          selectedRect.top,
-          Math.round(selectedRect.top - hoverRect.bottom) + "px"
-        );
-        return;
-      }
-      if (selectedRect.bottom <= hoverRect.top) {
-        var xBottom = Math.max(
-          selectedRect.left,
-          Math.min(selectedRect.right, hoverRect.left + hoverRect.width / 2)
-        );
-        addMeasurementLine(
-          xBottom,
-          selectedRect.bottom,
-          xBottom,
-          hoverRect.top,
-          Math.round(hoverRect.top - selectedRect.bottom) + "px"
-        );
-        return;
-      }
-      addMeasurementLine(
-        selectedRect.left + selectedRect.width / 2,
-        selectedRect.top + selectedRect.height / 2,
-        hoverRect.left + hoverRect.width / 2,
-        hoverRect.top + hoverRect.height / 2,
-        Math.round(
-          Math.hypot(
-            hoverRect.left + hoverRect.width / 2 - (selectedRect.left + selectedRect.width / 2),
-            hoverRect.top + hoverRect.height / 2 - (selectedRect.top + selectedRect.height / 2)
-          )
-        ) + "px"
-      );
+      });
     }
     function dragEventNames(e) {
       var pointerGesture = e && e.type && e.type.indexOf("pointer") === 0;
@@ -8268,6 +8360,55 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.style.display = visible ? "" : "none";
       });
     }
+    var textCaretOverlay = null;
+    function hideTextCaretOverlay(target) {
+      target.removeAttribute("data-agent-native-drawn-caret");
+      if (textCaretOverlay) textCaretOverlay.style.display = "none";
+    }
+    function positionTextCaretOverlay(target) {
+      var selection = window.getSelection ? window.getSelection() : null;
+      var range = selection && selection.isCollapsed && selectionBelongsToElement(selection, target) ? selection.getRangeAt(0) : null;
+      var rect = range ? range.getClientRects()[0] : void 0;
+      if (!range || !rect || rect.height <= 0) {
+        hideTextCaretOverlay(target);
+        return;
+      }
+      if (!textCaretOverlay) {
+        textCaretOverlay = document.createElement("div");
+        textCaretOverlay.setAttribute(
+          "data-agent-native-edit-overlay",
+          "text-caret"
+        );
+        textCaretOverlay.style.cssText = "position:fixed;pointer-events:none;z-index:99999;display:none;";
+        appendEditorChromeNode(textCaretOverlay);
+      }
+      var caretHost = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement || target;
+      var width = chromeLineScale();
+      var moved = textCaretOverlay.style.display === "none" || textCaretOverlay.style.left !== rect.left - width / 2 + "px" || textCaretOverlay.style.top !== rect.top + "px";
+      textCaretOverlay.style.left = rect.left - width / 2 + "px";
+      textCaretOverlay.style.top = rect.top + "px";
+      textCaretOverlay.style.width = width + "px";
+      textCaretOverlay.style.height = rect.height + "px";
+      textCaretOverlay.style.background = window.getComputedStyle(caretHost).color;
+      textCaretOverlay.style.display = "block";
+      if (!target.hasAttribute("data-agent-native-drawn-caret")) {
+        target.setAttribute("data-agent-native-drawn-caret", "");
+      }
+      if (moved && textCaretOverlay.animate) {
+        textCaretOverlay.getAnimations().forEach(function(animation) {
+          animation.cancel();
+        });
+        textCaretOverlay.animate(
+          [
+            { opacity: 1 },
+            { opacity: 1, offset: 0.5 },
+            { opacity: 0, offset: 0.5 },
+            { opacity: 0 }
+          ],
+          { duration: 1060, iterations: Infinity, delay: 500 }
+        );
+      }
+    }
     function updateTextEditingChrome(target, originalMinWidth, originalMinHeight) {
       target.style.outline = "none";
       target.style.outlineStyle = "none";
@@ -8282,8 +8423,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.style.minHeight = originalMinHeight;
         positionOverlay(selectionOverlay, target);
         setSelectionOverlayResizeChromeVisible(false);
+        positionTextCaretOverlay(target);
         return;
       }
+      hideTextCaretOverlay(target);
       target.style.minWidth = originalMinWidth || "1px";
       target.style.minHeight = originalMinHeight || "1em";
       document.documentElement.setAttribute(
@@ -10465,14 +10608,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         style.removeProperty(properties[i]);
       }
     }
-    function vectorGradientPaintTarget(el, paintProperty) {
+    function pastedSvgPaintShapes(root) {
+      var shapes = [];
+      function visit(parent) {
+        Array.from(parent.children).forEach(function(child) {
+          var tag = child.tagName.toLowerCase();
+          if (tag === "defs") return;
+          if (/^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)) {
+            shapes.push(child);
+          } else if (tag === "g") {
+            visit(child);
+          }
+        });
+      }
+      visit(root);
+      return shapes;
+    }
+    function vectorGradientPaintTargets(el, paintProperty) {
       var root = el.tagName.toLowerCase() === "svg" ? el : el.closest("svg[data-an-primitive]");
       if (!root) return null;
       var target = paintProperty === "stroke" ? vectorStrokeTarget(root) : vectorPaintTarget(root);
       if (!target && el !== root && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(el.tagName)) {
         target = el;
       }
-      return target ? { root, target } : null;
+      var targets = target ? [target] : [];
+      if (!targets.length && el === root && root.getAttribute("data-an-primitive") === "pasted-svg") {
+        targets = pastedSvgPaintShapes(root);
+      }
+      if (!targets.length) return null;
+      var shapeCount = pastedSvgPaintShapes(root).length;
+      return {
+        root,
+        targets,
+        metadataTarget: shapeCount === 1 || el === root ? root : targets[0]
+      };
     }
     function vectorGradientDefAttribute(paintProperty) {
       return "data-an-vector-" + paintProperty + "-gradient";
@@ -10505,10 +10674,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return canonical;
     }
-    function removeVectorGradientPreview(root, target, paintProperty) {
-      var style = target.style.getPropertyValue(paintProperty);
-      var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
-      var gradientId = reference ? reference[1] : "";
+    function removeVectorGradientPreview(root, targets, paintProperty) {
+      var gradientIds = /* @__PURE__ */ Object.create(null);
+      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
+      var rootMetadata = root.style.getPropertyValue(metadataProperty);
+      targets.forEach(function(target) {
+        var style = target.style.getPropertyValue(paintProperty);
+        var reference = style.match(/^url\\(\\s*['"]?#([^)'"\\s]+)['"]?\\s*\\)$/i);
+        if (reference?.[1]) gradientIds[reference[1]] = true;
+        target.style.removeProperty(metadataProperty);
+      });
       var defsContainers = Array.from(
         root.querySelectorAll(
           ":scope > defs[" + vectorGradientDefAttribute(paintProperty) + "]"
@@ -10516,8 +10691,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       defsContainers.forEach(function(defs) {
         Array.from(defs.children).forEach(function(gradient) {
-          if (gradientId && gradient.getAttribute("id") === gradientId) {
+          var id = gradient.getAttribute("id");
+          var remainingReferences = id ? Array.from(root.querySelectorAll("[style]")).filter(function(el) {
+            if (targets.indexOf(el) >= 0) return false;
+            var reference = el.style.getPropertyValue(paintProperty).match(/^url\\(\\s*['\\"]?#([^)'\\"\\s]+)['\\"]?\\s*\\)$/i);
+            return reference?.[1] === id;
+          }) : [];
+          if (id && gradientIds[id] && !remainingReferences.length) {
             gradient.remove();
+          } else if (rootMetadata && gradientIds[id || ""]) {
+            remainingReferences.forEach(function(el) {
+              el.style.setProperty(
+                metadataProperty,
+                rootMetadata
+              );
+            });
           }
         });
       });
@@ -10525,25 +10713,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (normalizedDefs && normalizedDefs.children.length === 0) {
         normalizedDefs.remove();
       }
-      var metadataProperty = vectorGradientMetadataProperty(paintProperty);
-      target.style.removeProperty(metadataProperty);
       root.style.removeProperty(metadataProperty);
-    }
-    function vectorFillGradientShapeCount(root) {
-      var count = 0;
-      function visit(parent) {
-        Array.from(parent.children).forEach(function(child) {
-          var tag = child.tagName.toLowerCase();
-          if (tag === "defs") return;
-          if (/^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(tag)) {
-            count += 1;
-          } else if (tag === "g") {
-            visit(child);
-          }
-        });
-      }
-      visit(root);
-      return count;
     }
     function appendSvgGradientStops(gradient, stops) {
       var svgNs = "http://www.w3.org/2000/svg";
@@ -10580,7 +10750,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return appended >= 2;
     }
     function applyVectorGradientPreview(el, value, paintProperty) {
-      var paint = vectorGradientPaintTarget(el, paintProperty);
+      var paint = vectorGradientPaintTargets(el, paintProperty);
       if (!paint) return false;
       var linear = parseLinearGradientCss(value);
       var radialMatch = String(value || "").trim().match(/^radial-gradient\\s*\\(([\\s\\S]*)\\)$/i);
@@ -10601,7 +10771,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var isRadial = !!radialMatch && radialStops.length >= 2;
       if (!linear && !isRadial) return false;
       var stops = linear ? linear.stops : radialStops;
-      removeVectorGradientPreview(paint.root, paint.target, paintProperty);
+      removeVectorGradientPreview(paint.root, paint.targets, paintProperty);
       var baseId = (paint.root.getAttribute("data-agent-native-node-id") || "vector") + "-" + paintProperty + "-gradient";
       var gradientId = baseId;
       var suffix = 2;
@@ -10759,12 +10929,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       defs.appendChild(gradient);
       recordSourceSubtree(defs);
-      paint.target.style.setProperty(
-        paintProperty,
-        "url(#" + gradientId + ")"
-      );
-      var metadataTarget = vectorFillGradientShapeCount(paint.root) === 1 ? paint.root : paint.target;
-      metadataTarget.style.setProperty(
+      paint.targets.forEach(function(target) {
+        target.style.setProperty(
+          paintProperty,
+          "url(#" + gradientId + ")"
+        );
+      });
+      paint.metadataTarget.style.setProperty(
         vectorGradientMetadataProperty(paintProperty),
         value.trim()
       );
@@ -10790,25 +10961,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeOverlay = null;
       var useOverlay = false;
       if (isVectorPaintProperty(cssProperty)) {
-        var shape = vectorPaintTarget(el);
         var vectorRoot = el.tagName.toLowerCase() === "svg" ? el : el.closest(
           "svg[data-an-primitive]"
         );
-        if (!shape && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg" && /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
-          el.tagName
-        )) {
-          shape = el;
+        var shape = vectorPaintTarget(el);
+        var shapes = shape ? [shape] : [];
+        if (!shapes.length && vectorRoot?.getAttribute("data-an-primitive") === "pasted-svg") {
+          shapes = el === vectorRoot ? pastedSvgPaintShapes(vectorRoot) : /^(path|polygon|ellipse|circle|rect|line|polyline|use)$/i.test(
+            el.tagName
+          ) ? [el] : [];
         }
-        if (shape) {
-          if (cssProperty === "fill" && vectorRoot) {
-            removeVectorGradientPreview(vectorRoot, shape, "fill");
+        if (shapes.length && vectorRoot) {
+          if (cssProperty === "fill" || cssProperty === "stroke") {
+            removeVectorGradientPreview(vectorRoot, shapes, cssProperty);
           }
           strokeOverlay = vectorStrokeTarget(el);
           useOverlay = cssProperty.indexOf("stroke") === 0 && !!strokeOverlay && strokeOverlay.hasAttribute("data-an-vector-stroke-overlay");
-          target = useOverlay ? strokeOverlay : shape;
-          if (cssProperty === "stroke" && vectorRoot) {
-            removeVectorGradientPreview(vectorRoot, target, "stroke");
-          }
+          target = useOverlay ? strokeOverlay : shapes[0];
           clearVectorWrapperPaint(el);
           if (useOverlay && cssProperty === "stroke-width") {
             var logicalWidth = String(value);
@@ -10823,6 +10992,15 @@ export const editorChromeBridgeScript: string = `"use strict";
               logicalWidth
             );
             value = actualWidth;
+          }
+          if (shapes.length > 1 && !useOverlay) {
+            shapes.forEach(function(shapeTarget) {
+              shapeTarget.style.setProperty(
+                cssProperty,
+                String(value)
+              );
+            });
+            return true;
           }
         }
       }
@@ -11217,6 +11395,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
     function eventEpochMilliseconds(ev) {
+      if (ev?.isTrusted === false) {
+        return performance.timeOrigin + performance.now();
+      }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
@@ -15733,6 +15914,71 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return [];
     };
+    function scaleSelectionByFactor(factor, anchorX, anchorY) {
+      if (readOnly || !selectedEl || isLayerInteractionBlocked(selectedEl))
+        return;
+      if (!(factor > 0) || factor === 1) return;
+      var el = selectedEl;
+      refreshLiveVisualEditOriginalStyles(el);
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var width = readPx(cs.width);
+      var height = readPx(cs.height);
+      var nextWidth = width * factor;
+      var nextHeight = height * factor;
+      var styles = {
+        left: quantizeToLayoutGrid(
+          readPx(el.style.left || cs.left) - (nextWidth - width) * anchorX
+        ) + "px",
+        top: quantizeToLayoutGrid(
+          readPx(el.style.top || cs.top) - (nextHeight - height) * anchorY
+        ) + "px",
+        width: quantizeToLayoutGrid(nextWidth) + "px",
+        height: quantizeToLayoutGrid(nextHeight) + "px"
+      };
+      if (el.style.position) styles.position = el.style.position;
+      var fontSize = readPx(el.style.fontSize || cs.fontSize);
+      var svgViewBoxScalesFont = el instanceof SVGSVGElement && el.hasAttribute("viewBox") || isInsideScaledSvgViewBox(el);
+      if (fontSize > 0 && !svgViewBoxScalesFont) {
+        styles.fontSize = Math.max(1, Math.round(fontSize * factor * 100) / 100) + "px";
+      }
+      var targets = collectKScaleStyleTargets(el, false);
+      Object.keys(styles).forEach(function(property) {
+        el.style[property] = styles[property];
+      });
+      applyKScaleStyleTargets(targets, factor);
+      var changes = kScaleStyleChanges(targets, factor);
+      var rootSelector = getSelector(el);
+      var rootChange = changes.find(function(change) {
+        return change.selector === rootSelector;
+      });
+      if (rootChange) {
+        rootChange.styles = Object.assign({}, rootChange.styles, styles);
+        rootChange.originalStyles = Object.assign(
+          {},
+          rootChange.originalStyles || {},
+          originalInlineStylesForPatch(el, styles)
+        );
+      } else {
+        changes.unshift({
+          selector: rootSelector,
+          sourceId: getSourceId(el) || void 0,
+          styles,
+          originalStyles: originalInlineStylesForPatch(el, styles),
+          preserveSelection: true
+        });
+      }
+      window.parent.postMessage(
+        { type: "visual-style-batch-change", changes },
+        "*"
+      );
+      recordSourceOwnership(el);
+      targets.forEach(function(target) {
+        recordSourceOwnership(target.el);
+      });
+      releaseLiveVisualEditOriginalStyles(el);
+      refreshOverlays();
+    }
     function startResize(handle, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -16646,6 +16892,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl && isTextEditElConnected() && e.target && activeTextEditEl.contains(e.target)) {
         return;
       }
+      if (activeTextEditEl && isTextEditElConnected()) {
+        var textEditToFinish = activeTextEditEl;
+        if (finishActiveTextEdit) finishActiveTextEdit(true);
+        textEditToFinish.blur();
+      }
       stopNativeInteraction(e);
       clearGridProjectionCaches();
       hostIgnoreAutoLayoutAtPointerDown = false;
@@ -17332,29 +17583,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       selection.addRange(range);
       return true;
     }
-    function placeTextCaretFromPoint(target, clientX, clientY) {
-      try {
-        var range = null;
-        if (document.caretRangeFromPoint) {
-          range = document.caretRangeFromPoint(clientX, clientY);
-        } else if (document.caretPositionFromPoint) {
-          var position = document.caretPositionFromPoint(clientX, clientY);
-          if (position) {
-            range = document.createRange();
-            range.setStart(position.offsetNode, position.offset);
-          }
-        }
-        if (!range) {
-          range = document.createRange();
-          range.selectNodeContents(target);
-          range.collapse(false);
-        }
-        var selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-      } catch (err) {
-        collapseSelectionIntoContents(target);
-      }
+    function selectAllTextContents(target) {
+      var range = document.createRange();
+      range.selectNodeContents(target);
+      var selection = window.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
     function isRejectedRawTextEditTarget(el) {
       if (!el) return true;
@@ -17501,10 +17736,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.removeEventListener("input", onInput, true);
         target.removeEventListener("keyup", onKeyUp, true);
         target.removeEventListener("mouseup", onMouseUp, true);
+        target.removeEventListener("mousedown", onMouseDownInSelection, true);
+        target.removeEventListener("dragstart", preventTextDrag, true);
         document.removeEventListener("selectionchange", onSelectionChange);
         window.removeEventListener("blur", onWindowBlur, true);
         target.removeAttribute("contenteditable");
         target.removeAttribute("data-agent-native-text-editing");
+        hideTextCaretOverlay(target);
         document.documentElement.removeAttribute(
           "data-agent-native-empty-text-editing"
         );
@@ -17671,6 +17909,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         scheduleTextEditingChromeUpdate();
       }
+      function onMouseDownInSelection(ev) {
+        if (ev.button !== 0 || ev.shiftKey || ev.detail !== 1) return;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (!selection || selection.isCollapsed) return;
+        var point = document.caretPositionFromPoint ? (function() {
+          var position = document.caretPositionFromPoint(
+            ev.clientX,
+            ev.clientY
+          );
+          if (!position) return null;
+          var range = document.createRange();
+          range.setStart(position.offsetNode, position.offset);
+          range.collapse(true);
+          return range;
+        })() : document.caretRangeFromPoint ? document.caretRangeFromPoint(ev.clientX, ev.clientY) : null;
+        if (!point || !rangeBelongsToElement(point, target)) return;
+        selection.removeAllRanges();
+        selection.addRange(point);
+      }
+      function preventTextDrag(ev) {
+        ev.preventDefault();
+      }
       function onMouseUp() {
         captureActiveTextEditRange(target);
         clearActiveTextEditRangeIfCollapsed(target);
@@ -17682,6 +17942,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       target.addEventListener("input", onInput, true);
       target.addEventListener("keyup", onKeyUp, true);
       target.addEventListener("mouseup", onMouseUp, true);
+      target.addEventListener("mousedown", onMouseDownInSelection, true);
+      target.addEventListener("dragstart", preventTextDrag, true);
       document.addEventListener("selectionchange", onSelectionChange);
       window.addEventListener("blur", onWindowBlur, true);
       target.focus();
@@ -17697,7 +17959,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else if (programmaticTextEdit) {
         collapseSelectionIntoContents(target);
       } else {
-        placeTextCaretFromPoint(target, e.clientX, e.clientY);
+        selectAllTextContents(target);
       }
       captureActiveTextEditRange(target);
       postTextEditingState(target, true);
@@ -18353,6 +18615,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:set-space-held") {
         bridgeSpaceKeyPressed = Boolean(e.data.held);
+        return;
+      }
+      if (e.data.type === "agent-native:scale-selection") {
+        if (!selectedEl || getSelector(selectedEl) !== e.data.selector) return;
+        scaleSelectionByFactor(
+          Number(e.data.factor),
+          Number(e.data.anchorX),
+          Number(e.data.anchorY)
+        );
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {

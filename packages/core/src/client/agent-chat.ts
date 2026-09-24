@@ -128,6 +128,12 @@ export interface AgentChatMessage {
    * distinguishable from a typed chat message. Omit for ordinary chat.
    */
   usageLabel?: string;
+  /**
+   * Approval keys of paused `needsApproval` calls this send approves. The
+   * server consumes only a matching durable grant, and the message is hidden
+   * as a protocol continuation rather than shown as a new prompt.
+   */
+  approvedToolCalls?: string[];
 }
 
 export interface AgentChatContextItem {
@@ -996,6 +1002,24 @@ export interface ParsedSubmitChat {
   submitMessageId?: string;
   /** See {@link AgentChatMessage.usageLabel}. */
   usageLabel?: string;
+  /** See {@link AgentChatMessage.approvedToolCalls}. */
+  approvedToolCalls?: string[];
+}
+
+const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
+
+// Keys are kept verbatim: the server matches them byte-for-byte against the
+// durable grant, so trimming one would make the approval silently miss.
+function parseSubmitChatApprovedToolCalls(
+  value: unknown,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys = value
+    .filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    )
+    .slice(0, MAX_SUBMIT_APPROVED_TOOL_CALLS);
+  return keys.length > 0 ? keys : undefined;
 }
 
 function parseSubmitChatAttachments(
@@ -1091,6 +1115,7 @@ export function parseSubmitChatMessage(
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
     usageLabel: nonEmptyString(raw.usageLabel),
+    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };
 }
 
@@ -1125,6 +1150,41 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 }
 
 /**
+ * Whether an approval continuation must stay with this app's own chat. The
+ * paused `needsApproval` run and its durable grant live there, and two outer
+ * chats cannot carry the keys: Builder's chat (`builder.submitChat` has no
+ * field for them and Builder holds none of this app's grants) and an MCP
+ * host's chat (every host transport — the direct follow-up API and the
+ * wrapper's `sendHostChat` — forwards only the message text). That holds for
+ * both MCP App embeds: with the chat bridge, and direct, where the parent is
+ * the MCP host itself. Anywhere else the normal relay carries the keys to the
+ * chat that owns the run.
+ */
+function keepsApprovalInAppChat(
+  opts: Pick<AgentChatMessage, "approvedToolCalls">,
+): boolean {
+  if (!opts.approvedToolCalls?.length) return false;
+  return (
+    isInBuilderFrame() ||
+    isMcpAppChatBridgeEnabled() ||
+    isDirectMcpAppEmbedSession()
+  );
+}
+
+/**
+ * Whether this send goes to the code-editing frame rather than the app's own
+ * chat. A code request goes to its frame unless it is an approval
+ * continuation that must stay in the app's chat (see
+ * {@link keepsApprovalInAppChat}).
+ */
+export function routesToCodeFrame(
+  opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
+): boolean {
+  if (opts.type !== "code" && opts.requiresCode !== true) return false;
+  return !keepsApprovalInAppChat(opts);
+}
+
+/**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
  */
@@ -1134,8 +1194,9 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
-  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
-  const localChatTarget = opts.chatTarget === "local";
+  const isCodeRequest = routesToCodeFrame(opts);
+  const localChatTarget =
+    opts.chatTarget === "local" || keepsApprovalInAppChat(opts);
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1179,7 +1240,8 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     // MCP host follow-up APIs carry neither attachment descriptors nor a usage
     // label. Use the normal wrapper transport when either needs to reach the
     // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find.
+    // the caller named it to be able to find. (Approval continuations never
+    // get here: they stay in the app's own chat, see keepsApprovalInAppChat.)
     if (opts.attachments?.length || opts.usageLabel || actionScope) {
       window.parent.postMessage(
         payload,
@@ -1294,8 +1356,7 @@ export function sendToAgentChatAndConfirm(
   // and cannot answer this window-local CustomEvent acknowledgement.
   if (
     opts.chatTarget !== "local" ||
-    opts.type === "code" ||
-    opts.requiresCode === true ||
+    routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
     return Promise.resolve({
