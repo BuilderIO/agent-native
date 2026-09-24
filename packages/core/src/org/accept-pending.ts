@@ -5,6 +5,7 @@ import { applyInvitationAppRoles } from "./app-roles.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import { trackInviteAccepted } from "./track-invite-accepted.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -165,54 +166,19 @@ export async function acceptPendingInvitationsForEmail(
       );
       continue;
     }
-    await db.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await db.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [inv.id],
     });
+    if (Number(updated.rowsAffected ?? 0) !== 1) continue;
     accepted.push({ invitationId: inv.id, orgId: inv.orgId });
-
-    // Lazy import: an eager `tracking/registry.js` import here has
-    // previously regressed cold start on code that loads during
-    // auth/signup. Never let a tracking failure block or fail acceptance.
-    try {
-      void Promise.all([
-        import("../tracking/registry.js"),
-        import("../app-config/index.js"),
-        import("../server/better-auth-instance.js"),
-      ])
-        .then(
-          async ([
-            { track },
-            { getAppConfig },
-            { getBetterAuthUserIdForEmail },
-          ]) => {
-            const app = getAppConfig().app.slug ?? "unknown";
-            // `invited_by` holds the inviter's email, but the virality metrics
-            // join `referrer_user` against `auth_user_id` (a Better Auth id).
-            // An email there would never match and would put an address in a
-            // property, so omit it rather than emit one that cannot join.
-            const referrerUser = await getBetterAuthUserIdForEmail(
-              inv.invitedBy,
-            );
-            track(
-              "invite_accepted",
-              {
-                app,
-                template: app,
-                org_id: inv.orgId,
-                role: inv.role === "admin" ? "admin" : "member",
-                ...(referrerUser ? { referrer_user: referrerUser } : {}),
-                federated: inv.federated,
-              },
-              { userId: email },
-            );
-          },
-        )
-        .catch(() => {});
-      // coercion-ok: telemetry must never block or fail invite acceptance.
-    } catch {
-      // Tracking must never block or fail invite acceptance.
-    }
+    trackInviteAccepted({
+      email,
+      orgId: inv.orgId,
+      role: inv.role,
+      invitedBy: inv.invitedBy,
+      federated: inv.federated,
+    });
   }
 
   // Set active-org-id to the most recent invite so the user lands in a

@@ -14,6 +14,7 @@ const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
 const mockGetUserProfiles = vi.hoisted(() => vi.fn());
+const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -86,6 +87,9 @@ vi.mock("../settings/user-settings.js", () => ({
 
 vi.mock("../user-profile/store.js", () => ({
   getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
+}));
+vi.mock("./track-invite-accepted.js", () => ({
+  trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
 }));
 
 import { putUserSetting } from "../settings/user-settings.js";
@@ -381,6 +385,13 @@ describe("org handlers", () => {
       ),
     ).resolves.toMatchObject({ orgId: "org-1", role: "member" });
     expect(mockAddFederatedOrganizationMember).toHaveBeenCalled();
+    expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
+      email: "member@example.test",
+      orgId: "org-1",
+      role: "member",
+      invitedBy: "owner@example.test",
+      federated: true,
+    });
     expect(
       mockExecute.mock.calls.some(([input]) =>
         input.sql.includes("INSERT INTO org_members"),

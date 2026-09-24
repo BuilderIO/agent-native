@@ -70,6 +70,7 @@ import {
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
+import { trackInviteAccepted } from "./track-invite-accepted.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
@@ -975,10 +976,19 @@ export const acceptInvitationHandler = defineEventHandler(
         email,
         updatedBy: String(inv.invitedBy ?? inv.invited_by),
       });
-      await e.execute({
-        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+      const updated = await e.execute({
+        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
         args: [invitationId],
       });
+      if (Number(updated.rowsAffected ?? 0) === 1) {
+        trackInviteAccepted({
+          email,
+          orgId: invOrgId,
+          role: inv.role == null ? null : String(inv.role),
+          invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
+          federated: Boolean(linked),
+        });
+      }
       await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
@@ -1063,10 +1073,19 @@ export const acceptInvitationHandler = defineEventHandler(
       updatedBy: inviterEmail,
     });
 
-    await e.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await e.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [invitationId],
     });
+    if (Number(updated.rowsAffected ?? 0) === 1) {
+      trackInviteAccepted({
+        email,
+        orgId: invOrgId,
+        role: inv.role == null ? null : String(inv.role),
+        invitedBy: inviterEmail,
+        federated: Boolean(linked),
+      });
+    }
 
     await setActiveOrgId(email, invOrgId, "accepted invitation");
 

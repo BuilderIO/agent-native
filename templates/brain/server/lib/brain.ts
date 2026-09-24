@@ -2126,20 +2126,6 @@ export async function writeKnowledgeRecord(
     .from(schema.brainKnowledge)
     .where(eq(schema.brainKnowledge.id, id))
     .limit(1);
-  if (!existing) {
-    track(
-      "knowledge_created",
-      {
-        app_name: "brain",
-        template_name: "brain",
-        output_id: id,
-        output_type: "knowledge",
-        kind: input.kind ?? "fact",
-        publish_tier: tier,
-      },
-      { userId: userEmail },
-    );
-  }
   let returned = knowledge;
   const audienceCanPublish = await canPublishCanonicalAudience(
     evidenceAudience?.audienceId ?? null,
@@ -2191,6 +2177,24 @@ export async function writeKnowledgeRecord(
       .update(schema.brainKnowledge)
       .set({ supersededById: id, status: "archived", updatedAt: nowIso() })
       .where(eq(schema.brainKnowledge.id, input.supersedesId));
+  }
+  if (!existing) {
+    try {
+      track(
+        "knowledge_created",
+        {
+          app_name: "brain",
+          template_name: "brain",
+          output_id: id,
+          output_type: "knowledge",
+          kind: input.kind ?? "fact",
+          publish_tier: tier,
+        },
+        { userId: userEmail },
+      );
+    } catch {
+      console.warn("[brain] Could not emit knowledge creation telemetry");
+    }
   }
   return {
     mode: "knowledge" as const,
