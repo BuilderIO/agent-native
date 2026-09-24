@@ -730,7 +730,12 @@ export async function markInboxAccountStale(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<void> {
-  await patchSyncAccount(ownerEmail, accountEmail, { lastSyncedAt: null });
+  // Release an older worker so it cannot mark pre-push data fresh on completion.
+  await patchSyncAccount(ownerEmail, accountEmail, {
+    lastSyncedAt: null,
+    syncClaimId: null,
+    syncClaimedAt: null,
+  });
 }
 
 export async function resetInboxSync(

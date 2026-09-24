@@ -71,6 +71,7 @@ vi.mock("./inbox-store.js", () => ({
 
 import {
   ensureInboxFresh,
+  markInboxAccountStale,
   resetInboxSync,
   syncInboxAccount,
 } from "./inbox-sync.js";
@@ -100,6 +101,18 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   };
 }
+
+describe("markInboxAccountStale", () => {
+  it("invalidates freshness and fences an in-flight sync", async () => {
+    await markInboxAccountStale(OWNER, ACCOUNT);
+
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(OWNER, ACCOUNT, {
+      lastSyncedAt: null,
+      syncClaimId: null,
+      syncClaimedAt: null,
+    });
+  });
+});
 
 function thread(
   id: string,
