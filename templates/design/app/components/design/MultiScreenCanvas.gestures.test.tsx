@@ -2003,6 +2003,43 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(otherFrame!.querySelector("[data-resize-handle]")).not.toBeNull();
   });
 
+  it("uses the focused device viewport for near-matching aspect ratios", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body>Preview</body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          interactMode
+          interactScreenId="screen-a"
+          focusedInteractViewport={{ width: 402, height: 874 }}
+          metadataById={{
+            "screen-a": { width: 390, height: 844 },
+          }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    expect(iframe!.style.width).toBe("402px");
+    expect(iframe!.style.height).toBe("874px");
+    expect(iframe!.style.transform).toBe("");
+  });
+
   it("resizes a frame and restores it when Escape cancels the drag", async () => {
     const { frame } = await renderSelectedFrame();
     const selectionBox = container.querySelector<HTMLElement>(

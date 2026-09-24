@@ -13568,7 +13568,10 @@ const Screen = memo(function Screen({
   const display = screenDisplayName(screen, metadata);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
   const externalPreviewPendingOrigin = Boolean(previewUrl && !browserOrigin);
-  const previewViewport = getScreenPreviewViewport(metadata, geometry);
+  const previewViewport = getScreenPreviewViewport(
+    focusedInteract ? geometry : metadata,
+    geometry,
+  );
   const suppressNextClick = useRef(false);
   // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
   // would lose its iframe's scroll/form/Alpine state, so it stays mounted and
