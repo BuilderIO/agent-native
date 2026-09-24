@@ -473,8 +473,8 @@ function buildGenerationContent(args: {
 
 /** Keys whose values are stripped from persisted tool inputs when
  *  `captureToolArgs` is enabled. Matched case-insensitively across
- *  namespace, snake/kebab, and camelCase components. M14 in the MCP/A2A
- *  audit: tool calls
+ *  namespace, snake/kebab, camelCase, and credential suffixes. M14 in the
+ *  MCP/A2A audit: tool calls
  *  routinely receive credentials verbatim (db-exec INSERTs, fetchTool
  *  Authorization headers, ad-hoc bearer tokens) — keeping those values
  *  out of agent_trace_spans.metadata avoids long-term storage of
@@ -488,6 +488,10 @@ const SENSITIVE_FIELD_SUFFIXES = [
   "clientsecret",
   "privatekey",
   "token",
+  "secret",
+  "password",
+  "accesskeyid",
+  "accesskey",
 ];
 
 function isSensitiveFieldName(field: string): boolean {
