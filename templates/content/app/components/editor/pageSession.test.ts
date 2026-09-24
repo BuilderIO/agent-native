@@ -29,7 +29,9 @@ describe("savePageWithRecovery", () => {
         clear,
       }),
     ).resolves.toEqual({ contentPersisted: false });
-    expect(retain).toHaveBeenCalledWith("conflict");
+    expect(retain).toHaveBeenCalledWith("conflict", {
+      contentPersisted: false,
+    });
     expect(clear).not.toHaveBeenCalled();
   });
 

@@ -260,6 +260,12 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   editorSessionId?: string;
   /** Monotonic intentional edit generation within editorSessionId. */
   editorEditGeneration?: number;
+  /** Immutable, payload-bound browser save attempt shared by normal and keepalive sends. */
+  browserSaveAttemptId?: string;
+  /** Immutable authored body delta, distinct from each rebased attempt payload. */
+  authoredBaseRevision?: string;
+  authoredBaseContent?: string;
+  authoredCandidateContent?: string;
   /** Complete editor snapshot represented by this generation. */
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
@@ -267,7 +273,25 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
 
 export type DocumentUpdateResult =
   | DocumentUpdateResponse
-  | DocumentUpdateConflictResponse;
+  | DocumentUpdateConflictResponse
+  | DocumentUpdatePreservationResponse;
+
+export type DocumentUpdatePreservationResponse = {
+  preservationRequired: true;
+  id: string;
+  document: DocumentUpdateResponse;
+  reason: "structure" | "provenance";
+  checkpointId: string;
+};
+
+export function isDocumentUpdatePreservationRequired(
+  result: Document | DocumentUpdateResult,
+): result is DocumentUpdatePreservationResponse {
+  return (
+    (result as DocumentUpdatePreservationResponse)?.preservationRequired ===
+    true
+  );
+}
 
 // Accepts anything `persistDocumentUpdates`/`updateDocument.mutateAsync` can
 // resolve with — including a bare `Document` from the local-file-source
@@ -963,7 +987,10 @@ export function useUpdateDocument() {
         // UI immediately reflects the write that actually won) but skip the
         // save-specific side effects below, which assume `data` describes the
         // just-applied write.
-        if (isDocumentUpdateConflict(data)) {
+        if (
+          isDocumentUpdateConflict(data) ||
+          isDocumentUpdatePreservationRequired(data)
+        ) {
           const serverDocument = data.document;
           queryClient.setQueriesData(
             documentQueryFilter(variables.id),

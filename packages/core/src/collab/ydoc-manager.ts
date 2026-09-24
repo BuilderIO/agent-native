@@ -526,6 +526,102 @@ export async function applyUpdate(
   });
 }
 
+function isEmptyXmlSeedTarget(fragment: Y.XmlFragment): boolean {
+  if (fragment.length === 0) return true;
+  if (fragment.length !== 1) return false;
+  const first = fragment.get(0);
+  if (!(first instanceof Y.XmlElement) || first.nodeName !== "paragraph") {
+    return false;
+  }
+  for (let index = 0; index < first.length; index += 1) {
+    const child = first.get(index);
+    if (!(child instanceof Y.XmlText) || child.toString().length > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Commit one prepared initial ProseMirror fragment. The candidate stays outside
+ * the shared cache until its version-guarded write succeeds, so a concurrent
+ * loser can only receive the winner's state, never publish its own insertion.
+ */
+export async function seedXmlFragmentIfEmpty(
+  docId: string,
+  seedUpdate: Uint8Array,
+  requestSource?: string,
+): Promise<{ seeded: boolean; state: Uint8Array }> {
+  const candidate = new Y.Doc();
+  try {
+    const decoded = Y.decodeUpdate(seedUpdate);
+    if (decoded.ds.clients.size > 0) {
+      throw new Error("Initial XmlFragment seed cannot contain deletions");
+    }
+    Y.applyUpdate(candidate, seedUpdate);
+    const fragment = candidate.getXmlFragment("default");
+    if (
+      candidate.share.size !== 1 ||
+      !candidate.share.has("default") ||
+      isEmptyXmlSeedTarget(fragment)
+    ) {
+      throw new Error(
+        "Initial XmlFragment seed must contain only a nonempty default fragment",
+      );
+    }
+  } finally {
+    candidate.destroy();
+  }
+
+  return withDocWriteLock(docId, async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const stored = await loadYDocRecord(docId);
+      const committed = new Y.Doc();
+      try {
+        if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+        const fragment = committed.getXmlFragment("default");
+        if (!isEmptyXmlSeedTarget(fragment)) {
+          return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
+        }
+
+        const beforeVector = Y.encodeStateVector(committed);
+        if (fragment.length === 1) fragment.delete(0, 1);
+        Y.applyUpdate(committed, seedUpdate);
+        if (isEmptyXmlSeedTarget(fragment)) {
+          throw new Error(
+            "Initial XmlFragment seed did not populate the default fragment",
+          );
+        }
+        const state = Y.encodeStateAsUpdate(committed);
+        const committedUpdate = Y.encodeStateAsUpdate(committed, beforeVector);
+        const textSnapshot =
+          committed.getText(DEFAULT_FIELD).toString() ||
+          extractTextFromYXml(fragment);
+        const saved = await trySaveYDocState(
+          docId,
+          state,
+          textSnapshot,
+          stored?.version ?? null,
+        );
+        if (!saved) continue;
+
+        releaseDoc(docId);
+        emitCollabUpdate(
+          docId,
+          uint8ArrayToBase64(committedUpdate),
+          requestSource,
+        );
+        return { seeded: true, state };
+      } finally {
+        committed.destroy();
+      }
+    }
+    throw new CollabBaseVersionConflictError(
+      `Document ${docId} kept changing while its initial XmlFragment seed was being committed.`,
+    );
+  });
+}
+
 /**
  * Apply a text change to a document. Computes the minimal diff and
  * converts it to Yjs operations.
