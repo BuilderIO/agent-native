@@ -473,15 +473,15 @@ describe("Gmail push invalidations", () => {
     });
   });
 
-  it("includes legacy markers when reading the account generation", async () => {
-    dbState.pushInvalidations = [{ generation: 7 }, { generation: 2 }];
+  it("sums legacy markers as a number across the 9-to-10 boundary", async () => {
+    dbState.pushInvalidations = [{ generation: 9 }, { generation: 1 }];
 
     const generation = await readInboxPushGeneration(
       "owner@example.com",
       "acct@example.com",
     );
 
-    expect(generation).toBe(9);
+    expect(generation).toBe(10);
   });
 });
 

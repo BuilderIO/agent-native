@@ -598,14 +598,14 @@ describe("resetInboxSync", () => {
 });
 
 describe("ensureInboxFresh — managed workspace grant", () => {
-  it("syncs a recent account when a push invalidation is pending", async () => {
+  it("syncs a recent account when the pending push generation advances from 9 to 10", async () => {
     currentRow = baseRow({
       historyId: "500",
       lastSyncedAt: Date.now(),
-      lastPushGeneration: 0,
+      lastPushGeneration: 9,
     });
     mocks.ensureSyncAccountRow.mockResolvedValue(currentRow);
-    mocks.readInboxPushGeneration.mockResolvedValue(1);
+    mocks.readInboxPushGeneration.mockResolvedValue(10);
     mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
 
     const statuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
@@ -616,7 +616,7 @@ describe("ensureInboxFresh — managed workspace grant", () => {
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
-      { lastPushGeneration: 1 },
+      { lastPushGeneration: 10 },
       { claimId: "claim-1" },
     );
   });
