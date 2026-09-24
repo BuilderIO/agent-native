@@ -205,10 +205,14 @@ fi
 
 After a successful fetch, renew the PR lease fence before any other work.
 Immediately query the live PR state with
-`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid`.
-If it is merged or closed, skip the rest of the tick and go directly to stop
-cleanup. If the query fails, do not run the branch/review/CI checks or schedule
-another tick until live state is available.
+`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
+If the query fails, do not run the branch/review/CI checks or schedule another
+tick until live state is available. A closed but unmerged PR goes to cleanup
+and is reported as an unsuccessful merge-authorized shipment. A merged PR is a
+terminal state for standalone `/babysit-pr` and inherited `ship_mode=ready-only`
+(report the unexpected merge and do not rotate). Under inherited
+`ship_mode=merge-authorized`, continue the `/ship` post-merge path below before
+cleanup. Never treat PR merge alone as completion of the parent ship goal.
 
 For an open PR, inspect the branch snapshot:
 
@@ -469,16 +473,39 @@ after the merged snapshot, even if GitHub has deleted the source branch.
 - For standalone `/babysit-pr` only: no new actionable feedback and GitHub
   Actions green for 30 consecutive minutes
 - In `ship_mode=ready-only`: the verified ready-PR endpoint above
-- PR is merged or closed
+- A merged PR completes the standalone watcher; in inherited
+  `ship_mode=merge-authorized`, it starts the post-merge ship continuation
+- A closed but unmerged PR ends babysitting, but never completes the ship goal
 
 In `ship_mode=merge-authorized`, never stop at the 30-minute quiet-green
 condition. Keep checking and fixing CI/review feedback, merge as soon as the
-10-minute gate holds, then complete watcher cleanup and return to `/ship` for
-`origin/main` verification and branch disposition. A closed but unmerged PR is
-a terminal PR state, not a successful merge-authorized ship; report it without
-marking the goal complete. In `ship_mode=ready-only`, stop only at the verified
-ready-PR endpoint above, leave the PR open, and complete cleanup without a
-merge or branch rotation. Never stop because a resumed wake lost its mode.
+10-minute gate holds. Then continue through `origin/main` verification and
+branch disposition before cleanup. A closed but unmerged PR is a terminal PR
+state, not a successful merge-authorized ship; report it without marking the
+goal complete. In `ship_mode=ready-only`, stop only at the verified ready-PR
+endpoint above, leave the PR open, and complete cleanup without a merge or
+branch rotation. Never stop because a resumed wake lost its mode.
+
+### Post-merge `/ship` continuation
+
+When a durable wake finds the PR merged under inherited
+`ship_mode=merge-authorized`, capture `mergeCommit.oid` and the exact verified
+`headRefOid`, then continue the parent `/ship` endpoint before pausing the
+watcher or releasing its lease:
+
+1. Fetch origin and verify `mergeCommit.oid` is an ancestor of `origin/main`.
+   If it has not arrived yet, keep the watcher and lease active and retry on the
+   next tick.
+2. Complete `/ship`'s authorized post-merge branch disposition, passing the
+   verified PR head OID to `/new-branch`. Rotate only when its safety checks
+   pass; otherwise retain the source branch and report the reason.
+3. Re-run the final inline-thread and review-summary audits below.
+4. Only after ancestry proof, branch disposition, and both audits are complete,
+   clean up the watcher and lease.
+
+PR merge by itself is not a watcher stop, parent handoff completion, or goal
+completion. If the exact head OID is unavailable, preserve the source branch
+and report that safe disposition rather than guessing.
 
 Before the guarded merge or ready-only cleanup, re-run the unaddressed
 inline-comments command and inspect every review body while this task still
