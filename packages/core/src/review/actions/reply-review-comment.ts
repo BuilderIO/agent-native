@@ -4,7 +4,7 @@ import { defineAction } from "../../action.js";
 import { sanitizeReviewCommentMetadata } from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
-import { notifyReviewComment } from "../notifications.js";
+import { notifyReviewCommentWithReceipt } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
@@ -123,9 +123,7 @@ export default defineAction({
     return {
       ...result.comment,
       replayed: result.replayed,
-      notified: result.replayed
-        ? null
-        : await notifyReviewComment(result.comment),
+      notified: await notifyReviewCommentWithReceipt(result.comment),
     };
   },
   audit: {

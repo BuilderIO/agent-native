@@ -6,6 +6,7 @@ import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
   insertOptimisticComment,
+  reconcileSuggestionAmendment,
   replaceOptimisticSuggestion,
   type ListReviewCommentsResult,
 } from "./use-review.js";
@@ -121,6 +122,37 @@ describe("ReviewOptimisticCache", () => {
     expect(
       replaceOptimisticSuggestion([optimistic], optimistic.id, saved),
     ).toEqual([saved]);
+  });
+
+  it("keeps a newer refetched suggestion revision when an amendment response arrives late", () => {
+    const original = suggestion("suggestion-1", "Original");
+    const saved = { ...original, revision: 2, summary: "Older amendment" };
+    const newer = { ...original, revision: 3, summary: "Newer amendment" };
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-resource-suggestions", resource] as const;
+    queryClient.setQueryData(queryKey, { suggestions: [original] });
+    const cache = new ReviewOptimisticCache(queryClient);
+    const context = cache.begin({
+      action: "list-resource-suggestions",
+      resource,
+      transform: (data) => data,
+      successReplacesOptimistic: true,
+      onSuccess: (result) => (data) => ({
+        suggestions: reconcileSuggestionAmendment(
+          (data as { suggestions: ResourceSuggestion[] }).suggestions,
+          result as ResourceSuggestion,
+        ),
+      }),
+    });
+
+    queryClient.setQueryData(queryKey, { suggestions: [newer] });
+    cache.succeed(context, saved);
+    cache.settle(context);
+    expect(
+      queryClient.getQueryData<{ suggestions: ResourceSuggestion[] }>(queryKey)
+        ?.suggestions,
+    ).toEqual([newer]);
+    expect(reconcileSuggestionAmendment([original], saved)).toEqual([saved]);
   });
 
   it("keeps a delayed created comment visible and swaps it for the server record", () => {

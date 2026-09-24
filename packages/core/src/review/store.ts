@@ -117,6 +117,7 @@ export async function ensureReviewTables(): Promise<void> {
       created_by TEXT NOT NULL DEFAULT 'human',
       resolution_target TEXT,
       reply_route_target TEXT DEFAULT 'legacy',
+      notification_completed_at TEXT,
       mentions_json TEXT,
       owner_email TEXT,
       org_id TEXT,
@@ -186,6 +187,11 @@ export async function ensureReviewTables(): Promise<void> {
           "agent_review_comments",
           "reply_route_target",
           "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS reply_route_target TEXT DEFAULT 'legacy'",
+        );
+        await ensureColumnExists(
+          "agent_review_comments",
+          "notification_completed_at",
+          "ALTER TABLE agent_review_comments ADD COLUMN IF NOT EXISTS notification_completed_at TEXT",
         );
         await ensureTableExists("agent_review_statuses", createStatusesSql);
         await ensureTableExists(
@@ -402,6 +408,28 @@ export async function insertReviewCommentIdempotently(
 ): Promise<InsertReviewCommentResult> {
   await ensureReviewTables();
   return insertReviewCommentIdempotentlyWithClient(input, getDbExec());
+}
+
+export async function reviewCommentNotificationCompleted(
+  id: string,
+): Promise<boolean> {
+  await ensureReviewTables();
+  const result = await getDbExec().execute({
+    sql: "SELECT notification_completed_at FROM agent_review_comments WHERE id = ?",
+    args: [id],
+  });
+  if (!result.rows?.length) throw new Error("Review comment not found");
+  return result.rows[0].notification_completed_at !== null;
+}
+
+export async function markReviewCommentNotificationCompleted(
+  id: string,
+): Promise<void> {
+  await ensureReviewTables();
+  await getDbExec().execute({
+    sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
+    args: [new Date().toISOString(), id],
+  });
 }
 
 export async function insertReviewReply(
@@ -732,13 +760,9 @@ function assertMatchingReviewCommentReceipt(
     "anchor",
     "body",
     "authorEmail",
-    "authorName",
     "createdBy",
     "resolutionTarget",
     "mentions",
-    "ownerEmail",
-    "orgId",
-    "visibility",
     "metadata",
   ];
   if (

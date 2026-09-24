@@ -260,7 +260,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(container.textContent).toContain("Unread feedback");
   });
 
-  it("uses a flat container and progressively discloses reply and narrow actions", () => {
+  it("uses a flat container and progressively discloses reply and narrow actions", async () => {
     act(() => {
       root.render(
         <ReviewThreadPanel
@@ -322,7 +322,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     const agentButton = composerButtons.find(
       (button) => button.textContent?.trim() === "Send to agent",
     );
-    act(() => commentButton?.click());
+    await act(async () => commentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         targetId: "screen-2",

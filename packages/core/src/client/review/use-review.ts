@@ -704,6 +704,17 @@ export function replaceOptimisticSuggestion(
   return suggestions.map((item) => (item.id === optimisticId ? result : item));
 }
 
+export function reconcileSuggestionAmendment(
+  suggestions: ResourceSuggestion[],
+  saved: ResourceSuggestion,
+) {
+  return suggestions.map((suggestion) =>
+    suggestion.id === saved.id && suggestion.revision <= saved.revision
+      ? saved
+      : suggestion,
+  );
+}
+
 function optimisticId(prefix: string) {
   return `${prefix}-${globalThis.crypto.randomUUID()}`;
 }
@@ -1060,12 +1071,12 @@ export function useUpdateResourceSuggestion() {
         ),
       onSuccess: (result) => (data) =>
         updateSuggestions(data, (suggestions) =>
-          suggestions.map((suggestion) =>
-            suggestion.id === input.id
-              ? (result as ResourceSuggestion)
-              : suggestion,
+          reconcileSuggestionAmendment(
+            suggestions,
+            result as ResourceSuggestion,
           ),
         ),
+      successReplacesOptimistic: true,
     };
   });
 }

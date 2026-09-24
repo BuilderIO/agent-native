@@ -264,6 +264,7 @@ export function ReviewThreadPanel({
   const draftMentionsRef = useRef<ReviewMention[]>([]);
   const draftGenerationRef = useRef(0);
   const createRetryRef = useRef<{ key: string; id: string } | null>(null);
+  const createPendingRef = useRef(false);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
   const replyingThreadIdRef = useRef<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -276,6 +277,7 @@ export function ReviewThreadPanel({
   const replyRetriesRef = useRef<Record<string, { key: string; id: string }>>(
     {},
   );
+  const replyPendingRef = useRef<Set<string>>(new Set());
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
   );
@@ -396,6 +398,7 @@ export function ReviewThreadPanel({
         : allCommentsLabel;
 
   const submitDraft = async (resolutionTarget: ReviewResolutionTarget) => {
+    if (createPendingRef.current) return;
     const submittedDraft = draftRef.current;
     const body = submittedDraft.trim();
     if (!body) return;
@@ -413,6 +416,7 @@ export function ReviewThreadPanel({
         ? createRetryRef.current.id
         : globalThis.crypto.randomUUID();
     const generation = draftGenerationRef.current;
+    createPendingRef.current = true;
     draftRef.current = "";
     draftMentionsRef.current = [];
     setDraft("");
@@ -429,7 +433,9 @@ export function ReviewThreadPanel({
         resolutionTarget: showComposerTargetPicker ? resolutionTarget : "human",
         clientOperationId: operationId,
       });
-      createRetryRef.current = null;
+      if (createRetryRef.current?.id === operationId) {
+        createRetryRef.current = null;
+      }
       onCommentCreated?.(comment);
     } catch {
       if (
@@ -443,6 +449,8 @@ export function ReviewThreadPanel({
       draftMentionsRef.current = submittedMentions;
       setDraft(submittedDraft);
       setDraftMentions(submittedMentions);
+    } finally {
+      createPendingRef.current = false;
     }
   };
 
@@ -515,6 +523,7 @@ export function ReviewThreadPanel({
   };
 
   const submitReply = async (comment: ReviewComment) => {
+    if (replyPendingRef.current.has(comment.id)) return;
     const threadId = comment.threadId;
     const submittedDraft = replyDraftsRef.current[comment.id] ?? "";
     const body = submittedDraft.trim();
@@ -525,6 +534,7 @@ export function ReviewThreadPanel({
     const operationId =
       retry?.key === retryKey ? retry.id : globalThis.crypto.randomUUID();
     const generation = replyGenerationsRef.current[comment.id] ?? 0;
+    replyPendingRef.current.add(comment.id);
     replyDraftsRef.current = {
       ...replyDraftsRef.current,
       [comment.id]: "",
@@ -546,7 +556,9 @@ export function ReviewThreadPanel({
         ...(submittedMentions.length ? { mentions: submittedMentions } : {}),
         clientOperationId: operationId,
       });
-      delete replyRetriesRef.current[comment.id];
+      if (replyRetriesRef.current[comment.id]?.id === operationId) {
+        delete replyRetriesRef.current[comment.id];
+      }
     } catch {
       if (
         (replyGenerationsRef.current[comment.id] ?? 0) !== generation ||
@@ -572,6 +584,8 @@ export function ReviewThreadPanel({
         [comment.id]: submittedMentions,
       }));
       if (replyingThreadIdRef.current === null) startReplying(threadId);
+    } finally {
+      replyPendingRef.current.delete(comment.id);
     }
   };
 

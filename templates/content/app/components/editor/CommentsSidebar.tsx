@@ -495,6 +495,9 @@ export function useCommentReplyDrafts(
     end?: number;
     direction?: "forward" | "backward" | "none";
   } | null>(null);
+  const replyRetries = useRef(
+    new Map<string, { payload: string; operationId: string }>(),
+  );
   const setOpenReply = useCallback(
     (
       threadId: string | null,
@@ -570,6 +573,17 @@ export function useCommentReplyDrafts(
     finishSubmission: draftStore.finishSubmission,
     isSubmitting: (threadId: string) =>
       draftStore.isSubmittingDraft(`reply:${documentId}:${threadId}`),
+    retryOperationId: (threadId: string, payload: string) => {
+      const retry = replyRetries.current.get(threadId);
+      return retry?.payload === payload ? retry.operationId : undefined;
+    },
+    rememberRetry: (threadId: string, payload: string, operationId: string) =>
+      replyRetries.current.set(threadId, { payload, operationId }),
+    clearRetry: (threadId: string, operationId: string) => {
+      if (replyRetries.current.get(threadId)?.operationId === operationId) {
+        replyRetries.current.delete(threadId);
+      }
+    },
   };
 }
 
@@ -1135,7 +1149,15 @@ export function CommentsSidebar({
       return;
     const thread = threads?.find((t) => t.threadId === threadId);
     if (!thread || thread.resolved) return;
-    const clientOperationId = crypto.randomUUID();
+    const payload = JSON.stringify({
+      documentId,
+      threadId,
+      parentId: thread.comments[0]?.id,
+      content: replyText.trim(),
+      mentions: mentionsJsonFor(replyText, replyMentions),
+    });
+    const clientOperationId =
+      replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
       await createComment.mutateAsync({
@@ -1146,10 +1168,14 @@ export function CommentsSidebar({
         parentId: thread?.comments[0]?.id,
         mentions: mentionsJsonFor(replyText, replyMentions),
       });
+      replyDrafts.clearRetry(threadId, clientOperationId);
       replyDrafts.finishSubmission(clientOperationId);
     } catch (error) {
-      if (!isAmbiguousCommentCreateError(error)) {
-        replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
+      replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
+      if (isAmbiguousCommentCreateError(error)) {
+        replyDrafts.rememberRetry(threadId, payload, clientOperationId);
+      } else {
+        replyDrafts.clearRetry(threadId, clientOperationId);
       }
       replyDrafts.finishSubmission(clientOperationId);
       toast.error(t("empty.genericError"), {

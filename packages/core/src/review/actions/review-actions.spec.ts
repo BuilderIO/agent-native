@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
-const notifyReviewComment = vi.hoisted(() => vi.fn(async () => ({ sent: [] })));
+const notifyReviewCommentWithReceipt = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -26,7 +28,7 @@ vi.mock("../../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
-vi.mock("../notifications.js", () => ({ notifyReviewComment }));
+vi.mock("../notifications.js", () => ({ notifyReviewCommentWithReceipt }));
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))
   .default;
@@ -278,8 +280,41 @@ afterEach(async () => {
 });
 
 describe("review actions", () => {
+  it("replays after display name and resource access snapshots change", async () => {
+    const rootArgs = {
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Stable request",
+      clientOperationId: "00000000-0000-4000-8000-000000000011",
+    };
+    const root = await createReviewCommentAction.run(rootArgs, {
+      userEmail: EDITOR_EMAIL,
+      userName: "Old Name",
+    });
+    __resetReviewableResourcesForTests();
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "new-owner@example.com",
+        orgId: "new-org",
+        visibility: "org",
+      }),
+    });
+    const replay = await createReviewCommentAction.run(rootArgs, {
+      userEmail: EDITOR_EMAIL,
+      userName: "New Name",
+    });
+    expect(replay).toMatchObject({
+      id: root.id,
+      replayed: true,
+      authorName: "Old Name",
+      ownerEmail: OWNER_EMAIL,
+    });
+  });
+
   it("replays client-identified comments and replies without duplicate notifications", async () => {
-    notifyReviewComment.mockClear();
+    notifyReviewCommentWithReceipt.mockClear();
     const createOperationId = "00000000-0000-4000-8000-000000000001";
     const root = await createReviewCommentAction.run(
       {
@@ -371,7 +406,7 @@ describe("review actions", () => {
         { userEmail: EDITOR_EMAIL, caller: "frontend" },
       ),
     ).rejects.toThrow("submission ID conflicts");
-    expect(notifyReviewComment).toHaveBeenCalledTimes(2);
+    expect(notifyReviewCommentWithReceipt).toHaveBeenCalledTimes(4);
 
     const comments = await queryReviewComments({
       resourceType: "doc",

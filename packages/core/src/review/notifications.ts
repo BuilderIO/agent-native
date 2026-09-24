@@ -22,7 +22,9 @@ import {
 } from "./registry.js";
 import {
   filterUnmutedReviewThreadRecipients,
+  markReviewCommentNotificationCompleted,
   queryReviewComments,
+  reviewCommentNotificationCompleted,
 } from "./store.js";
 import type { ReviewComment } from "./types.js";
 
@@ -86,6 +88,20 @@ export async function notifyReviewComment(
   return runActivityNotification(LOG_LABEL, () =>
     deliverReviewCommentEmails(comment),
   );
+}
+
+export async function notifyReviewCommentWithReceipt(
+  comment: ReviewComment,
+): Promise<ReviewNotificationResult | null> {
+  if (await reviewCommentNotificationCompleted(comment.id)) return null;
+  const result = await notifyReviewComment(comment);
+  if (
+    result.failed.length === 0 &&
+    (result.status === "delivered" || result.status === "no-recipients")
+  ) {
+    await markReviewCommentNotificationCompleted(comment.id);
+  }
+  return result;
 }
 
 async function deliverReviewCommentEmails(

@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   resolveReviewableResourceAccess: vi.fn(),
   filterRecipientsByResourceAccess: vi.fn(),
   filterUnmutedReviewThreadRecipients: vi.fn(),
+  reviewCommentNotificationCompleted: vi.fn(),
+  markReviewCommentNotificationCompleted: vi.fn(),
 }));
 
 vi.mock("../server/activity-notifications.js", async () => {
@@ -49,6 +51,10 @@ vi.mock("./registry.js", () => ({
 }));
 
 vi.mock("./store.js", () => ({
+  reviewCommentNotificationCompleted: (...args: unknown[]) =>
+    mocks.reviewCommentNotificationCompleted(...args),
+  markReviewCommentNotificationCompleted: (...args: unknown[]) =>
+    mocks.markReviewCommentNotificationCompleted(...args),
   filterUnmutedReviewThreadRecipients: (...args: unknown[]) =>
     mocks.filterUnmutedReviewThreadRecipients(...args),
   queryReviewComments: (...args: unknown[]) =>
@@ -57,6 +63,7 @@ vi.mock("./store.js", () => ({
 
 import {
   notifyReviewComment,
+  notifyReviewCommentWithReceipt,
   REVIEW_NOTIFICATION_PREFS_KEY,
 } from "./notifications.js";
 import type { ReviewComment } from "./types.js";
@@ -101,6 +108,7 @@ beforeEach(() => {
     sent: [],
     failed: [],
   });
+  mocks.reviewCommentNotificationCompleted.mockResolvedValue(false);
   mocks.queryReviewComments.mockResolvedValue([]);
   mocks.filterUnmutedReviewThreadRecipients.mockImplementation(
     async (_threadId: string, recipients: string[]) => recipients,
@@ -112,6 +120,31 @@ beforeEach(() => {
     async ({ emails }: { emails: string[] }) =>
       [...emails].map((email) => email.trim().toLowerCase()),
   );
+});
+
+describe("notifyReviewCommentWithReceipt", () => {
+  it("retries after a failed delivery, then suppresses a completed replay", async () => {
+    mocks.notifyActivity.mockResolvedValueOnce({
+      status: "delivery-failed",
+      sent: [],
+      failed: [{ email: "owner@example.com", error: "offline" }],
+    });
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivery-failed",
+    );
+    expect(mocks.markReviewCommentNotificationCompleted).not.toHaveBeenCalled();
+
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivered",
+    );
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+
+    mocks.reviewCommentNotificationCompleted.mockResolvedValue(true);
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(mocks.notifyActivity).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("notifyReviewComment", () => {
