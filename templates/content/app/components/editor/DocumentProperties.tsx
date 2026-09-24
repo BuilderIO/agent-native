@@ -125,6 +125,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -2283,39 +2284,48 @@ export function PropertyValuePopover({
   const t = useT();
   const [open, setOpen] = useState(false);
 
+  const editLabel = t("editor.properties.editProperty", {
+    name: property.definition.name,
+  });
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {property.definition.type === "relation" ? (
-          // Relation values render links, which cannot sit inside a <button>.
+      {property.definition.type === "relation" ? (
+        // Relation values render links, so the picker gets its own trigger
+        // button beside them rather than wrapping them in button semantics.
+        <PopoverAnchor asChild>
           <div
-            role="button"
-            tabIndex={0}
-            aria-label={t("editor.properties.editProperty", {
-              name: property.definition.name,
-            })}
-            className="flex min-h-6 w-full min-w-0 cursor-pointer items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                setOpen(true);
-              }
+            className="group flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-1 rounded px-1 hover:bg-accent"
+            onClick={(event) => {
+              // Mouse convenience only: keyboard and assistive tech use the
+              // trigger button, and the links keep their own behaviour.
+              if ((event.target as HTMLElement).closest("a, button")) return;
+              setOpen(true);
             }}
           >
-            {children}
+            <div className="min-w-0 flex-1">{children}</div>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={editLabel}
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 aria-expanded:opacity-100"
+              >
+                <IconEdit className="size-3.5" />
+              </button>
+            </PopoverTrigger>
           </div>
-        ) : (
+        </PopoverAnchor>
+      ) : (
+        <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={t("editor.properties.editProperty", {
-              name: property.definition.name,
-            })}
+            aria-label={editLabel}
             className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {children}
           </button>
-        )}
-      </PopoverTrigger>
+        </PopoverTrigger>
+      )}
       <PopoverContent
         align="start"
         portalled={portalled}
