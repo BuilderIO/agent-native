@@ -123,6 +123,115 @@ describe("editing safety bridge", () => {
   );
 
   it(
+    "lets Space held in one live frame pan a different live frame",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 500 },
+        });
+        await page.setContent(`<style>
+          html,body,#canvas{margin:0;width:100%;height:100%}#canvas{position:relative}
+          iframe{position:absolute;width:360px;height:300px;border:0}
+          #keyboard{left:20px;top:20px}#pointer{left:430px;top:20px}
+        </style><div id="canvas"><iframe id="keyboard" name="keyboard"></iframe><iframe id="pointer" name="pointer"></iframe></div>
+        <script>
+          window.__bridgeMessages=[];
+          window.addEventListener('message',event=>{
+            const message=event.data;
+            const frames=[...document.querySelectorAll('iframe')];
+            const source=event.source===frames[1].contentWindow?'pointer':'keyboard';
+            window.__bridgeMessages.push({message,source});
+            if(message?.type==='design-hotkey'&&message.code==='Space'){
+              frames.forEach(frame=>frame.contentWindow.postMessage({type:'embedded-canvas-pan-mode',leftButtonEnabled:true},'*'));
+            }
+            if(message?.type==='design-hotkey-up'&&message.code==='Space'){
+              frames.forEach(frame=>frame.contentWindow.postMessage({type:'embedded-canvas-pan-mode',leftButtonEnabled:false},'*'));
+            }
+          });
+        </script>`);
+
+        for (const id of ["keyboard", "pointer"]) {
+          const frame = page
+            .frames()
+            .find((candidate) => candidate.name() === id);
+          expect(frame).toBeDefined();
+          await frame!.setContent(
+            `<div id="target" style="margin:70px;width:180px;height:90px;background:#ddd">${id}</div><script>window.__appPointerDowns=0;document.querySelector('#target').addEventListener('pointerdown',()=>window.__appPointerDowns++);</script>`,
+          );
+          await frame!.addScriptTag({
+            content: editingSafetyBridgeScript(true, true),
+          });
+        }
+
+        const keyboardTarget = page
+          .frameLocator("#keyboard")
+          .locator("#target");
+        const pointerTarget = page.frameLocator("#pointer").locator("#target");
+        const keyboardBox = await keyboardTarget.boundingBox();
+        const pointerBox = await pointerTarget.boundingBox();
+        expect(keyboardBox).not.toBeNull();
+        expect(pointerBox).not.toBeNull();
+
+        await page.mouse.click(
+          keyboardBox!.x + keyboardBox!.width / 2,
+          keyboardBox!.y + keyboardBox!.height / 2,
+        );
+        expect(
+          await page.evaluate(
+            () => (document.activeElement as HTMLIFrameElement | null)?.id,
+          ),
+        ).toBe("keyboard");
+        await page.keyboard.down("Space");
+        await page.waitForFunction(() =>
+          (window as any).__bridgeMessages.some(
+            ({ message }: any) =>
+              message.type === "design-hotkey" && message.code === "Space",
+          ),
+        );
+
+        const x = pointerBox!.x + pointerBox!.width / 2;
+        const y = pointerBox!.y + pointerBox!.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 56, y + 32, { steps: 4 });
+        await page.mouse.up();
+        await page.keyboard.up("Space");
+
+        const pointerMessages = await page.evaluate(() =>
+          (window as any).__bridgeMessages
+            .filter(
+              ({ message, source }: any) =>
+                source === "pointer" && message.type === "embedded-canvas-pan",
+            )
+            .map(({ message }: any) => message),
+        );
+        expect(pointerMessages.map((message: any) => message.phase)).toEqual([
+          "start",
+          "move",
+          "move",
+          "move",
+          "move",
+          "end",
+        ]);
+        expect(
+          pointerMessages.some(
+            (message: any) => message.movementX > 0 && message.movementY > 0,
+          ),
+        ).toBe(true);
+        expect(
+          await page
+            .frames()[2]
+            .evaluate(() => (window as any).__appPointerDowns),
+        ).toBe(0);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "releases Space-pan ownership when switching into Interact",
     { timeout: 30_000 },
     async () => {

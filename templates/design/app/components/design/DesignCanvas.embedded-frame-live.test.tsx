@@ -346,11 +346,22 @@ describe("DesignCanvas live embedded-frame offset", () => {
         editPostMessage.mock.calls
           .map(
             (call) =>
-              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+              call[0] as
+                | {
+                    type?: string;
+                    wheelEnabled?: boolean;
+                    spaceKeyForwardingEnabled?: boolean;
+                  }
+                | undefined,
           )
           .filter(
-            (message): message is { type: string; wheelEnabled?: boolean } =>
-              message?.type === "embedded-canvas-gesture-mode",
+            (
+              message,
+            ): message is {
+              type: string;
+              wheelEnabled?: boolean;
+              spaceKeyForwardingEnabled?: boolean;
+            } => message?.type === "embedded-canvas-gesture-mode",
           );
       await act(async () => {
         window.dispatchEvent(
@@ -364,6 +375,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
       await vi.waitFor(() => {
         expect(wheelEnabledMessages().slice(-1)[0]).toMatchObject({
           wheelEnabled: true,
+          spaceKeyForwardingEnabled: true,
         });
       });
 
@@ -380,11 +392,22 @@ describe("DesignCanvas live embedded-frame offset", () => {
         interactPostMessage.mock.calls
           .map(
             (call) =>
-              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+              call[0] as
+                | {
+                    type?: string;
+                    wheelEnabled?: boolean;
+                    spaceKeyForwardingEnabled?: boolean;
+                  }
+                | undefined,
           )
           .filter(
-            (message): message is { type: string; wheelEnabled?: boolean } =>
-              message?.type === "embedded-canvas-gesture-mode",
+            (
+              message,
+            ): message is {
+              type: string;
+              wheelEnabled?: boolean;
+              spaceKeyForwardingEnabled?: boolean;
+            } => message?.type === "embedded-canvas-gesture-mode",
           );
       await act(async () => {
         window.dispatchEvent(
@@ -398,6 +421,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
       await vi.waitFor(() => {
         expect(interactWheelEnabledMessages().slice(-1)[0]).toMatchObject({
           wheelEnabled: false,
+          spaceKeyForwardingEnabled: true,
         });
       });
     } finally {
