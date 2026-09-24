@@ -723,6 +723,7 @@ import { runPendingTextHostCommit } from "./design-editor/commands/pending-text-
 import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-frame-geometry-save";
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
+import { runPublishVisualEditPending } from "./design-editor/commands/publish-visual-edit-pending";
 import { runRecordPendingLiveLayerStateEdit } from "./design-editor/commands/record-pending-live-layer-state-edit";
 import {
   commitPendingLiveStructureEdits,
@@ -19760,13 +19761,6 @@ function DesignEditor() {
   );
   useEffect(() => {
     if (!id) return;
-    // The durable handoff action requires editor access; a signed-out or
-    // read-only visual-edit viewer always fails it and surfaces a spurious
-    // "Could not create agent handoff" error. Those viewers still get the
-    // pending prompt through the page-local Copy-prompt flow below, which
-    // reads pendingVisualEditCount/pendingVisualStylePrompt directly rather
-    // than this durable publication.
-    if (!canEditDesign) return;
     if (
       pendingVisualEditCount === 0 &&
       pendingVisualEditClearRequestedRef.current !== id &&
@@ -19800,54 +19794,23 @@ function DesignEditor() {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
-    const clearRequested = pending.pending === null;
-    const publish = async () => {
-      try {
-        await callAction("publish-visual-edit-pending", pending);
-        setPendingVisualEditPublicationFailed(false);
-        if (
-          clearRequested &&
-          pendingVisualEditClearRequestedRef.current === id
-        ) {
-          pendingVisualEditClearRequestedRef.current = null;
-          pendingVisualEditHadPendingRef.current = null;
-        }
-      } catch (error) {
-        console.error(
-          "[design:visual-edit] durable handoff publication failed",
-          error,
-        );
-        setPendingVisualEditPublicationFailed(true);
-        toast.error(t("designEditor.toasts.codingHandoffError"), {
-          id: "design-visual-edit-pending-publication",
-        });
-      }
-
-      if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
-      try {
-        const response = await fetch(
-          `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-design-preview-token": activeScreenPreviewToken,
-            },
-            body: JSON.stringify(pending.pending),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Bridge returned HTTP ${response.status}`);
-        }
-      } catch (error) {
-        // The bridge is optional for static screens; durable MCP publication
-        // remains authoritative when the local app is offline.
-        console.warn(
-          "[design:visual-edit] local bridge handoff publication failed",
-          error,
-        );
-      }
-    };
+    const publish = () =>
+      runPublishVisualEditPending({
+        activeScreenBridgeUrl,
+        activeScreenPreviewToken,
+        callAction,
+        canEditDesign,
+        designId: id,
+        fetchImpl: fetch,
+        pending,
+        pendingVisualEditClearRequestedRef,
+        pendingVisualEditHadPendingRef,
+        setPendingVisualEditPublicationFailed,
+        showHandoffErrorToast: () =>
+          toast.error(t("designEditor.toasts.codingHandoffError"), {
+            id: "design-visual-edit-pending-publication",
+          }),
+      });
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
         .catch((error) => {

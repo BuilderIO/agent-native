@@ -95,35 +95,27 @@ describe("DesignEditor pending live edits", () => {
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain('callAction("publish-visual-edit-pending"');
+    expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("pendingVisualStylePrompt");
   });
 
-  it("gates the durable visual-edit handoff publish on canEditDesign so a public viewer never sees the handoff error", () => {
+  it("wires canEditDesign into the extracted publish command and its effect deps", () => {
     const source = readFileSync(
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    const publishCallIndex = source.indexOf(
-      'await callAction("publish-visual-edit-pending", pending);',
-    );
+    const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
     expect(publishCallIndex).toBeGreaterThan(-1);
-    const effectStart = source.lastIndexOf(
-      "useEffect(() => {",
-      publishCallIndex,
-    );
-    expect(effectStart).toBeGreaterThan(-1);
     const depsStart = source.indexOf(".then(publish);", publishCallIndex);
     expect(depsStart).toBeGreaterThan(publishCallIndex);
     const depsEnd = source.indexOf("]);", depsStart);
-    const effectBody = source.slice(effectStart, depsStart);
+    const publishCall = source.slice(publishCallIndex, depsStart);
     const deps = source.slice(depsStart, depsEnd);
     // publish-visual-edit-pending requires editor access; a signed-out or
-    // read-only viewer can never satisfy it, so auto-calling it for them
-    // only produces a spurious "Could not create agent handoff" error. They
-    // still get the pending prompt via the page-local Copy-prompt flow,
-    // which reads pendingVisualEditCount directly.
-    expect(effectBody).toContain("if (!canEditDesign) return;");
+    // read-only viewer can never satisfy it. runPublishVisualEditPending
+    // (design-editor/commands/publish-visual-edit-pending.ts) is the actual
+    // gate — see its own describe block below for the behavioral proof.
+    expect(publishCall).toContain("canEditDesign,");
     expect(deps).toContain("canEditDesign,");
   });
 
