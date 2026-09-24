@@ -361,6 +361,7 @@ export function ResourceIconPicker({
     value?.kind === "library" ? value.color : undefined,
   );
   const fileInput = React.useRef<HTMLInputElement>(null);
+  const saveQueue = React.useRef<Promise<void>>(Promise.resolve());
   const effectiveRecents = recentValues ?? localRecents;
   React.useEffect(() => {
     if (!open) return;
@@ -456,7 +457,9 @@ export function ResourceIconPicker({
     setUploadError(undefined);
     const persisted = next ? persistedIconValue(next) : null;
     try {
-      await onValueChange(persisted);
+      const save = saveQueue.current.then(() => onValueChange(persisted));
+      saveQueue.current = save.catch(() => {});
+      await save;
       if (persisted) remember(persisted);
       if (close) changeOpen(false);
     } catch (error) {
