@@ -419,8 +419,12 @@ for 10 consecutive minutes** before merging:
 The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI
 fails, a new review comment arrives, or merge conflicts appear.
 
-After 10 consecutive clean minutes, query the live PR again and capture its
-current `headRefOid`, then run:
+At the end of the 10-minute soak, immediately before merging, revalidate the
+entire gate for the still-open PR: current `headRefOid`, `MERGEABLE` state,
+required checks green, all review items addressed, no new actionable feedback,
+clean worktree, and no unpushed commits. If any condition changed or cannot be
+verified, reset the soak and continue monitoring. Capture the head oid from
+that final check, then run:
 
 ```bash
 gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>

@@ -86,12 +86,15 @@ const STALE_PR_WATCHER_RE = new RegExp(
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
   [
-    String.raw`\b(?:i|we)\s+(?:still\s+)?(?:have|had)\s+to\s+(?:run|use|invoke)\s+\/ship-watchdog\b`,
-    String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}\/ship\b[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
-    String.raw`(?:\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}|\/ship\b[^.!?\n]{0,100})\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,100}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`\b(?:i|we)\s+(?:still\s+)?(?:have|had)\s+to\s+(?:run|use|invoke)\s+(?:\/|\[\$)?ship-watchdog\b`,
+    String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
+    String.raw`(?:\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}|(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100})\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,100}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`\bwhy\s+did\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:finish(?:ed)?|stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,80}\b(?:before|without)\b[^.!?\n]{0,60}\b(?:merg(?:e|ed|ing)|PR|pull request)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:reported|called|marked)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,40}\b(?:complete|done|finished)\b[^.!?\n]{0,80}\b(?:but|yet|while)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:open|unmerged|not merged)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,40}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:with|while|although)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:unmerged|not merged|still open)\b`,
     String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b`,
-    String.raw`\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,100}\b(?:\/ship\b[^.!?\n]{0,50})?until\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
-    String.raw`\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:left open|still open|unmerged|not merged|didn['’]?t merge)\b[^.!?\n]{0,100}\b(?:\/ship|told|asked|stopped|stop|ended)\b`,
+    String.raw`\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,100}\b(?:(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50})?until\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:told|asked|instructed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|watchdog|babysit|left\s+(?:the\s+)?(?:PR|pull request)\s+open|unmerged)\b`,
   ].join("|"),
   "i",
 );
@@ -200,18 +203,34 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   ],
   [true, "Do not stop /ship until the PR is merged."],
   [true, "The agent ended /ship before the PR was merged."],
+  [true, "Why did /ship finish before merging the pull request?"],
+  [true, "The agent reported /ship complete but left the PR open."],
+  [true, "The agent stopped /ship with the pull request unmerged."],
   [
     true,
     "I had to remind the agent to keep /ship running until the PR merged.",
   ],
   [true, "/ship stopped while the PR is still open."],
   [true, "I have to run /ship-watchdog every day."],
+  [
+    true,
+    "These are all threads I told to [$ship], yet I have to run [$ship-watchdog] every day.",
+  ],
+  [
+    true,
+    "I had to remind the agent to keep [$ship] running until the PR merged.",
+  ],
   [false, "Please run /ship and merge once CI is green."],
+  [false, "Please run [$ship] and merge once CI is green."],
   [false, "Run /ship on the remaining changes."],
   [false, "The pull request is still open while CI runs."],
   [false, "Ship the feature and stop when its tests pass."],
   [false, "/ship should merge the PR once all required checks pass."],
   [false, "The agent can stop after the PR has merged."],
+  [
+    false,
+    "The PR is still open; I asked you to stop changing unrelated files.",
+  ],
 ];
 
 if (process.argv.includes("--self-test")) {

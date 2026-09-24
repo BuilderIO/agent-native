@@ -26,6 +26,10 @@ the next task.
   overwrite, rebase, or force-push it.
 - /ship authorizes the merge once the gates below pass, unless the user says
   not to merge.
+- That `/ship` request also authorizes its single post-merge branch rotation,
+  after the merge commit is verified on `origin/main`. Apply `/new-branch`'s
+  naming and safety checks only at that point; do not move branches earlier or
+  touch another checkout.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
@@ -242,16 +246,23 @@ continuous minutes on the unchanged live PR head:
 - GitHub reports the PR mergeable;
 - no new actionable feedback arrived during the soak.
 
+Immediately before merging, revalidate the full gate for the still-open PR:
+working tree clean, no unpushed commits, required checks green, every review
+item addressed, mergeability still `MERGEABLE`, and no new actionable feedback
+since the soak began. Capture the live `headRefOid` from that same final check
+and use it for the merge guard. If any gate changed, restart the soak.
+
 Then use the explicit squash-admin merge:
 
 ```bash
 gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>
 ```
 
-Capture `<verified-head-oid>` from the final live PR check immediately before
-this command. This admin merge is the normal `/ship` completion step once the
-gates hold; do not wait for an additional approval or enable auto-merge. If the
-head-match guard rejects the merge, restart the soak for the new head.
+Capture `<verified-head-oid>` only after the full final gate check immediately
+before this command. This admin merge is the normal `/ship` completion step
+once the gates hold; do not wait for an additional approval or enable
+auto-merge. If the head-match guard rejects the merge, restart the soak for the
+new head.
 
 Never enable auto-merge. If a gate fails, fix the actionable cause, publish one
 coherent update to the same PR, and restart the soak. A queued, skipped,
@@ -260,11 +271,12 @@ repo defect; classify it before changing code.
 
 ## 6. Rotate after merge
 
-After the merge, verify that origin/main contains the merge commit. Then run
-the post-ship branch rotation owned by /new-branch, preserving and reporting
-any pre-existing stashes. The final state is a fresh branch from current
-origin/main, not a detached merged checkout. Only then mark the ship goal
-complete.
+After the merge, verify that `origin/main` contains the merge commit. Then
+rotate once using `/new-branch`'s naming and safety checks. In a worktree,
+require a clean tree and create the fresh branch from fetched `origin/main`;
+never check out or pull a possibly stale local `main`. Preserve any pre-existing
+stashes. The final state is a fresh branch from current `origin/main`, not a
+detached merged checkout. Only then mark the ship goal complete.
 
 ## Deployment boundary
 
