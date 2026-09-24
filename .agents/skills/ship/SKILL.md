@@ -31,11 +31,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   PR is ready, then leave it open, clean up the watcher, and do not rotate the
   branch.
 - Before the guarded merge in Codex, persist its exact verified PR head OID as
-  `ship_merge_head_oid` in the task-scoped watcher prompt. In Claude Code,
-  report that exact OID in the active `/goal` transcript before merging and keep
-  the session foregrounded through post-merge disposition. Carry the immutable
-  value through `/new-branch`; never replace it with a live PR head read after
-  merge, because the source branch may advance or be deleted.
+  `ship_merge_head_oid` in the active task-scoped watcher prompt. In Claude
+  Code, record it in the active `/goal` transcript when one exists; otherwise
+  keep it in the foreground task transcript and continue without yielding
+  through post-merge disposition. A missing Claude `/goal` never blocks the
+  authorized merge. Carry the immutable value through `/new-branch`; never
+  replace it with a live PR head read after merge, because the source branch
+  may advance or be deleted.
 - That `/ship` request also authorizes one post-merge branch rotation in a
   user-owned checkout, after the merge commit is verified on `origin/main`.
   Platform-assigned Builder.io and Fusion branches stay in place. Apply

@@ -466,13 +466,14 @@ that final check. Before merging under `/ship`, persist it as
 `ship_merge_head_oid=<verified-head-oid>` in Codex's active task-scoped
 heartbeat prompt. Update the complete stored heartbeat definition, changing
 only its prompt, and verify the marker was saved before continuing. In Claude
-Code or a foreground-only run, state the same marker in the active `/goal`
-transcript before merging. Preserve this exact value on every later prompt or
-goal update; never replace it with a live `headRefOid` read after merge. If
-persistence fails, keep the watcher and lease active, continue foreground-only,
-and do not merge until the marker is saved. When no heartbeat is used, do not
-yield before post-merge disposition; if the OID becomes unavailable, retain the
-source branch rather than guessing.
+Code, put the marker in the active `/goal` transcript when one exists; without
+an active goal, keep it in the foreground task transcript and do not yield
+before post-merge disposition. A missing Claude `/goal` never blocks the
+authorized merge. Preserve this exact value on every later prompt or goal
+update; never replace it with a live `headRefOid` read after merge. If a
+Codex heartbeat prompt cannot be updated, stay foreground-only and do not merge
+until the durable prompt contains the marker. If the OID is unavailable after
+merge, retain the source branch rather than guessing.
 
 Then run:
 
@@ -526,8 +527,11 @@ before pausing the watcher or releasing its lease:
    saved `ship_merge_head_oid` to `/new-branch`. Compare both local and remote
    source-branch tips. Rotate only when its safety checks pass; otherwise
    retain the source branch and report why.
-4. Only after ancestry proof, branch disposition, and both audits are complete,
-   clean up the watcher and lease.
+4. Once ancestry proof and branch disposition are complete and both audits have
+   been run, clean up the watcher and lease. A recorded post-merge follow-up
+   with the source branch retained is a terminal disposition for this shipment;
+   do not keep its watcher or lease active waiting for the already-merged PR to
+   be fixed.
 
 PR merge by itself is not a watcher stop, parent handoff completion, or goal
 completion. If the exact head OID is unavailable, preserve the source branch
@@ -551,8 +555,9 @@ sufficient; bots may have posted new rounds since. If either final audit finds
 new actionable feedback, keep the watcher and lease, fix it, and restart the
 soak while the PR is still open. If it is already merged, record a
 post-merge follow-up, retain the source branch, and do not restart the merged
-PR's soak. Pause/release ownership only after the endpoint is reached and both
-audits pass.
+PR's soak. Pause/release ownership after the endpoint is reached and both
+audits have a disposition. A post-merge follow-up with the source branch
+retained is a valid final disposition and does not keep the watcher active.
 
 ## Cleanup
 

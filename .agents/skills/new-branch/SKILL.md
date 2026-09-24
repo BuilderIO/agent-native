@@ -96,16 +96,16 @@ remote_line=$(git ls-remote --heads origin "refs/heads/$branch") || {
   exit 1
 }
 remote_ref="refs/remotes/origin/$branch"
-if [ -n "$remote_line" ] && ! git fetch --no-prune origin "refs/heads/$branch:$remote_ref"; then
-  echo "Cannot refresh the remote source branch; keep the source branch." >&2
-  exit 1
-fi
 local_unpublished=$(git log --oneline "$ship_head"..HEAD) || {
   echo "Cannot inspect local commits; keep the source branch." >&2
   exit 1
 }
 remote_unpublished=
-if git show-ref --verify --quiet "$remote_ref"; then
+if [ -n "$remote_line" ]; then
+  if ! git fetch --no-prune origin "refs/heads/$branch:$remote_ref"; then
+    echo "Cannot refresh the remote source branch; keep the source branch." >&2
+    exit 1
+  fi
   if ! git merge-base --is-ancestor "$ship_head" "$remote_ref"; then
     echo "Remote source branch diverged from the merged PR head; keep the source branch." >&2
     git log --oneline "$remote_ref" --not "$ship_head"
@@ -125,9 +125,22 @@ if [ -n "$local_unpublished" ] || [ -n "$remote_unpublished" ]; then
   fi
   echo "Keeping the source branch; report these commits instead of rotating."
 else
+  dirty_publishable=$(git status --porcelain --untracked-files=all -- . \
+    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**') || {
+    echo "Cannot verify the working tree; keep the source branch." >&2
+    exit 1
+  }
+  if [ -n "$dirty_publishable" ]; then
+    printf 'Dirty publishable paths:\n%s\n' "$dirty_publishable" >&2
+    echo "Keep the source branch until publishable paths are clean." >&2
+    exit 1
+  fi
   # Replace with a unique name following the Branch naming rules above.
   new_branch="<github-username>/changes-N"
-  git switch -c "$new_branch" origin/main
+  git switch -c "$new_branch" origin/main || {
+    echo "Could not create the next branch; keep the source branch." >&2
+    exit 1
+  }
 fi
 ```
 
