@@ -174,7 +174,12 @@ export function runScreenTextContentChange(
   const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === screenId
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
   if (
     screenSourceType === "inline" &&

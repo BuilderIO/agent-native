@@ -50,8 +50,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
-  "onboarding.builderConnectCredits": "Builder.io 無料クレジットに接続",
+  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":

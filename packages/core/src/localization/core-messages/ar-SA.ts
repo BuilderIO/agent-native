@@ -48,8 +48,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
+  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":

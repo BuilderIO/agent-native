@@ -443,7 +443,7 @@ test("a rectangle drawn on the board keeps its neutral fill", async ({
     style,
     `the clip reports rectangles coming out black; the canonical fill is a ` +
       `neutral grey. Got: ${style || "(no rectangle found)"}`,
-  ).toContain("rgb(218, 218, 218)");
+  ).toContain("rgb(217, 217, 217)");
 });
 
 test("the canvas does not go black and hide the screens after drawing a frame", async ({

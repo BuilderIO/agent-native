@@ -777,6 +777,15 @@ export interface MultiScreenCanvasProps {
    */
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
+  /** Reads the canvas-space rectangle currently visible between editor chrome. */
+  visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
+}
+
+export interface VisibleCanvasRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface FrameGeometry {
@@ -1108,6 +1117,16 @@ export interface VectorEditHandleDragState {
   symmetryBroken: boolean;
 }
 
+export interface VectorEditSegmentDragState {
+  type: "vector-segment";
+  originClient: Point;
+  originLocal: Point;
+  segmentIndex: number;
+  t: number;
+  pathBefore: PenPath;
+  hasMoved: boolean;
+}
+
 export interface DraftCreationPreview {
   tool: DraftCreationTool;
   geometry: FrameGeometry;
@@ -1126,7 +1145,8 @@ export type DragState =
   | DraftCreateDragState
   | PenNodeDragState
   | VectorEditAnchorDragState
-  | VectorEditHandleDragState;
+  | VectorEditHandleDragState
+  | VectorEditSegmentDragState;
 
 export type PendingWheelGesture =
   | {

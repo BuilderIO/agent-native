@@ -167,6 +167,7 @@ export {
   getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
+  getOwnerJevApiKey,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,

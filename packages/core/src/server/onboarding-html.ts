@@ -1204,7 +1204,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
-  const appHomePath = resolveAppHomePath(getAppConfig().app);
+  const appHomePath = resolveAppHomePath(
+    getAppConfig().app,
+    getAppConfig().workspace,
+  );
   const workspaceRuntime = isWorkspaceRuntime();
   const trackingApp =
     getAppConfig().app.slug ??

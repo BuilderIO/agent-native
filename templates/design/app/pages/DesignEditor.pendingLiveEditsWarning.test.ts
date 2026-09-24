@@ -95,7 +95,56 @@ describe("DesignEditor pending live edits", () => {
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain('callAction("publish-visual-edit-pending"');
+    expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("pendingVisualStylePrompt");
+  });
+
+  it("wires canEditDesign into the extracted publish command and its effect deps", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const publishCallIndex = source.indexOf("runPublishVisualEditPending({");
+    expect(publishCallIndex).toBeGreaterThan(-1);
+    const depsStart = source.indexOf(".then(publish);", publishCallIndex);
+    expect(depsStart).toBeGreaterThan(publishCallIndex);
+    const depsEnd = source.indexOf("]);", depsStart);
+    const publishCall = source.slice(publishCallIndex, depsStart);
+    const deps = source.slice(depsStart, depsEnd);
+    // publish-visual-edit-pending requires editor access; a signed-out or
+    // read-only viewer can never satisfy it. runPublishVisualEditPending
+    // (design-editor/commands/publish-visual-edit-pending.ts) is the actual
+    // gate — see its own describe block below for the behavioral proof.
+    expect(publishCall).toContain("canEditDesign,");
+    expect(deps).toContain("canEditDesign,");
+  });
+
+  it("blocks per-frame Interact entry the same way runModeChange blocks it, but always allows leaving", () => {
+    const source = readFileSync(
+      new URL("./DesignEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handlerStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback(",
+    );
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handler = source.slice(
+      handlerStart,
+      source.indexOf("[t],", handlerStart),
+    );
+    // Leaving (re-clicking the already-interacting frame) is unconditional —
+    // checked, and returned from, before the pending-edit guard below.
+    const leaveIndex = handler.indexOf(
+      "overviewInteractScreenIdRef.current === screenId",
+    );
+    const guardIndex = handler.indexOf(
+      "pendingVisualStyleEditsRef.current.length > 0",
+    );
+    expect(leaveIndex).toBeGreaterThan(-1);
+    expect(guardIndex).toBeGreaterThan(leaveIndex);
+    expect(handler).toContain("pendingLiveNonStyleEditsRef.current.length > 0");
+    expect(handler).toContain(
+      'toast.error(t("designEditor.pendingVisualStyles.interactBlocked"))',
+    );
   });
 });

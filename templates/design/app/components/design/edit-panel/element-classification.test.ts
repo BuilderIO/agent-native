@@ -244,6 +244,18 @@ describe("inspectorObjectTitle", () => {
       ),
     ).toBe("Card");
   });
+
+  it("names images, vectors, and frames as Figma does instead of by tag", () => {
+    expect(inspectorObjectTitle(makeElement({ tagName: "img" }))).toBe("Image");
+    expect(inspectorObjectTitle(makeElement({ tagName: "svg" }))).toBe(
+      "Vector",
+    );
+    expect(
+      inspectorObjectTitle(
+        makeElement({ tagName: "div", primitiveKind: "frame" }),
+      ),
+    ).toBe("Frame");
+  });
 });
 
 describe("isContainerElement — primitive inspector layout semantics", () => {
@@ -968,13 +980,12 @@ describe("isVectorShapeElement", () => {
     },
   );
 
-  it("rejects frames, text and unmarked svgs", () => {
+  it("rejects frames and text", () => {
     expect(
       isVectorShapeElement(
         makeElement({ tagName: "div", primitiveKind: "frame" }),
       ),
     ).toBe(false);
-    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });
 
@@ -1046,5 +1057,11 @@ describe("inline text style roots", () => {
 
     expect(isTextElement(row)).toBe(false);
     expect(isContainerElement(row)).toBe(true);
+  });
+});
+
+describe("isVectorShapeElement for imported svg", () => {
+  it("keeps an unmarked svg out of vector classification", () => {
+    expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
   });
 });
