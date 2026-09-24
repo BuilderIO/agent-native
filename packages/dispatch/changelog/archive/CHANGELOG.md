@@ -1,3 +1,9 @@
+## 0.22.1
+
+### Patch Changes
+
+- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
+
 ## 0.22.0
 
 ### Minor Changes
