@@ -1176,6 +1176,14 @@ div[data-notion-column] > :last-child {
   word-break: break-word;
 }
 
+.notion-editor table [data-alignment="center"] {
+  text-align: center;
+}
+
+.notion-editor table [data-alignment="right"] {
+  text-align: right;
+}
+
 .notion-page-reference {
   margin: 0.3rem 0;
 }
