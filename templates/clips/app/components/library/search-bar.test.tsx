@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "searchBar.matchAt"
-      ? `Match at ${values?.time}`
+      ? `Match at ${values?.time} in video`
       : key === "searchBar.transcript"
         ? "Transcript"
         : key,
@@ -30,7 +30,10 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("@/components/player/scrubber", () => ({
-  msToClock: (value: number) => String(value),
+  msToClock: (value: number) => {
+    const seconds = Math.floor(value / 1000);
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  },
 }));
 
 vi.mock("@/components/ui/popover", () => {
@@ -175,7 +178,7 @@ describe("SearchBar command-menu handoff", () => {
     expect(mocks.useRecordingSearch).toHaveBeenLastCalledWith("clip");
   });
 
-  it("labels a search timestamp as the match position", () => {
+  it("labels the match time as a position within the video and seeks there", () => {
     vi.useFakeTimers();
     mocks.useRecordingSearch.mockReturnValue({
       data: {
@@ -215,6 +218,14 @@ describe("SearchBar command-menu handoff", () => {
     act(() => vi.advanceTimersByTime(200));
 
     expect(container.textContent).toContain("Transcript");
-    expect(container.textContent).toContain("Match at 2000");
+    expect(container.textContent).toContain("Match at 0:02 in video");
+
+    const result = container.querySelector<HTMLElement>('[role="option"]');
+    expect(result).not.toBeNull();
+    act(() => result?.click());
+
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/r/recording-1?t=2&panel=transcript",
+    );
   });
 });

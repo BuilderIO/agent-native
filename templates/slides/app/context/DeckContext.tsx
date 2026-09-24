@@ -2855,26 +2855,46 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const openDeckRequestId = requestedOpenDeckId
       ? nextOpenDeckRequestId(requestedOpenDeckId)
       : null;
-    void fetchDecksForCurrentRoute().then(async (loaded) => {
-      if (
-        requestId !== deckBaselineRequestIdRef.current ||
-        requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
-        (requestedOpenDeckId !== null &&
-          openDeckRequestId !==
-            openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
-      ) {
-        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
+    const isRequestStale = () =>
+      requestId !== deckBaselineRequestIdRef.current ||
+      requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+      (requestedOpenDeckId !== null &&
+        openDeckRequestId !==
+          openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId));
+    const stopStaleRequest = () => {
+      if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
+    };
+    void (async () => {
+      let loaded = await fetchDecksForCurrentRoute();
+      if (isRequestStale()) {
+        stopStaleRequest();
         return;
       }
-      // Initial fetch failed — start empty so the UI can render. The fallback
-      // poll will retry shortly; until then `decks` stays empty without
-      // triggering the save effect (lastExternalUpdateRef is bumped).
+      // Keep the initial home load in its skeleton state for one fallback
+      // interval. A bounded follow-up read gives a cold backend the same
+      // recovery window before the error pane is exposed.
+      if (loaded === null && requestedOpenDeckId === null) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, OPEN_DECK_FALLBACK_POLL_MS),
+        );
+        if (isRequestStale()) {
+          stopStaleRequest();
+          return;
+        }
+        loaded = await fetchDecksForCurrentRoute();
+      }
+      if (isRequestStale()) {
+        stopStaleRequest();
+        return;
+      }
+      // A failed initial read starts empty only after the bounded recovery
+      // attempt, and still cannot trigger the save effect.
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       resetDeckBaseline(initial, createSeqAtRequest, snapshotGeneration);
       setLoadError(loaded === null);
       setLoading(false);
-    });
+    })();
   }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
   // Organization changes are a hard access boundary. Clear the previous

@@ -1224,7 +1224,7 @@ const messages = {
     transcript: "文字起こし",
     comment: "コメント",
     titleOrDescription: "タイトルまたは説明",
-    matchAt: "一致位置 {{time}}",
+    matchAt: "動画内の {{time}} に一致",
   },
   organizationSwitcher: {
     noOrganization: "組織なし",

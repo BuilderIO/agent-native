@@ -1161,7 +1161,7 @@ const messages = {
     transcript: "轉錄",
     comment: "評論",
     titleOrDescription: "標題或描述",
-    matchAt: "比對位置 {{time}}",
+    matchAt: "影片中 {{time}} 處比對",
   },
   organizationSwitcher: {
     noOrganization: "沒有組織",

@@ -1219,7 +1219,7 @@ const messages = {
     transcript: "النص",
     comment: "تعليق",
     titleOrDescription: "العنوان أو الوصف",
-    matchAt: "مطابقة عند {{time}}",
+    matchAt: "مطابقة عند {{time}} في الفيديو",
   },
   organizationSwitcher: {
     noOrganization: "لا توجد مؤسسة",

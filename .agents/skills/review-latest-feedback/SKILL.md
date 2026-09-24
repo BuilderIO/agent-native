@@ -232,7 +232,8 @@ product signoff. Discoverability complaints and preferences do not authorize
 adding, promoting, moving, or duplicating buttons or other persistent chrome.
 Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
 promoting chrome requires the invoking user's explicit current-task request or
-`:upvote:` below. Otherwise mark **Skipped**, release the eye with `✅`, and do
+:upvote:` below. Otherwise mark **Skipped**, release the eye with
+`:no_entry_sign:`, and do
 not ask the reporter to decide. Measure failures with `text-heavy-ui`.
 
 Requests for a new capability still follow the invoking identity's `:upvote:`
