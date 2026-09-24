@@ -22,13 +22,13 @@ function isPrivateIpv4Lan(a: number, b: number, c: number, d: number): boolean {
  * `localhost` are recognized; an arbitrary hostname that merely resolves to
  * a LAN address is not, so this never depends on a DNS lookup.
  */
-function isLocalNetworkOllamaEndpoint(value: string): boolean {
+export function isLocalNetworkOllamaEndpoint(value: string): boolean {
   const hostname = new URL(value).hostname
     .toLowerCase()
     .replace(/^\[|\]$/g, "");
   if (hostname === "localhost" || hostname === "::1") return true;
   const parts = hostname.split(".");
-  if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
+  if (parts.length === 4 && parts.every((part) => /^\d+$/.test(part))) {
     const [a, b, c, d] = parts.map(Number);
     return isPrivateIpv4Lan(a, b, c, d);
   }
@@ -39,12 +39,9 @@ function isLocalNetworkOllamaEndpoint(value: string): boolean {
  * Validate a provider endpoint before a server-side model request can use it.
  * `allowPrivate` is reserved for operator-owned deployment configuration; it
  * must never be enabled for a user- or agent-supplied URL. `allowLocalOllama`
- * additionally requires the caller to have already established this is a
- * trusted, self-hosted context (see `isTrustedSelfHostedRuntime`) — it is
- * never safe to grant purely from the endpoint value itself. `isOllama` says
- * this endpoint is for Ollama specifically (independent of trust level), so a
- * copy-pasted trailing `/v1` — meaningless for Ollama's own API — is silently
- * removed instead of left to confuse the address that gets saved and used.
+ * additionally requires the caller to have established a trusted,
+ * self-hosted context. `isOllama` strips a trailing `/v1`, which the Ollama
+ * API does not use.
  */
 export async function validateProviderBaseUrl(
   value: string,

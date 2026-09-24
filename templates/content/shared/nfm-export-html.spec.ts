@@ -2,7 +2,7 @@ import { serializeIconValue, type IconValue } from "@agent-native/core/icons";
 import { describe, expect, it } from "vitest";
 
 import { buildDocumentExport } from "./document-export";
-import { docToNfm, type PMDoc, type PMNode } from "./nfm";
+import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "./nfm";
 
 const paragraph = (text: string): PMNode => ({
   type: "paragraph",
@@ -138,6 +138,19 @@ describe("NFM container export", () => {
     expect(html).toContain('class="nfm-align-right"');
     expect(table!.body[0][0].html).toBe("<code>left | right</code>");
     expect(table!.body[1][0].html).toBe("<code>multi | pipe</code>");
+  });
+
+  it("keeps extra ragged cells visible in exported tables", () => {
+    const html = exportedBody(
+      "| Name | Price |\n| :--- | ---: |\n| A | $1 | extra |",
+    );
+    const table = readTable(html);
+    expect(table!.head[0]).toHaveLength(3);
+    expect(table!.body[0].map((cell) => cell.html)).toEqual([
+      "A",
+      "$1",
+      "extra",
+    ]);
   });
 
   it("requires three-hyphen delimiters and supports one-column tables", () => {
@@ -414,5 +427,12 @@ describe("NFM container export", () => {
     expect(
       readTable(exportedBody(docToNfm(TABLE_DOC), "html"))!.body,
     ).toHaveLength(2);
+  });
+
+  it("keeps editable GFM column alignment in HTML export", () => {
+    const source = "| Item | Price |\n| :--- | ---: |\n| A | $1 |";
+    const html = exportedBody(docToNfm(nfmToDoc(source)), "html");
+    expect(html).toContain('class="nfm-align-right"');
+    expect(html).toContain("$1");
   });
 });

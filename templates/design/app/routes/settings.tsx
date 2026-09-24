@@ -18,12 +18,12 @@ import {
 import { DESIGN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.settingsDesign }];
+  return [{ title: enUSMessages.routeTitles.settingsDesign }];
 }
 
 export default function SettingsRoute() {

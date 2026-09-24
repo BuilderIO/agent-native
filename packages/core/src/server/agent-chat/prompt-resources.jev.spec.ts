@@ -110,6 +110,23 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
   });
 
+  it("prefetches Jev context with a saved personal key and no deployment key", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["context-0"]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "draft launch copy",
+      personalApiKey: " user-jev-key ",
+    });
+
+    expect(result).toContain("# Launch messaging");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: undefined,
+        personalApiKey: "user-jev-key",
+      }),
+    );
+  });
+
   it("keeps access-scoped workspace skill metadata out of Jev", async () => {
     mocks.resourceListAccessible.mockResolvedValue([
       {

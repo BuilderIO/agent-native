@@ -1232,6 +1232,7 @@ const messages = {
     yourOrganization: "Your organization",
     joinYourTeam: "Join your team",
     openToDomainEmails: "Open to @{{domain}} emails",
+    enableDomainJoin: "Enable for @{{domain}}",
     joinOrg: "Join {{name}}",
     pendingInvitations: "Pending invitations",
     invitedBy: "from {{name}}",

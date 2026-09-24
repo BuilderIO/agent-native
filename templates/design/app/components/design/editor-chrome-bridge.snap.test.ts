@@ -472,6 +472,10 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "outermostSvgAncestor",
   );
+  const pastedSvgShape = extractFunction(
+    editorChromeBridgeScript,
+    "pastedSvgShapeForHit",
+  );
   const textOverlay = extractFunction(
     editorChromeBridgeScript,
     "unwrapTextOverlay",
@@ -487,7 +491,7 @@ function loadSelectionTargetForHit(documentRoot: {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }
@@ -654,6 +658,35 @@ describe("editor-chrome bridge — selectionTargetForHit", () => {
     const path = { ownerSVGElement: svg } as unknown as Element;
 
     expect(selectionTargetForHit(path)).toBe(svg);
+  });
+
+  it("selects the exact drawable in a marked pasted SVG, but keeps authored SVGs atomic", () => {
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body: {} as Element,
+      documentElement: {} as Element,
+    });
+    const root = {
+      ownerSVGElement: null,
+      getAttribute: (name: string) =>
+        name === "data-an-primitive" ? "pasted-svg" : null,
+    } as unknown as Element;
+    const path = {
+      tagName: "path",
+      ownerSVGElement: root,
+      parentElement: root,
+    } as unknown as Element;
+    const authoredRoot = {
+      ownerSVGElement: null,
+      getAttribute: () => null,
+    } as unknown as Element;
+    const authoredPath = {
+      tagName: "path",
+      ownerSVGElement: authoredRoot,
+      parentElement: authoredRoot,
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(path)).toBe(path);
+    expect(selectionTargetForHit(authoredPath)).toBe(authoredRoot);
   });
 
   it("selects the button, not the editor's own text wrapper inside it", () => {

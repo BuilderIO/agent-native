@@ -50,6 +50,7 @@ const messages = {
     emptyState: "可以詢問我任何關於簡報的問題",
     thisSlide: "此投影片",
     currentSelection: "目前選取項目",
+    slideNumber: "第 {{number}} 張投影片",
     suggestionPitch: "根據這份檔案製作 10 頁面推介幻燈片",
     suggestionBrand: "將我們的品牌應用到這份幻燈片",
     suggestionHero: "為這頁面幻燈片生成主視覺圖片",

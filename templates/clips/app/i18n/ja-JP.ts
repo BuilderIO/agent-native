@@ -141,7 +141,6 @@ const messages = {
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
-    breadcrumbBack: "{{label}}に戻る",
   },
   empty: {
     library: {
@@ -1225,6 +1224,7 @@ const messages = {
     transcript: "文字起こし",
     comment: "コメント",
     titleOrDescription: "タイトルまたは説明",
+    matchAt: "動画内の {{time}} に一致",
   },
   organizationSwitcher: {
     noOrganization: "組織なし",

@@ -75,7 +75,8 @@ Read the relevant skill before deeper work in that area.
   localhost connection/source-handoff actions; it is not an account session
   and cannot save/share/generate or access another design. Persisted design
   and source writes remain editor-gated. `get-visual-edit-prompt` returns the
-  latest pending handoff; account operations use `buildSignInReturnHref()`.
+  latest pending handoff. External agents call `get-visual-edit-pending`;
+  browser agents use the page-local `get-visual-edit-prompt`.
 
 ## Application State
 

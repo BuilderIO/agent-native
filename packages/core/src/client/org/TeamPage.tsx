@@ -77,6 +77,7 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
+import { isFreeEmailProvider } from "../../org/free-email-providers.js";
 import { canInviteOrgMembers } from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
@@ -2940,18 +2941,23 @@ function BulkInviteForm({
   );
 }
 
-function DomainSettingsSection({
+export function DomainSettingsSection({
   domain,
   ownerEmail,
 }: {
   domain: string | null;
   ownerEmail: string;
 }) {
+  const t = useT();
   const setOrgDomain = useSetOrgDomain();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(domain ?? "");
 
   const ownDomain = ownerEmail.split("@")[1]?.toLowerCase() ?? "";
+  // The server only ever accepts the caller's own domain (handlers.ts
+  // setDomainHandler), so a free-text field has exactly one legal value here.
+  // Skip the typing ceremony and enable it directly when that value is usable.
+  const canEnableOwnDomain = !!ownDomain && !isFreeEmailProvider(ownDomain);
 
   function save() {
     const trimmed = draft.trim().toLowerCase();
@@ -3019,21 +3025,23 @@ function DomainSettingsSection({
                   <TooltipContent>Remove domain</TooltipContent>
                 </Tooltip>
               </>
-            ) : (
+            ) : canEnableOwnDomain ? (
               <Button
                 type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={() => {
-                  setDraft(ownDomain);
-                  setEditing(true);
-                }}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+                intent="primary"
+                emphasis="solid"
+                disabled={setOrgDomain.isPending}
+                onClick={() => setOrgDomain.mutate(ownDomain)}
+                className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                <IconAt size={14} />
-                Set domain
+                {setOrgDomain.isPending ? (
+                  <IconLoader2 size={14} className="animate-spin" />
+                ) : (
+                  <IconAt size={14} />
+                )}
+                {t("org.enableDomainJoin", { domain: ownDomain })}
               </Button>
-            )}
+            ) : null}
           </div>
         ) : (
           <div className="flex items-center gap-2">

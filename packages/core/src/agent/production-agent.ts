@@ -174,10 +174,7 @@ import {
   filterHostedHarnessToolNames,
   normalizeHostedHarnessRuntime,
 } from "./harness/hosted.js";
-import {
-  BUILDER_JEV_PROXY_ENABLED,
-  preloadJevTools,
-} from "./jev-tool-prefetch.js";
+import { preloadJevTools } from "./jev-tool-prefetch.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -674,15 +671,36 @@ export async function getOwnerApiKey(
 export async function getOwnerJevApiKey(
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!ownerEmail) return undefined;
+  return (await getOwnerJevApiKeyCredential(ownerEmail)).credential?.apiKey;
+}
+
+async function getOwnerJevApiKeyCredential(
+  ownerEmail: string | null | undefined,
+): Promise<{
+  credential: { apiKey: string; source: "user" | "deployment" } | null;
+  lookupFailed: boolean;
+}> {
+  if (!ownerEmail) return { credential: null, lookupFailed: false };
   const cacheKey = [
-    "jev",
+    "jev-source-v1",
     ownerEmail,
     getRequestOrgId() ?? `solo:${ownerEmail}`,
     getRequestContext()?.isSyntheticTraffic === true ? "synthetic" : "normal",
   ].join("\u0000");
   const cached = readOptionalKeyCache(cacheKey);
-  if (cached.hit) return cached.value;
+  if (cached.hit) {
+    if (!cached.value) return { credential: null, lookupFailed: false };
+    const separator = cached.value.indexOf(":");
+    const source = cached.value.slice(0, separator);
+    const apiKey = cached.value.slice(separator + 1);
+    return {
+      credential:
+        (source === "user" || source === "deployment") && apiKey
+          ? { apiKey, source }
+          : null,
+      lookupFailed: false,
+    };
+  }
   let lookupFailed = false;
   const value = await getOwnerApiKey("jev", ownerEmail, {
     onLookupFailure: () => {
@@ -690,10 +708,13 @@ export async function getOwnerJevApiKey(
     },
   });
   if (value) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, value);
-    return value;
+    if (!lookupFailed) writeOptionalKeyCache(cacheKey, `user:${value}`);
+    return {
+      credential: { apiKey: value, source: "user" },
+      lookupFailed,
+    };
   }
-  if (lookupFailed) return undefined;
+  if (lookupFailed) return { credential: null, lookupFailed: true };
 
   const deployKey = canUseDeployCredentialFallbackForRequest("JEV_API_KEY")
     ? readDeployCredentialEnv("JEV_API_KEY")?.trim()
@@ -705,27 +726,52 @@ export async function getOwnerJevApiKey(
       value: deployKey,
     }))
   ) {
-    if (!lookupFailed) writeOptionalKeyCache(cacheKey, deployKey);
-    return deployKey;
+    if (!lookupFailed) {
+      writeOptionalKeyCache(cacheKey, `deployment:${deployKey}`);
+    }
+    return {
+      credential: { apiKey: deployKey, source: "deployment" },
+      lookupFailed: false,
+    };
   }
 
   if (!lookupFailed) writeOptionalKeyCache(cacheKey, undefined);
-  return undefined;
+  return { credential: null, lookupFailed: false };
 }
 
-async function getJevContextCredentials(
-  ownerEmail: string | null | undefined,
-): Promise<{
+export interface JevContextCredentials {
   apiKey: string | undefined;
+  personalApiKey: string | undefined;
   builderAuth: BuilderGatewayAuth | null;
-}> {
-  const apiKey = await getOwnerJevApiKey(ownerEmail);
-  if (!BUILDER_JEV_PROXY_ENABLED) return { apiKey, builderAuth: null };
-  try {
-    return { apiKey, builderAuth: await resolveBuilderGatewayAuth() };
-  } catch {
-    return { apiKey, builderAuth: null };
-  }
+  apiKeyLookupFailed?: boolean;
+  builderAuthLookupFailed?: boolean;
+}
+
+export async function getJevContextCredentials(
+  ownerEmail: string | null | undefined,
+): Promise<JevContextCredentials> {
+  const requestContext = getRequestContext();
+  const [lookup, builderAuthLookup] = await Promise.all([
+    getOwnerJevApiKeyCredential(ownerEmail),
+    resolveBuilderGatewayAuth({
+      userEmail: ownerEmail,
+      orgId: requestContext?.orgScope === "personal" ? null : getRequestOrgId(),
+    }).then(
+      (builderAuth) => ({ builderAuth, lookupFailed: false }),
+      () => ({ builderAuth: null, lookupFailed: true }),
+    ),
+  ]);
+  const credential = lookup.credential;
+  return {
+    apiKey: credential?.apiKey,
+    personalApiKey:
+      credential?.source === "user" ? credential.apiKey : undefined,
+    builderAuth: builderAuthLookup.builderAuth,
+    ...(lookup.lookupFailed ? { apiKeyLookupFailed: true } : {}),
+    ...(builderAuthLookup.lookupFailed
+      ? { builderAuthLookupFailed: true }
+      : {}),
+  };
 }
 
 /**
@@ -7466,7 +7512,16 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          if (isAgentConnectionRequiredError(err)) {
+          // An abort is an unknown outcome, not a failure: the request may
+          // already have reached the provider. Recorded as an error, the
+          // resuming chunk reads it as "did not happen" and re-dispatches the
+          // write. The marker is what `seedWriteToolInterruptionsFromHistory`
+          // counts, so the ledger recovery and interruption budget apply.
+          // Keyed on `signal.aborted`, not the message, so the per-tool
+          // timeout (which rejects on `timeoutSignal`) stays a real failure.
+          if (signal.aborted) {
+            result = INTERRUPTED_TOOL_RESULT_MARKER;
+          } else if (isAgentConnectionRequiredError(err)) {
             const message =
               sanitizeToolErrorValue(err.message) ||
               `Connect ${err.provider} to continue.`;
@@ -7518,8 +7573,13 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
+        // The marker must survive verbatim (the interruption counter matches
+        // on it), and an unknown outcome must not feed the repeated-error
+        // breakers, which are for calls that genuinely failed.
         if (isError) {
-          result = finalizeToolErrorResult(result);
+          if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
+            result = finalizeToolErrorResult(result);
+          }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
         }
@@ -10624,7 +10684,7 @@ export function createProductionAgentHandler(
       presendCap(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
-        { apiKey: undefined, builderAuth: null },
+        { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
         9000,
       ),
     ]);
@@ -10684,6 +10744,7 @@ export function createProductionAgentHandler(
       preloadJevTools({
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         registry: requestActions,
         initialTools: curatedRequestTools,
@@ -10693,6 +10754,7 @@ export function createProductionAgentHandler(
       preloadJevContextForPrompt({
         request: requestMessage,
         apiKey: jevContextCredentials.apiKey,
+        personalApiKey: jevContextCredentials.personalApiKey,
         builderAuth: jevContextCredentials.builderAuth,
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,

@@ -100,22 +100,38 @@ describe("agent-native app config", () => {
     expect(
       normalizeAgentNativeConfig({
         deployment: {
-          workspace: { appsDirectory: ".", authMode: "isolated" },
+          workspace: {
+            appsDirectory: ".",
+            authMode: "isolated",
+            rootPage: "directory",
+          },
         },
       }),
     ).toEqual({
       deployment: {
-        workspace: { appsDirectory: ".", authMode: "isolated" },
+        workspace: {
+          appsDirectory: ".",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
       },
     });
     expect(
       mergeAgentNativeConfigs(
         { deployment: { workspace: { appsDirectory: "apps" } } },
-        { deployment: { workspace: { authMode: "isolated" } } },
+        {
+          deployment: {
+            workspace: { authMode: "isolated", rootPage: "directory" },
+          },
+        },
       ),
     ).toEqual({
       deployment: {
-        workspace: { appsDirectory: "apps", authMode: "isolated" },
+        workspace: {
+          appsDirectory: "apps",
+          authMode: "isolated",
+          rootPage: "directory",
+        },
       },
     });
   });
@@ -199,6 +215,7 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
     { deployment: { environment: "staging" } },
+    { deployment: { workspace: { rootPage: "landing" } } },
     { harness: { runtimes: ["shell"] } },
     { harness: { enabled: true } },
     { harness: { ui: "desktop" } },

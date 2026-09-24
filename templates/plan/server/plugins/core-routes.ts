@@ -5,6 +5,9 @@ import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 export default createCoreRoutesPlugin({
   googleOAuthManagedConnection: "not_applicable",
   anonymousOwner: resolvePlanAnonymousOwner,
+  // A public plan's viewer syncs navigation and composer state like a
+  // signed-in user; scope it to the viewer cookie instead of answering 401.
+  anonymousApplicationState: true,
   // Plan's published MCP server id is the bare `plan`, not the derived
   // `agent-native-plan`: `.agents/plugins/agent-native-visual-plans/.mcp.json`
   // ships it, and the CLI's config writers key existing client entries by it.

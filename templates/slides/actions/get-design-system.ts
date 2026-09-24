@@ -68,10 +68,15 @@ async function persistBuilderDocCount(
     .set({ data: JSON.stringify({ ...parsed, docCount }) })
     .where(
       and(
-        accessFilter(schema.designSystems, schema.designSystemShares),
         eq(schema.designSystems.id, row.id),
         eq(schema.designSystems.ownerEmail, row.ownerEmail),
         eq(schema.designSystems.data, row.data),
+        accessFilter(
+          schema.designSystems,
+          schema.designSystemShares,
+          undefined,
+          "editor",
+        ),
       ),
     );
 }
