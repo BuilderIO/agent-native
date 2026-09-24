@@ -954,10 +954,18 @@ export async function readInboxPushGeneration(
     .select({ generation: schema.mailInboxPushInvalidations.generation })
     .from(schema.mailInboxPushInvalidations)
     .where(
-      eq(schema.mailInboxPushInvalidations.id, rowId(ownerEmail, accountEmail)),
-    )
-    .limit(1);
-  return rows[0]?.generation ?? 0;
+      and(
+        eq(
+          schema.mailInboxPushInvalidations.ownerEmail,
+          ownerEmail.toLowerCase(),
+        ),
+        eq(
+          schema.mailInboxPushInvalidations.accountEmail,
+          accountEmail.toLowerCase(),
+        ),
+      ),
+    );
+  return rows.reduce((total, row) => total + row.generation, 0);
 }
 
 /**

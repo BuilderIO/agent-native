@@ -47,6 +47,8 @@ vi.mock("../db/index.js", () => {
     mailInboxPushInvalidations: {
       __name: "mail_inbox_push_invalidations",
       id: "id",
+      ownerEmail: "ownerEmail",
+      accountEmail: "accountEmail",
       generation: "generation",
     },
   };
@@ -471,15 +473,15 @@ describe("Gmail push invalidations", () => {
     });
   });
 
-  it("reads the current generation for an account", async () => {
-    dbState.pushInvalidations = [{ generation: 7 }];
+  it("includes legacy markers when reading the account generation", async () => {
+    dbState.pushInvalidations = [{ generation: 7 }, { generation: 2 }];
 
     const generation = await readInboxPushGeneration(
       "owner@example.com",
       "acct@example.com",
     );
 
-    expect(generation).toBe(7);
+    expect(generation).toBe(9);
   });
 });
 
