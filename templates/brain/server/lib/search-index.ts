@@ -868,7 +868,10 @@ export async function indexBrainCapture(captureId: string): Promise<{
     .from(schema.brainCaptureAudiences)
     .where(eq(schema.brainCaptureAudiences.captureId, captureId));
   const audienceFailure = captureAudienceIndexingFailureReason(audiences);
-  if (audienceFailure) return { indexed: 0, reason: audienceFailure };
+  if (audienceFailure) {
+    await unindexBrainCapture(captureId);
+    return { indexed: 0, reason: audienceFailure };
+  }
   const result = await indexCaptureForSearch({
     capture: {
       ...capture,

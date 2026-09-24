@@ -42,15 +42,24 @@ const hybridMocks = vi.hoisted(() => {
       "status",
       "capturedAt",
     ]),
+    brainCaptureAudiences: createTable("captureAudience", [
+      "captureId",
+      "audienceId",
+      "aclHash",
+    ]),
     brainSources: createTable("source", ["id", "provider"]),
     brainSourceShares: createTable("sourceShare", ["id"]),
     brainRawCaptures: createTable("capture", [
       "id",
+      "sourceId",
       "kind",
+      "title",
+      "content",
       "contentHash",
       "audienceAclHash",
       "sensitivityDisposition",
       "sensitivityPolicyVersion",
+      "capturedAt",
     ]),
     brainSearchEmbeddings: createTable("embedding", [
       "vectorKey",
@@ -58,8 +67,9 @@ const hybridMocks = vi.hoisted(() => {
       "targetId",
       "audienceId",
       "status",
+      "dimensions",
     ]),
-    brainSearchBursts: createTable("burst", ["id", "artifactId"]),
+    brainSearchBursts: createTable("burst", ["id", "artifactId", "captureId"]),
     brainProjectSources: createTable("projectSource", [
       "sourceId",
       "projectId",
@@ -91,6 +101,8 @@ const hybridMocks = vi.hoisted(() => {
   const accessibleSourceIds = new Set<string>();
   const rows = {
     artifacts: [] as HybridTestRow[],
+    captureAudiences: [] as HybridTestRow[],
+    captures: [] as HybridTestRow[],
     audiences: [] as HybridTestRow[],
     audienceDependencies: [] as HybridTestRow[],
     audienceSourceDependencies: [] as HybridTestRow[],
@@ -106,7 +118,8 @@ const hybridMocks = vi.hoisted(() => {
       "name" in value
     ) {
       const candidate = value as HybridTestColumn;
-      return row[`${candidate.table}.${candidate.name}`];
+      const qualifiedName = `${candidate.table}.${candidate.name}`;
+      return qualifiedName in row ? row[qualifiedName] : row[candidate.name];
     }
     return value;
   };
@@ -140,6 +153,8 @@ const hybridMocks = vi.hoisted(() => {
   };
   const tableRows = (tableRef: Record<string, unknown>) => {
     if (tableRef === schema.brainSearchArtifacts) return rows.artifacts;
+    if (tableRef === schema.brainCaptureAudiences) return rows.captureAudiences;
+    if (tableRef === schema.brainRawCaptures) return rows.captures;
     if (tableRef === schema.brainSearchEmbeddings) return rows.embeddings;
     if (tableRef === schema.brainSearchBursts) return rows.bursts;
     if (tableRef === schema.brainAudiences) return rows.audiences;
@@ -152,14 +167,16 @@ const hybridMocks = vi.hoisted(() => {
     if (tableRef === schema.brainSources) return rows.sources;
     return [];
   };
-  const project = (row: HybridTestRow, selection: Record<string, unknown>) =>
-    Object.fromEntries(
-      Object.entries(selection).map(([key, value]) => [
-        key,
-        rowValue(row, value),
-      ]),
-    );
-  const select = vi.fn((selection: Record<string, unknown>) => ({
+  const project = (row: HybridTestRow, selection?: Record<string, unknown>) =>
+    selection
+      ? Object.fromEntries(
+          Object.entries(selection).map(([key, value]) => [
+            key,
+            rowValue(row, value),
+          ]),
+        )
+      : row;
+  const select = vi.fn((selection?: Record<string, unknown>) => ({
     from: (tableRef: Record<string, unknown>) => {
       const chain = {
         innerJoin: () => chain,
@@ -188,10 +205,26 @@ const hybridMocks = vi.hoisted(() => {
       return chain;
     },
   }));
+  const update = vi.fn((tableRef: Record<string, unknown>) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async (condition: HybridTestCondition) => {
+        for (const row of tableRows(tableRef)) {
+          if (!matches(row, condition)) continue;
+          for (const [name, value] of Object.entries(values)) {
+            const qualifiedName = `${String(tableRef.__tableName)}.${name}`;
+            if (qualifiedName in row) row[qualifiedName] = value;
+            else row[name] = value;
+          }
+        }
+      },
+    }),
+  }));
   return {
     accessibleSourceIds,
     availableEmbeddingFamilies: vi.fn(),
     readEmbeddingFamilyAvailability: vi.fn(),
+    deletePgVectors: vi.fn(),
+    deletePostgresFtsDocuments: vi.fn(),
     embeddingFamily: {
       id: "gemini:test:3",
       provider: "gemini",
@@ -206,6 +239,7 @@ const hybridMocks = vi.hoisted(() => {
     rows,
     schema,
     select,
+    update,
   };
 });
 
@@ -221,8 +255,8 @@ vi.mock("@agent-native/core/embeddings", () => ({
 }));
 
 vi.mock("@agent-native/core/search", () => ({
-  deletePgVectors: vi.fn(),
-  deletePostgresFtsDocuments: vi.fn(),
+  deletePgVectors: hybridMocks.deletePgVectors,
+  deletePostgresFtsDocuments: hybridMocks.deletePostgresFtsDocuments,
   ensurePgVectorIndex: vi.fn(),
   queryPgVectorIndex: hybridMocks.queryPgVectorIndex,
   queryPostgresFts: hybridMocks.queryPostgresFts,
@@ -274,6 +308,7 @@ vi.mock("../db/index.js", () => ({
   getDb: () => ({
     select: hybridMocks.select,
     selectDistinct: hybridMocks.select,
+    update: hybridMocks.update,
   }),
   schema: hybridMocks.schema,
 }));
@@ -295,6 +330,7 @@ import {
   deterministicArtifact,
   embedSearchTexts,
   embeddingReadinessFromFamilies,
+  indexBrainCapture,
   indexSnapshotMatches,
   indexStalenessKey,
 } from "./search-index.js";
@@ -370,6 +406,64 @@ describe("Brain search index primitives", () => {
       captureAudienceIndexingFailureReason([{ audienceId: "audience-a" }]),
     ).toBeNull();
   });
+
+  it.each([
+    {
+      assignments: [],
+      reason: "no-active-audience",
+    },
+    {
+      assignments: [
+        { audienceId: "audience-a", aclHash: "acl-a" },
+        { audienceId: "audience-b", aclHash: "acl-b" },
+      ],
+      reason: "multiple-audience-assignments",
+    },
+  ])(
+    "unindexes existing artifacts for $reason",
+    async ({ assignments, reason }) => {
+      vi.clearAllMocks();
+      for (const rows of Object.values(hybridMocks.rows)) rows.length = 0;
+      hybridMocks.rows.captures.push({
+        id: "capture-1",
+        sourceId: "source-1",
+        sensitivityDisposition: "allowed",
+      });
+      hybridMocks.rows.captureAudiences.push(
+        ...assignments.map((assignment) => ({
+          captureId: "capture-1",
+          ...assignment,
+        })),
+      );
+      hybridMocks.rows.artifacts.push({
+        "artifact.id": "artifact-1",
+        "artifact.captureId": "capture-1",
+        "artifact.status": "active",
+      });
+      hybridMocks.rows.embeddings.push({
+        "embedding.vectorKey": "vector-1",
+        "embedding.targetId": "artifact-1",
+        "embedding.status": "active",
+        "embedding.dimensions": 3,
+      });
+
+      await expect(indexBrainCapture("capture-1")).resolves.toEqual({
+        indexed: 0,
+        reason,
+      });
+
+      expect(hybridMocks.rows.artifacts[0]["artifact.status"]).toBe("deleted");
+      expect(hybridMocks.rows.embeddings[0]["embedding.status"]).toBe(
+        "deleted",
+      );
+      expect(hybridMocks.deletePostgresFtsDocuments).toHaveBeenCalledWith(
+        expect.anything(),
+        ["artifact-1"],
+        "brain",
+      );
+      expect(hybridMocks.deletePgVectors).toHaveBeenCalledOnce();
+    },
+  );
 
   it("requires artifact and every indexed burst embedding", () => {
     expect(
