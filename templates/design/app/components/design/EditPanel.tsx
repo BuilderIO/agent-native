@@ -162,6 +162,10 @@ import {
   textStrokeIsVisible,
 } from "./edit-panel/position-helpers";
 import { PositionLayoutProperties } from "./edit-panel/position-layout-properties";
+import {
+  ScaleProperties,
+  type ScaleToolControls,
+} from "./edit-panel/scale-properties";
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
@@ -538,6 +542,8 @@ interface EditPanelProps {
    * type without EditPanel importing it.
    */
   activeTool?: string;
+  /** Shows Figma's Scale section while `activeTool === "scale"`. */
+  scaleToolControls?: ScaleToolControls;
   /**
    * Creates a new screen sized to the clicked preset. Only takes effect while
    * `activeTool === "frame"`; when omitted the frame tool falls back to the
@@ -2568,6 +2574,7 @@ export const EditPanel = memo(function EditPanel({
   inspectCode,
   aiActions,
   activeTool,
+  scaleToolControls,
   onCreateScreenFromPreset,
   onAlignSelection,
   alignSelectionDisabled = false,
@@ -3371,6 +3378,15 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
+                  {activeTool === "scale" && scaleToolControls ? (
+                    <ScaleProperties
+                      key={`scale:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      controls={scaleToolControls}
+                    />
+                  ) : null}
                   <LayoutContextProperties
                     key={`layout-context:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}

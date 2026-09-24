@@ -25,7 +25,9 @@ import {
   penCornerRadiusFromAttribute,
   serializePenPath,
   serializePenNodes,
+  scalePenPathToGeometry,
   serializeRoundedPenPath,
+  translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
 
@@ -259,6 +261,33 @@ export function writeBackVectorEditedPenPath(
   }
 }
 
+/** Axis-aligned scale plus the authored-to-screen-content translation. */
+function penPathScreenContentMapping(svg: SVGSVGElement): {
+  scaleX: number;
+  scaleY: number;
+  offset: { x: number; y: number };
+  viewBox: { x: number; y: number; width: number; height: number };
+} | null {
+  const viewBox = parseViewBox(svg.getAttribute("viewBox"));
+  const matrix = svg.getScreenCTM();
+  if (!viewBox || !matrix) return null;
+  if (
+    Math.abs(matrix.b) > 0.001 ||
+    Math.abs(matrix.c) > 0.001 ||
+    !(matrix.a > 0) ||
+    !(matrix.d > 0)
+  ) {
+    return null;
+  }
+  const view = svg.ownerDocument.defaultView;
+  const offset = {
+    x: matrix.a * viewBox.x + matrix.e + (view?.scrollX ?? 0) - viewBox.x,
+    y: matrix.d * viewBox.y + matrix.f + (view?.scrollY ?? 0) - viewBox.y,
+  };
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return null;
+  return { scaleX: matrix.a, scaleY: matrix.d, offset, viewBox };
+}
+
 /**
  * Returns the translation between an SVG PenPath's authored coordinates and
  * its current screen-content position. Vector edit handles use screen-content
@@ -273,25 +302,44 @@ export function penPathScreenContentOffset(svg: SVGSVGElement): {
   x: number;
   y: number;
 } | null {
-  const viewBox = parseViewBox(svg.getAttribute("viewBox"));
-  const matrix = svg.getScreenCTM();
-  if (!viewBox || !matrix) return null;
+  const mapping = penPathScreenContentMapping(svg);
   if (
-    Math.abs(matrix.a - 1) > 0.001 ||
-    Math.abs(matrix.b) > 0.001 ||
-    Math.abs(matrix.c) > 0.001 ||
-    Math.abs(matrix.d - 1) > 0.001
+    !mapping ||
+    Math.abs(mapping.scaleX - 1) > 0.001 ||
+    Math.abs(mapping.scaleY - 1) > 0.001
   ) {
     return null;
   }
-  const view = svg.ownerDocument.defaultView;
-  const x = matrix.a * viewBox.x + matrix.c * viewBox.y + matrix.e;
-  const y = matrix.b * viewBox.x + matrix.d * viewBox.y + matrix.f;
-  const offset = {
-    x: x + (view?.scrollX ?? 0) - viewBox.x,
-    y: y + (view?.scrollY ?? 0) - viewBox.y,
+  return mapping.offset;
+}
+
+/**
+ * A drawn vector's nodes in screen-content space for vector edit. A resize or
+ * K-scale leaves the viewBox behind, so the SVG draws at a scale; scaling the
+ * nodes about the viewBox origin lets writeBackVectorEditedPenPath re-base the
+ * SVG at 1:1 on commit, where `sourceOffset` maps them back.
+ */
+export function penPathForVectorEdit(
+  svg: SVGSVGElement,
+  path: PenPath,
+  renderOffset: { x: number; y: number },
+): { path: PenPath; sourceOffset: { x: number; y: number } } | null {
+  const mapping = penPathScreenContentMapping(svg);
+  if (!mapping) return null;
+  const { viewBox, scaleX, scaleY } = mapping;
+  const sourceOffset = {
+    x: mapping.offset.x - renderOffset.x,
+    y: mapping.offset.y - renderOffset.y,
   };
-  return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+  const unscaled = scalePenPathToGeometry(path, viewBox, {
+    ...viewBox,
+    width: viewBox.width * scaleX,
+    height: viewBox.height * scaleY,
+  });
+  return {
+    path: translatePenPath(unscaled, sourceOffset.x, sourceOffset.y),
+    sourceOffset,
+  };
 }
 
 /**

@@ -4102,6 +4102,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "clear-selection") {
+        iframeClearedSelectorRef.current = selectedSelectorRef.current ?? null;
         onClearSelection?.();
         return;
       }
@@ -5188,6 +5189,9 @@ export function DesignCanvas({
   // Selectors from the iframe's own click; skip mirroring them back once to
   // avoid the fast-click bounce.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // The iframe cleared this selection itself. A ready handshake can land
+  // before the parent renders the clear, and replaying then re-selects it.
+  const iframeClearedSelectorRef = useRef<string | null>(null);
   // Latest replayIframeEditorState, synced during render (below) so the message
   // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
@@ -5256,7 +5260,13 @@ export function DesignCanvas({
       !forceSelectionMirrorResyncRef.current &&
       !!selectedSelector &&
       (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
-    if (isIframeOriginatedEcho) {
+    const staleIframeClear =
+      !!selectedSelector &&
+      iframeClearedSelectorRef.current === selectedSelector;
+    if (!staleIframeClear) iframeClearedSelectorRef.current = null;
+    if (staleIframeClear) {
+      // Wait for the parent's clear to render; it mirrors down on its own.
+    } else if (isIframeOriginatedEcho) {
       lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
       suppressMirrorSelectorsRef.current = null;
     } else if (

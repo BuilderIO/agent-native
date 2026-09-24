@@ -1277,3 +1277,51 @@ test("K scales an SVG vector through the semantic style fallback with history", 
     await action(request, "delete-design", { id: designId });
   }
 });
+
+test("K opens the inspector Scale section, tracks the live factor, and applies a typed factor", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(
+    request,
+    "K scale inspector section",
+    FRAME_HTML,
+  );
+  try {
+    await gotoEditor(page, designId);
+    await enterFocusedEditMode(page);
+    await expandAllLayers(page);
+    await layerRow(page, "Ordinary Frame")
+      .locator("[data-layer-row-button]")
+      .click();
+    const before = await readFrame(page);
+
+    await page.keyboard.press("k");
+    const factor = page.getByLabel("Scale factor", { exact: true });
+    await expect(factor).toHaveValue(/^1x?$/);
+
+    const se = page
+      .locator("iframe[data-design-preview-iframe]")
+      .first()
+      .contentFrame()
+      .locator('[data-agent-native-edit-handle="se"]');
+    await expect(se).toBeVisible();
+    await drag(page, se, 40, 32);
+    await expect
+      .poll(async () => Number.parseFloat(await factor.inputValue()))
+      .toBeGreaterThan(1);
+    const afterDrag = await readFrame(page);
+
+    await factor.fill("2");
+    await factor.press("Enter");
+    await expect
+      .poll(async () => (await readFrame(page)).frame.width)
+      .toBeCloseTo(before.frame.width * 2, 0);
+    expect((await readFrame(page)).frame.width).toBeGreaterThan(
+      afterDrag.frame.width,
+    );
+    await expect(factor).toBeHidden();
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
