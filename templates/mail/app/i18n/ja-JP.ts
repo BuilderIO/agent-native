@@ -528,6 +528,7 @@ const messages = {
       previewButton: "プレビューを実行",
       previewRunning: "最近の受信トレイを確認中…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev の一致確率 {{percent}}%",
       feedbackLabel: "含めない一致を選択",
       notSpamShort: "スパムではない",
       notMatchShort: "一致しない",

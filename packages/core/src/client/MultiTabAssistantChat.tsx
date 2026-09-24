@@ -45,6 +45,7 @@ import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
+  type AssistantChatSendOptions,
 } from "./AssistantChat.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
@@ -109,6 +110,8 @@ interface PendingSend {
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
+  /** See `AgentChatMessage.approvedToolCalls`. */
+  approvedToolCalls?: string[];
 }
 
 /**
@@ -130,24 +133,22 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (
-    send.trackInRunsTray ||
-    send.requestMode ||
-    send.submitMessageId ||
-    send.attachments ||
-    send.usageLabel ||
-    send.actionScope
-  ) {
-    ref.sendMessage(send.message, send.images, {
-      ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
-      ...(send.requestMode ? { requestMode: send.requestMode } : {}),
-      ...(send.attachments ? { attachments: send.attachments } : {}),
-      ...(send.submitMessageId
-        ? { submitMessageId: send.submitMessageId }
-        : {}),
-      ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
-      ...(send.actionScope ? { actionScope: send.actionScope } : {}),
-    });
+  // Every field is decided once, here; a separate "has options" condition
+  // listing them again is how a new field ends up silently dropped.
+  const options: AssistantChatSendOptions = {
+    ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
+    ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+    ...(send.attachments ? { attachments: send.attachments } : {}),
+    ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
+    ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
+    ...(send.actionScope ? { actionScope: send.actionScope } : {}),
+    // An approval resume is a protocol continuation, not a visible prompt.
+    ...(send.approvedToolCalls
+      ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
+      : {}),
+  };
+  if (Object.keys(options).length > 0) {
+    ref.sendMessage(send.message, send.images, options);
   } else {
     ref.sendMessage(send.message, send.images);
   }
@@ -1956,6 +1957,7 @@ export function MultiTabAssistantChat({
         submitMessageId,
         usageLabel,
         actionScope,
+        approvedToolCalls,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1991,6 +1993,7 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
         ...(actionScope ? { actionScope } : {}),
+        ...(approvedToolCalls ? { approvedToolCalls } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread

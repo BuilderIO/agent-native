@@ -54,11 +54,15 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
     <div data-agent-native-node-id="kid-a2" data-agent-native-layer-name="Kid A2"
          style="position:absolute;left:110px;top:16px;width:80px;height:68px;background:#22c55e"></div>
   </div>
-  <div data-agent-native-node-id="frame-b" data-agent-native-layer-name="Frame B"
+  <div data-agent-native-node-id="board-frame" data-agent-native-layer-name="Board Frame"
        data-an-primitive="frame"
-       style="position:absolute;left:40px;top:180px;width:200px;height:100px;background:#111827">
-    <div data-agent-native-node-id="kid-b1" data-agent-native-layer-name="Kid B1"
-         style="position:absolute;left:16px;top:16px;width:80px;height:68px;background:#3b82f6"></div>
+       style="position:absolute;left:0px;top:160px;width:300px;height:140px">
+    <div data-agent-native-node-id="frame-b" data-agent-native-layer-name="Frame B"
+         data-an-primitive="frame"
+         style="position:absolute;left:40px;top:20px;width:200px;height:100px;background:#111827">
+      <div data-agent-native-node-id="kid-b1" data-agent-native-layer-name="Kid B1"
+           style="position:absolute;left:16px;top:16px;width:80px;height:68px;background:#3b82f6"></div>
+    </div>
   </div>
   <div data-agent-native-node-id="group-c" data-agent-native-layer-name="Group C"
        data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"
@@ -66,6 +70,12 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
        style="position:absolute;left:40px;top:320px;width:200px;height:100px;background:#111827">
     <div data-agent-native-node-id="kid-c1" data-agent-native-layer-name="Kid C1"
          style="position:absolute;left:16px;top:16px;width:80px;height:68px;background:#3b82f6"></div>
+  </div>
+  <div data-agent-native-node-id="frame-d" data-agent-native-layer-name="Frame D"
+       data-an-primitive="frame"
+       style="position:absolute;left:40px;top:460px;width:200px;height:100px;background:#ffffff">
+    <div data-agent-native-node-id="text-d1" data-an-primitive="text"
+         style="position:absolute;left:16px;top:16px;width:80px;height:40px">Label</div>
   </div>
 </body></html>`;
 
@@ -111,7 +121,12 @@ describe("click-through onto a generated Frame's children", () => {
     expect(selected).toEqual(["frame-a", "kid-a1"]);
   });
 
-  it("plain Frame (data-an-primitive=frame only): stays click-through (regression guard)", async () => {
+  it("a top-level board Frame's child is selected by the first click, like a Figma artboard", async () => {
+    const selected = await clickSequence([[56, 490]]);
+    expect(selected).toEqual(["text-d1"]);
+  });
+
+  it("plain nested Frame (data-an-primitive=frame only): stays click-through (regression guard)", async () => {
     const selected = await clickSequence([
       [96, 230],
       [96, 230],

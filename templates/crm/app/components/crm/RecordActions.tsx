@@ -7,6 +7,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBolt,
   IconChecklist,
+  IconCopy,
   IconExternalLink,
   IconFilePlus,
   IconPencil,
@@ -41,10 +42,113 @@ export function RecordActions({ record }: { record: CrmRecordDetail }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <EditFieldDialog record={record} />
+      <DuplicateReviewDialog recordId={record.id} />
       <CreateRecordTaskDialog recordId={record.id} />
       <AttachEvidenceDialog recordId={record.id} />
       <CallEvidenceAutomationDialog record={record} />
     </div>
+  );
+}
+
+interface DuplicateReviewResult {
+  unreadableRecordIds: string[];
+  semanticReviewUnavailable: boolean;
+  records: Array<{
+    candidates: Array<{
+      recordId: string;
+      displayName: string;
+      confidence: number;
+      signals: Array<{ value: string }>;
+      semanticReview?: { sameEntityProbability: number };
+    }>;
+  }>;
+}
+
+function DuplicateReviewDialog({ recordId }: { recordId: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const query = useActionQuery<DuplicateReviewResult>(
+    "find-crm-duplicates",
+    { recordIds: [recordId], semanticReview: true },
+    { enabled: false, retry: false },
+  );
+  const candidates =
+    query.isFetching || query.error
+      ? []
+      : (query.data?.records[0]?.candidates ?? []);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5">
+          <IconCopy className="size-4" /> {t("recordActions.reviewDuplicates")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("recordActions.duplicateReviewTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("recordActions.duplicateReviewDescription")}
+          </DialogDescription>
+        </DialogHeader>
+        <Button
+          size="sm"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {query.isFetching
+            ? t("recordActions.duplicateReviewLoading")
+            : t("recordActions.duplicateReviewRun")}
+        </Button>
+        {query.error || query.data?.unreadableRecordIds.length ? (
+          <p className="text-sm text-destructive">
+            {t("recordActions.duplicateReviewFailed")}
+          </p>
+        ) : query.data?.semanticReviewUnavailable ? (
+          <p role="status" className="text-sm text-content-secondary">
+            {t("recordActions.duplicateReviewUnavailable")}
+          </p>
+        ) : query.isFetched && !query.isFetching && !candidates.length ? (
+          <p className="text-sm text-muted-foreground">
+            {t("recordActions.duplicateReviewEmpty")}
+          </p>
+        ) : null}
+        {candidates.length ? (
+          <ul className="divide-y divide-hairline">
+            {candidates.map((candidate) => (
+              <li key={candidate.recordId} className="space-y-1 py-3 text-sm">
+                <Link
+                  to={`/records/${encodeURIComponent(candidate.recordId)}`}
+                  className="font-medium hover:underline"
+                  onClick={() => setOpen(false)}
+                >
+                  {candidate.displayName}
+                </Link>
+                <p className="text-content-secondary">
+                  {t("recordActions.duplicateRuleConfidence", {
+                    percent: Math.round(candidate.confidence * 100),
+                  })}
+                  {candidate.semanticReview
+                    ? ` · ${t("recordActions.duplicateJevProbability", {
+                        percent: Math.round(
+                          candidate.semanticReview.sameEntityProbability * 100,
+                        ),
+                      })}`
+                    : null}
+                </p>
+                <p className="text-content-tertiary">
+                  {t("recordActions.duplicateMatchedOn", {
+                    values: candidate.signals
+                      .map((signal) => signal.value)
+                      .join(", "),
+                  })}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -285,6 +285,7 @@ type ContainerRenderer = (input: ContainerInput) => string;
 interface ParsedCell {
   header: boolean;
   source: string;
+  align: "left" | "center" | "right" | null;
 }
 
 interface ParsedRow {
@@ -326,6 +327,12 @@ function parseTableRows(
           (headerRow && rows.length === 0) ||
           (headerColumn && cells.length === 0),
         source: cell[3],
+        align: (() => {
+          const value = parseTagAttrs(cell[2]).align;
+          return value === "left" || value === "center" || value === "right"
+            ? value
+            : null;
+        })(),
       });
     }
 
@@ -345,7 +352,11 @@ function renderTableRow(
       const tag = cell.header ? "th" : "td";
       const scope =
         cell.header && headerColumn && position === 0 ? ' scope="row"' : "";
-      return `<${tag}${scope}>${renderCellContent(
+      const alignment =
+        cell.align && cell.align !== "left"
+          ? ` class="nfm-align-${cell.align}"`
+          : "";
+      return `<${tag}${scope}${alignment}>${renderCellContent(
         cell.source,
         renderers,
       )}</${tag}>`;
@@ -454,6 +465,10 @@ function renderPipeTable(
   descriptor: PipeTableDescriptor,
   renderers: NfmExportRenderers,
 ): string {
+  const columnCount = Math.max(
+    descriptor.header.length,
+    ...descriptor.rows.map((row) => row.length),
+  );
   const alignAttr = (index: number) => {
     const alignment = descriptor.alignments[index];
     return alignment && alignment !== "left"
@@ -461,25 +476,21 @@ function renderPipeTable(
       : "";
   };
 
-  const head = `<thead><tr>${descriptor.header
-    .map(
-      (cell, index) =>
-        `<th${alignAttr(index)}>${renderers.renderInline(cell)}</th>`,
-    )
-    .join("")}</tr></thead>`;
+  const head = `<thead><tr>${Array.from(
+    { length: columnCount },
+    (_, index) =>
+      `<th${alignAttr(index)}>${renderers.renderInline(descriptor.header[index] ?? "")}</th>`,
+  ).join("")}</tr></thead>`;
 
   const body = descriptor.rows.length
     ? `<tbody>${descriptor.rows
         .map(
           (row) =>
-            `<tr>${descriptor.header
-              .map(
-                (_column, index) =>
-                  `<td${alignAttr(index)}>${renderers.renderInline(
-                    row[index] ?? "",
-                  )}</td>`,
-              )
-              .join("")}</tr>`,
+            `<tr>${Array.from(
+              { length: columnCount },
+              (_, index) =>
+                `<td${alignAttr(index)}>${renderers.renderInline(row[index] ?? "")}</td>`,
+            ).join("")}</tr>`,
         )
         .join("")}</tbody>`
     : "";

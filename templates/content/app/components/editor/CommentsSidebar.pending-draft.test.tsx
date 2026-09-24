@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 
-import { act } from "react";
+import { act, useState, type Dispatch, type SetStateAction } from "react";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 
 import { CommentDraftProvider } from "./comment-drafts";
@@ -21,6 +21,8 @@ function createRoot(container: Parameters<typeof createReactRoot>[0]) {
 }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { CommentThread } from "@/hooks/use-comments";
+
 import {
   CommentsSidebar,
   useCommentReplyDrafts,
@@ -28,9 +30,10 @@ import {
   type PendingCommentSelection,
 } from "./CommentsSidebar";
 
-const { createComment, notifyError } = vi.hoisted(() => ({
+const { createComment, notifyError, reconcile } = vi.hoisted(() => ({
   createComment: vi.fn(),
   notifyError: vi.fn(),
+  reconcile: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
@@ -47,6 +50,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCreateComment: () => ({
+    reconcileAmbiguous: reconcile,
     mutateAsync: (payload: unknown) =>
       new Promise((resolve, reject) =>
         createComment(payload, { onSuccess: resolve, onError: reject }),
@@ -374,7 +378,7 @@ describe("new comment responsive draft", () => {
     await type("Pending comment");
     await submit();
     await show(1280);
-    expect(input().value).toBe("Pending comment");
+    expect(input().value).toBe("");
     expect(input().disabled).toBe(true);
     await submit();
     expect(createComment).toHaveBeenCalledTimes(1);
@@ -383,6 +387,146 @@ describe("new comment responsive draft", () => {
     );
     expect(input().disabled).toBe(false);
     expect(input().value).toBe("Pending comment");
+  });
+
+  it("submits a root comment once when clicked twice before rendering", async () => {
+    await show(390);
+    await open();
+    await type("One comment");
+    const button = [...container.querySelectorAll("button")].find(
+      (node) => node.textContent === "comments.submit",
+    )!;
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    expect(createComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes an optimistic root handoff after an unresolved save is retried", async () => {
+    let setThreads!: Dispatch<SetStateAction<CommentThread[]>>;
+    function HandoffOwner() {
+      const [threads, updateThreads] = useState<CommentThread[]>([]);
+      const pending = usePendingCommentDraft("document-one");
+      const replyDrafts = useCommentReplyDrafts("document-one");
+      setThreads = updateThreads;
+      owner = pending;
+      start = pending.setPendingComment;
+      return (
+        <CommentsSidebar
+          documentId="document-one"
+          replyDrafts={replyDrafts}
+          threads={threads}
+          pendingComment={pending.pendingComment}
+          onPendingChange={pending.changePendingComment}
+          onPendingDone={pending.completePendingComment}
+          alignToAnchors={false}
+          forceVisible
+        />
+      );
+    }
+    createComment.mockImplementationOnce((payload, _callbacks) => {
+      const request = payload as {
+        clientOperationId: string;
+        content: string;
+        documentId: string;
+      };
+      const id = `optimistic-${request.clientOperationId}`;
+      setThreads([
+        {
+          threadId: id,
+          quotedText: "better",
+          prefix: null,
+          suffix: null,
+          startOffset: null,
+          resolved: false,
+          comments: [
+            {
+              id,
+              document_id: request.documentId,
+              thread_id: id,
+              parent_id: null,
+              content: request.content,
+              quoted_text: "better",
+              anchor_prefix: null,
+              anchor_suffix: null,
+              anchor_start_offset: null,
+              mentions: [],
+              author_email: "reviewer@example.test",
+              author_name: "Reviewer",
+              resolved: 0,
+              created_at: "2026-09-22T12:00:00Z",
+              updated_at: "2026-09-22T12:00:00Z",
+              notion_comment_id: null,
+              mutation: {
+                operationId: request.clientOperationId,
+                kind: "create",
+                status: "pending",
+              },
+            },
+          ],
+        },
+      ]);
+    });
+    await act(async () => root.render(<HandoffOwner />));
+    await open();
+    await type("Optimistic root comment");
+    await submit();
+
+    expect(
+      container.querySelectorAll(
+        '[data-thread-card], textarea[placeholder="comments.add"]',
+      ),
+    ).toHaveLength(1);
+    expect(
+      container.querySelector("[data-thread-card]")?.textContent,
+    ).toContain("Optimistic root comment");
+
+    await act(async () => {
+      createComment.mock.calls[0]![1].onError(
+        Object.assign(new Error("Request timed out"), { timedOut: true }),
+      );
+      setThreads((current) =>
+        current.map((thread) => ({
+          ...thread,
+          comments: thread.comments.map((comment) => ({
+            ...comment,
+            mutation: comment.mutation && {
+              ...comment.mutation,
+              status: "error" as const,
+              ambiguous: true,
+            },
+          })),
+        })),
+      );
+    });
+    reconcile.mockResolvedValueOnce("unresolved");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "comments.checkSaved")!
+        .click(),
+    );
+    expect(owner.pendingComment).not.toBeNull();
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "comments.retry")!
+        .click(),
+    );
+    expect(createComment).toHaveBeenCalledTimes(2);
+    expect(createComment.mock.calls[1]![0]).toMatchObject({
+      clientOperationId: (
+        createComment.mock.calls[0]![0] as {
+          clientOperationId: string;
+        }
+      ).clientOperationId,
+    });
+    await act(async () =>
+      createComment.mock.calls[1]![1].onSuccess({
+        id: "saved-root",
+        threadId: "saved-root",
+      }),
+    );
+    expect(owner.pendingComment).toBeNull();
   });
 
   it("does not refocus or replace a native selection on text-only owner updates", async () => {

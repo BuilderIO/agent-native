@@ -101,7 +101,13 @@ async function setFillColor(page: Page, layerName: string, hex: string) {
   await layerRow(page, layerName).click();
   const fill = inspectorSection(page, /^Fill$/i);
   await expect(fill).toBeVisible();
-  await fill.getByRole("button", { name: "Open color picker" }).click();
+  const swatch = fill.getByRole("button", { name: "Open color picker" });
+  // A closed pen path starts stroke-only, like Figma; Add fill opens the picker.
+  if ((await swatch.count()) === 0) {
+    await fill.getByRole("button", { name: "Add fill" }).click();
+  } else {
+    await swatch.click();
+  }
   const input = page.getByRole("textbox", { name: "Hex", exact: true });
   await expect(input).toBeVisible();
   await input.fill(hex);

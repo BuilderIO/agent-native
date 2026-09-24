@@ -106,6 +106,17 @@ file in the consumer's own `actions/` to override any single action.
 | `./components/ui/*`                | The shadcn/ui primitive set Dispatch's own UI is built on (`button`, `dialog`, `dropdown-menu`, `card`, `command`, `calendar`, `chart`, ...), exported per-file so a consumer can reuse one primitive without pulling in the rest.                                                                                                                                                       |
 | `./styles/dispatch.css`            | Tailwind layer with Dispatch-specific styles. Import once in the consumer's global CSS entry.                                                                                                                                                                                                                                                                                            |
 
+Hosts that compose the exported layout can brand its desktop and mobile
+navigation together without forking Dispatch:
+
+```tsx
+import { Layout } from "@agent-native/dispatch/components";
+
+<Layout brandName="Acme Workspace" brandIcon={<AcmeMark />}>
+  {children}
+</Layout>;
+```
+
 ## What it's for
 
 Dispatch is the workspace control plane sitting above individual template

@@ -111,6 +111,7 @@ import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
+  retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
@@ -290,6 +291,7 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
@@ -896,12 +898,15 @@ export default function DeckEditor() {
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
     try {
-      await refetchOrg();
-      await reloadDecks();
+      await retryMissingDeck({
+        refetchOrg,
+        reloadDecks,
+        refetchAccessStatus: refetchDeckAccessStatus,
+      });
     } finally {
       setRetryingMissingDeck(false);
     }
-  }, [refetchOrg, reloadDecks]);
+  }, [refetchDeckAccessStatus, refetchOrg, reloadDecks]);
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
@@ -2397,10 +2402,8 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      privateDeckAccessConfirmed: Boolean(
-        deckAccessStatus?.exists &&
-        !deckAccessStatus.hasAccess &&
-        deckAccessStatus.visibility === "private",
+      deckAccessDeniedConfirmed: Boolean(
+        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
       ),
     })
   ) {

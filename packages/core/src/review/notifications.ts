@@ -21,8 +21,13 @@ import {
   resolveReviewableResourceAccess,
 } from "./registry.js";
 import {
+  claimReviewNotificationDelivery,
   filterUnmutedReviewThreadRecipients,
+  finishReviewNotificationDelivery,
+  markReviewCommentNotificationCompleted,
   queryReviewComments,
+  releaseReviewNotificationDelivery,
+  reviewCommentNotificationCompleted,
 } from "./store.js";
 import type { ReviewComment } from "./types.js";
 
@@ -88,8 +93,36 @@ export async function notifyReviewComment(
   );
 }
 
+export async function notifyReviewCommentWithReceipt(
+  comment: ReviewComment,
+): Promise<ReviewNotificationResult | null> {
+  try {
+    if (await reviewCommentNotificationCompleted(comment.id)) return null;
+    const result = await runActivityNotification(LOG_LABEL, () =>
+      deliverReviewCommentEmails(comment, true),
+    );
+    if (
+      result.failed.length === 0 &&
+      (result.status === "delivered" || result.status === "no-recipients")
+    ) {
+      await markReviewCommentNotificationCompleted(comment.id);
+    }
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${LOG_LABEL} receipt failed: ${message}`);
+    return {
+      status: "notification-error",
+      error: message,
+      sent: [],
+      failed: [],
+    };
+  }
+}
+
 async function deliverReviewCommentEmails(
   comment: ReviewComment,
+  withReceipt = false,
 ): Promise<ActivityNotificationResult> {
   const mentioned = new Set(
     comment.mentions
@@ -153,16 +186,33 @@ async function deliverReviewCommentEmails(
           "You received this because you own, were mentioned in, or participated in this review thread.",
       });
 
-      await sendEmail({
-        to,
-        subject: wasMentioned
-          ? `${actor} mentioned you in a review comment`
-          : isReply
-            ? `${actor} replied to a review thread`
-            : `${actor} left a review comment`,
-        html,
-        text,
-      });
+      const deliver = () =>
+        sendEmail({
+          to,
+          subject: wasMentioned
+            ? `${actor} mentioned you in a review comment`
+            : isReply
+              ? `${actor} replied to a review thread`
+              : `${actor} left a review comment`,
+          html,
+          text,
+        });
+      if (!withReceipt) {
+        await deliver();
+        return;
+      }
+      const claim = await claimReviewNotificationDelivery(comment.id, to);
+      if (claim.status !== "claimed") {
+        if (claim.status === "sent") return;
+        throw new Error("Review notification delivery is already in progress");
+      }
+      try {
+        await deliver();
+        await finishReviewNotificationDelivery(comment.id, to, claim.token);
+      } catch (error) {
+        await releaseReviewNotificationDelivery(comment.id, to, claim.token);
+        throw error;
+      }
     },
   });
 }

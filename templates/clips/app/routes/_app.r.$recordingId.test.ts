@@ -39,6 +39,14 @@ describe("direct recording route shell cue", () => {
     expect(shareRoute).toContain("currentMs={playbackMs}");
   });
 
+  it("keeps timestamped comments outside the clipped video frame", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+    );
+  });
+
   it("surfaces recording cleanup before advanced workflow submenus", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     const menuStart = route.indexOf('t("recordingPage.askAboutClip")');
@@ -65,6 +73,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("startAiRequestToast");
     expect(route).toContain("completeAiRequestToast");
     expect(route).toContain("failAiRequestToast");
+    expect(route).toContain(
+      "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
+    );
+    expect(route).toContain("requestedAt: result?.requestedAt ?? null");
     expect(route).toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
@@ -271,7 +283,8 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain('from "@/components/ui/breadcrumb"');
     expect(route).toContain('to: "/library"');
     expect(route).toContain('to: "/spaces"');
-    expect(route).toContain("recordingFolder.spaceId");
+    expect(route).toContain("folder.spaceId");
+    expect(route).toContain("folder: recordingFolder");
     expect(route).toContain("{recordingActions}");
     expect(route).toContain("fallback={ownerInitial}");
     expect(route).toContain("{recording.description}");

@@ -33,7 +33,7 @@ vi.mock("../server/db/index.js", () => ({
   getDb: () => ({ update: mockUpdate }),
   schema: {
     designSystems: { id: "id", ownerEmail: "ownerEmail", data: "data" },
-    designSystemShares: {},
+    designSystemShares: { resourceId: "resourceId" },
   },
 }));
 
@@ -105,6 +105,12 @@ describe("get-design-system", () => {
     await action.run({ id: "builder-ds-1" });
 
     expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAccessFilter).toHaveBeenCalledWith(
+      { id: "id", ownerEmail: "ownerEmail", data: "data" },
+      { resourceId: "resourceId" },
+      undefined,
+      "editor",
+    );
     expect(mockSet).toHaveBeenCalledWith({
       data: JSON.stringify({
         source: "builder",
@@ -117,7 +123,6 @@ describe("get-design-system", () => {
     expect(mockWhere).toHaveBeenCalledWith({
       type: "and",
       conditions: [
-        "access-filter",
         { type: "eq", column: "id", value: "builder-ds-1" },
         {
           type: "eq",
@@ -134,6 +139,7 @@ describe("get-design-system", () => {
             colors: { primary: "var(--primary)" },
           }),
         },
+        "access-filter",
       ],
     });
   });
