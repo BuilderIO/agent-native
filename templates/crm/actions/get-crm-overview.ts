@@ -9,5 +9,6 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: () => getCrmOverview(),
 });

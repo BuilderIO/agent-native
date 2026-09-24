@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CRM_CONNECTOR_CATALOG } from "../lib/crm-connector-catalog.js";
 
 // The everyday grid, list, and record surface is what a CRM turn almost always
 // touches, so those schemas are paid for up front. Dashboards, signal authoring,
@@ -133,6 +134,7 @@ export default createAgentChatPlugin({
   onAgentTurnComplete: autosaveCrmDashboardAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: { connectorCatalog: [...CRM_CONNECTOR_CATALOG] },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   codeExecution: { production: "sandboxed" },
   // AGENTS.md is already injected as a prompt resource and the `crm` skill holds

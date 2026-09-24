@@ -75,6 +75,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: (input, ctx?: ActionRunContext) =>
     queryCrmRecords(input, {
       actorEmail: ctx?.userEmail ?? getRequestUserEmail() ?? null,

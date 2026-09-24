@@ -69,6 +69,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     const db = getDb();
     const list = await requireCrmList(db, args.listId, "viewer");
