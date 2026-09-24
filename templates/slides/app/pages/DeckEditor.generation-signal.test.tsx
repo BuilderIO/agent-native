@@ -181,6 +181,8 @@ vi.mock("@/components/editor/AssetLibraryPanel", () => ({
 vi.mock("@/components/editor/HistoryPanel", () => ({ default: () => null }));
 vi.mock("@/components/deck/SlideRenderer", () => ({ default: () => null }));
 
+import { trackEvent } from "@agent-native/core/client/analytics";
+
 import { SLIDES_GENERATION_STARTED_EVENT } from "@/hooks/use-agent-generating";
 
 import DeckEditor from "./DeckEditor";
@@ -202,6 +204,7 @@ describe("DeckEditor generation signal wiring", () => {
     });
     mocks.listeners.clear();
     window.innerWidth = 390;
+    vi.mocked(trackEvent).mockClear();
   });
 
   afterEach(() => {
@@ -248,5 +251,69 @@ describe("DeckEditor generation signal wiring", () => {
       expect(mocks.broadGenerating).toBe(true);
       expect(screen.queryByTestId("generating-preview")).toBeNull();
     });
+  });
+
+  it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+      publishAgentGeneratingChange();
+    });
+
+    const persistedPageHide = new Event("pagehide") as PageTransitionEvent;
+    Object.defineProperty(persistedPageHide, "persisted", { value: true });
+    act(() => window.dispatchEvent(persistedPageHide));
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_abandoned",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        reason: "page_exit",
+      }),
+    );
+  });
+
+  it("closes an attempt when pagehide occurs before agentSubmit", () => {
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        outcome: "unresolved",
+        reason: "page_exit_before_submit",
+      }),
+    );
   });
 });

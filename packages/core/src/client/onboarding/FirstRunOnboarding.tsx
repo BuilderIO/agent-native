@@ -159,6 +159,7 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
   } | null>(null);
+  const completionInFlightRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const finishOnboarding = useCallback(
@@ -169,6 +170,7 @@ export function FirstRunOnboarding({
       completionAttemptRef.current = completedScreen
         ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
         : { screen: null, extensionIndex: completedExtensionIndex };
+      completionInFlightRef.current = true;
       try {
         await completeFirstRun();
         if (completedScreen) {
@@ -180,6 +182,8 @@ export function FirstRunOnboarding({
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
+      } finally {
+        completionInFlightRef.current = false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -208,7 +212,7 @@ export function FirstRunOnboarding({
       if (
         onboardingTerminalRef.current ||
         abandonmentTrackedRef.current ||
-        completionAttemptRef.current
+        completionInFlightRef.current
       )
         return;
       abandonmentTrackedRef.current = true;

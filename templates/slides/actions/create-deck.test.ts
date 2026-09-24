@@ -210,6 +210,12 @@ describe("create-deck — aspectRatio", () => {
       id: expect.any(String),
       postProcessStatus: "failed",
     });
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactType: "deck",
+        artifactId: result.id,
+      }),
+    );
     const unresolved = mockTrack.mock.calls.find(
       ([name]) => name === "generation_outcome_unresolved",
     );
@@ -220,6 +226,20 @@ describe("create-deck — aspectRatio", () => {
       persisted_output: true,
       error_type: "Error",
     });
+  });
+
+  it("records provenance before a failing app-state write", async () => {
+    mockWriteAppState.mockRejectedValueOnce(new Error("state write failed"));
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.postProcessStatus).toBe("failed");
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactType: "deck",
+        artifactId: result.id,
+      }),
+    );
   });
 
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {

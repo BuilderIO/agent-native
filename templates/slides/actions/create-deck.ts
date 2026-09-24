@@ -180,7 +180,7 @@ export default defineAction({
   description:
     "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
     "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
-    "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; set generationComplete=true on the final add-slide call; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
+    "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; pass generationComplete=false on intermediate writes and true on the final write; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. Apply that context before authoring slides. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette.",
@@ -466,6 +466,13 @@ export default defineAction({
         > = null;
         let postProcessErrorType: string | undefined;
         try {
+          await recordGenerationCreativeContext({
+            appId: "slides",
+            artifactType: "deck",
+            artifactId: deckId,
+            ...creativeContextProvenance,
+            ...(elementProvenance.length ? { elementProvenance } : {}),
+          });
           // Broadcast to open editors (in-process SSE) + application-state
           // refresh signal (cross-process polling fallback for serverless).
           await notifyClients(deckId);
@@ -476,13 +483,6 @@ export default defineAction({
           await writeAppState("refresh-signal", {
             ts: writeNow,
             source: "create-deck",
-          });
-          await recordGenerationCreativeContext({
-            appId: "slides",
-            artifactType: "deck",
-            artifactId: deckId,
-            ...creativeContextProvenance,
-            ...(elementProvenance.length ? { elementProvenance } : {}),
           });
           loadedDesignSystem = await loadAgentDesignSystemContext(
             designSystemId ?? previousDesignSystemId,
@@ -608,18 +608,18 @@ export default defineAction({
       > = null;
       let postProcessErrorType: string | undefined;
       try {
-        await notifyClients(id);
-        await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
-        await writeAppState("refresh-signal", {
-          ts: now,
-          source: "create-deck",
-        });
         await recordGenerationCreativeContext({
           appId: "slides",
           artifactType: "deck",
           artifactId: id,
           ...creativeContextProvenance,
           ...(elementProvenance.length ? { elementProvenance } : {}),
+        });
+        await notifyClients(id);
+        await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
+        await writeAppState("refresh-signal", {
+          ts: now,
+          source: "create-deck",
         });
         loadedDesignSystem = await loadAgentDesignSystemContext(
           resolvedDesignSystemId,

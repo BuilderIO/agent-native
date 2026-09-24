@@ -234,6 +234,25 @@ describe("add-slide", () => {
     });
   });
 
+  it("requires an explicit completion flag for each action-owned incremental write", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-intermediate",
+        content: "<div>Intermediate</div>",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "generation_completion_flag_required",
+    });
+
+    expect(transactionFn).not.toHaveBeenCalled();
+  });
+
   it("rejects completion before a valid target override without writing", async () => {
     deckData.generationContext = {
       targetSlideCount: 2,

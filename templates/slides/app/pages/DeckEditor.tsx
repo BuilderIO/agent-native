@@ -886,13 +886,14 @@ export default function DeckEditor() {
       !wasNewDeckCreation.current
     )
       return;
-    const handlePageHide = () => {
+    const handlePageHide = (event: PageTransitionEvent) => {
       if (
-        !generationRunStartedRef.current ||
+        event.persisted ||
         generationTerminalAttemptRef.current === generationAttemptId
       ) {
         return;
       }
+      const submitStarted = generationRunStartedRef.current;
       const settling =
         generationSettlingAttemptRef.current === generationAttemptId;
       const sawActive = generationSawActiveRef.current;
@@ -907,13 +908,15 @@ export default function DeckEditor() {
         source: "new_deck_prompt",
       };
       try {
-        if (!sawActive || settling) {
+        if (!submitStarted || !sawActive || settling) {
           trackEvent("generation_outcome_unresolved", {
             ...properties,
             outcome: "unresolved",
-            reason: settling
-              ? "page_exit_during_settlement"
-              : "page_exit_before_active",
+            reason: !submitStarted
+              ? "page_exit_before_submit"
+              : settling
+                ? "page_exit_during_settlement"
+                : "page_exit_before_active",
           });
         } else {
           trackEvent("generation_abandoned", {

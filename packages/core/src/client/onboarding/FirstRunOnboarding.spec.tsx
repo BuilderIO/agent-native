@@ -273,6 +273,45 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
   });
 
+  it("tracks abandonment after completion fails and the retry state is shown", async () => {
+    mocks.completeFirstRun.mockRejectedValueOnce(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-dismiss"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.objectContaining({ flow: "first_run", reason: "page_exit" }),
+    );
+  });
+
   it("renders the create-account and sign-in Builder buttons", () => {
     act(() => {
       root.render(

@@ -112,7 +112,7 @@ export default defineAction({
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "Establish a new deck's direction with the first one or two slides slide-by-slide, waiting for each result before continuing. " +
     "Continue using add-slide for every newly generated slide so each write preserves per-slide Creative Context provenance; never issue independent parallel writes to the same deck. " +
-    "For an incremental create-deck call with slides: [], set generationComplete to true on the final add-slide call so the generation lifecycle closes. " +
+    "For action-owned incremental generations created with slides: [], pass generationComplete=false on every intermediate add-slide call and true on the final call so the lifecycle cannot be left open. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
@@ -173,7 +173,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Set true only on the final slide of an incremental create-deck generation so its lifecycle closes.",
+        "Required for action-owned incremental generations: false for each intermediate slide and true only on the final slide so its lifecycle closes.",
       ),
     contextPackId: z
       .string()
@@ -252,6 +252,18 @@ export default defineAction({
         !Array.isArray(deck.generationContext)
           ? deck.generationContext
           : null;
+      if (
+        generationContext?.generationMode === "action" &&
+        generationComplete === undefined
+      ) {
+        throw new ActionContractError(
+          "Set generationComplete=false on intermediate slides and true on the final slide of an action-owned incremental generation.",
+          {
+            errorCode: "generation_completion_flag_required",
+            details: { deckId },
+          },
+        );
+      }
       const targetSlideCount =
         generationContext &&
         Number.isInteger(generationContext.targetSlideCount) &&
