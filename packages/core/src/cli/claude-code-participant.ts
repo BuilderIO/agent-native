@@ -98,6 +98,14 @@ export interface RunClaudeCodeParticipantOptions {
   session?: ClaudeCodeParticipantSession;
   /** Either the fixed CLI name or an absolute executable path for packaged apps. */
   command?: string;
+  /**
+   * Absolute path to a Claude Code `--mcp-config` file holding the host-scoped
+   * servers for this run. `--strict-mcp-config` stays on, so the user's own
+   * MCP servers are still excluded.
+   */
+  mcpConfigPath?: string;
+  /** Server names in `mcpConfigPath`; the driver pre-approves their tools. */
+  mcpServerNames?: string[];
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   maxEvents?: number;
@@ -219,7 +227,7 @@ export async function runClaudeCodeParticipant(
 export function buildClaudeCodeParticipantArgs(
   options: Pick<
     RunClaudeCodeParticipantOptions,
-    "role" | "model" | "effort" | "session"
+    "role" | "model" | "effort" | "session" | "mcpConfigPath" | "mcpServerNames"
   >,
 ): string[] {
   const args = [
@@ -247,6 +255,21 @@ export function buildClaudeCodeParticipantArgs(
     );
   } else {
     args.push("--permission-mode", "acceptEdits", "--tools", DRIVER_TOOLS);
+  }
+
+  const mcpConfigPath = readString(options.mcpConfigPath);
+  if (mcpConfigPath) {
+    args.push("--mcp-config", mcpConfigPath);
+    // Plan mode already runs read-only MCP tools and refuses mutating ones.
+    // acceptEdits covers file edits only, so a non-interactive driver would
+    // otherwise be denied every MCP call, reads included.
+    const servers = (options.mcpServerNames ?? []).filter(Boolean);
+    if (options.role === "driver" && servers.length > 0) {
+      args.push(
+        "--allowedTools",
+        servers.map((server) => `mcp__${server}`).join(","),
+      );
+    }
   }
 
   const model = readString(options.model);
@@ -494,6 +517,10 @@ function validateInput(options: RunClaudeCodeParticipantOptions): void {
   if (!readString(options.cwd)) throw new Error("Claude Code cwd is required.");
   if (options.session?.sessionId && options.session.resumeSessionId) {
     throw new Error("Choose either a new Claude session id or a resume id.");
+  }
+  const mcpConfigPath = readString(options.mcpConfigPath);
+  if (mcpConfigPath && !isAbsolute(mcpConfigPath)) {
+    throw new Error("Claude Code MCP config must be an absolute file path.");
   }
   resolveCommand(options.command, "claude");
 }

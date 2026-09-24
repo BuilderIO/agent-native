@@ -149,16 +149,8 @@ export function codexMcpConfigArgs(
   config: McpConfig | null = null,
   environment: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const servers =
-    restrictCodeAgentMcpConfig(
-      mergeCodeAgentMcpConfig(config, environment),
-      environment,
-    )?.servers ?? {};
-  if (Object.keys(servers).length === 0) return [];
   const args: string[] = [];
-  for (const [serverId, server] of Object.entries(servers)) {
-    if (server.type !== "http" || !server.url) continue;
-    const key = codexConfigKey(serverId);
+  for (const [key, server] of codeAgentHttpMcpServers(config, environment)) {
     args.push("-c", `mcp_servers.${key}.url=${tomlString(server.url)}`);
     if (server.headers && Object.keys(server.headers).length > 0) {
       args.push(
@@ -168,4 +160,50 @@ export function codexMcpConfigArgs(
     }
   }
   return args;
+}
+
+/**
+ * The same host-scoped HTTP servers as `codexMcpConfigArgs`, shaped as a
+ * Claude Code `--mcp-config` document. The caller keeps
+ * `--strict-mcp-config`, the Claude equivalent of `--ignore-user-config`.
+ * Returns null when there is nothing to deliver.
+ */
+export function claudeMcpConfig(
+  config: McpConfig | null = null,
+  environment: NodeJS.ProcessEnv = process.env,
+): {
+  mcpServers: Record<
+    string,
+    { type: "http"; url: string; headers?: Record<string, string> }
+  >;
+} | null {
+  const mcpServers = Object.fromEntries(
+    codeAgentHttpMcpServers(config, environment).map(([key, server]) => [
+      key,
+      {
+        type: "http" as const,
+        url: server.url,
+        ...(server.headers && Object.keys(server.headers).length > 0
+          ? { headers: server.headers }
+          : {}),
+      },
+    ]),
+  );
+  return Object.keys(mcpServers).length > 0 ? { mcpServers } : null;
+}
+
+function codeAgentHttpMcpServers(
+  config: McpConfig | null,
+  environment: NodeJS.ProcessEnv,
+): Array<[string, { url: string; headers?: Record<string, string> }]> {
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
+  return Object.entries(servers).flatMap(([serverId, server]) =>
+    server.type === "http" && server.url
+      ? [[codexConfigKey(serverId), { url: server.url, headers: server.headers }]]
+      : [],
+  );
 }

@@ -72,6 +72,7 @@ import {
 } from "./claude-code-participant.js";
 import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
+  claudeMcpConfig,
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
@@ -677,7 +678,24 @@ async function executeClaudeCliRun(options: {
     },
   });
 
+  let mcpConfigDir: string | undefined;
   try {
+    // Deliver the same host-scoped servers the Codex path receives (see
+    // executeCodexCliRun), through a private file rather than argv because
+    // the headers can carry session cookies or bearer tokens.
+    const mcpConfig = claudeMcpConfig(
+      process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null,
+    );
+    let mcpConfigPath: string | undefined;
+    if (mcpConfig) {
+      mcpConfigDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-code-claude-"),
+      );
+      mcpConfigPath = path.join(mcpConfigDir, "mcp.json");
+      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig), {
+        mode: 0o600,
+      });
+    }
     const result = await runClaudeCodeParticipant({
       // Claude's driver uses acceptEdits, which is the closest available
       // mapping for auto-edit and full-auto. Keep ask-before-edit on the
@@ -692,6 +710,8 @@ async function executeClaudeCliRun(options: {
       cwd,
       model,
       effort: reasoningEffort,
+      mcpConfigPath,
+      mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
       signal: options.signal,
       onEvent: (event) => {
         const text = appendClaudeParticipantTranscriptEvents(
@@ -826,6 +846,10 @@ async function executeClaudeCliRun(options: {
         model,
       },
     });
+  } finally {
+    if (mcpConfigDir) {
+      fs.rmSync(mcpConfigDir, { recursive: true, force: true });
+    }
   }
 }
 

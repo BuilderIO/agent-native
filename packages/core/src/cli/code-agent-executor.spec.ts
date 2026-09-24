@@ -342,6 +342,86 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("delivers the host MCP servers to Claude Code through a private config file", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    const originalAllowlist =
+      process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST;
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "app-crm": {
+          type: "http",
+          url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+          headers: { Cookie: "session=abc" },
+        },
+        "user-server": { type: "http", url: "https://user.example/mcp" },
+      },
+    });
+    process.env.AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST = "app-crm";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    const mcpCopyPath = path.join(root, "claude-mcp.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "const mcpIndex = args.indexOf('--mcp-config');",
+        `if (mcpIndex !== -1) fs.copyFileSync(args[mcpIndex + 1], ${JSON.stringify(mcpCopyPath)});`,
+        "process.stdin.resume();",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude with apps",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli" },
+    });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "list contacts" });
+
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      const configPath = args[args.indexOf("--mcp-config") + 1];
+      expect(path.isAbsolute(configPath)).toBe(true);
+      expect(args).toContain("--strict-mcp-config");
+      expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__app-crm");
+      expect(JSON.parse(fs.readFileSync(mcpCopyPath, "utf8"))).toEqual({
+        mcpServers: {
+          "app-crm": {
+            type: "http",
+            url: "http://127.0.0.1:8080/crm/_agent-native/mcp",
+            headers: { Cookie: "session=abc" },
+          },
+        },
+      });
+      // The credential-bearing file does not outlive the run.
+      expect(fs.existsSync(configPath)).toBe(false);
+    } finally {
+      restoreEnv("MCP_SERVERS", originalMcpServers);
+      restoreEnv(
+        "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
+        originalAllowlist,
+      );
+    }
+  });
+
   it("shows friendly Claude auth errors while retaining raw execution metadata", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];

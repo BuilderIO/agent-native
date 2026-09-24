@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { McpConfig } from "../mcp-client/config.js";
 import {
+  claudeMcpConfig,
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
@@ -140,6 +141,27 @@ describe("code-agent MCP config", () => {
     expect(codexMcpConfigArgs(null, environment)).toContain(
       `mcp_servers.agent-native-desktop-computer.http_headers={"Authorization"="Bearer ${token}"}`,
     );
+    expect(claudeMcpConfig(null, environment)).toEqual({
+      mcpServers: {
+        workspace: { type: "http", url: "https://workspace.example/mcp" },
+        "agent-native-desktop-computer": {
+          type: "http",
+          url: "http://127.0.0.1:43123/mcp",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      },
+    });
+  });
+
+  it("delivers nothing to Claude when no HTTP server is scoped in", () => {
+    const environment = {
+      MCP_SERVERS: JSON.stringify({
+        servers: { local: { command: "local-bin" } },
+      }),
+    } as NodeJS.ProcessEnv;
+
+    expect(claudeMcpConfig(null, environment)).toBeNull();
+    expect(claudeMcpConfig(null, {})).toBeNull();
   });
 
   it("resolves a desktop server collision consistently", () => {
