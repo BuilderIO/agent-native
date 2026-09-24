@@ -13,6 +13,7 @@ export interface JoinedShareControlProps {
   copiedLabel: string;
   onCopy: () => Promise<boolean | void> | boolean | void;
   disabled?: boolean;
+  blocked?: boolean;
   className?: string;
 }
 
@@ -21,7 +22,7 @@ export const JoinedShareControl = forwardRef<
   HTMLDivElement,
   JoinedShareControlProps
 >(function JoinedShareControl(
-  { trigger, copyLabel, copiedLabel, onCopy, disabled, className },
+  { trigger, copyLabel, copiedLabel, onCopy, disabled, blocked, className },
   ref,
 ) {
   const [copied, setCopied] = useState(false);
@@ -53,9 +54,13 @@ export const JoinedShareControl = forwardRef<
             type="button"
             size="sm"
             variant="default"
-            className="w-8 shrink-0 px-0 shadow-none"
+            className={cn(
+              "w-8 shrink-0 px-0 shadow-none",
+              blocked && "opacity-50",
+            )}
             aria-label={label}
             disabled={disabled}
+            data-blocked={blocked ? "" : undefined}
             onClick={() => void copy()}
           >
             {copied ? (

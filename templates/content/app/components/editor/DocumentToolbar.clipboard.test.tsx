@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
   track: vi.fn(),
+  captureSelection: vi.fn(),
+  preserveSelection: vi.fn(),
+  restoreSelection: vi.fn(),
+  suggestingChange: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/clipboard", () => ({
@@ -97,6 +101,11 @@ describe("DocumentToolbar clipboard behavior", () => {
                 documentId: "clipboard-fixture",
                 utilityPanel: null,
                 onUtilityPanelChange: () => {},
+                canSuggest: true,
+                onCaptureEditorSelection: mocks.captureSelection,
+                onPreserveEditorSelection: mocks.preserveSelection,
+                onRestoreEditorSelection: mocks.restoreSelection,
+                onSuggestingChange: mocks.suggestingChange,
               }),
             ),
           ),
@@ -263,5 +272,171 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(
       container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
     ).toBeNull();
+  });
+  it("captures the editor selection before pointer-opening Suggest edits", async () => {
+    const editor = document.createElement("div");
+    editor.tabIndex = 0;
+    document.body.append(editor);
+    editor.focus();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+
+    expect(mocks.captureSelection).toHaveBeenCalledWith(false);
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(mocks.preserveSelection).toHaveBeenCalledTimes(1);
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+
+    const item = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) =>
+      candidate.textContent?.includes("editor.toolbar.suggestEdits"),
+    );
+    expect(item).not.toBeUndefined();
+    await act(async () => item!.click());
+    expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+
+    editor.remove();
+  });
+
+  it("captures the editor selection before keyboard-opening page actions", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    trigger.focus();
+
+    await act(async () => {
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "ArrowDown",
+        }),
+      );
+    });
+
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(1);
+    expect(mocks.captureSelection).toHaveBeenCalledWith(true);
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(mocks.preserveSelection).toHaveBeenCalledTimes(1);
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+  });
+
+  it("retains the captured selection when the trigger closes page actions", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    const pointerDown = () =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+
+    await act(async () => pointerDown());
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(1);
+
+    await act(async () => pointerDown());
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(1);
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores before recapturing when the trigger rapidly reopens", async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame += 1;
+      pendingFrames.set(nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frame) => {
+      pendingFrames.delete(frame);
+    });
+    const runPendingFrames = () => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      for (const callback of callbacks) callback(performance.now());
+    };
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+    const pointerDown = () =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+
+    await act(async () => pointerDown());
+    runPendingFrames();
+    await act(async () => pointerDown());
+    await act(async () => pointerDown());
+
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+    expect(mocks.captureSelection).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels deferred selection preservation when page actions closes immediately", async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      nextFrame += 1;
+      pendingFrames.set(nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((frame) => {
+      pendingFrames.delete(frame);
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    )!;
+
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const item = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) =>
+      candidate.textContent?.includes("editor.toolbar.suggestEdits"),
+    );
+    expect(item).not.toBeUndefined();
+    await act(async () => item!.click());
+    for (const callback of pendingFrames.values()) callback(performance.now());
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(mocks.preserveSelection).not.toHaveBeenCalled();
+    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
   });
 });

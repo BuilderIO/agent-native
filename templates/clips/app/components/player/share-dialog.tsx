@@ -111,6 +111,13 @@ export interface ShareRecordingPopoverProps {
    * principal's email to any reader) and hides access management entirely.
    */
   viewerReshareOnly?: boolean;
+  /**
+   * Redaction boxes placed on this recording but not yet burned into the file.
+   * While there are any, sharing is held back: the stored video still shows
+   * everything under them, so a link handed out now hands out the unredacted
+   * clip. The editor is where they get burned in.
+   */
+  pendingRedactions?: number;
   /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
   open?: boolean;
@@ -142,6 +149,7 @@ export function ShareRecordingPopover({
   hasPassword,
   expiresAt,
   viewerReshareOnly = false,
+  pendingRedactions = 0,
   children,
   open,
   onOpenChange,
@@ -159,6 +167,18 @@ export function ShareRecordingPopover({
         );
 
   const copyShareLink = async () => {
+    // The copy button is the other half of the same control, and it hands the
+    // link straight to the clipboard without opening anything — so it has to
+    // refuse for the same reason, and say so, rather than quietly copying a
+    // link to a video whose redactions are still only drawn on.
+    if (pendingRedactions > 0) {
+      toast.warning(t("shareDialog.redactionsPendingTitle"), {
+        description: t("shareDialog.redactionsPendingBody", {
+          count: pendingRedactions,
+        }),
+      });
+      return false;
+    }
     const didCopy = await writeClipboardText(shareUrl);
     if (!didCopy) return false;
     trackEvent("share_link_copied", {
@@ -181,6 +201,7 @@ export function ShareRecordingPopover({
           copyLabel={t("recordRoute.copyLinkAction")}
           copiedLabel={t("recordRoute.linkCopied")}
           disabled={!shareUrl}
+          blocked={pendingRedactions > 0}
           onCopy={copyShareLink}
         />
       </PopoverAnchor>
@@ -190,19 +211,35 @@ export function ShareRecordingPopover({
         {...nestedLayerDismissGuards()}
         className="z-[260] w-[360px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
-        <ShareRecordingContent
-          recordingId={recordingId}
-          recordingTitle={recordingTitle}
-          initialVisibility={initialVisibility}
-          initialRole={initialRole}
-          videoUrl={videoUrl}
-          thumbnailUrl={thumbnailUrl}
-          animatedThumbnailUrl={animatedThumbnailUrl}
-          isLoomRecording={isLoomRecording}
-          hasPassword={hasPassword}
-          expiresAt={expiresAt}
-          viewerReshareOnly={viewerReshareOnly}
-        />
+        {pendingRedactions > 0 ? (
+          // Deliberately not the sharing controls at all: an explanation and
+          // nothing to click. Coming back to finish an edit is normal; handing
+          // the link out with the redactions still only drawn on is not.
+          <div className="space-y-2 p-4">
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {t("shareDialog.redactionsPendingTitle")}
+            </p>
+            <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              {t("shareDialog.redactionsPendingBody", {
+                count: pendingRedactions,
+              })}
+            </p>
+          </div>
+        ) : (
+          <ShareRecordingContent
+            recordingId={recordingId}
+            recordingTitle={recordingTitle}
+            initialVisibility={initialVisibility}
+            initialRole={initialRole}
+            videoUrl={videoUrl}
+            thumbnailUrl={thumbnailUrl}
+            animatedThumbnailUrl={animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
+            hasPassword={hasPassword}
+            expiresAt={expiresAt}
+            viewerReshareOnly={viewerReshareOnly}
+          />
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -227,6 +264,7 @@ export function ShareRecordingDialog({
   hasPassword,
   expiresAt,
   viewerReshareOnly = false,
+  pendingRedactions = 0,
 }: ShareRecordingDialogProps) {
   const t = useT();
   return (
@@ -237,21 +275,37 @@ export function ShareRecordingDialog({
             ? t("shareDialog.sharePlainTitle", { title: recordingTitle })
             : t("shareDialog.shareRecording")}
         </DialogTitle>
-        <ShareRecordingContent
-          recordingId={recordingId}
-          recordingTitle={recordingTitle}
-          initialVisibility={initialVisibility}
-          initialRole={initialRole}
-          videoUrl={videoUrl}
-          thumbnailUrl={thumbnailUrl}
-          animatedThumbnailUrl={animatedThumbnailUrl}
-          isLoomRecording={isLoomRecording}
-          hasPassword={hasPassword}
-          expiresAt={expiresAt}
-          viewerReshareOnly={viewerReshareOnly}
-          reserveCloseButton
-          showHeaderCopy
-        />
+        {pendingRedactions > 0 ? (
+          // Deliberately not the sharing controls at all: an explanation and
+          // nothing to click. Coming back to finish an edit is normal; handing
+          // the link out with the redactions still only drawn on is not.
+          <div className="space-y-2 p-4">
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {t("shareDialog.redactionsPendingTitle")}
+            </p>
+            <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              {t("shareDialog.redactionsPendingBody", {
+                count: pendingRedactions,
+              })}
+            </p>
+          </div>
+        ) : (
+          <ShareRecordingContent
+            recordingId={recordingId}
+            recordingTitle={recordingTitle}
+            initialVisibility={initialVisibility}
+            initialRole={initialRole}
+            videoUrl={videoUrl}
+            thumbnailUrl={thumbnailUrl}
+            animatedThumbnailUrl={animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
+            hasPassword={hasPassword}
+            expiresAt={expiresAt}
+            viewerReshareOnly={viewerReshareOnly}
+            reserveCloseButton
+            showHeaderCopy
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
