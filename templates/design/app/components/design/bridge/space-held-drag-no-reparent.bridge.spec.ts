@@ -55,6 +55,13 @@ function embeddedWheelEditModeBridgeScript(): string {
     .replace("__EDITING_SAFETY_ENABLED__", "true");
 }
 
+function embeddedWheelInteractModeBridgeScript(): string {
+  return embeddedWheelBridgeScript
+    .replace("__EMBEDDED_WHEEL_FORWARDING_ENABLED__", "false")
+    .replace("__EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__", "true")
+    .replace("__EDITING_SAFETY_ENABLED__", "false");
+}
+
 // Mirrors e2e/global-setup.ts's FIXTURE_HTML shape: a flex row holding the
 // dragged element, and a bigger container (a section with its own child)
 // further down the flow that a plain drag would reparent into.
@@ -228,6 +235,55 @@ describe("holding Space mid-drag suppresses reparenting", () => {
         betaIdx > 0 && betaIdx < mainCloseIdx,
         `A plain second drag (no Space) must stay inside <main>, not escape it the way gesture 1's Space-held drag did — a leaked keepCurrentFlowParent would do exactly that; html: ${html}`,
       ).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("forwards Space keyup if the frame changes from Interact to Edit while Space is held", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        const chromeHost = document.createElement("div");
+        chromeHost.setAttribute("data-agent-native-editor-chrome-host", "");
+        document.body.append(chromeHost);
+        (window as any).__spaceEvents = [];
+        window.addEventListener("message", (event) => {
+          if (
+            event.data?.type === "design-hotkey" ||
+            event.data?.type === "design-hotkey-up"
+          ) {
+            (window as any).__spaceEvents.push(event.data.type);
+          }
+        });
+      });
+      await page.addScriptTag({
+        content: embeddedWheelInteractModeBridgeScript(),
+      });
+
+      await page.keyboard.down("Space");
+      await page.waitForFunction(() =>
+        (window as any).__spaceEvents.includes("design-hotkey"),
+      );
+      await page.evaluate(() =>
+        window.postMessage(
+          {
+            type: "embedded-canvas-gesture-mode",
+            wheelEnabled: false,
+            spaceKeyForwardingEnabled: false,
+            editingSafetyEnabled: true,
+          },
+          "*",
+        ),
+      );
+      await page.waitForTimeout(20);
+      await page.keyboard.up("Space");
+
+      await expect
+        .poll(() => page.evaluate(() => (window as any).__spaceEvents))
+        .toEqual(["design-hotkey", "design-hotkey-up"]);
     } finally {
       await browser.close();
     }

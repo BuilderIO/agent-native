@@ -303,7 +303,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
     forwardedSpaceKeyDown = false;
     if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
-    if (shouldLetEditorChromeHandleSpace()) {
+    if (shouldLetEditorChromeHandleSpace() && !wasSpaceKeyForwarded) {
       if (e.cancelable) e.preventDefault();
       return;
     }
