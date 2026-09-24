@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconResize, IconX } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import {
   DropdownMenu,
@@ -72,15 +72,6 @@ export function ScaleProperties({
   const [anchor, setAnchor] = useState<ScaleAnchor>({ x: 0.5, y: 0.5 });
   const factor = baseWidth > 0 ? width / baseWidth : 1;
   const factorLabel = t("editPanel.scale.factor");
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const input = rootRef.current?.querySelector<HTMLInputElement>(
-      `input[aria-label="${CSS.escape(factorLabel)}"]`,
-    );
-    input?.focus();
-    input?.select();
-  }, [factorLabel]);
 
   const scaleTo = (targetFactor: number) => {
     if (!(targetFactor > 0) || !(factor > 0)) return;
@@ -91,7 +82,6 @@ export function ScaleProperties({
 
   return (
     <div
-      ref={rootRef}
       data-design-scale-section
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;

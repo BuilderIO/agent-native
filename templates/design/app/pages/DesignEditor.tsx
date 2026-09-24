@@ -15304,10 +15304,17 @@ function DesignEditor() {
     [activeFile?.id, insertDroppedImageFiles],
   );
 
-  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const handlePlaceImage = useCallback(() => {
-    imageFileInputRef.current?.click();
-  }, []);
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files ?? []);
+      if (files.length > 0) handlePastedImageFiles(files);
+    });
+    input.click();
+  }, [handlePastedImageFiles]);
 
   const handleContextMenuPaste = useCallback(
     (point?: CanvasContextMenuPoint) =>
@@ -27662,19 +27669,6 @@ function DesignEditor() {
               shortcutsPanelOpen={keyboardShortcutsOpen}
             />
           )}
-
-        <input
-          ref={imageFileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => {
-            const files = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            if (files.length > 0) handlePastedImageFiles(files);
-          }}
-        />
 
         {!hostOwnsChrome && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel

@@ -650,6 +650,9 @@ export function DesignColorPicker({
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onControlledOpenChange?.(nextOpen);
   };
+  // A tooltip left open under the pointer is the topmost layer and would take
+  // the Escape meant for this picker.
+  const closeFromTooltipEscape = () => handleOpenChange(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
   // Preserve the last non-zero hue so dragging through an achromatic point
@@ -1406,6 +1409,7 @@ export function DesignColorPicker({
                             <TooltipContent
                               side="bottom"
                               className="z-[10010] text-[10px]"
+                              onEscapeKeyDown={closeFromTooltipEscape}
                             >
                               {label}
                             </TooltipContent>
@@ -1570,7 +1574,10 @@ export function DesignColorPicker({
                               <IconColorPicker className="size-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent className="z-[10010]">
+                          <TooltipContent
+                            className="z-[10010]"
+                            onEscapeKeyDown={closeFromTooltipEscape}
+                          >
                             {
                               hasEyeDropper
                                 ? "Pick color" // i18n-ignore browser eyedropper label
@@ -1789,7 +1796,10 @@ export function DesignColorPicker({
                               }}
                             />
                           </TooltipTrigger>
-                          <TooltipContent className="z-[10010]">
+                          <TooltipContent
+                            className="z-[10010]"
+                            onEscapeKeyDown={closeFromTooltipEscape}
+                          >
                             {currentHex}
                           </TooltipContent>
                         </Tooltip>

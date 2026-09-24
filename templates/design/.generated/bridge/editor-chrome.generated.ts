@@ -1089,7 +1089,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -4931,6 +4931,19 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeTextEditStyleSelector = "";
     var suspendedTextEditRange = null;
     var textEditInspectorFocused = false;
+    function setTextEditInspectorFocused(focused) {
+      textEditInspectorFocused = focused;
+      if (focused) {
+        document.documentElement.setAttribute(
+          "data-agent-native-inspector-styling-range",
+          ""
+        );
+      } else {
+        document.documentElement.removeAttribute(
+          "data-agent-native-inspector-styling-range"
+        );
+      }
+    }
     var activeTextEditOriginalMinWidth = "";
     var activeTextEditOriginalMinHeight = "";
     var finishActiveTextEdit = null;
@@ -6009,6 +6022,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (restoredRange && rangeTargetAfterMorph) {
           suspendedRangeState.target = rangeTargetAfterMorph;
           suspendedRangeState.range = restoredRange;
+          var selection = window.getSelection ? window.getSelection() : null;
+          if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(restoredRange.cloneRange());
+          }
         } else {
           clearSuspendedTextEditRange();
         }
@@ -10725,7 +10743,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeTextEditRange = reusedRange.cloneRange();
         } else if (suspendedTextEditRange?.target === target) {
           suspendedTextEditRange.range = reusedRange.cloneRange();
-          hideSuspendedRangeHighlight(selection);
         }
         return true;
       }
@@ -10747,12 +10764,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeTextEditRange = nextRange.cloneRange();
       } else if (suspendedTextEditRange?.target === target) {
         suspendedTextEditRange.range = nextRange.cloneRange();
-        hideSuspendedRangeHighlight(selection);
       }
       return true;
-    }
-    function hideSuspendedRangeHighlight(selection) {
-      selection.removeAllRanges();
     }
     var TEXT_EDIT_FORMATS = {
       b: {
@@ -17936,7 +17949,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!resumeBookmark) return;
         var resumeTarget = suspendedForResume.target;
         suspendedTextEditRange = null;
-        textEditInspectorFocused = false;
+        setTextEditInspectorFocused(false);
         activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
         return;
       }
@@ -17958,7 +17971,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "text-edit-inspector-focus") {
         if (typeof e.data.focused !== "boolean") return;
-        textEditInspectorFocused = e.data.focused;
+        setTextEditInspectorFocused(e.data.focused);
         if (!textEditInspectorFocused) {
           clearSuspendedTextEditRange();
           if (activeTextEditEl && finishActiveTextEdit) {

@@ -2008,9 +2008,12 @@ test("rectangle insertion keeps the new primitive selected", async ({
   });
   await expect(
     page
-      .getByRole("button", { name: "Open color picker", exact: true })
-      .filter({ hasText: "DADADA" }),
-  ).toBeVisible();
+      .locator("section.design-sidebar-section")
+      .filter({
+        has: page.locator('h3.design-sidebar-section-title:text-is("Fill")'),
+      })
+      .getByRole("textbox", { name: "Color" }),
+  ).toHaveValue("D9D9D9");
   await expect(
     screenShell(page)
       .frameLocator("iframe[data-screen-iframe-id]")

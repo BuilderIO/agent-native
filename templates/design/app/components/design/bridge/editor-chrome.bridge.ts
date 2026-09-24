@@ -323,6 +323,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-drawn-caret]{caret-color:transparent!important}" +
+      // Figma hides a styled range's highlight while its inspector controls
+      // have focus; an unfocused frame would paint it as an opaque grey block.
+      "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       // A selection SWITCHING to a different element must not ease the
       // handle spans through their old target's geometry: the singleton
@@ -6000,6 +6003,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selector: string;
   } | null = null;
   var textEditInspectorFocused = false;
+  function setTextEditInspectorFocused(focused: boolean): void {
+    textEditInspectorFocused = focused;
+    if (focused) {
+      document.documentElement.setAttribute(
+        "data-agent-native-inspector-styling-range",
+        "",
+      );
+    } else {
+      document.documentElement.removeAttribute(
+        "data-agent-native-inspector-styling-range",
+      );
+    }
+  }
   // Session-captured original min-width/min-height for the active text edit
   // (T19): refreshOverlays() re-applies these on every reflow via
   // updateTextEditingChrome, so it needs the real originals rather than "" —
@@ -7888,6 +7904,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (restoredRange && rangeTargetAfterMorph) {
         suspendedRangeState.target = rangeTargetAfterMorph;
         suspendedRangeState.range = restoredRange;
+        var selection = window.getSelection ? window.getSelection() : null;
+        if (selection) {
+          selection.removeAllRanges();
+          selection.addRange(restoredRange.cloneRange());
+        }
       } else {
         clearSuspendedTextEditRange();
       }
@@ -14546,7 +14567,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeTextEditRange = reusedRange.cloneRange();
       } else if (suspendedTextEditRange?.target === target) {
         suspendedTextEditRange.range = reusedRange.cloneRange();
-        hideSuspendedRangeHighlight(selection);
       }
       return true;
     }
@@ -14568,15 +14588,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeTextEditRange = nextRange.cloneRange();
     } else if (suspendedTextEditRange?.target === target) {
       suspendedTextEditRange.range = nextRange.cloneRange();
-      hideSuspendedRangeHighlight(selection);
     }
     return true;
-  }
-
-  // Figma keeps the range but hides its highlight after a recolour so the new
-  // colour is visible; an unfocused frame would paint it as an opaque block.
-  function hideSuspendedRangeHighlight(selection: Selection): void {
-    selection.removeAllRanges();
   }
 
   // Chromium's execCommand emits legacy <b>/<i>/<u> tags, which persist into
@@ -25400,7 +25413,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (!resumeBookmark) return;
       var resumeTarget = suspendedForResume.target;
       suspendedTextEditRange = null;
-      textEditInspectorFocused = false;
+      setTextEditInspectorFocused(false);
       activateProgrammaticTextEdit(resumeTarget, false, resumeBookmark);
       return;
     }
@@ -25428,7 +25441,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "text-edit-inspector-focus") {
       if (typeof e.data.focused !== "boolean") return;
-      textEditInspectorFocused = e.data.focused;
+      setTextEditInspectorFocused(e.data.focused);
       if (!textEditInspectorFocused) {
         clearSuspendedTextEditRange();
         if (activeTextEditEl && finishActiveTextEdit) {

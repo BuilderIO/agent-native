@@ -30,7 +30,7 @@ async function postAction(
   return response.json();
 }
 
-test("Add fill creates a Solid row and keeps existing fill layers aligned", async ({
+test("Add fill creates a Solid row, opens its picker, and keeps existing fill layers aligned", async ({
   page,
   request,
   baseURL,
@@ -111,9 +111,10 @@ test("Add fill creates a Solid row and keeps existing fill layers aligned", asyn
       .first();
     await expect(addedSolidTrigger).toBeVisible();
     await expect(addedSolid).not.toContainText("Linear gradient");
-    await addedSolidTrigger.click();
     await expect(
-      page.getByRole("button", { name: "Solid", exact: true }),
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Solid", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
   } finally {
     await postAction(request, baseURL, "delete-design", { id: designId });

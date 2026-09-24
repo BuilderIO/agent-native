@@ -768,17 +768,7 @@ export function PanelSection({
   const titleClick = hasContent ? undefined : onEmptyTitleClick;
   const heading = (
     <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
-      {titleClick ? (
-        <button
-          type="button"
-          className="max-w-full truncate text-left"
-          onClick={titleClick}
-        >
-          {title}
-        </button>
-      ) : (
-        title
-      )}
+      {title}
     </h3>
   );
 
@@ -793,7 +783,17 @@ export function PanelSection({
           layout={actions ? "header-actions" : "columns"}
         >
           <InspectorGridCell span={actions ? 20 : 28}>
-            <div className="flex min-w-0 items-center">{heading}</div>
+            <div className="relative flex min-w-0 items-center">
+              {heading}
+              {titleClick ? (
+                <button
+                  type="button"
+                  aria-label={title}
+                  className="absolute inset-0"
+                  onClick={titleClick}
+                />
+              ) : null}
+            </div>
           </InspectorGridCell>
           {actions ? (
             <InspectorGridCell span={8}>
