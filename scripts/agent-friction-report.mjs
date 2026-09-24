@@ -139,20 +139,23 @@ const PR_REVIEW_HANDOFF_CORRECTIONS = [
   String.raw`(?:marked|called|classified)[^.!?\n]{0,80}(?:despite|although|without|ignoring|in spite of)`,
   String.raw`(?:do not|don't|never|avoid)\s+(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
   String.raw`(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author-facing\s+)?(?:comment|reply|follow[- ]?up)`,
+  String.raw`(?:post|draft|send|leave)\s+(?:a\s+)?follow[- ]?up`,
 ].join("|");
 const PR_REVIEW_HANDOFF_OMISSIONS = [
   String.raw`which PRs?\s+(?:were|are)\s+ready(?:\s+to\s+merge)?|merge[- ]readiness(?:\s+recommendation)?`,
-  String.raw`(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:reply|comment)|(?:author\s+)?(?:reply|comment)\s+drafts?`,
+  String.raw`(?:draft|write|prepare)\s+(?:an?\s+)?(?:author\s+)?(?:repl(?:y|ies)|comments?)|(?:author\s+)?(?:repl(?:y|ies)|comments?)\s+drafts?`,
   String.raw`(?:request|include|ask(?:ing)?\s+for)\s+(?:a\s+)?screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
   String.raw`(?:include|ask(?:ing)?|request(?:ed|ing)?)[^.!?\n]{0,60}(?:(?:the|UI|UX)\s+)*(?:UI|UX)?\s*screenshots?`,
-  String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:say|state|report|mention|include|note)\s+(?:whether|if)\s+(?:(?:the\s+)?(?:UI|UX)\s+|the\s+)?screenshots?\s+(?:were|are|was|is)\s+(?:present|available|attached|included)`,
+  String.raw`(?:forgot|left out|omitted)[^.!?\n]{0,60}(?:whether|if)[^.!?\n]{0,40}(?:the\s+)?screenshots?[^.!?\n]{0,60}(?:present|available|attached|included)`,
+  String.raw`(?:forgot|left out|omitted)[^.!?\n]{0,60}screenshot(?:s)?[^.!?\n]{0,60}(?:availability|presence|status|available|present|attached|included)`,
   String.raw`(?:report|mention|note|say|state)[^.!?\n]{0,60}screenshot(?:s)?[^.!?\n]{0,60}(?:availability|presence|status|available|present|attached|included)`,
   String.raw`(?:UI|UX)\s+screenshots?\s+(?:status|presence|availability|evidence|disposition)|screenshot\s+(?:status|disposition)`,
   String.raw`screenshots?\s+(?:for|of|showing)\s+(?:(?:the\s+)?(?:UI|UX)|changes?|updated interface)`,
   String.raw`ready(?:\s+to\s+merge)?[^.!?\n]{0,80}(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)`,
   String.raw`(?:(?:another|additional|further|repeat(?:ed)?)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|commented again|replied again|followed up again)[^.!?\n]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?\n]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
   String.raw`(?:(?:another|additional|further|repeat(?:ed)?)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|commented again|replied again|followed up again)[^.!?\n]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?\n]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
-  String.raw`(?:post|draft|send|leave)\s+(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?\n]{0,120}(?:until|while)[^.!?\n]{0,100}(?:contributor|author|they)[^.!?\n]{0,80}(?:update|respond|reply|address)[^.!?\n]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
+  String.raw`(?:post|draft|send|leave)\s+(?:(?:another|additional|further)\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)|a\s+follow[- ]?up)[^.!?\n]{0,120}(?:until|while)[^.!?\n]{0,100}(?:contributor|author|they)[^.!?\n]{0,80}(?:update|respond|reply|address)[^.!?\n]{0,80}(?:Steve['’]s?\s+)?(?:outstanding|prior|previous|unanswered)?\s*(?:request|comment|ask)`,
   String.raw`(?:wait(?:ed)?|another\s+comment|another\s+reply)[^.!?\n]{0,100}(?:contributor|author|their)[^.!?\n]{0,100}(?:update|respond|reply|address)`,
 ].join("|");
 const PR_REVIEW_HANDOFF_RE = new RegExp(
@@ -170,8 +173,12 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [true, "The handoff forgot to say which PRs were ready to merge."],
   [true, "You didn't request screenshots for the UI changes."],
   [true, "You didn't draft an author reply."],
+  [true, "You didn't draft author replies."],
   [true, "You did not say which PRs were ready to merge."],
   [true, "You didn't say whether the UI screenshots were present."],
+  [true, "You omitted whether screenshots were present."],
+  [true, "You left out screenshot availability."],
+  [true, "You forgot to mention whether the screenshots were attached."],
   [true, "You left out the screenshot status."],
   [true, "You omitted the merge-readiness recommendation."],
   [true, "The handoff left out the screenshot disposition."],
@@ -180,6 +187,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     true,
     "Do not post another author-facing reply until the contributor addresses Steve's outstanding request.",
+  ],
+  [
+    true,
+    "Do not post a follow-up until the contributor addresses Steve's outstanding request.",
   ],
   [
     true,
@@ -202,6 +213,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "You drafted another reply after Steve's prior request was addressed in the latest commit.",
+  ],
+  [
+    false,
+    "Do not post a follow-up after the contributor addressed Steve's request.",
   ],
   [
     false,
