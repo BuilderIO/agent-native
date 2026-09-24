@@ -107,11 +107,15 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
 
 - If required CI is failing, open the failing run logs, fix only an actionable
   repo-owned failure, publish one coherent update, and recheck the same head.
-- If CI is green, the PR is mergeable, and review items are addressed, use the
-  authorized admin merge after the unchanged 10-minute soak. Capture the final
-  live `headRefOid` immediately before merging and bind the operation to it:
+- In `merge-authorized` mode, if CI is green, the PR is mergeable, and review
+  items are addressed, use the authorized admin merge after the unchanged
+  10-minute soak. Capture the final live `headRefOid` immediately before
+  merging and bind the operation to it:
   `gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`.
   If the command rejects because the head changed, restart the soak.
+- In `ready-only` mode, keep fixing CI and review feedback until the ready-PR
+  gate in `/babysit-pr` holds; then leave the PR open and clean up its watcher
+  and lease without merging or rotating.
 - If an external dependency is unchanged, record the exact blocker once and
   keep the watcher quiet until a meaningful state change. Do not send repeated
   "continue" prompts that only renew a lease or restate CI status.
