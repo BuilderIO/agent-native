@@ -47,8 +47,7 @@ vi.mock("../db/index.js", () => {
     mailInboxPushInvalidations: {
       __name: "mail_inbox_push_invalidations",
       id: "id",
-      ownerEmail: "ownerEmail",
-      accountEmail: "accountEmail",
+      generation: "generation",
     },
   };
 
@@ -119,9 +118,8 @@ vi.mock("../db/index.js", () => {
 
 import {
   applyLocalLabelDelta,
-  deleteInboxPushInvalidations,
   patchSyncAccount,
-  readInboxPushInvalidationIds,
+  readInboxPushGeneration,
   readCachedLabels,
   recordInboxPushInvalidation,
   resetSyncAccountProgress,
@@ -144,6 +142,7 @@ function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
     status: "idle",
     lastError: null,
     lastSyncedAt: 100,
+    lastPushGeneration: 0,
     syncClaimId: null,
     syncClaimedAt: null,
     labelsJson: null,
@@ -453,32 +452,34 @@ describe("applyLocalLabelDelta", () => {
 });
 
 describe("Gmail push invalidations", () => {
-  it("records a durable, normalized account marker", async () => {
+  it("coalesces pushes into one normalized account generation", async () => {
     await recordInboxPushInvalidation("Owner@Example.com", "Acct@Example.com");
+    await recordInboxPushInvalidation("owner@example.com", "acct@example.com");
 
-    expect(dbState.inserts).toHaveLength(1);
+    expect(dbState.inserts).toHaveLength(2);
     expect(dbState.inserts[0].table).toBe("mail_inbox_push_invalidations");
     expect(dbState.inserts[0].values).toMatchObject({
+      id: "owner@example.com:acct@example.com",
       ownerEmail: "owner@example.com",
       accountEmail: "acct@example.com",
+      generation: 1,
+    });
+    expect(dbState.inserts[1].values.id).toBe(dbState.inserts[0].values.id);
+    expect(dbState.conflictUpdates).toHaveLength(2);
+    expect(dbState.conflictUpdates[0].set.generation).toMatchObject({
+      op: "sql",
     });
   });
 
-  it("reads and deletes the exact pending marker snapshot", async () => {
-    dbState.pushInvalidations = [{ id: "push-1" }, { id: "push-2" }];
+  it("reads the current generation for an account", async () => {
+    dbState.pushInvalidations = [{ generation: 7 }];
 
-    const ids = await readInboxPushInvalidationIds(
+    const generation = await readInboxPushGeneration(
       "owner@example.com",
       "acct@example.com",
     );
-    await deleteInboxPushInvalidations(ids);
 
-    expect(ids).toEqual(["push-1", "push-2"]);
-    expect(dbState.deleteTables).toEqual(["mail_inbox_push_invalidations"]);
-    expect(dbState.deletes[0]).toMatchObject({
-      op: "inArray",
-      val: ids,
-    });
+    expect(generation).toBe(7);
   });
 });
 

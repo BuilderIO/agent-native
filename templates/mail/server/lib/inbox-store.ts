@@ -69,6 +69,7 @@ export type SyncAccountRow = {
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[] | null;
@@ -144,6 +145,7 @@ function toSyncAccountRow(
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
+    lastPushGeneration: row.lastPushGeneration,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
     labels: row.labelsJson
@@ -844,7 +846,7 @@ export async function withSyncClaim<T>(
     if (rows[0]?.syncClaimId !== claimId)
       throw new SyncClaimLostError(accountEmail);
 
-    // Keep inbox mutations in this callback; push invalidation revokes this claim.
+    // Keep row mutations inside the lock so replacement claims cannot interleave.
     return write(tx);
   });
 }
@@ -917,6 +919,7 @@ export type SyncAccountPatch = Partial<{
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[];
@@ -927,42 +930,34 @@ export async function recordInboxPushInvalidation(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<void> {
-  await getDb().insert(schema.mailInboxPushInvalidations).values({
-    id: crypto.randomUUID(),
-    ownerEmail: ownerEmail.toLowerCase(),
-    accountEmail: accountEmail.toLowerCase(),
-  });
+  await getDb()
+    .insert(schema.mailInboxPushInvalidations)
+    .values({
+      id: rowId(ownerEmail, accountEmail),
+      ownerEmail: ownerEmail.toLowerCase(),
+      accountEmail: accountEmail.toLowerCase(),
+      generation: 1,
+    })
+    .onConflictDoUpdate({
+      target: schema.mailInboxPushInvalidations.id,
+      set: {
+        generation: sql`${schema.mailInboxPushInvalidations.generation} + 1`,
+      },
+    });
 }
 
-export async function readInboxPushInvalidationIds(
+export async function readInboxPushGeneration(
   ownerEmail: string,
   accountEmail: string,
-): Promise<string[]> {
+): Promise<number> {
   const rows = await getDb()
-    .select({ id: schema.mailInboxPushInvalidations.id })
+    .select({ generation: schema.mailInboxPushInvalidations.generation })
     .from(schema.mailInboxPushInvalidations)
     .where(
-      and(
-        eq(
-          schema.mailInboxPushInvalidations.ownerEmail,
-          ownerEmail.toLowerCase(),
-        ),
-        eq(
-          schema.mailInboxPushInvalidations.accountEmail,
-          accountEmail.toLowerCase(),
-        ),
-      ),
-    );
-  return rows.map((row) => row.id);
-}
-
-export async function deleteInboxPushInvalidations(
-  ids: string[],
-): Promise<void> {
-  if (ids.length === 0) return;
-  await getDb()
-    .delete(schema.mailInboxPushInvalidations)
-    .where(inArray(schema.mailInboxPushInvalidations.id, ids));
+      eq(schema.mailInboxPushInvalidations.id, rowId(ownerEmail, accountEmail)),
+    )
+    .limit(1);
+  return rows[0]?.generation ?? 0;
 }
 
 /**

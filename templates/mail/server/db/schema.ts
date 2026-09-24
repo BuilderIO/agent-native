@@ -111,6 +111,7 @@ export const mailSyncAccounts = table(
       .default("idle"),
     lastError: text("last_error"),
     lastSyncedAt: integer("last_synced_at"),
+    lastPushGeneration: integer("last_push_generation").notNull().default(0),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
     // Compact cached labels.list result: [{id,name,type,color?,messagesTotal?,
@@ -129,6 +130,7 @@ export const mailInboxPushInvalidations = table(
     id: text("id").primaryKey(),
     ownerEmail: text("owner_email").notNull(),
     accountEmail: text("account_email").notNull(),
+    generation: integer("generation").notNull().default(1),
   },
   (t) => [
     index("mail_inbox_push_invalidations_owner_account_idx").on(
