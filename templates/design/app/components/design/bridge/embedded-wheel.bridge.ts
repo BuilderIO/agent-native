@@ -254,6 +254,16 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     );
   }
 
+  function shouldLetEditorChromeHandleSpace(): boolean {
+    // The gesture shim runs before editor chrome; an active reorder needs the
+    // later listener to see Space so it can preserve the dragged layer's parent.
+    return (
+      !spaceKeyForwardingEnabled &&
+      editingSafetyEnabled &&
+      !!document.querySelector("[data-agent-native-editor-chrome-host]")
+    );
+  }
+
   function onKeyDown(e: KeyboardEvent): void {
     if (
       e.key !== " " ||
@@ -267,6 +277,10 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       return;
     }
     temporarySpacePanEnabled = true;
+    if (shouldLetEditorChromeHandleSpace()) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
     if (e.repeat || !spaceKeyForwardingEnabled) return;
     forwardedSpaceKeyDown = true;
@@ -289,6 +303,10 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
     forwardedSpaceKeyDown = false;
     if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+    if (shouldLetEditorChromeHandleSpace()) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
     stopNativeInteraction(e);
     if (wasSpaceKeyForwarded) {
       postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });

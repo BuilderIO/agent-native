@@ -184,11 +184,18 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       ));
     }
+    function shouldLetEditorChromeHandleSpace() {
+      return !spaceKeyForwardingEnabled && editingSafetyEnabled && !!document.querySelector("[data-agent-native-editor-chrome-host]");
+    }
     function onKeyDown(e) {
       if (e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
         return;
       }
       temporarySpacePanEnabled = true;
+      if (shouldLetEditorChromeHandleSpace()) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
       if (e.repeat || !spaceKeyForwardingEnabled) return;
       forwardedSpaceKeyDown = true;
@@ -210,6 +217,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
       forwardedSpaceKeyDown = false;
       if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+      if (shouldLetEditorChromeHandleSpace()) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
       if (wasSpaceKeyForwarded) {
         postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
