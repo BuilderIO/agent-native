@@ -46,6 +46,9 @@ describe("Factory review skill alignment", () => {
     expect(second).toContain("Keep this prompt.");
     expect(second).toContain("Custom suffix.");
     expect(second).toContain("Alice (`3mdistal`)");
+    expect(second).toContain("Shomix (shomix)");
+    expect(second).toMatch(/across app and\s+framework areas/);
+    expect(second).toContain("independent human review");
     expect(second).not.toContain("old contract");
   });
 

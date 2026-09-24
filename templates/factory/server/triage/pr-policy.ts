@@ -7,6 +7,7 @@ export type PullRequestOwnerException =
   | "nick-slides"
   | "enzo-factory"
   | "sid-design"
+  | "shomix"
   | "docs-only";
 
 export type PullRequestTrustException = "liamdebeasi";
@@ -217,11 +218,20 @@ export function decidePullRequestGovernance(
 }
 
 export function detectPullRequestOwnerException(
-  input: Pick<PullRequestGovernanceInput, "author" | "changedFiles">,
+  input: Pick<
+    PullRequestGovernanceInput,
+    "author" | "repository" | "changedFiles"
+  >,
 ): PullRequestOwnerException | null {
   const author = input.author.trim().toLowerCase();
   const changedFiles = input.changedFiles.map(normalizePath);
 
+  if (
+    author === "shomix" &&
+    input.repository.trim().toLowerCase() === "builderio/agent-native"
+  ) {
+    return "shomix";
+  }
   if (author === "3mdistal" && isAppScoped(changedFiles, "content", true)) {
     return "alice-content";
   }
@@ -491,6 +501,7 @@ function ownerExceptionCoversArea(
   area: OwnerOwnedArea,
 ): boolean {
   return (
+    exception === "shomix" ||
     (exception === "alice-content" && area === "content") ||
     (exception === "sid-design" && area === "design")
   );

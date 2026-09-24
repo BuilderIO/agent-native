@@ -343,7 +343,7 @@ describe("pull-request governance", () => {
     });
   });
 
-  it("applies the current app owner exceptions only to their scoped changes", () => {
+  it("applies the current owner exceptions within their configured scopes", () => {
     const cases = [
       {
         author: "3mdistal",
@@ -375,6 +375,15 @@ describe("pull-request governance", () => {
         ownerException: "sid-design",
         ownerOwnedArea: "design",
       },
+      {
+        author: "shomix",
+        changedFiles: [
+          "templates/design/app/pages/DesignEditor.tsx",
+          "packages/core/src/client/action.ts",
+        ],
+        ownerException: "shomix",
+        ownerOwnedArea: "design",
+      },
     ] as const;
 
     for (const testCase of cases) {
@@ -395,6 +404,52 @@ describe("pull-request governance", () => {
         autoMerge: false,
       });
     }
+  });
+
+  it("keeps the Shomix exception behind its identity, safety, and review gates", () => {
+    const shomixPullRequest = {
+      ...cleanInternalBug,
+      author: "Shomix",
+      changedFiles: ["templates/factory/server/triage/policy.ts"],
+      clearBug: false,
+      productUxImplications: true,
+    };
+
+    expect(decidePullRequestGovernance(shomixPullRequest)).toMatchObject({
+      ownerException: "shomix",
+      autoApprove: true,
+      autoMerge: false,
+    });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        repository: "BuilderIO/other-repo",
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        internalBuilderMember: false,
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        safetyFindingsClean: false,
+      }).autoApprove,
+    ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        blockingReviewStatesClean: false,
+      }).autoApprove,
+    ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...shomixPullRequest,
+        changedFiles: [".agents/skills/review-prs/SKILL.md"],
+      }),
+    ).toMatchObject({ ownerException: null, autoApprove: false });
   });
 
   it("applies the verified docs-only exception", () => {
