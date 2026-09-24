@@ -568,7 +568,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     limit: INBOX_PAGE_SIZE,
     offset: 0,
   });
-  const activeInboxTabId = resolvedInboxTab ?? inboxThreads.data?.activeTabId;
+  const activeInboxTabId = inboxThreads.isPlaceholderData
+    ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
+    : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
   const inboxIsFetching = inboxThreads.isFetching;
   const inboxSyncing = inboxThreads.data?.syncing === true;
   const needsReauthAccount = inboxThreads.data?.accounts.find(
