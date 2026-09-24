@@ -23,11 +23,16 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
+  MarginProperties,
   SizingField,
   type AutoLayoutFlow,
   type AutoLayoutGridTrackSizing,
   type AutoLayoutGridValue,
+  type AutoLayoutMargin,
+  type AutoLayoutMarginTextValues,
+  type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixValue,
+  type AutoLayoutSidesMixed,
   type ScrubInputChangeMeta,
 } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
@@ -367,6 +372,48 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
   };
 }
 
+function marginValuesForStyles(styles: Record<string, string>) {
+  const raw = {
+    top: styles.marginTop || "0",
+    right: styles.marginRight || "0",
+    bottom: styles.marginBottom || "0",
+    left: styles.marginLeft || "0",
+  };
+  const value: AutoLayoutMargin = {
+    top: parseNumericValue(raw.top),
+    right: parseNumericValue(raw.right),
+    bottom: parseNumericValue(raw.bottom),
+    left: parseNumericValue(raw.left),
+  };
+  const mixed: AutoLayoutSidesMixed = {
+    top: isMixedValue(raw.top),
+    right: isMixedValue(raw.right),
+    bottom: isMixedValue(raw.bottom),
+    left: isMixedValue(raw.left),
+  };
+  const textValues: AutoLayoutMarginTextValues = {
+    top: !mixed.top && raw.top.trim() === "auto" ? "auto" : undefined,
+    right: !mixed.right && raw.right.trim() === "auto" ? "auto" : undefined,
+    bottom: !mixed.bottom && raw.bottom.trim() === "auto" ? "auto" : undefined,
+    left: !mixed.left && raw.left.trim() === "auto" ? "auto" : undefined,
+  };
+  return { value, mixed, textValues };
+}
+
+function marginInspectorLabels(
+  t: ReturnType<typeof useT>,
+): Partial<AutoLayoutMatrixLabels> {
+  return {
+    margin: t("editPanel.labels.margin"),
+    linkMargin: t("editPanel.labels.linkMarginSides"),
+    unlinkMargin: t("editPanel.labels.unlinkMarginSides"),
+    marginTop: t("editPanel.labels.marginTop"),
+    marginRight: t("editPanel.labels.marginRight"),
+    marginBottom: t("editPanel.labels.marginBottom"),
+    marginLeft: t("editPanel.labels.marginLeft"),
+  };
+}
+
 /**
  * Style patch for a Grid-control change: template writes plus gap, with
  * `gridAutoFlow: "row"` included only when converting a non-grid element
@@ -405,7 +452,10 @@ function FlexContainerControls({
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   showSizingControls: boolean;
 }) {
+  const t = useT();
   const styles = element.computedStyles;
+  const marginLabels = marginInspectorLabels(t);
+  const marginProperties = marginValuesForStyles(styles);
   // The element's CURRENT layout flow as authored in code, read from its own
   // computed `display`: block/flow-root/grid/etc. = "normal flow",
   // flex/inline-flex = auto layout. We forward it so the AutoLayoutMatrix Flow
@@ -542,6 +592,9 @@ function FlexContainerControls({
       left: isMixedValue(styles.paddingLeft),
     },
     paddingLinked,
+    margin: marginProperties.value,
+    marginMixed: marginProperties.mixed,
+    marginTextValues: marginProperties.textValues,
     childSizing: {
       horizontal: inferElementSizing(element, "horizontal"),
       vertical: inferElementSizing(element, "vertical"),
@@ -570,6 +623,7 @@ function FlexContainerControls({
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        labels={marginLabels}
         onFlowChange={(flow) => {
           const nodeId = element.sourceId ?? element.pendingNodeId;
           // A raw display:block leaves the children in flow, so they re-stack
@@ -693,6 +747,21 @@ function FlexContainerControls({
           // link icon. AutoLayoutMatrix intentionally displays left/top as
           // each linked axis's representative value and applies both sides on
           // the next real field edit, so no style write belongs here.
+        }}
+        onMarginChange={(nextMargin, meta) => {
+          const patch = {
+            marginTop: `${nextMargin.top}px`,
+            marginRight: `${nextMargin.right}px`,
+            marginBottom: `${nextMargin.bottom}px`,
+            marginLeft: `${nextMargin.left}px`,
+          };
+          if (onStylesChange) {
+            onStylesChange(patch, meta);
+            return;
+          }
+          Object.entries(patch).forEach(([property, value]) =>
+            onStyleChange(property, value, meta),
+          );
         }}
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
@@ -934,6 +1003,8 @@ export function LayoutContextProperties({
   const availableSizing = availableSizingForElement(element);
   const isContainer = isContainerElement(element);
   const aspectLock = useAspectRatioLock(element);
+  const marginLabels = marginInspectorLabels(t);
+  const marginProperties = marginValuesForStyles(element.computedStyles);
 
   const childActions =
     flexChild || gridChild ? (
@@ -1170,6 +1241,28 @@ export function LayoutContextProperties({
             </Tooltip>
           </InspectorGridCell>
         </InspectorGrid>
+        <MarginProperties
+          key={elementStableKey(element)}
+          value={marginProperties.value}
+          mixed={marginProperties.mixed}
+          textValues={marginProperties.textValues}
+          labels={marginLabels}
+          onChange={(margin, meta) => {
+            const patch = {
+              marginTop: `${margin.top}px`,
+              marginRight: `${margin.right}px`,
+              marginBottom: `${margin.bottom}px`,
+              marginLeft: `${margin.left}px`,
+            };
+            if (onStylesChange) {
+              onStylesChange(patch, meta);
+              return;
+            }
+            Object.entries(patch).forEach(([property, value]) =>
+              onStyleChange(property, value, meta),
+            );
+          }}
+        />
       </PanelSection>
     );
   }

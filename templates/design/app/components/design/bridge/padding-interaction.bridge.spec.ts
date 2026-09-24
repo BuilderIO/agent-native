@@ -31,6 +31,10 @@ const PADDING_FRAME = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const MARGIN_LEAF = `<!doctype html><html><body style="margin:0">
+  <div id="leaf" data-agent-native-node-id="leaf" style="position:absolute;left:240px;top:180px;width:160px;height:100px;margin:0;background:#c33"></div>
+</body></html>`;
+
 async function installBridge(page: import("@playwright/test").Page) {
   await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
   await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
@@ -52,13 +56,16 @@ describe("padding interaction bridge", () => {
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       await page.waitForFunction(
         () =>
-          document.querySelectorAll("[data-agent-native-spacing-line]")
-            .length === 4,
+          document.querySelectorAll(
+            '[data-agent-native-spacing-line="padding"]',
+          ).length === 4,
       );
 
       const geometry = await page.evaluate(() =>
         Array.from(
-          document.querySelectorAll("[data-agent-native-spacing-line]"),
+          document.querySelectorAll(
+            '[data-agent-native-spacing-line="padding"]',
+          ),
         ).map((node) => {
           const line = node as HTMLElement;
           return {
@@ -126,4 +133,86 @@ describe("padding interaction bridge", () => {
       await browser.close();
     }
   });
+
+  it("shows editable zero margin handles on leaves and commits signed CSS margins", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(MARGIN_LEAF);
+      await page.evaluate(() => {
+        const target = window as typeof window & {
+          __styleChanges?: Record<string, string>[];
+        };
+        target.__styleChanges = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-style-change") {
+            target.__styleChanges?.push(event.data.styles);
+          }
+        });
+      });
+      await installBridge(page);
+
+      await page.mouse.click(260, 190);
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll('[data-spacing-key^="margin:"]').length ===
+          4,
+      );
+      const handle = page.locator('[data-spacing-key="margin:top"]');
+      const box = (await handle.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x, y - 12, { steps: 4 });
+      await page.mouse.up();
+
+      await expectMargin(page, "12px");
+      await page.waitForFunction(() =>
+        (
+          window as typeof window & {
+            __styleChanges?: Record<string, string>[];
+          }
+        ).__styleChanges?.some((styles) => styles.marginTop === "12px"),
+      );
+
+      const updatedHandle = page.locator('[data-spacing-key="margin:top"]');
+      const updatedBox = (await updatedHandle.boundingBox())!;
+      await page.mouse.move(
+        updatedBox.x + updatedBox.width / 2,
+        updatedBox.y + updatedBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        updatedBox.x + updatedBox.width / 2,
+        updatedBox.y + updatedBox.height / 2 + 24,
+        { steps: 4 },
+      );
+      await page.mouse.up();
+
+      await expectMargin(page, "-12px");
+      await page.waitForFunction(() =>
+        (
+          window as typeof window & {
+            __styleChanges?: Record<string, string>[];
+          }
+        ).__styleChanges?.some((styles) => styles.marginTop === "-12px"),
+      );
+    } finally {
+      await browser.close();
+    }
+  });
 });
+
+async function expectMargin(
+  page: import("@playwright/test").Page,
+  value: string,
+) {
+  const actual = await page
+    .locator("#leaf")
+    .evaluate((node) => (node as HTMLElement).style.marginTop);
+  expect(actual).toBe(value);
+}
