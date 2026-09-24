@@ -12,6 +12,7 @@ import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,
 } from "../../../lib/google-auth.js";
+import { markInboxAccountStale } from "../../../lib/inbox-sync.js";
 
 // Cache Google's public keys for OIDC verification. jose handles TTL + refresh.
 // https://cloud.google.com/pubsub/docs/push#validate_tokens
@@ -122,7 +123,7 @@ export default defineEventHandler(async (event: H3Event) => {
     bumpHistoryWatermark(emailAddress, historyId);
     if (owner) {
       invalidateListCacheForOwner(owner);
-      // list-inbox-threads refreshes stale accounts; keep the Pub/Sub ack fast.
+      await markInboxAccountStale(owner, emailAddress);
     }
   } catch (err: any) {
     console.warn(`[gmail-push] processing failed: ${err.message}`);

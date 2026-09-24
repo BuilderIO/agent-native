@@ -726,6 +726,13 @@ export async function ensureInboxFresh(
   ];
 }
 
+export async function markInboxAccountStale(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<void> {
+  await patchSyncAccount(ownerEmail, accountEmail, { lastSyncedAt: null });
+}
+
 export async function resetInboxSync(
   ownerEmail: string,
   accountEmail?: string,
