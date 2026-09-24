@@ -215,9 +215,16 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
   return matches.map((match) => {
     const directPrs = prNumbers(match[0]);
     const prs = prNumbersNearMatch(text, match);
+    const afterOptOut = text.slice(match.index + match[0].length);
     const mentionsDifferentWork =
       /\b(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
-        text,
+        match[0],
+      ) ||
+      /^\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
+      ) ||
+      /^\s+(?:for|to|about|regarding)\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
       );
     const refersBackToShipment =
       previousShipmentPrs.size === 1 &&
@@ -730,6 +737,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     false,
     "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked a separate PR #456.",
   ],
   [
     false,
