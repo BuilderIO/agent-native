@@ -23,7 +23,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
 import { isImageRecording } from "@shared/recording-kind.js";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
@@ -227,8 +227,6 @@ export default defineAction({
       baseUrl = previousUrl;
     }
 
-    // Point the recording at the redacted file BEFORE deleting the original,
-    // so a failure here never leaves the row referencing a file that is gone.
     const now = new Date().toISOString();
     const burning = Boolean(args.baseDataUrl);
     const edits = nextScreenshotEdits(existing.editsJson, {
@@ -239,8 +237,32 @@ export default defineAction({
       crop: args.crop,
       background: args.background,
     });
+    const newUrls = [uploaded.url, baseUrl].filter(
+      (url): url is string => Boolean(url) && url !== previousUrl && url !== existing.baseImageUrl,
+    );
 
-    await db
+    // Every write is pinned to the row as it was read. Two editor tabs can
+    // both be saving; without this a save started before a burn could land
+    // after it and put the unredacted picture back, with the hold cleared.
+    const unchanged = and(
+      eq(schema.recordings.id, args.recordingId),
+      existing.editsJson == null
+        ? isNull(schema.recordings.editsJson)
+        : eq(schema.recordings.editsJson, existing.editsJson),
+      existing.imageUrl == null
+        ? isNull(schema.recordings.imageUrl)
+        : eq(schema.recordings.imageUrl, existing.imageUrl),
+      existing.baseImageUrl == null
+        ? isNull(schema.recordings.baseImageUrl)
+        : eq(schema.recordings.baseImageUrl, existing.baseImageUrl),
+    );
+
+    // Point the recording at the new files BEFORE deleting the old ones, so a
+    // failure never leaves the row referencing a file that is gone. A burn
+    // does not write its edits yet: clearing the pending list is what lifts
+    // the hold, and the unredacted original has not been deleted. That waits
+    // for the second write below, the way the video burn does it.
+    const updated = await db
       .update(schema.recordings)
       .set({
         imageUrl: uploaded.url,
@@ -250,18 +272,26 @@ export default defineAction({
         width: args.width,
         height: args.height,
         videoSizeBytes: bytes.byteLength,
-        editsJson: serializeEdits(edits),
-        ...(burning
-          ? { title: redactedTitle(existing.title) ?? existing.title }
-          : {}),
+        ...(burning ? {} : { editsJson: serializeEdits(edits) }),
         updatedAt: now,
         mediaUpdatedAt: now,
       })
-      .where(eq(schema.recordings.id, args.recordingId));
+      .where(unchanged)
+      .returning({ id: schema.recordings.id });
 
-    // Now destroy the original. Failing here is worth surfacing loudly: the
-    // recording already shows the redacted image, but the unredacted file is
-    // still sitting in storage and the owner needs to know.
+    if (!updated.length) {
+      // Someone else saved first. Nothing here was published, so the new
+      // files are only orphans.
+      for (const url of newUrls) {
+        await deleteStoredMediaUrl(url).catch(() => false);
+      }
+      throw new Error(
+        "This screenshot was changed somewhere else while you were editing. Nothing was saved — reload it and try again.",
+      );
+    }
+
+    // Now destroy what was replaced. For a burn that includes the unredacted
+    // original, and the hold stays on until it is gone.
     let originalDeleted = true;
     const staleUrls = [previousUrl, previousBaseUrl].filter(
       (url): url is string =>
@@ -279,23 +309,54 @@ export default defineAction({
       }
     }
 
+    if (burning && !originalDeleted) {
+      // The pending list is still on the row, so every route that serves the
+      // screenshot keeps it held. That is the right state: the unredacted
+      // original is still in storage.
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      throw new Error(
+        "The redactions were burned in, but the unredacted original could not be deleted from storage. The screenshot is held back from viewers until it is. Treat what you redacted as still exposed, and delete the screenshot.",
+      );
+    }
+
+    if (burning) {
+      // Only now: the original is gone, so clearing the pending list can no
+      // longer publish anything it covered. Pinned to the edits the first
+      // write left alone, so a box placed in between keeps the hold on.
+      const released = await db
+        .update(schema.recordings)
+        .set({
+          editsJson: serializeEdits(edits),
+          title: redactedTitle(existing.title) ?? existing.title,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            existing.editsJson == null
+              ? isNull(schema.recordings.editsJson)
+              : eq(schema.recordings.editsJson, existing.editsJson),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!released.length) {
+        // Nothing is exposed — the pixels are burned and the original is
+        // deleted — but the boxes stay listed as pending, and the screenshot
+        // held, until the next save.
+        console.warn(
+          `[save-screenshot-edits] burned ${args.recordingId}, but its edits changed meanwhile, so the redactions were left pending`,
+        );
+      }
+    }
+
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(
       `Saved screenshot edits for ${args.recordingId} (${burning ? `burned ${args.redactions.length} redaction(s)` : `${parseRedactions(args.pendingRedactions).length} redaction(s) pending`}, previous file deleted: ${originalDeleted})`,
     );
 
-    // Only a burn has something to hide in the files it replaces: the
-    // unredacted original. An ordinary save only replaces the last flattened
-    // copy, whose redactions were drawn in and which nothing points at any
-    // more, so a leftover there is tidying, not exposure — and failing the save
-    // after the row has already moved on left the editor open over a saved
-    // edit, telling the owner to delete a screenshot with nothing to hide.
-    if (!originalDeleted && burning) {
-      throw new Error(
-        "The redactions were burned in, but the unredacted original could not be deleted from storage. Treat what you redacted as still exposed and delete the screenshot.",
-      );
-    }
-
+    // An ordinary save only replaces the last flattened copy, whose
+    // redactions were drawn in and which nothing points at any more, so a
+    // leftover there is tidying, not exposure, and is only logged.
     return {
       id: args.recordingId,
       imageUrl: uploaded.url,

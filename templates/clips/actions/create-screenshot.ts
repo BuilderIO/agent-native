@@ -32,6 +32,7 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { STORAGE_SETUP_REQUIRED_REASON } from "../server/lib/video-storage.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 import { decodeScreenshotDataUrl } from "./lib/screenshot-image.js";
 
 export { MAX_SCREENSHOT_BYTES } from "./lib/screenshot-image.js";
@@ -111,9 +112,14 @@ export default defineAction({
       actionContext?.userEmail ?? ownerEmail,
     );
 
-    const spaceIds = (args.spaceIds ?? []).filter(
-      (value, index, arr) => value && arr.indexOf(value) === index,
-    );
+    // The same check a new recording gets: the folder has to be the
+    // caller's own or in a space, and every space in this organization.
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? [],
+      folderId: args.folderId,
+    });
 
     const uploaded = await uploadFile({
       data: bytes,

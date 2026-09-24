@@ -9,10 +9,10 @@ export function meta() {
 }
 
 /**
- * The same library, narrowed to screenshots.
+ * The library's screenshots that are not filed anywhere.
  *
- * Screenshots are ordinary recordings, so they keep appearing in the main
- * library alongside clips; this view exists for when you want only the stills.
+ * The main Library lists clips only. A screenshot filed in a folder or a
+ * space is listed there instead, alongside the clips in it.
  */
 export default function ScreenshotsRoute() {
   const t = useT();
