@@ -98,6 +98,7 @@ test("image border and outline remain separate inside and outside strokes", asyn
       .toBe("0px|9px");
 
     await page.reload();
+    await expandAllLayers(page);
     await page
       .getByRole("treeitem")
       .filter({ hasText: "Dual stroke image" })
@@ -178,6 +179,46 @@ async function pasteSvgFile(
 const SVG_FILE =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 
+const FIGMA_PASTED_FRAME = {
+  title: "Pasted Figma frame",
+  width: 96,
+  height: 64,
+  content: `<!doctype html><html><head></head><body><div data-agent-native-node-id="figma-pasted-frame" data-agent-native-layer-name="Pasted Figma frame" data-an-primitive="frame" style="position:absolute;left:700px;top:500px;width:96px;height:64px;background-color:#123456"></div></body></html>`,
+  wrapsLooseNode: false,
+  origin: { x: 700, y: 500 },
+  sourceOffset: { x: 24, y: 34 },
+};
+
+const FIGMA_CLIPBOARD_HTML = `<!doctype html><html><body><svg width="96" height="64"><rect width="96" height="64" fill="#123456"/></svg><!--(figmeta)${Buffer.from(JSON.stringify({ fileKey: "e2e-figma-file", selectedNodeData: "1:2|4|0" })).toString("base64")}(/figmeta)--></body></html>`;
+
+async function pasteFigmaClipboard(page: Page) {
+  return page.locator("body").evaluate((body, html) => {
+    const transfer = new DataTransfer();
+    transfer.setData("text/html", html);
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: transfer,
+    });
+    body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, FIGMA_CLIPBOARD_HTML);
+}
+
+async function fillHexInspector(page: Page, expectedHex: string) {
+  const fill = page
+    .getByRole("heading", { name: "Fill", exact: true })
+    .locator("xpath=ancestor::section");
+  await expect(
+    fill.getByRole("button", { name: "Open color picker" }),
+  ).toBeVisible();
+  await fill.getByRole("button", { name: "Open color picker" }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Hex", exact: true }),
+  ).toHaveValue(expectedHex);
+  await page.keyboard.press("Escape");
+}
+
 async function recolorNestedPath(page: Page, screenId: string) {
   const svg = designFrame(page, screenId).locator(
     'svg[data-agent-native-layer-name="Pasted SVG"]',
@@ -247,7 +288,28 @@ async function readSource(page: Page, designId: string, filePath: string) {
   return typeof source.content === "string" ? source.content : "";
 }
 
-test("pasted SVG is an editable sized layer and image fit mode writes object-fit", async ({
+async function readBoardContent(
+  page: Page,
+  designId: string,
+  boardFileId: string,
+) {
+  const response = await page.request.get(
+    appPath(`/_agent-native/actions/get-design?id=${designId}`),
+  );
+  if (!response.ok()) {
+    throw new Error(`get-design failed: ${response.status()}`);
+  }
+  const design = await response.json();
+  const board = design.files?.find(
+    (file: { id?: string }) => file.id === boardFileId,
+  );
+  if (typeof board?.content !== "string") {
+    throw new Error("get-design returned no board file content");
+  }
+  return board.content as string;
+}
+
+test("pasted SVG is an editable sized layer and image scale mode writes object-fit", async ({
   page,
 }, testInfo) => {
   const { designId, screenId } = await createDesign(page);
@@ -260,7 +322,8 @@ test("pasted SVG is an editable sized layer and image fit mode writes object-fit
       .filter({ hasText: "Fit target" })
       .first();
     await imageRow.locator("[data-layer-row-button]").click();
-    await page.getByRole("combobox", { name: "Resizing" }).click();
+    await page.getByRole("button", { name: "Image adjustments" }).click();
+    await page.getByRole("combobox", { name: "Image scale mode" }).click();
     await page.getByRole("option", { name: "Crop", exact: true }).click();
     await expect
       .poll(() =>
@@ -559,7 +622,7 @@ test("stroke gradient edits stay on the selected nested pasted-SVG shape", async
     const reloadedPicker = reloadedStroke.getByRole("button", {
       name: "Open color picker",
     });
-    await expect(reloadedPicker).toContainText("Linear gradient");
+    await expect(reloadedPicker).toContainText("Linear");
     await reloadedPicker.click();
     const reloadedPopoverId =
       await reloadedPicker.getAttribute("aria-controls");
@@ -663,9 +726,222 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
   }
 });
 
-test("pasting a PNG from the clipboard preserves size and Crop through reload", async ({
+test("Figma frame paste uses the live Design scene and updates the selected frame inspector", async ({
   page,
 }) => {
+  const content = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"><section data-agent-native-node-id="target-container" data-agent-native-layer-name="Target container" data-an-primitive="frame" style="position:absolute;left:80px;top:90px;width:260px;height:180px;background:#eeeeee"><div data-agent-native-node-id="old-child" data-agent-native-layer-name="Old child" style="position:absolute;left:8px;top:8px;width:24px;height:20px;background:#ff0000"></div></section></main></body></html>`;
+  const { designId, screenId } = await createDesign(page, content);
+  const pasteRequests: Array<Record<string, unknown>> = [];
+  await page.route(
+    "**/_agent-native/actions/import-figma-clipboard",
+    async (route) => {
+      const request = route.request().postDataJSON() as Record<string, unknown>;
+      pasteRequests.push(request);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          layers: [FIGMA_PASTED_FRAME],
+          plan: {
+            kind: "layers",
+            fileId: screenId,
+            selector: '[data-agent-native-node-id="target-container"]',
+            positions: [{ x: 24, y: 34 }],
+          },
+          warnings: [],
+        }),
+      });
+    },
+  );
+
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
+    const targetRow = page
+      .getByRole("treeitem")
+      .filter({ hasText: "Target container" })
+      .first();
+    await targetRow.locator("[data-layer-row-button]").click();
+    await expect(targetRow).toHaveAttribute("aria-selected", "true");
+
+    expect(await pasteFigmaClipboard(page)).toBe(true);
+    await expect.poll(() => pasteRequests.length).toBe(1);
+    expect(pasteRequests[0]).toMatchObject({
+      designId,
+      pasteScene: {
+        container: {
+          fileId: screenId,
+          selector: '[data-agent-native-node-id="target-container"]',
+          width: 260,
+          height: 180,
+        },
+      },
+    });
+
+    const pasted = designFrame(page, screenId).locator(
+      '[data-agent-native-layer-name="Pasted Figma frame"]',
+    );
+    await expect(pasted).toHaveCount(1);
+    await expect
+      .poll(() =>
+        pasted.evaluate((element) => {
+          const style = (element as HTMLElement).style;
+          return {
+            parent: element.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            left: style.left,
+            top: style.top,
+            width: style.width,
+            height: style.height,
+            backgroundColor: getComputedStyle(element).backgroundColor,
+          };
+        }),
+      )
+      .toEqual({
+        parent: "target-container",
+        left: "24px",
+        top: "34px",
+        width: "96px",
+        height: "64px",
+        backgroundColor: "rgb(18, 52, 86)",
+      });
+
+    const pastedRow = page
+      .getByRole("treeitem")
+      .filter({ hasText: "Pasted Figma frame" })
+      .first();
+    await expect(pastedRow).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("textbox", { name: "W size in pixels" }),
+    ).toHaveValue("96px");
+    await expect(
+      page.getByRole("textbox", { name: "H size in pixels" }),
+    ).toHaveValue("64px");
+    await fillHexInspector(page, "123456");
+
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toContain('data-agent-native-layer-name="Pasted Figma frame"');
+    await page.reload();
+    await expandAllLayers(page);
+    const reloadedRow = page
+      .getByRole("treeitem")
+      .filter({ hasText: "Pasted Figma frame" })
+      .first();
+    await reloadedRow.locator("[data-layer-row-button]").click();
+    await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("textbox", { name: "W size in pixels" }),
+    ).toHaveValue("96px");
+    await expect(
+      page.getByRole("textbox", { name: "H size in pixels" }),
+    ).toHaveValue("64px");
+    await fillHexInspector(page, "123456");
+    await expect
+      .poll(() =>
+        designFrame(page, screenId)
+          .locator('[data-agent-native-layer-name="Pasted Figma frame"]')
+          .evaluate((element) => ({
+            parent: element.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+            left: (element as HTMLElement).style.left,
+            top: (element as HTMLElement).style.top,
+          })),
+      )
+      .toEqual({ parent: "target-container", left: "24px", top: "34px" });
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Figma paste plans can insert a frame into the Design board and persist it", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  const boardFileId = await createBoardSurface(page, designId);
+  const pasteRequests: Array<Record<string, unknown>> = [];
+  await page.route(
+    "**/_agent-native/actions/import-figma-clipboard",
+    async (route) => {
+      const request = route.request().postDataJSON() as Record<string, unknown>;
+      pasteRequests.push(request);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          layers: [FIGMA_PASTED_FRAME],
+          plan: { kind: "board", positions: [{ x: 45, y: 55 }] },
+          warnings: [],
+        }),
+      });
+    },
+  );
+
+  try {
+    await gotoEditor(page, designId);
+    await page.getByRole("tab", { name: "Design", exact: true }).click();
+    const boardFrame = page
+      .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+      .contentFrame();
+    const pasted = boardFrame.locator(
+      '[data-agent-native-layer-name="Pasted Figma frame"]',
+    );
+    await expect
+      .poll(() =>
+        boardFrame.locator("body").evaluate((body) => {
+          const frameWindow = body.ownerDocument.defaultView as
+            | (Window & {
+                __anEditorChromeBridge?: boolean;
+              })
+            | null;
+          return frameWindow?.__anEditorChromeBridge === true;
+        }),
+      )
+      .toBe(true);
+    expect(await pasteFigmaClipboard(page)).toBe(true);
+    await expect.poll(() => pasteRequests.length).toBe(1);
+    expect(pasteRequests[0]).toMatchObject({
+      designId,
+      pasteScene: {
+        viewport: expect.objectContaining({
+          width: expect.any(Number),
+          height: expect.any(Number),
+        }),
+        screens: expect.arrayContaining([
+          expect.objectContaining({ fileId: screenId }),
+        ]),
+      },
+    });
+    await expect
+      .poll(() => readBoardContent(page, designId, boardFileId))
+      .toContain('data-agent-native-layer-name="Pasted Figma frame"');
+    await expect(pasted).toBeVisible();
+    await expect(pasted).toHaveCSS("background-color", "rgb(18, 52, 86)", {
+      timeout: 15_000,
+    });
+    await page.reload();
+    const reloadedBoardFrame = page
+      .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+      .contentFrame();
+    await expect(
+      reloadedBoardFrame.locator(
+        '[data-agent-native-layer-name="Pasted Figma frame"]',
+      ),
+    ).toHaveCSS("background-color", "rgb(18, 52, 86)");
+    await expect
+      .poll(() => readBoardContent(page, designId, boardFileId))
+      .toContain("left: 45px");
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("pasting a PNG identifies its image inspector and persists Fit, Crop, adjustments, and opacity", async ({
+  page,
+}, testInfo) => {
   const { designId, screenId } = await createDesign(page);
   const fixture = path.resolve(
     import.meta.dirname,
@@ -716,6 +992,11 @@ test("pasting a PNG from the clipboard preserves size and Crop through reload", 
     const image = designFrame(page, screenId).locator(
       'img[data-agent-native-layer-name="clipboard-image.png"]',
     );
+    const imageRow = page
+      .getByRole("treeitem")
+      .filter({ hasText: "clipboard-image.png" })
+      .first();
+    await expect(imageRow).toHaveAttribute("aria-selected", "true");
     await expect(image).toHaveAttribute("src", assetUrl);
     await expect
       .poll(() =>
@@ -732,18 +1013,47 @@ test("pasting a PNG from the clipboard preserves size and Crop through reload", 
       "blob:",
     );
 
-    await page
-      .getByRole("treeitem")
-      .filter({ hasText: "clipboard-image.png" })
-      .first()
-      .locator("[data-layer-row-button]")
-      .click();
-    await page.getByRole("combobox", { name: "Resizing" }).click();
+    await imageRow.locator("[data-layer-row-button]").click();
+    const adjustments = page.getByRole("button", { name: "Image adjustments" });
+    await expect(adjustments).toBeVisible();
+    await adjustments.click();
+    const imageAdjustmentsDialog = page.getByRole("dialog").filter({
+      has: page.getByRole("combobox", { name: "Image scale mode" }),
+    });
+    const scaleMode = imageAdjustmentsDialog.getByRole("combobox", {
+      name: "Image scale mode",
+    });
+    await scaleMode.click();
+    await page.getByRole("option", { name: "Fit", exact: true }).click();
+    await expect(image).toHaveCSS("object-fit", "contain");
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toMatch(/object-fit:\s*contain/i);
+    await scaleMode.click();
     await page.getByRole("option", { name: "Crop", exact: true }).click();
     await expect(image).toHaveCSS("object-fit", "cover");
+    const exposure = imageAdjustmentsDialog.getByRole("slider", {
+      name: "Exposure",
+    });
+    await expect(exposure).toBeVisible();
+    await exposure.focus();
+    await exposure.press("ArrowRight");
+    await exposure.press("Enter");
+    const fillSection = page
+      .getByRole("heading", { name: "Fill", exact: true })
+      .locator("xpath=ancestor::section");
+    const opacity = fillSection.getByRole("textbox", { name: "Opacity" });
+    await opacity.fill("63");
+    await opacity.press("Enter");
     await expect
       .poll(() => readSource(page, designId, "screen.html"))
       .toMatch(/object-fit:\s*cover/i);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toMatch(/opacity\(0\.63\)/i);
+    await expect
+      .poll(() => readSource(page, designId, "screen.html"))
+      .toMatch(/exposure/i);
 
     await page.reload();
     const reloaded = designFrame(page, screenId).locator(
@@ -753,6 +1063,7 @@ test("pasting a PNG from the clipboard preserves size and Crop through reload", 
     await expect(reloaded).toHaveCSS("width", "640px");
     await expect(reloaded).toHaveCSS("height", "360px");
     await expect(reloaded).toHaveCSS("object-fit", "cover");
+    await expect(reloaded).toHaveCSS("filter", /opacity\(0\.63\)/);
     await expect
       .poll(() =>
         reloaded.evaluate(
@@ -763,6 +1074,28 @@ test("pasting a PNG from the clipboard preserves size and Crop through reload", 
     await expect
       .poll(() => readSource(page, designId, "screen.html"))
       .toMatch(/object-fit:\s*cover/i);
+    await page
+      .getByRole("treeitem")
+      .filter({ hasText: "clipboard-image.png" })
+      .first()
+      .locator("[data-layer-row-button]")
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Image adjustments" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Image adjustments" }).click();
+    await expect(
+      page.getByRole("combobox", { name: "Image scale mode" }),
+    ).toHaveText("Crop");
+    await expect(
+      fillSection.getByRole("textbox", { name: "Opacity" }),
+    ).toHaveValue("63");
+    await expect(
+      page.getByRole("slider", { name: "Exposure" }),
+    ).not.toHaveAttribute("aria-valuenow", "0");
+    await page.screenshot({
+      path: testInfo.outputPath("pasted-png-inspector-after-reload.png"),
+    });
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

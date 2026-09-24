@@ -6,7 +6,7 @@ import {
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
 import type { RefObject } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CanvasContextMenuHandle } from "@/components/design/CanvasContextMenu";
 import type { ElementInfo } from "@/components/design/types";
@@ -61,11 +61,14 @@ function harness(
   return {
     args,
     handleScreenElementSelect,
+    openAt,
     setCanvasLayerHitCandidates,
   };
 }
 
 describe("runIframeContextMenu", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("preserves responsive-frame scope for direct and candidate selections", () => {
     const { args, handleScreenElementSelect, setCanvasLayerHitCandidates } =
       harness();
@@ -146,5 +149,87 @@ describe("runIframeContextMenu", () => {
     expect(setCanvasLayerHitCandidates).toHaveBeenCalledWith([
       expect.objectContaining({ key: "cta", label: "Continue" }),
     ]);
+  });
+
+  it("includes iframe scroll offsets and screen scope for Paste here", () => {
+    const { args, openAt } = harness();
+    args.zoom = 50;
+    document.body.append(args.canvasContainerRef.current!);
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    args.canvasContainerRef.current!.append(iframe);
+    vi.spyOn(iframe, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      top: 20,
+      right: 1010,
+      bottom: 1020,
+      width: 1000,
+      height: 1000,
+      x: 10,
+      y: 20,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(iframe.contentWindow, {
+      scrollX: { configurable: true, value: 80 },
+      scrollY: { configurable: true, value: 120 },
+    });
+
+    runIframeContextMenu(args, {
+      screenId: "screen-1",
+      clientX: 999,
+      clientY: 999,
+      viewportClientX: 110,
+      viewportClientY: 220,
+    });
+
+    expect(openAt).toHaveBeenCalledWith({
+      clientX: 110,
+      clientY: 220,
+      canvasX: 280,
+      canvasY: 520,
+      screenId: "screen-1",
+    });
+  });
+
+  it("uses the right-clicked overview screen instead of the active screen", () => {
+    const { args, openAt } = harness();
+    args.viewMode = "overview";
+    args.overviewCanvasZoom = 50;
+    vi.stubGlobal("CSS", { escape: (value: string) => value });
+    document.body.append(args.canvasContainerRef.current!);
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-2");
+    args.canvasContainerRef.current!.append(iframe);
+    vi.spyOn(iframe, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 200,
+      right: 1100,
+      bottom: 1200,
+      width: 1000,
+      height: 1000,
+      x: 100,
+      y: 200,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(iframe.contentWindow, {
+      scrollX: { configurable: true, value: 30 },
+      scrollY: { configurable: true, value: 40 },
+    });
+
+    runIframeContextMenu(args, {
+      screenId: "screen-2",
+      clientX: 999,
+      clientY: 999,
+      viewportClientX: 210,
+      viewportClientY: 320,
+    });
+
+    expect(openAt).toHaveBeenCalledWith({
+      clientX: 210,
+      clientY: 320,
+      canvasX: 250,
+      canvasY: 280,
+      screenId: "screen-2",
+    });
   });
 });

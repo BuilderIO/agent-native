@@ -8,6 +8,7 @@ import {
   getFigmaClipboardContent,
   isAttemptedFigmaPaste,
 } from "@/lib/design-import";
+import { extractSvgMarkup } from "@/lib/svg-paste";
 
 export interface EditorPasteArgs {
   adoptDesignClipboardPayload: (
@@ -84,6 +85,21 @@ export function runEditorPaste(
     // insert its own image while the sanitized editable layer is being built.
     event.preventDefault();
     void handlePastedFiles([...svgFiles, ...mediaFiles]);
+    return;
+  }
+  const svgMarkup = extractSvgMarkup(
+    event.clipboardData?.getData("text/plain") ?? "",
+  );
+  if (
+    svgMarkup &&
+    canEditDesign &&
+    !readDesignClipboardPayloadFromDataTransfer(event.clipboardData) &&
+    typeof File !== "undefined"
+  ) {
+    event.preventDefault();
+    void handlePastedFiles([
+      new File([svgMarkup], "pasted.svg", { type: "image/svg+xml" }),
+    ]);
     return;
   }
   if (isAttemptedFigmaPaste(event.clipboardData)) {

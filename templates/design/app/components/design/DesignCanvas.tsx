@@ -1452,6 +1452,11 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
   }
 }
 
+// Inspector selects and pickers portal outside the right panel; while a text
+// range is being styled they are still part of that inspector gesture.
+const INSPECTOR_POPUP_SELECTOR =
+  '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
+
 export function DesignCanvas({
   content,
   contentKey,
@@ -1593,7 +1598,7 @@ export function DesignCanvas({
   });
   const textEditInspectorFocusedRef = useRef(false);
   const pendingTextEditResumeRef = useRef<{
-    input: HTMLInputElement;
+    origin: HTMLElement;
     iframe: HTMLIFrameElement;
     contentWindow: Window;
     screenId: string;
@@ -1846,7 +1851,18 @@ export function DesignCanvas({
     if (interactMode) return;
     const isInspectorTarget = (target: EventTarget | null): boolean =>
       target instanceof Element &&
-      !!target.closest('[data-design-chrome-region="right-panel"]');
+      (!!target.closest('[data-design-chrome-region="right-panel"]') ||
+        (textEditInspectorFocusedRef.current &&
+          !!target.closest(INSPECTOR_POPUP_SELECTOR)));
+    const isTextEntry = (target: Element | null): boolean =>
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable) ||
+      (target instanceof HTMLInputElement &&
+        !["button", "checkbox", "radio", "range", "color"].includes(
+          target.type,
+        ));
+    let focusVisitedInspectorPopup = false;
     const cancelPendingTextEditResume = () => {
       const pending = pendingTextEditResumeRef.current;
       if (pending) window.cancelAnimationFrame(pending.frameId);
@@ -1866,6 +1882,67 @@ export function DesignCanvas({
         focused,
       });
     };
+    const scheduleTextEditResume = (origin: HTMLElement) => {
+      const state = textEditingStateRef.current;
+      const owningScreenId = screenId ?? contentKey ?? "";
+      const iframe = iframeRef.current;
+      const contentWindow = iframe?.contentWindow;
+      if (
+        !owningScreenId ||
+        !textEditInspectorFocusedRef.current ||
+        !state.hasRange ||
+        !state.selector ||
+        !iframe ||
+        !contentWindow
+      ) {
+        return;
+      }
+
+      cancelPendingTextEditResume();
+      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
+        {
+          origin,
+          iframe,
+          contentWindow,
+          screenId: owningScreenId,
+          selector: state.selector,
+          sourceId: state.sourceId,
+          phase: "waiting",
+          frameId: 0,
+        };
+      pendingTextEditResumeRef.current = resumeIntent;
+      resumeIntent.frameId = window.requestAnimationFrame(() => {
+        if (pendingTextEditResumeRef.current !== resumeIntent) return;
+        const latest = textEditingStateRef.current;
+        const currentScreenId = screenId ?? contentKey ?? "";
+        const focused = document.activeElement;
+        if (
+          isTextEntry(focused) ||
+          !!focused?.closest(INSPECTOR_POPUP_SELECTOR) ||
+          iframeRef.current !== iframe ||
+          iframe.contentWindow !== contentWindow ||
+          currentScreenId !== resumeIntent.screenId ||
+          !registerRuntimeBridge ||
+          !latest.hasRange ||
+          latest.selector !== resumeIntent.selector ||
+          latest.sourceId !== resumeIntent.sourceId
+        ) {
+          cancelPendingTextEditResume();
+          return;
+        }
+
+        resumeIntent.phase = "resuming";
+        textEditInspectorFocusedRef.current = false;
+        iframe.focus();
+        postOneShotBridgeMessage({
+          type: "resume-text-edit",
+          screenId: resumeIntent.screenId,
+          selector: resumeIntent.selector,
+          sourceId: resumeIntent.sourceId,
+        });
+        pendingTextEditResumeRef.current = null;
+      });
+    };
     const handleFocusIn = (event: FocusEvent) => {
       const pending = pendingTextEditResumeRef.current;
       if (
@@ -1878,10 +1955,27 @@ export function DesignCanvas({
       }
       if (!textEditingStateRef.current.hasRange) return;
       if (isInspectorTarget(event.target)) {
-        if (pending?.phase === "waiting" && event.target !== pending.input) {
+        if (pending?.phase === "waiting" && event.target !== pending.origin) {
           cancelPendingTextEditResume();
         }
         setInspectorFocus(true);
+        // A closing select or picker hands focus back to its trigger (after
+        // unmounting, so relatedTarget is null): the range style is
+        // committed, so return the keyboard to the text.
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest(INSPECTOR_POPUP_SELECTOR)
+        ) {
+          focusVisitedInspectorPopup = true;
+        } else if (
+          focusVisitedInspectorPopup &&
+          target instanceof HTMLElement &&
+          !isTextEntry(target)
+        ) {
+          focusVisitedInspectorPopup = false;
+          scheduleTextEditResume(target);
+        }
       } else if (textEditInspectorFocusedRef.current) {
         setInspectorFocus(false);
       }
@@ -1899,18 +1993,21 @@ export function DesignCanvas({
       cancelPendingTextEditResume();
       if (isInspectorTarget(event.target)) {
         if (textEditingStateRef.current.hasRange) setInspectorFocus(true);
-      } else if (
-        textEditingStateRef.current.hasRange ||
-        textEditInspectorFocusedRef.current
-      ) {
-        setInspectorFocus(false);
+      } else {
+        focusVisitedInspectorPopup = false;
+        if (
+          textEditingStateRef.current.hasRange ||
+          textEditInspectorFocusedRef.current
+        ) {
+          setInspectorFocus(false);
+        }
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       const pendingResume = pendingTextEditResumeRef.current;
       if (
         pendingResume?.phase === "waiting" &&
-        event.target !== pendingResume.input
+        event.target !== pendingResume.origin
       ) {
         cancelPendingTextEditResume();
       }
@@ -1940,64 +2037,7 @@ export function DesignCanvas({
       ) {
         return;
       }
-      const state = textEditingStateRef.current;
-      const owningScreenId = screenId ?? contentKey ?? "";
-      const iframe = iframeRef.current;
-      const contentWindow = iframe?.contentWindow;
-      if (
-        !owningScreenId ||
-        !textEditInspectorFocusedRef.current ||
-        !state.hasRange ||
-        !state.selector ||
-        !iframe ||
-        !contentWindow
-      ) {
-        return;
-      }
-
-      cancelPendingTextEditResume();
-      const resumeIntent: NonNullable<typeof pendingTextEditResumeRef.current> =
-        {
-          input: target,
-          iframe,
-          contentWindow,
-          screenId: owningScreenId,
-          selector: state.selector,
-          sourceId: state.sourceId,
-          phase: "waiting",
-          frameId: 0,
-        };
-      pendingTextEditResumeRef.current = resumeIntent;
-      resumeIntent.frameId = window.requestAnimationFrame(() => {
-        if (pendingTextEditResumeRef.current !== resumeIntent) return;
-        const latest = textEditingStateRef.current;
-        const currentScreenId = screenId ?? contentKey ?? "";
-        if (
-          document.activeElement === target ||
-          isInspectorTarget(document.activeElement) ||
-          iframeRef.current !== iframe ||
-          iframe.contentWindow !== contentWindow ||
-          currentScreenId !== resumeIntent.screenId ||
-          !registerRuntimeBridge ||
-          !latest.hasRange ||
-          latest.selector !== resumeIntent.selector ||
-          latest.sourceId !== resumeIntent.sourceId
-        ) {
-          cancelPendingTextEditResume();
-          return;
-        }
-
-        resumeIntent.phase = "resuming";
-        textEditInspectorFocusedRef.current = false;
-        iframe.focus();
-        postOneShotBridgeMessage({
-          type: "resume-text-edit",
-          screenId: resumeIntent.screenId,
-          selector: resumeIntent.selector,
-          sourceId: resumeIntent.sourceId,
-        });
-        pendingTextEditResumeRef.current = null;
-      });
+      scheduleTextEditResume(target);
     };
     document.addEventListener("focusin", handleFocusIn, true);
     document.addEventListener("focusout", handleFocusOut, true);
@@ -4696,6 +4736,14 @@ export function DesignCanvas({
             !Array.isArray(e.data.inlineStyles)
               ? (e.data.inlineStyles as Record<string, string>)
               : undefined,
+          rect:
+            Number.isFinite(e.data.rect?.width) &&
+            Number.isFinite(e.data.rect?.height)
+              ? {
+                  width: Number(e.data.rect.width),
+                  height: Number(e.data.rect.height),
+                }
+              : undefined,
         };
         textEditingStateRef.current = textState;
         onTextEditingStateChange?.(textState);
@@ -5860,7 +5908,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
@@ -5871,6 +5923,7 @@ export function DesignCanvas({
         value,
         selectorCandidates: options?.selectorCandidates ?? [],
         nodeId: options?.nodeId ?? "",
+        phase: options?.phase,
       });
     },
     [postOneShotBridgeMessage],
@@ -6559,7 +6612,11 @@ export function DesignCanvas({
       selector: string,
       property: string,
       value: string,
-      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+      options?: {
+        selectorCandidates?: string[];
+        nodeId?: string | null;
+        phase?: string;
+      },
     ) => {
       const isBreakpointScopedPreview =
         typeof previewFrameId === "string" && previewFrameId.includes("::bp-");
@@ -6768,7 +6825,14 @@ export function DesignCanvas({
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
-    if (textEditingStateRef.current.active) return;
+    // A picker drag ending over the canvas must not take focus from the open
+    // picker: losing it ends the inspector gesture and drops a styled text range.
+    if (
+      textEditingStateRef.current.active ||
+      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+    ) {
+      return;
+    }
     const focusedElement = document.activeElement;
     if (focusedElement instanceof HTMLIFrameElement) {
       try {
@@ -7075,6 +7139,10 @@ export function DesignCanvas({
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
+            // An inline screen is light unless it says otherwise; inheriting the dark
+            // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
+            colorScheme:
+              boardSurface || externalPreviewUrl ? undefined : "light",
             pointerEvents: liveEditInteractionBlocked ? "none" : undefined,
             ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
             ...getIframePaintRetentionStyle({

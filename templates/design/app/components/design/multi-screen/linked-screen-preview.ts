@@ -14,7 +14,11 @@ export type LinkedScreenPreviewStyleFn = (
   selector: string,
   property: string,
   value: string,
-  options?: { selectorCandidates?: string[]; nodeId?: string | null },
+  options?: {
+    selectorCandidates?: string[];
+    nodeId?: string | null;
+    phase?: string;
+  },
 ) => boolean;
 
 export type LinkedScreenPreviewInteractionStateFn = (args: {
@@ -103,7 +107,11 @@ export function sendLinkedScreenPreviewStyleChange(
   selector: string,
   property: string,
   value: string,
-  options?: { selectorCandidates?: string[]; nodeId?: string | null },
+  options?: {
+    selectorCandidates?: string[];
+    nodeId?: string | null;
+    phase?: string;
+  },
 ): boolean {
   if (!screenId) return false;
   let sent = false;

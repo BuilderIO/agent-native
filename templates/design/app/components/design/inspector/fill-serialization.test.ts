@@ -22,7 +22,14 @@ describe("gradient serialization", () => {
   it.each(["linear", "radial", "angular", "diamond"] as const)(
     "preserves stop alpha when a %s fill fades to zero and returns",
     (kind) => {
-      const original = defaultGradient(kind, "#cc3366");
+      const base = defaultGradient(kind, "#cc3366");
+      const original = {
+        ...base,
+        stops: [
+          base.stops[0]!,
+          { ...base.stops[1]!, color: "rgba(204, 51, 102, 0)" },
+        ],
+      };
       for (const opacity of [20, 0, 100]) {
         const css = gradientToCss({ ...original, opacity });
         const editor = parseGradientCss(css)!;
@@ -76,7 +83,7 @@ describe("gradient serialization", () => {
     const parsed = parseGradientCss(css);
     expect(parsed).not.toBeNull();
     expect(parsed?.kind).toBe("linear");
-    expect(parsed?.angle).toBe(90);
+    expect(parsed?.angle).toBe(180);
     expect(parsed?.stops.length).toBe(2);
   });
 
@@ -195,5 +202,15 @@ describe("shader fill serialization", () => {
     const css = shaderDescriptorToCss(descriptor);
     expect(css).toContain("#e0eaff");
     expect(css).toContain("linear-gradient");
+  });
+});
+
+describe("angle-less linear gradients", () => {
+  it("read as 180deg, the CSS default Chrome omits when serializing", () => {
+    expect(
+      parseGradientCss(
+        "linear-gradient(rgb(217, 217, 217) 0%, rgb(115, 115, 115) 100%)",
+      )?.angle,
+    ).toBe(180);
   });
 });

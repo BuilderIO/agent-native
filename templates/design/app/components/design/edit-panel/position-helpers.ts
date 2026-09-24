@@ -38,7 +38,12 @@ export function strokeIsVisible(
   width: string | undefined,
   style: string | undefined,
 ) {
-  return cssLengthNumber(width) > 0 && style !== "none";
+  if (cssLengthNumber(width) <= 0) return false;
+  // CSS's initial border/outline style is `none`: a width with no style paints nothing.
+  return (style ?? "")
+    .trim()
+    .split(/\s+/)
+    .some((side) => side !== "" && side !== "none" && side !== "hidden");
 }
 
 /**
@@ -271,7 +276,9 @@ export function compactCssValue(value: string | undefined, fallback: string) {
 
 export function colorHasVisibleAlpha(value: string | undefined): boolean {
   const parsed = parseCssColorExtended(value || "");
-  if (!parsed) return Boolean(value && value !== "transparent");
+  if (!parsed) {
+    return Boolean(value && value !== "transparent" && value !== "none");
+  }
   return parsed.a > 0;
 }
 

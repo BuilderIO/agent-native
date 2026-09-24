@@ -1,6 +1,5 @@
 import { serializePenNodes } from "@shared/pen-path";
-
-import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
+import { parseSvgPathData } from "@shared/svg-path-data";
 
 const MAX_BYTES = 1_000_000;
 const MAX_NODES = 10_000;
@@ -378,11 +377,12 @@ export function parsePastedSvg(source: string): PastedSvg | null {
     });
     const editablePaths = paths.flatMap((path) => {
       const pathData = path.getAttribute("d") ?? "";
-      const unsupportedPathSyntax = pathData
-        .replace(/[MLCZ]|-?\d+(?:\.\d+)?/g, "")
+      const unparsedPathSyntax = pathData
+        .replace(/[a-df-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/gi, "")
         .replace(/[\s,]/g, "");
-      if (unsupportedPathSyntax) return [];
-      const penPath = parsePenPathFromSerializedD(pathData);
+      if (unparsedPathSyntax) return [];
+      const parsedPaths = parseSvgPathData(pathData);
+      const penPath = parsedPaths?.length === 1 ? parsedPaths[0] : null;
       return penPath && penPath.nodes.length > 1 ? [{ path, penPath }] : [];
     });
     if (
