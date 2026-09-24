@@ -62,6 +62,12 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("returns signed-in share viewers to the library", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain('aria-label={t("recordingPage.backToLibrary")}');
+    expect(route).toContain('<Link to={appPath("/library")}>');
+  });
+
   it("keeps transient missing share records loading while retrying locally", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain("const MISSING_SHARE_RETRY_LIMIT = 8;");
