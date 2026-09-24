@@ -135,7 +135,6 @@ describe("agent model config catalog", () => {
       "gemini-3-1-pro",
       "gemini-3-8-flash",
       "gemini-3-5-flash-lite",
-      "gemini-3-1-flash-lite",
       "grok-code-fast",
       "qwen3-coder",
       "kimi-k2-5",
@@ -151,6 +150,9 @@ describe("agent model config catalog", () => {
       "gemini-3-5-flash",
     );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("gpt-5-6-luna");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "gemini-3-1-flash-lite",
+    );
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );

@@ -269,7 +269,8 @@ export const AGENT_MODEL_CONFIG = {
       "gemini-3-1-pro",
       "gemini-3-8-flash",
       "gemini-3-5-flash-lite",
-      "gemini-3-1-flash-lite",
+      // The older public ID stays available for transcription, but its chat
+      // route targets a Vertex preview model whose availability can lapse.
       "grok-code-fast",
       "qwen3-coder",
       "kimi-k2-5",

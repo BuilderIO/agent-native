@@ -195,6 +195,7 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).not.toContain("claude-opus-4-7");
     expect(engine.supportedModels).not.toContain("gpt-5-6-luna");
     expect(engine.supportedModels).not.toContain("claude-opus-4-8");
+    expect(engine.supportedModels).not.toContain("gemini-3-1-flash-lite");
     expect(engine.supportedModels).toContain("z-ai-glm-4-5");
   });
 
