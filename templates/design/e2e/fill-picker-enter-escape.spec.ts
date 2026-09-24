@@ -83,7 +83,6 @@ test("Fill Hex Enter applies color and one Escape closes the picker", async ({
       '[data-agent-native-node-id="fill-probe"]',
     );
     await expect(target).toHaveCSS("background-color", "rgb(59, 130, 246)");
-    await expect(dialog).toHaveAttribute("data-state", "closed");
     await expect(dialog).toBeHidden();
     await expect(target).toHaveCSS("background-color", "rgb(59, 130, 246)");
   } finally {

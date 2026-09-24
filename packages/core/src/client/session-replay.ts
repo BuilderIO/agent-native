@@ -232,6 +232,7 @@ export interface SessionReplayOptions {
   allowUrls?: SessionReplayUrlMatcher[];
   blockUrls?: SessionReplayUrlMatcher[];
   flushIntervalMs?: number;
+  /** Optional maximum lifetime for one replay id, in milliseconds. */
   maxDurationMs?: number;
   maxEventsPerBatch?: number;
   maxBatchBytes?: number;
@@ -398,6 +399,8 @@ const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
+// Keep one final upload for the capped marker; Analytics accepts at most 2,000 chunks.
+const MAX_REPLAY_CHUNKS_PER_RECORDING = 2_000;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
 const REPLAY_TEXT_ENCODER =
   typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
@@ -418,6 +421,7 @@ export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 /** Content-free agent-chat lifecycle markers for replay incident forensics. */
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
@@ -656,19 +660,24 @@ function getOrCreateReplaySession(
 } {
   clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
-  if (parsed?.sessionId === sessionId && parsed.replayId) {
+  const parsedSequence =
+    typeof parsed?.sequence === "number" &&
+    Number.isFinite(parsed.sequence) &&
+    parsed.sequence >= 0
+      ? Math.floor(parsed.sequence)
+      : 0;
+  if (
+    parsed?.sessionId === sessionId &&
+    parsed.replayId &&
+    parsedSequence < MAX_REPLAY_CHUNKS_PER_RECORDING - 1
+  ) {
     const startedAtMs =
       typeof parsed.startedAtMs === "number" &&
       Number.isFinite(parsed.startedAtMs) &&
       parsed.startedAtMs > 0
         ? parsed.startedAtMs
         : Date.now();
-    const sequence =
-      typeof parsed.sequence === "number" &&
-      Number.isFinite(parsed.sequence) &&
-      parsed.sequence >= 0
-        ? Math.floor(parsed.sequence)
-        : 0;
+    const sequence = parsedSequence;
     const resolvedLinkBaseUrl = linkBaseUrl ?? parsed.linkBaseUrl;
     if (linkBaseUrl && parsed.linkBaseUrl !== linkBaseUrl) {
       writeStoredReplaySession({ ...parsed, linkBaseUrl });
@@ -1337,6 +1346,7 @@ function replayEventTimestampMs(event: ReplayEvent): number {
 function enqueueReplayEvent(
   state: SessionReplayState,
   event: ReplayEvent,
+  flushImmediately = true,
 ): void {
   if (!state.options) return;
   const eventType = typeof event.type === "number" ? event.type : null;
@@ -1380,7 +1390,7 @@ function enqueueReplayEvent(
     type: eventType,
   });
   state.queuedBytes += estimatedBytes;
-  flushQueuedReplayIfNeeded(state);
+  if (flushImmediately) flushQueuedReplayIfNeeded(state);
 }
 
 function replayExtraProperties(
@@ -1804,6 +1814,7 @@ function isFinalFlushReason(reason: string): boolean {
     "beforeunload",
     "url-blocked",
     "max-duration",
+    "max-chunks",
   ].includes(reason);
 }
 
@@ -2161,6 +2172,22 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     return new Promise<void>((resolve) => {
       state.pendingFlushWaiters.push(resolve);
     });
+  }
+  if (state.sequence >= MAX_REPLAY_CHUNKS_PER_RECORDING) {
+    if (state.active) {
+      await stopSessionReplay("max-chunks");
+      return;
+    }
+    state.queue = [];
+    state.queuedBytes = 0;
+    state.retryBatches = [];
+    state.pendingFlushReason = null;
+    for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+    return;
+  }
+  if (state.active && state.sequence >= MAX_REPLAY_CHUNKS_PER_RECORDING - 1) {
+    await stopSessionReplay("max-chunks");
+    return;
   }
   if (!hasPendingReplayBatch(state)) {
     if (reason === "pagehide-persisted") state.bfcacheRestored = false;
@@ -3687,9 +3714,13 @@ async function startSessionReplayRecorder(
       normalized.flushIntervalMs,
     );
     if (normalized.maxDurationMs !== undefined) {
+      const elapsedReplayDurationMs = Math.max(
+        0,
+        Date.now() - (state.startedAtMs ?? Date.now()),
+      );
       state.maxDurationTimer = window.setTimeout(
         () => stopSessionReplay("max-duration"),
-        normalized.maxDurationMs,
+        Math.max(0, normalized.maxDurationMs - elapsedReplayDurationMs),
       );
     }
     installUrlMonitor(state);
@@ -3748,6 +3779,8 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     state.bfcacheRestored = false;
   }
   if (!state.active) return;
+  const isCappedStop = reason === "max-duration" || reason === "max-chunks";
+  const cappedReplayId = isCappedStop ? state.replayId : null;
   // Restore console/fetch/XHR before tearing down the recorder: the restore
   // flushes any pending collapsed console duplicate, which must still be able
   // to emit through rrweb while it is recording.
@@ -3766,6 +3799,26 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort recorder shutdown
   }
   state.stopRecorder = null;
+  if (isCappedStop) {
+    if (reason === "max-chunks") {
+      state.queue = [];
+      state.queuedBytes = 0;
+      state.retryBatches = [];
+    }
+    const cap = reason === "max-duration" ? "max_duration" : "chunk_count";
+    enqueueReplayEvent(
+      state,
+      {
+        type: 5,
+        timestamp: Date.now(),
+        data: {
+          tag: SESSION_REPLAY_LIFECYCLE_EVENT_TAG,
+          payload: { outcome: "recording_capped", cap },
+        },
+      },
+      false,
+    );
+  }
   if (state.flushTimer) {
     window.clearInterval(state.flushTimer);
     state.flushTimer = null;
@@ -3782,7 +3835,16 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort cleanup
   }
   state.broadcastChannel = null;
+  const sequenceBeforeFinalFlush = state.sequence;
   await flushSessionReplay(reason);
+  if (
+    cappedReplayId &&
+    state.sequence > sequenceBeforeFinalFlush &&
+    !state.pendingReplayUpload &&
+    !hasPendingReplayBatch(state)
+  ) {
+    removeStoredReplaySession(cappedReplayId);
+  }
 }
 
 export function maybeStartSessionReplay(

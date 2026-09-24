@@ -69,13 +69,21 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
-export function newDocumentPageChoiceIsDisabled(args: {
+export function createCollectionStarterIsVisible(args: {
   canEdit: boolean;
   bodyHydrationPending: boolean;
-  databaseCreationPending: boolean;
+  isLocalFileDocument: boolean;
+  isDatabasePage: boolean;
+  isCollectionItem: boolean;
+  content: string | null | undefined;
 }) {
   return (
-    !args.canEdit || args.bodyHydrationPending || args.databaseCreationPending
+    args.canEdit &&
+    !args.bodyHydrationPending &&
+    !args.isLocalFileDocument &&
+    !args.isDatabasePage &&
+    !args.isCollectionItem &&
+    isEffectivelyEmptyDocumentContent(args.content)
   );
 }
 

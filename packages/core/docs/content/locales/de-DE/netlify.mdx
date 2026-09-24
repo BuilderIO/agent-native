@@ -5,7 +5,7 @@ description: "Stellen Sie eine agentennative App mit der Netlify-Nitro-Voreinste
 
 # Netlify
 
-Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB gegenüber ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Legen Sie entweder die Voreinstellung in `vite.config.ts` fest:
+Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB gegenüber ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Für eine minimale Konfiguration außerhalb des generierten Scaffolds legen Sie die Voreinstellung in `vite.config.ts` fest:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

@@ -3625,7 +3625,7 @@ function loginHtmlResponse(
       html,
       getSsrAuthRedirectScript(
         SESSION_HINT_COOKIE,
-        resolveAppHomePath(getAppConfig().app),
+        resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
         getFrameworkRoutePrefix(),
       ),
     );
@@ -3987,7 +3987,8 @@ function createAuthGuardFn(
     if (
       config.rootAuth &&
       p === "/" &&
-      resolveAppHomePath(getAppConfig().app) !== "/" &&
+      resolveAppHomePath(getAppConfig().app, getAppConfig().workspace) !==
+        "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
       return loginHtmlResponse(loginHtml, event, {
@@ -4022,7 +4023,10 @@ function createAuthGuardFn(
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
           legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
           basePath: getAppBasePath(),
-          homePath: resolveAppHomePath(getAppConfig().app),
+          homePath: resolveAppHomePath(
+            getAppConfig().app,
+            getAppConfig().workspace,
+          ),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -4142,7 +4146,10 @@ function createAuthGuardFn(
         const { resumeHref } = signInJourney({
           at: url,
           basePath: getAppBasePath(),
-          homePath: resolveAppHomePath(getAppConfig().app),
+          homePath: resolveAppHomePath(
+            getAppConfig().app,
+            getAppConfig().workspace,
+          ),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;

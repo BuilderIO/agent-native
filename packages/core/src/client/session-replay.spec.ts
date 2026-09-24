@@ -1348,6 +1348,65 @@ describe("session replay", () => {
     }
   });
 
+  it("stops at the Analytics per-recording chunk ceiling", async () => {
+    const { fetchMock, storage, localStorage } = installBrowser(
+      "https://app.agent-native.com/",
+      { email: "dev@example.com", userId: "auth-user-1" },
+    );
+    const sessionId = "replay-cap-session";
+    localStorage.set("agent-native.session_id", sessionId);
+    localStorage.set("agent-native.session_last_activity", String(Date.now()));
+    storage.set(
+      "agent-native.session_replay_id",
+      JSON.stringify({
+        sessionId,
+        replayId: "replay-near-chunk-cap",
+        startedAtMs: Date.now(),
+        sequence: 1998,
+      }),
+    );
+    let emit!: (event: Record<string, unknown>) => void;
+    const stopRecorder = vi.fn();
+    recordMock.mockImplementation((options) => {
+      emit = options.emit;
+      return stopRecorder;
+    });
+    const replayUploads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/session-replay"),
+      );
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    expect(result).toMatchObject({ replayId: "replay-near-chunk-cap" });
+
+    emit({ type: 3, data: { href: "/before-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(1));
+    emit({ type: 3, data: { href: "/at-cap" } });
+    await waitForAssertion(() => expect(replayUploads()).toHaveLength(2));
+
+    const bodies = await Promise.all(
+      replayUploads().map(([, init]) => parseReplayUpload(init as RequestInit)),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([1998, 1999]);
+    expect(bodies[1]).toMatchObject({ status: "completed" });
+    expect(bodies[1].events).toContainEqual(
+      expect.objectContaining({
+        type: 5,
+        data: expect.objectContaining({
+          tag: "agent-native.session_replay",
+          payload: { outcome: "recording_capped", cap: "chunk_count" },
+        }),
+      }),
+    );
+    expect(stopRecorder).toHaveBeenCalledOnce();
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/inbox?code=secret&keep=1",
@@ -2405,10 +2464,14 @@ describe("session replay", () => {
         // reserves the sequence again before its keepalive request begins.
         expect(sequenceAtRequest).toEqual([1, 1, 2]);
       }
-      expect(
-        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
-          .sequence,
-      ).toBe(2);
+      if (reason === "max-duration") {
+        expect(storage.has("agent-native.session_replay_id")).toBe(false);
+      } else {
+        expect(
+          JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+            .sequence,
+        ).toBe(2);
+      }
     },
   );
 

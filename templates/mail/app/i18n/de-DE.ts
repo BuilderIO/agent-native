@@ -538,6 +538,7 @@ const messages = {
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev-Trefferwahrscheinlichkeit: {{percent}}%",
       feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
       notSpamShort: "Kein Spam",
       notMatchShort: "Kein Treffer",

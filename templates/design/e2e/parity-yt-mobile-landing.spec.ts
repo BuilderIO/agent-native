@@ -333,6 +333,41 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
     }
   });
 
+  test("clicking the Screen tool creates the first Desktop preset size", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithHtml(request, BLANK_SCREEN_HTML);
+    try {
+      await openOverview(page, designId);
+      const before = new Set(
+        (await getDesign(page, designId)).files.map((file: any) => file.id),
+      );
+      const empty = await emptyBoardPoint(page);
+      await pickFrameMode(page, "Screen");
+      await page.mouse.click(empty.x, empty.y);
+
+      let result: { width: number; height: number } | null = null;
+      await expect
+        .poll(async () => {
+          const record = await getDesign(page, designId);
+          const created = record.files.find(
+            (file: any) => !before.has(file.id),
+          );
+          const data =
+            typeof record.data === "string"
+              ? JSON.parse(record.data)
+              : record.data;
+          const frame = created && data?.canvasFrames?.[created.id];
+          result = frame ? { width: frame.width, height: frame.height } : null;
+          return result;
+        })
+        .toEqual({ width: 1440, height: 1024 });
+    } finally {
+      await deleteDesign(request, designId);
+    }
+  });
+
   test("step 18: Cmd+D three times on Card produces 4 identically-named copies, each directly above the previous, ending selection on the newest copy", async ({
     page,
     request,

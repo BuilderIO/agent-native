@@ -8,6 +8,8 @@ import {
   type AgentChatSubmitTarget,
 } from "./agent-chat.js";
 
+const MAX_PENDING_SCOPED_TAB_STATES = 100;
+
 /**
  * Hook that wraps sendToAgentChat with a loading state.
  *
@@ -88,11 +90,22 @@ export function useAgentChatGenerating(options?: {
       } as const;
       const retainPendingState = (tabId: string) => {
         const previousState = pendingScopedTabStatesRef.current.get(tabId);
+        pendingScopedTabStatesRef.current.delete(tabId);
         pendingScopedTabStatesRef.current.set(tabId, {
           ...nextState,
           observedRun:
             nextState.observedRun || previousState?.observedRun === true,
         });
+        if (
+          pendingScopedTabStatesRef.current.size > MAX_PENDING_SCOPED_TAB_STATES
+        ) {
+          const oldestTabId = pendingScopedTabStatesRef.current
+            .keys()
+            .next().value;
+          if (oldestTabId !== undefined) {
+            pendingScopedTabStatesRef.current.delete(oldestTabId);
+          }
+        }
       };
       if (hasTabScopeRef.current) {
         const scopedTabId = scopedTabIdRef.current;

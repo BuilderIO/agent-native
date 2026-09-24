@@ -137,7 +137,6 @@ const messages = {
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
-    breadcrumbBack: "العودة إلى {{label}}",
   },
   empty: {
     library: {
@@ -1220,6 +1219,7 @@ const messages = {
     transcript: "النص",
     comment: "تعليق",
     titleOrDescription: "العنوان أو الوصف",
+    matchAt: "مطابقة عند {{time}} في الفيديو",
   },
   organizationSwitcher: {
     noOrganization: "لا توجد مؤسسة",

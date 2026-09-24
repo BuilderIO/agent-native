@@ -1,4 +1,8 @@
-import { parseCssColor, rgbaToCss } from "@shared/color-utils";
+import {
+  defaultGradientEndColor,
+  parseCssColor,
+  rgbaToCss,
+} from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   gradientFillInterpolation,
@@ -199,17 +203,20 @@ export function defaultGradient(
   kind: GradientKind,
   baseColor = "#000000",
 ): GradientValue {
-  const parsed = parseCssColor(baseColor);
-  const solid = parsed ? rgbaToCss({ ...parsed, a: 1 }) : "#000000";
-  const transparent = parsed
-    ? rgbaToCss({ ...parsed, a: 0 })
-    : "rgba(0, 0, 0, 0)";
+  const opaque = {
+    ...(parseCssColor(baseColor) ?? { r: 0, g: 0, b: 0 }),
+    a: 1,
+  };
   return {
     kind,
-    angle: kind === "radial" || kind === "diamond" ? 0 : 90,
+    angle: kind === "linear" ? 180 : kind === "angular" ? 90 : 0,
     stops: [
-      { id: nextStopId(), color: solid, position: 0 },
-      { id: nextStopId(), color: transparent, position: 100 },
+      { id: nextStopId(), color: rgbaToCss(opaque), position: 0 },
+      {
+        id: nextStopId(),
+        color: rgbaToCss(defaultGradientEndColor(opaque)),
+        position: 100,
+      },
     ],
   };
 }
@@ -249,7 +256,8 @@ export function parseGradientCss(
   if (segments.length === 0) return null;
 
   let kind: GradientKind = fallbackKind;
-  let angle = 90;
+  // An angle-less linear-gradient runs "to bottom"; Chrome omits that default when serializing.
+  let angle = fn === "linear" ? 180 : 90;
   let stopStart = 0;
 
   const first = segments[0];

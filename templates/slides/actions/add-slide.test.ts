@@ -209,7 +209,10 @@ describe("add-slide", () => {
   });
 
   it("closes an incremental generation on its final slide", async () => {
-    deckData.generationContext = { generationAttemptId: "attempt-1" };
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
 
     await action.run({
       deckId: "deck-1",
@@ -270,6 +273,7 @@ describe("add-slide", () => {
     deckData.generationContext = {
       targetSlideCount: 3,
       generationAttemptId: "attempt-1",
+      generationMode: "action",
     };
 
     await action.run({
@@ -289,6 +293,63 @@ describe("add-slide", () => {
       outcome: "completed",
     });
     expect(transactionFn).toHaveBeenCalledOnce();
+  });
+
+  it("does not emit action completion for a browser-owned generation", async () => {
+    deckData.generationContext = {
+      mode: "new",
+      generationAttemptId: "attempt-browser",
+    };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-final",
+        content: "<div>Final</div>",
+        generationComplete: true,
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
+  it("returns a persisted-write warning and tracks completion when notification fails", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+    mockNotifyClients.mockRejectedValueOnce(new Error("broadcast failed"));
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    expect(transactionFn).toHaveBeenCalledOnce();
+    expect(updatedFields).toBeDefined();
+    expect(result).toMatchObject({
+      slideId: "slide-final",
+      notificationStatus: "failed",
+      notificationErrorType: "Error",
+    });
+    expect(result).not.toHaveProperty("error");
+    expect(mockTrack).toHaveBeenCalledWith(
+      "deck_change_notification_failed",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        failure_stage: "client_notification",
+        error_type: "Error",
+      }),
+      undefined,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(true);
   });
 
   it.each(["tool", "webmcp"] as const)(

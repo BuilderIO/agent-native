@@ -135,7 +135,6 @@ const messages = {
     createFolderError: "建立失敗",
     folderCreated: "資料夾已建立",
     folderNamePlaceholder: "資料夾名稱",
-    breadcrumbBack: "返回 {{label}}",
   },
   empty: {
     library: {
@@ -1162,6 +1161,7 @@ const messages = {
     transcript: "轉錄",
     comment: "評論",
     titleOrDescription: "標題或描述",
+    matchAt: "影片中 {{time}} 處比對",
   },
   organizationSwitcher: {
     noOrganization: "沒有組織",

@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import MonitoringPage from "@/pages/monitoring/MonitoringPage";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.monitoring }];
+  return [{ title: enUSMessages.routeTitles.monitoring }];
 }
 
 export default function MonitoringRoute() {

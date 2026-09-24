@@ -295,4 +295,34 @@ describe("useAgentChatGenerating", () => {
     act(() => root.render(<PendingScopeHarness />));
     expect(hook![3]).toBe(false);
   });
+
+  it("bounds pending states by evicting the least recently updated tab", () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    function PendingScopeHarness() {
+      hook = useAgentChatGenerating({ tabId: scopedTabId });
+      return null;
+    }
+    scopedTabId = null;
+    act(() => root.render(<PendingScopeHarness />));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "oldest-tab" },
+        }),
+      );
+      for (let i = 0; i < 100; i += 1) {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: true, tabId: `other-tab-${i}` },
+          }),
+        );
+      }
+    });
+
+    scopedTabId = "oldest-tab";
+    act(() => root.render(<PendingScopeHarness />));
+    expect(hook![0]).toBe(false);
+  });
 });

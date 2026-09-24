@@ -374,7 +374,9 @@ const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
 export function fallbackPollIntervalMs(state: {
   liveChannelConnected: boolean;
   hasOpenDeck: boolean;
+  hasLoadError: boolean;
 }): number {
+  if (state.hasLoadError) return OPEN_DECK_FALLBACK_POLL_MS;
   if (state.liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
   return state.hasOpenDeck
     ? OPEN_DECK_FALLBACK_POLL_MS
@@ -1832,6 +1834,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   >(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const loadErrorRef = useRef(loadError);
+  loadErrorRef.current = loadError;
   const decksRef = useRef<Deck[]>([]);
 
   // Per-user inverse-op undo/redo. `canUndo`/`canRedo` are React state kept in
@@ -2422,8 +2426,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const fresh = await fetchDecksFromAPI(includePreview);
     if (requestId !== deckListRequestIdRef.current) return;
     // A null result means the fetch failed (network error or non-2xx). Skip
-    // the diff so we don't wipe local state on a transient failure.
-    if (fresh === null) return;
+    // the diff so we don't wipe local state, but mark the failure so polling
+    // switches to its fast recovery cadence.
+    if (fresh === null) {
+      loadErrorRef.current = true;
+      setLoadError(true);
+      return;
+    }
     // A snapshot that reached the server is authoritative for every deck it
     // named — whatever staleDeckIdsRef was tracking is covered by it now.
     staleDeckIdsRef.current.clear();
@@ -2479,6 +2488,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       removed.length === 0 &&
       changedMetadataIds.length === 0
     ) {
+      loadErrorRef.current = false;
       setLoadError(false);
       return;
     }
@@ -2526,7 +2536,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    if (hydratedEveryAddedDeck) setLoadError(false);
+    if (hydratedEveryAddedDeck) {
+      loadErrorRef.current = false;
+      setLoadError(false);
+    }
   }, [isNewerThanSnapshot]);
 
   // Coalesces the sync-event handler's home-grid list refresh: a burst of
@@ -2844,26 +2857,46 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const openDeckRequestId = requestedOpenDeckId
       ? nextOpenDeckRequestId(requestedOpenDeckId)
       : null;
-    void fetchDecksForCurrentRoute().then(async (loaded) => {
-      if (
-        requestId !== deckBaselineRequestIdRef.current ||
-        requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
-        (requestedOpenDeckId !== null &&
-          openDeckRequestId !==
-            openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId))
-      ) {
-        if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
+    const isRequestStale = () =>
+      requestId !== deckBaselineRequestIdRef.current ||
+      requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
+      (requestedOpenDeckId !== null &&
+        openDeckRequestId !==
+          openDeckRequestIdByDeckRef.current.get(requestedOpenDeckId));
+    const stopStaleRequest = () => {
+      if (requestId === deckBaselineRequestIdRef.current) setLoading(false);
+    };
+    void (async () => {
+      let loaded = await fetchDecksForCurrentRoute();
+      if (isRequestStale()) {
+        stopStaleRequest();
         return;
       }
-      // Initial fetch failed — start empty so the UI can render. The fallback
-      // poll will retry shortly; until then `decks` stays empty without
-      // triggering the save effect (lastExternalUpdateRef is bumped).
+      // Keep the initial home load in its skeleton state for one fallback
+      // interval. A bounded follow-up read gives a cold backend the same
+      // recovery window before the error pane is exposed.
+      if (loaded === null && requestedOpenDeckId === null) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, OPEN_DECK_FALLBACK_POLL_MS),
+        );
+        if (isRequestStale()) {
+          stopStaleRequest();
+          return;
+        }
+        loaded = await fetchDecksForCurrentRoute();
+      }
+      if (isRequestStale()) {
+        stopStaleRequest();
+        return;
+      }
+      // A failed initial read starts empty only after the bounded recovery
+      // attempt, and still cannot trigger the save effect.
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       resetDeckBaseline(initial, createSeqAtRequest, snapshotGeneration);
       setLoadError(loaded === null);
       setLoading(false);
-    });
+    })();
   }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
 
   // Organization changes are a hard access boundary. Clear the previous
@@ -2917,6 +2950,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         fallbackPollIntervalMs({
           liveChannelConnected: liveChannelConnectedRef.current,
           hasOpenDeck: Boolean(readOpenDeckId()),
+          hasLoadError: loadErrorRef.current,
         }),
       );
     };

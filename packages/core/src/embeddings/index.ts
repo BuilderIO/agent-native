@@ -1,5 +1,8 @@
 import { readBoundedResponseBytes } from "../ingestion/index.js";
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  prefetchSecrets,
+  resolveSecretDetailed,
+} from "../server/credential-provider.js";
 
 export type EmbeddingInputPurpose = "query" | "document";
 export interface EmbeddingImageInput {
@@ -214,17 +217,66 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
     },
   };
 }
+const EMBEDDING_CREDENTIALS = [
+  {
+    provider: "gemini",
+    key: "GEMINI_API_KEY",
+    create: createGeminiEmbeddingFamily,
+  },
+  {
+    provider: "cohere",
+    key: "COHERE_API_KEY",
+    create: createCohereEmbeddingFamily,
+  },
+  {
+    provider: "voyage",
+    key: "VOYAGE_API_KEY",
+    create: createVoyageEmbeddingFamily,
+  },
+] as const;
+
+export interface EmbeddingFamilyAvailability {
+  families: EmbeddingFamily[];
+  unavailableProviders: string[];
+}
+
+export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamilyAvailability> {
+  await prefetchSecrets(EMBEDDING_CREDENTIALS.map(({ key }) => key)).catch(
+    () => undefined,
+  );
+  const resolved = await Promise.all(
+    EMBEDDING_CREDENTIALS.map(async (credential) => {
+      try {
+        return {
+          credential,
+          detail: await resolveSecretDetailed(credential.key),
+        };
+      } catch {
+        return {
+          credential,
+          detail: { value: null, lookupFailed: true },
+        };
+      }
+    }),
+  );
+  return {
+    families: resolved.flatMap(({ credential, detail }) =>
+      detail.value ? [credential.create(detail.value)] : [],
+    ),
+    unavailableProviders: resolved.flatMap(({ credential, detail }) =>
+      detail.lookupFailed && !detail.value ? [credential.provider] : [],
+    ),
+  };
+}
+
 export async function availableEmbeddingFamilies(): Promise<EmbeddingFamily[]> {
-  const [gemini, cohere, voyage] = await Promise.all([
-    resolveSecret("GEMINI_API_KEY").catch(() => null),
-    resolveSecret("COHERE_API_KEY").catch(() => null),
-    resolveSecret("VOYAGE_API_KEY").catch(() => null),
-  ]);
-  return [
-    ...(gemini ? [createGeminiEmbeddingFamily(gemini)] : []),
-    ...(cohere ? [createCohereEmbeddingFamily(cohere)] : []),
-    ...(voyage ? [createVoyageEmbeddingFamily(voyage)] : []),
-  ];
+  const availability = await readEmbeddingFamilyAvailability();
+  if (availability.unavailableProviders.length) {
+    throw new Error(
+      `Embedding credential lookup is temporarily unavailable for: ${availability.unavailableProviders.join(", ")}.`,
+    );
+  }
+  return availability.families;
 }
 export function defaultEmbeddingFamily(
   families: readonly EmbeddingFamily[],

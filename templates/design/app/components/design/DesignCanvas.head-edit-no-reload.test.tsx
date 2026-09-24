@@ -40,7 +40,7 @@ async function renderCanvas(
       authoredSourceContent={authored}
       contentKey="screen:inline-overview"
       runtimeReplacementContent={next}
-      runtimeReplacementKey={`screen:${next.length}:${next.slice(-24)}`}
+      runtimeReplacementKey="screen:inline-overview"
       screenId="screen"
       zoom={100}
       deviceFrame="none"

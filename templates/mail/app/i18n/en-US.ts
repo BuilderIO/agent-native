@@ -525,6 +525,7 @@ const messages = {
       previewButton: "Run preview",
       previewRunning: "Checking recent Inbox mail…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev match probability {{percent}}%",
       feedbackLabel: "Check matches that should not be included",
       notSpamShort: "Not spam",
       notMatchShort: "Not a match",

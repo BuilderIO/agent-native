@@ -25,7 +25,9 @@
  *      deploys emit the background function by default; `false`, `0`, `no`, or
  *      `off` disables it.
  *   2. The runtime is hosted/serverless (local dev keeps the inline path so SSE
- *      stays a single live stream and no second function is needed).
+ *      stays a single live stream and no second function is needed). An
+ *      explicit truthy `AGENT_CHAT_DURABLE_BACKGROUND` skips this check, so a
+ *      long-lived Node server can opt in.
  *   3. `A2A_SECRET` is configured (the HMAC handoff is required to authenticate
  *      the background dispatch; without it the dispatch can't be trusted).
  *
@@ -188,8 +190,8 @@ export function dispatchPathTargetsNetlifyBackgroundFunction(
 
 /**
  * Env flag for durable background runs. On Netlify, unset means enabled and an
- * explicit falsy value opts out. On other hosted platforms, apps still opt in
- * with an explicit truthy value (`true`/`1`/`yes`/`on`).
+ * explicit falsy value opts out. Everywhere else, including a long-lived Node
+ * server, apps opt in with an explicit truthy value (`true`/`1`/`yes`/`on`).
  */
 export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
   "AGENT_CHAT_DURABLE_BACKGROUND";
@@ -370,8 +372,8 @@ export function isDurableBackgroundFlagEnabled(): boolean {
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
   //
   // This parses only the explicit opt-in signal. Netlify's default-on behavior
-  // is composed separately in isAgentChatDurableBackgroundEnabled, while other
-  // hosted runtimes still require this truthy value. Empty and unknown values
+  // is composed separately in isAgentChatDurableBackgroundEnabled, while every
+  // other runtime still requires this truthy value. Empty and unknown values
   // remain false so an explicit host opt-in cannot be inferred accidentally.
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
@@ -398,9 +400,11 @@ export function isDurableBackgroundFlagExplicitlyDisabled(): boolean {
 
 /**
  * The single gate. On deployed Netlify, durable runs are enabled unless the env
- * flag is explicitly falsy. Other hosted runtimes retain the explicit env/app
- * opt-in path. In every case the runtime must be hosted and have A2A_SECRET.
- * False means the current synchronous behavior is used unchanged.
+ * flag is explicitly falsy. Other runtimes retain the explicit env/app opt-in
+ * path. A2A_SECRET is always required; the implicit Netlify default and the
+ * workspace app opt-in also require a hosted runtime, while an explicit env
+ * opt-in does not. False means the current synchronous behavior is used
+ * unchanged.
  */
 export function isAgentChatDurableBackgroundEnabled(options?: {
   appOptIn?: boolean;
@@ -419,6 +423,13 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
     options?.appOptIn === true &&
     !isDurableBackgroundFlagExplicitlyDisabled() &&
     resolveWorkspaceBackgroundFunctionUrlPath() !== null;
+  // An explicit env opt-in on a long-lived server (a container, Railway,
+  // `agent-native start`) carries none of the hosted markers. The flag plus a
+  // configured A2A secret is the whole condition there: the worker is the same
+  // signed `_process-run` route reached over the deployment's own self-dispatch
+  // URL, and the host timeout budget is untouched (`resolveRunSoftTimeoutMs`
+  // still asks `isHostedRuntime`).
+  if (envOptIn && hasConfiguredA2ASecret()) return true;
   return (
     (envOptIn || netlifyDefaultOptIn || workspaceAppOptIn) &&
     isHostedRuntimeForDurableBackground() &&
@@ -458,9 +469,10 @@ function isForegroundSelfChainExplicitlyEnabled(): boolean {
  * agent-chat turn that hits its soft-timeout chunk boundary continues via a
  * server-side self-dispatch on the REGULAR function (not a Netlify
  * `-background` function) instead of depending on the client to re-POST
- * `auto_continue`. Composes exactly like `isAgentChatDurableBackgroundEnabled`:
- * true only when the env flag is explicitly truthy, the runtime is hosted, and
- * `A2A_SECRET` is configured (the HMAC handoff authenticates the dispatch).
+ * `auto_continue`. True only when the env flag is explicitly truthy, the
+ * runtime is hosted, and `A2A_SECRET` is configured (the HMAC handoff
+ * authenticates the dispatch). Unlike `isAgentChatDurableBackgroundEnabled`,
+ * the explicit flag does not lift the hosted-runtime requirement.
  * False means the existing client-driven `auto_continue` re-POST path is used.
  *
  * Deliberately independent of `isAgentChatDurableBackgroundEnabled`: an app can

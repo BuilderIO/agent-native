@@ -35,12 +35,6 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
-vi.mock("../settings/deferred-builder-connect-popover.js", async () => {
-  const { BuilderConnectPopover } =
-    await import("../settings/BuilderConnectPopover.js");
-  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
-});
-
 describe("FirstRunOnboarding", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -279,7 +273,7 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the legacy Builder connection when account provisioning is disabled", () => {
+  it("renders the create-account and sign-in Builder buttons", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -295,12 +289,14 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(
-      document.body.querySelector('[data-testid="first-run-connect-builder"]')
-        ?.textContent,
-    ).toContain("Connect Builder.io free credits");
+      document.body.querySelector(
+        '[data-testid="first-run-builder-create-account"]',
+      )?.textContent,
+    ).toBe("Create Builder.io account");
     expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).toBeNull();
+      document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.textContent,
+    ).toBe("Sign in with Builder.io account");
   });
 
   it("starts the Builder connection directly when no provisioning choice is needed", () => {
@@ -332,14 +328,14 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(start).toHaveBeenCalledOnce();
   });
 
-  it("shows one-click account consent in a popover and its loading state when enabled", () => {
+  it("creates a Builder account from the primary button and shows its loading state", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -367,44 +363,9 @@ describe("FirstRunOnboarding", () => {
         .querySelector("[data-testid='first-run-role-skip']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-
-    expect(
-      document.body.querySelector('[data-testid="first-run-connect-builder"]')
-        ?.textContent,
-    ).toContain("Activate Builder.io free credits");
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).toBeNull();
-
     act(() => {
       document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]')
-        ?.textContent,
-    ).toContain("Activate free credits");
-    expect(document.body.textContent).toContain(
-      "We'll automatically create your Builder.io account for you in one click.",
-    );
-    expect(document.body.textContent).toContain("Create and activate");
-    const existingAccountButton = document.body.querySelector(
-      '[data-testid="first-run-builder-existing-account"]',
-    );
-    expect(existingAccountButton?.textContent).toContain(
-      "I have a Builder.io account",
-    );
-    expect(existingAccountButton?.className).not.toContain("border");
-    expect(existingAccountButton?.className).toContain("text-muted-foreground");
-    expect(existingAccountButton?.querySelector("svg")).toBeNull();
-    expect(document.body.textContent).not.toContain("Google credentials");
-    expect(document.body.textContent).not.toContain("Connect or log in");
-
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -418,6 +379,9 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[role="status"][aria-busy="true"]'),
     ).toBeTruthy();
     expect(flow.start).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
   });
 
   it("shows the full list of included Builder.io services on the card", () => {
@@ -477,7 +441,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("Optional");
   });
 
-  it("uses the existing-account connection flow from the consent popover", () => {
+  it("uses the existing-account connection flow from the sign-in button", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -504,12 +468,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-existing-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -553,14 +512,11 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.click();
-    });
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
-        ?.click();
+      (
+        document.body.querySelector(
+          '[data-testid="first-run-builder-create-account"]',
+        ) as HTMLButtonElement | null
+      )?.click();
     });
 
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -638,7 +594,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -891,7 +847,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -963,10 +919,10 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  // A failed initial status read must not leave the free-credits CTA inert.
-  // The click can still start the provisioning flow, which performs its own
-  // fresh status read without bypassing the consent step.
-  it("keeps the free-credits CTA actionable after a failed status read", () => {
+  // A failed initial status read must not leave the create-account CTA inert.
+  // The click still starts the provisioning flow, which performs its own
+  // fresh status read.
+  it("keeps the create-account CTA actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -1001,26 +957,15 @@ describe("FirstRunOnboarding", () => {
     ).toContain("Couldn't reach Builder");
 
     const cta = document.body.querySelector(
-      '[data-testid="first-run-connect-builder"]',
+      '[data-testid="first-run-builder-create-account"]',
     );
-    expect(cta?.getAttribute("aria-disabled")).toBeNull();
+    expect(cta?.hasAttribute("disabled")).toBe(false);
 
     act(() => {
       cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(retry).not.toHaveBeenCalled();
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).not.toBeNull();
-    expect(start).not.toHaveBeenCalled();
-
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );

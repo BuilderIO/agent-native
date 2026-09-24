@@ -11,6 +11,7 @@ import {
   classifyProviderError,
   describeErrorWithCauses,
 } from "./error-detail.js";
+import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 import {
   createProviderToolNameMap,
   toEngineToolName,
@@ -44,11 +45,12 @@ export function engineToolsToAISDK(
 ): Record<string, any> {
   const result: Record<string, any> = {};
   for (const tool of tools) {
+    const inputSchema = flattenComposedRootSchema(tool.inputSchema);
     const rawSchema: Record<string, unknown> = {
-      ...tool.inputSchema,
+      ...inputSchema,
       type: "object",
-      properties: tool.inputSchema.properties ?? {},
-      required: tool.inputSchema.required ?? [],
+      properties: inputSchema.properties ?? {},
+      required: inputSchema.required ?? [],
     };
     const providerName = toProviderToolName(tool.name, toolNameMap);
     result[providerName] = {

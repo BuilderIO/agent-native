@@ -118,7 +118,7 @@ export default defineAction({
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
     "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -526,13 +526,25 @@ export default defineAction({
       });
 
       // Broadcast to any open editors so the new slide appears immediately.
-      // Include the new slideId + agent actor (backwards-compatible payload).
-      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-      await notifyClients(deckId, {
-        slideId: newSlideId,
-        actor: "agent",
-        ...(agentChangeId ? { agentChangeId } : {}),
-      });
+      // A broadcast failure must not turn the already-committed write into an
+      // action failure that callers may retry.
+      let notificationErrorType: string | undefined;
+      try {
+        const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+        await notifyClients(deckId, {
+          slideId: newSlideId,
+          actor: "agent",
+          ...(agentChangeId ? { agentChangeId } : {}),
+        });
+      } catch (error) {
+        notificationErrorType =
+          error instanceof Error && error.name ? error.name : "unknown_error";
+      }
+
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
 
       track(
         "deck_edited",
@@ -544,17 +556,35 @@ export default defineAction({
           slide_id: newSlideId,
           slide_count: slides.length,
           edit_mode: "add_slide",
-          ...(typeof generationContext?.generationAttemptId === "string"
-            ? { generation_attempt_id: generationContext.generationAttemptId }
+          ...(generationAttemptId
+            ? { generation_attempt_id: generationAttemptId }
             : {}),
         },
         ctx,
       );
-      const generationAttemptId =
-        typeof generationContext?.generationAttemptId === "string"
-          ? generationContext.generationAttemptId
-          : undefined;
-      if (generationComplete && generationAttemptId) {
+      if (notificationErrorType) {
+        track(
+          "deck_change_notification_failed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            output_id: deckId,
+            output_type: "deck",
+            slide_id: newSlideId,
+            failure_stage: "client_notification",
+            error_type: notificationErrorType,
+            ...(generationAttemptId
+              ? { generation_attempt_id: generationAttemptId }
+              : {}),
+          },
+          ctx,
+        );
+      }
+      if (
+        generationComplete &&
+        generationAttemptId &&
+        generationContext?.generationMode === "action"
+      ) {
         track(
           "generation_completed",
           {
@@ -584,6 +614,9 @@ export default defineAction({
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
         ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
+        ...(notificationErrorType
+          ? { notificationStatus: "failed", notificationErrorType }
+          : {}),
         layoutFit: {
           status: "pending" as const,
           slideId: newSlideId,

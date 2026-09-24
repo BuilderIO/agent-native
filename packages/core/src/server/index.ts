@@ -164,14 +164,22 @@ export type { AgentActionScope } from "../agent/types.js";
 export {
   actionsToEngineTools,
   executeAgentToolCall,
+  getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
+  getOwnerJevApiKey,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
   type ExecuteAgentToolCallOptions,
+  type JevContextCredentials,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+export {
+  isJevEnabled,
+  requestJevThroughBuilder,
+  type JevResponse,
+} from "../agent/jev-tool-prefetch.js";
 export { getRunStatus, getRunTurnRef } from "../agent/run-store.js";
 export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
 export {
