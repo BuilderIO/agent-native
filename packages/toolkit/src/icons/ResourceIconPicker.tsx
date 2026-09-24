@@ -184,8 +184,13 @@ function IconGrid({
     };
     if (normalized)
       addRows(
-        items.filter((item) =>
-          normalized.split(/\s+/u).every((part) => item.search.includes(part)),
+        items.filter(
+          (item) =>
+            (item.value.kind === "emoji" &&
+              item.value.emoji === query.trim()) ||
+            normalized
+              .split(/\s+/u)
+              .every((part) => item.search.includes(part)),
         ),
       );
     else {
@@ -209,7 +214,7 @@ function IconGrid({
       for (const section of sections) addSection(section);
     }
     return result;
-  }, [items, sections, labels, recents, normalized, collapsed]);
+  }, [items, sections, labels, recents, query, normalized, collapsed]);
   React.useEffect(() => {
     viewport.current?.scrollTo({ top: 0 });
     setScrollTop(0);
