@@ -50,18 +50,21 @@ const PAINT_PROPERTIES: Array<[string, string | null]> = [
   ["stroke-dashoffset", "0"],
   ["clip-rule", "nonzero"],
 ];
-const UNSAFE_TAGS = [
-  "script",
-  "foreignObject",
-  "iframe",
-  "object",
-  "embed",
-  "animate",
-  "animateMotion",
-  "animateTransform",
-  "set",
-  "discard",
-];
+const UNSAFE_TAGS = new Set(
+  [
+    "script",
+    "foreignObject",
+    "iframe",
+    "object",
+    "embed",
+    "animate",
+    "animateMotion",
+    "animateTransform",
+    "set",
+    "discard",
+  ].map((tag) => tag.toLowerCase()),
+);
+const UNSUPPORTED_TAGS = new Set(["image", "text", "use", "foreignobject"]);
 /** Elements a Vector may carry in its own `<defs>`; anything else is dropped. */
 const DEF_TAGS = new Set(
   [
@@ -221,13 +224,13 @@ function parseSvgRoot(markup: string): SVGSVGElement | null {
     removeCssLineContinuations,
   );
   const namespacedMarkup = sanitizedMarkup.replace(
-    /<svg(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
-    (_tag, attributes: string) => {
+    /<(svg)(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
+    (_tag, rootName: string, attributes: string) => {
       const namespace = /\sxmlns\s*=\s*(["'])[\s\S]*?\1/i;
       const namespacedAttributes = namespace.test(attributes)
         ? attributes.replace(namespace, ` xmlns="${SVG_NAMESPACE}"`)
         : `${attributes} xmlns="${SVG_NAMESPACE}"`;
-      return `<svg${namespacedAttributes}>`;
+      return `<${rootName}${namespacedAttributes}>`;
     },
   );
   const doc = new DOMParser().parseFromString(
@@ -236,23 +239,32 @@ function parseSvgRoot(markup: string): SVGSVGElement | null {
   );
   if (
     doc.querySelector("parsererror") ||
-    doc.documentElement.localName !== "svg"
+    doc.documentElement.localName.toLowerCase() !== "svg"
   ) {
     return null;
   }
   return doc.documentElement as unknown as SVGSVGElement;
 }
 
+function svgElements(root: Element): Element[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))];
+}
+
 function sanitizeSvg(root: SVGSVGElement): void {
-  for (const tag of UNSAFE_TAGS) {
-    root.querySelectorAll(tag).forEach((element) => element.remove());
+  for (const element of svgElements(root)) {
+    if (UNSAFE_TAGS.has(element.localName.toLowerCase())) element.remove();
   }
-  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+  for (const element of svgElements(root)) {
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       const value = attribute.value.trim();
-      if (name.startsWith("on")) element.removeAttribute(attribute.name);
-      else if (
+      if (
+        name.startsWith("on") ||
+        name.startsWith("data-an-") ||
+        name.startsWith("data-agent-native-")
+      ) {
+        element.removeAttribute(attribute.name);
+      } else if (
         (name === "href" || name === "xlink:href") &&
         value !== "" &&
         !value.startsWith("#")
@@ -273,7 +285,11 @@ function sanitizeSvg(root: SVGSVGElement): void {
       }
     }
   }
-  root.ownerDocument.querySelectorAll("style").forEach(sanitizeStyleSheet);
+  for (const element of svgElements(root)) {
+    if (element.localName.toLowerCase() === "style") {
+      sanitizeStyleSheet(element);
+    }
+  }
 }
 
 function lengthAttribute(value: string | null): number | null {
@@ -450,12 +466,16 @@ export const measureSvgInDocument: MeasureSvg = (root, size) => {
     const rootRect = mounted.getBoundingClientRect();
     const toUser = mounted.getScreenCTM()?.inverse();
     // Stops styled by a <style> class lose their colour once <style> is gone.
-    const sourceStops = Array.from(root.querySelectorAll("stop"));
-    mounted.querySelectorAll("stop").forEach((stop, index) => {
-      const computed = getComputedStyle(stop);
-      sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
-      sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
-    });
+    const sourceStops = svgElements(root).filter(
+      (element) => element.localName.toLowerCase() === "stop",
+    );
+    svgElements(mounted)
+      .filter((element) => element.localName.toLowerCase() === "stop")
+      .forEach((stop, index) => {
+        const computed = getComputedStyle(stop);
+        sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
+        sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
+      });
     const originals = drawableShapes(root);
     drawableShapes(mounted).forEach((shape, index) => {
       const original = originals[index]!;
@@ -558,7 +578,12 @@ export function buildPastedSvgLayer(
 ): PastedSvgLayer | null {
   if (markup.length > MAX_SVG_MARKUP_LENGTH) return null;
   const root = parseSvgRoot(markup);
-  if (!root || root.querySelector("image, text, use, foreignObject")) {
+  if (
+    !root ||
+    svgElements(root).some((element) =>
+      UNSUPPORTED_TAGS.has(element.localName.toLowerCase()),
+    )
+  ) {
     return null;
   }
   sanitizeSvg(root);

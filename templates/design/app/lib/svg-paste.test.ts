@@ -96,6 +96,60 @@ describe("buildPastedSvgLayer", () => {
     expect(layer.html).not.toMatch(/script|onclick|alert/);
   });
 
+  it("accepts mixed-case SVG roots and removes mixed-case unsafe elements", () => {
+    let importedRoot: SVGSVGElement | undefined;
+    let stylesheet = "";
+    const layer = buildPastedSvgLayer(
+      '<SVG width="10" height="10"><STYLE>.logo { fill: url(https://evil.example/paint.svg); stroke: red }</STYLE><path class="logo" d="M0 0h10"/><SCRIPT>alert(1)</SCRIPT><ANIMATETRANSFORM/></SVG>',
+      "Logo",
+      (root) => {
+        importedRoot = root;
+        stylesheet =
+          Array.from(root.querySelectorAll("*")).find(
+            (element) => element.localName.toLowerCase() === "style",
+          )?.textContent ?? "";
+        return measureAll(fill("red"))(root);
+      },
+    );
+
+    expect(layer).not.toBeNull();
+    expect(importedRoot?.localName.toLowerCase()).toBe("svg");
+    expect(
+      Array.from(importedRoot!.querySelectorAll("*")).some((element) =>
+        ["script", "animatetransform"].includes(
+          element.localName.toLowerCase(),
+        ),
+      ),
+    ).toBe(false);
+    expect(stylesheet).not.toContain("evil.example");
+    expect(stylesheet).toContain("stroke: red");
+  });
+
+  it.each(["IMAGE", "foreignOBJECT", "TEXT", "USE"])(
+    "rejects unsupported mixed-case <%s> elements",
+    (tag) => {
+      expect(
+        buildPastedSvgLayer(
+          `<svg width="10" height="10"><path d="M0 0h10"/><${tag}/></svg>`,
+          "Logo",
+          measureAll(fill("red")),
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("strips editor metadata from drawable and cloned definition elements", () => {
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><path d="M0 0h10" clip-path="url(#clip)" data-an-open-fill-opacity="forged" data-agent-native-node-id="forged"/><defs><clipPath id="clip"><path d="M0 0h10" data-an-open-fill-opacity="forged" data-agent-native-node-id="forged"/></clipPath></defs></svg>',
+      "Logo",
+      measureAll(fill("red")),
+    )!;
+
+    expect(layer.html).not.toContain("data-an-open-fill-opacity");
+    expect(layer.html).not.toContain('data-agent-native-node-id="forged"');
+    expect(layer.html).toContain("clipPath");
+  });
+
   it("falls back to an image upload for SVGs with embedded rasters", () => {
     expect(
       buildPastedSvgLayer(

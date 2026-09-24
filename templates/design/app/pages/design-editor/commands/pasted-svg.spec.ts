@@ -17,6 +17,15 @@ describe("parsePastedSvg", () => {
     expect(pasted?.svg).toContain('<path d="M0 0L17 9"');
   });
 
+  it("accepts an uppercase SVG root and strips editor-only opacity metadata", () => {
+    const pasted = parsePastedSvg(
+      '<SVG width="17" height="9"><path d="M0 0h17" data-an-open-fill-opacity="forged"/><defs><clipPath id="clip"><path d="M0 0h5" data-an-open-fill-opacity="forged"/></clipPath></defs></SVG>',
+    );
+
+    expect(pasted).toMatchObject({ width: 17, height: 9 });
+    expect(pasted?.svg).not.toContain("data-an-open-fill-opacity");
+  });
+
   it("preserves fractional dimensions from Figma vector clipboard data", () => {
     const pasted = parsePastedSvg(
       '<svg xmlns="http://www.w3.org/2000/svg" width="17.5" height="9.5" viewBox="0 0 17.5 9.5"><path d="M0 0L17.5 9.5"/></svg>',

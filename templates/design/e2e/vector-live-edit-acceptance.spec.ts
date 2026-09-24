@@ -211,7 +211,9 @@ test("grouped clipboard SVG keeps path identities and edits only the selected si
     await hex.press("Enter");
     await expect(target).toHaveCSS("fill", "rgb(59, 130, 246)");
     await expect(sibling).toHaveCSS("fill", siblingBefore);
-    await expect.poll(() => readSource(page, designId)).toContain(pathIds[0]!);
+    await expect
+      .poll(() => readSource(page, designId))
+      .toMatch(/fill:\s*#3b82f6/i);
     const html = await readSource(page, designId);
     expect(html).toContain(pathIds[0]!);
     expect(html).toMatch(/fill:\s*#3b82f6/i);

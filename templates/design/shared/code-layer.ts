@@ -6062,6 +6062,16 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(html, element, value);
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
   if (property === "border-color") {
     const isGradient =
       /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value);
@@ -6340,6 +6350,65 @@ function applyStyleEdit(
   };
 }
 
+const OPEN_PEN_PATH_FILL_OPACITY = "data-an-open-fill-opacity";
+
+type OpenPenPathFillOpacityUpdate =
+  | { kind: "unmarked" }
+  | { kind: "invalid" }
+  | { kind: "updated"; content: string };
+
+function updateOpenPenPathFillOpacity(
+  html: string,
+  element: ParsedElement,
+  value: string | null,
+): OpenPenPathFillOpacityUpdate {
+  if (element.tag !== "path") return { kind: "unmarked" };
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return { kind: "unmarked" };
+
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(marker);
+  } catch {
+    return { kind: "invalid" };
+  }
+  if (
+    typeof snapshot !== "object" ||
+    snapshot === null ||
+    !("version" in snapshot) ||
+    snapshot.version !== 2 ||
+    !("restoreAttribute" in snapshot) ||
+    typeof snapshot.restoreAttribute !== "boolean" ||
+    !("attributeValue" in snapshot) ||
+    (snapshot.attributeValue !== null &&
+      typeof snapshot.attributeValue !== "string") ||
+    !("styleValue" in snapshot) ||
+    (snapshot.styleValue !== null && typeof snapshot.styleValue !== "string") ||
+    !("stylePriority" in snapshot) ||
+    typeof snapshot.stylePriority !== "string"
+  ) {
+    return { kind: "invalid" };
+  }
+
+  const declaration = value
+    ? parseStyleDeclarations(`fill-opacity: ${value}`).declarations[0]
+    : undefined;
+  if (value && !declaration) return { kind: "invalid" };
+  return {
+    kind: "updated",
+    content: replaceOrInsertAttribute(
+      html,
+      element,
+      OPEN_PEN_PATH_FILL_OPACITY,
+      JSON.stringify({
+        ...snapshot,
+        styleValue: declaration?.value ?? null,
+        stylePriority: declaration?.important ? "important" : "",
+      }),
+    ),
+  };
+}
+
 const BORDER_RADIUS_PROPERTY = /^border(-[a-z]+)*-radius$/;
 const SOURCE_PATH_DATA_ATTRIBUTE = "data-an-source-d";
 
@@ -6571,6 +6640,20 @@ function applyStyleRemoveEdit(
     return "unsupported";
   }
   const currentStyle = attributeValue(styleElement, "style");
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(
+      html,
+      styleElement,
+      null,
+    );
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
   const previousStroke =
     property === "stroke" ? vectorStyleValue(styleElement, "stroke") : null;
   const previousFill =

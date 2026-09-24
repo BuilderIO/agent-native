@@ -64,12 +64,7 @@ export function hidePenPathFill(path: SVGPathElement): void {
   const marker = path.getAttribute(OPEN_FILL_OPACITY_MARKER);
   const snapshot =
     marker === null ? "invalid" : readOpenFillOpacitySnapshot(marker);
-  if (snapshot !== "invalid" && !hasTemporaryFillOpacity(path)) {
-    writeOpenFillOpacitySnapshot(path, {
-      ...snapshot,
-      ...readInlineFillOpacity(path),
-    });
-  } else if (marker === "absent" || marker?.startsWith("value:")) {
+  if (marker === "absent" || marker?.startsWith("value:")) {
     writeOpenFillOpacitySnapshot(path, {
       version: 2,
       attributeValue:
@@ -77,7 +72,7 @@ export function hidePenPathFill(path: SVGPathElement): void {
       restoreAttribute: true,
       ...readInlineFillOpacity(path),
     });
-  } else if (snapshot === "invalid") {
+  } else if (snapshot === "invalid" || !hasTemporaryFillOpacity(path)) {
     writeOpenFillOpacitySnapshot(path, {
       version: 2,
       attributeValue: path.getAttribute("fill-opacity"),
