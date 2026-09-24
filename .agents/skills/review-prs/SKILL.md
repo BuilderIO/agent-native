@@ -3,7 +3,8 @@ name: review-prs
 description: >-
   Review recent BuilderIO/agent-native human pull requests, apply internal
   auto-approval exceptions, and assess other PRs for merge readiness, requested
-  updates, and UI screenshot evidence. Use for scheduled or manual PR sweeps.
+  updates, external reply drafts, and UI screenshot evidence. Use for scheduled
+  or manual PR sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -244,7 +245,12 @@ For every human PR that does not receive an approval under the policies above,
 including external PRs, provide a maintainer handoff in addition to the approval
 disposition. A merge-readiness recommendation is separate from a GitHub
 approval or merge action: this skill never merges a PR, and external authors
-remain ineligible for approval.
+remain ineligible for approval. Use the BuilderIO membership API; a confirmed
+nonmember is external, while lookup or visibility failures leave membership
+unknown. Only prepare author-facing reply drafts for authors verified as
+external. For verified internal authors, report any requested updates or
+missing UX evidence in the recap without drafting or posting a comment. If
+membership is unknown, do not treat the author as external or draft a reply.
 
 Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
 **Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
@@ -260,25 +266,36 @@ actionable bot findings, credible safety concerns, or an otherwise material
 code issue mean **Needs updates** or **Cannot assess**. Report skipped,
 unknown, and non-required checks accurately; never describe them as passing.
 
-For every PR needing an update, draft a concise reply that names the concrete
-change or evidence requested and links the relevant review thread or check when
-useful. Inspect the PR's conversation and review threads for prior comments by
-the exact login `steve8708`: if this would be Steve's first comment on that PR,
-begin the draft by thanking the contributor. Do not repeat a thank-you on a
-follow-up. Do not draft a duplicate request when an existing Steve comment
-already covers it; link or summarize that request instead. Drafts are for the
-user to review and are never posted by this skill unless the current invocation
-explicitly authorizes posting.
+For every verified external PR needing an update, draft a concise reply that
+names the concrete change or evidence requested and links the relevant review
+thread or check when useful. Before drafting, inspect the PR timeline, commits,
+and review threads for the latest actionable request from the exact login
+`steve8708`. If the contributor has not since pushed a commit addressing that
+request or posted a substantive reply addressing it, do not draft or post another
+author-facing comment. Mark the PR as waiting on the contributor and link the
+existing request. A bare acknowledgment does not count as addressing it. Once
+the contributor updates the PR, reassess what remains and draft only the
+unresolved requests. This also applies when another comment or bot event is
+newer than Steve's request; bot activity alone does not reopen the handoff.
+
+If no prior Steve request is awaiting an update and this would be Steve's first
+comment on that PR, begin the draft by thanking the contributor. Do not repeat
+a thank-you on a follow-up. Do not draft a duplicate request when an existing
+Steve comment already covers it; link or summarize that request instead.
+Drafts are for the user to review and are never posted by this skill unless
+the current invocation explicitly authorizes posting.
 
 For UX evidence, inspect the actual diff for new or changed user-facing UI,
 including visible copy, layout, navigation, controls, settings, interaction,
 loading states, accessibility behavior, and user-facing defaults. Check the PR
 body and conversation for screenshots of the changed product UI. Report which
 surface changed and whether screenshots are present. If UI changed and no
-product screenshot is available, mark the screenshot as requested and include
-a request in the draft reply so Steve can review the change. A generated recap
-graphic or demo clip does not count as a screenshot of the changed UI. If the
-PR has no user-facing UI change, say so rather than requesting screenshots.
+product screenshot is available, mark the screenshot as requested so Steve can
+review the change. Include the screenshot request in an external-author draft
+only when the reply gate above allows a new comment. For internal PRs, report
+the missing screenshot without drafting a comment. A generated recap graphic
+or demo clip does not count as a screenshot of the changed UI. If the PR has no
+user-facing UI change, say so rather than requesting screenshots.
 
 Do not apply these extra author-reply and screenshot asks to PRs that were
 auto-approved under an explicit exception; keep their existing recap and
@@ -305,19 +322,21 @@ sweep, including approved, flagged, external, duplicate, already handled, and
 unavailable cases. Include the PR link, author and membership result, review
 disposition, merge-readiness recommendation, UX/screenshot status, relevant
 issue or source link, checks or review links, and the reason. For each
-non-auto-approved PR that needs an update or screenshot, include its draft
-reply in a separate section or state that an existing Steve comment already
-covers the request. Do not add rows for bots, `steve8708`, drafts, or human PRs
-excluded because they already had an approval; those are ignored completely.
+non-auto-approved external PR that needs an update or screenshot, include its
+draft reply in a separate section, or mark it waiting on the contributor with
+a link to Steve's outstanding request. For internal PRs, report the needed
+update or screenshot without drafting an author-facing reply. Do not add rows
+for bots, `steve8708`, drafts, or human PRs excluded because they already had
+an approval; those are ignored completely.
 
 Use this shape:
 
 ```md
 ## PR review
 
-| PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Why and evidence |
-| --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | No UI / UI; screenshot present or requested | ... |
+| PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Author-facing reply | Why and evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | No UI / UI; screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```
