@@ -989,7 +989,7 @@ function ReviewTab({ days }: { days: number }) {
                         {reviewDetailQuery.isLoading ? (
                           <div
                             role="status"
-                            aria-label={t("common.loading")}
+                            aria-label={t("agentChat.common.loading")}
                             className="space-y-4"
                           >
                             <Skeleton className="ml-auto h-14 w-3/4 rounded-xl" />
@@ -1001,7 +1001,7 @@ function ReviewTab({ days }: { days: number }) {
                             role="alert"
                             className="text-sm text-muted-foreground"
                           >
-                            {t("common.chunkLoadFailed")}
+                            {t("agentChat.common.chunkLoadFailed")}
                           </p>
                         ) : (
                           reviewMessages.map((message, index) => (
@@ -1016,7 +1016,7 @@ function ReviewTab({ days }: { days: number }) {
                             >
                               {message.role === "assistant" && (
                                 <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                                  {t("common.agent")}
+                                  {t("agentChat.common.agent")}
                                 </span>
                               )}
                               {message.text}
