@@ -5270,6 +5270,27 @@ describe("editor chrome bridge — text editing session", () => {
         const { page, pageErrors } = await launchTextEditPage(browser);
         await beginTextEditOnTarget(page);
         await page.evaluate(() => {
+          const bridge = (window as any).__anEditorChromeBridgeInstance;
+          bridge.updateConfig({ readOnly: false, textEditingEnabled: true });
+        });
+        const reconfiguredState = await page.evaluate(() => ({
+          shieldPointerEvents: (
+            document.querySelector(
+              '[data-agent-native-edit-overlay="shield"]',
+            ) as HTMLElement
+          ).style.pointerEvents,
+          visibleHandles: Array.from(
+            document.querySelectorAll(
+              "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle],[data-agent-native-radius-handle]",
+            ),
+          ).filter((handle) => getComputedStyle(handle).display !== "none")
+            .length,
+        }));
+        expect(reconfiguredState).toEqual({
+          shieldPointerEvents: "none",
+          visibleHandles: 0,
+        });
+        await page.evaluate(() => {
           window.postMessage({ type: "set-read-only", readOnly: false }, "*");
         });
 

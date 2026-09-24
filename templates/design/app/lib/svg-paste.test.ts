@@ -224,14 +224,14 @@ describe("buildPastedSvgLayer", () => {
 
   it("removes remote hrefs and CSS URLs after CSS parsing", () => {
     const measuredRoots: SVGSVGElement[] = [];
-    const layer = buildPastedSvgLayer(
+    buildPastedSvgLayer(
       '<svg width="10" height="10" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="10" height="10" href="https://example.com/a.svg" xlink:href="https://example.com/b.svg" data-local="#safe" aria-label="safe" data-safe-href="#local" style="fill:url(#inline) URL( https://example.com/a.svg );stroke:red"/><style>@import "https://example.com/import.css";.shape{fill:u\\72 l(https://example.com/escaped.svg);stroke:blue}.mixed{fill:url(#local) url(https://example.com/mixed.svg);stroke:purple}.commented{fill:u/**/rl(https://example.com/comment.svg);stroke:teal}.safe{fill:url(#local);stroke:green}</style></svg>',
       "Logo",
       (root) => {
         measuredRoots.push(root);
         return measureAll(fill("red"))(root);
       },
-    )!;
+    );
     const rect = measuredRoots[0]?.querySelector("rect");
     expect(rect?.hasAttribute("href")).toBe(false);
     expect(rect?.hasAttribute("xlink:href")).toBe(false);

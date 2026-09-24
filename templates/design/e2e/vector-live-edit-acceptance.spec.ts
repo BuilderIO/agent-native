@@ -615,9 +615,12 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
   try {
     await gotoEditor(page, designId);
     await enterDirectMode(page);
+    const frame = designFrame(page, screenId);
+    await expect(
+      frame.locator('[data-agent-native-node-id="nested-path"] path'),
+    ).toBeVisible();
     await expandAllLayers(page);
     await selectLayer(page, "Nested path");
-    const frame = designFrame(page, screenId);
     const originalSource = await readSource(page, designId);
     const contentUpdates: Array<Record<string, unknown>> = [];
     page.on("request", (request) => {

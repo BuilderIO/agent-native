@@ -27790,8 +27790,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         marqueeSelectionOverlay.style.display = "none";
         shieldOverlay.style.pointerEvents = "none";
       } else {
-        setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
+        shieldOverlay.style.pointerEvents = activeTextEditEl ? "none" : "auto";
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
       }
