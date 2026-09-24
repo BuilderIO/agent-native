@@ -3,6 +3,19 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Improved
+
+- Slides loads AI prompt tools and extra slide controls only when you open them.
+
+### Fixed
+
+- Deck access errors leave the loading state and explain that the deck is unavailable.
+- Slide chat follows the current selection, and loaded slides remain visible when a background refresh fails
+- Slides home retries failed deck-list reads sooner.
+- Slides no longer shows an error page while the deck list is recovering.
+
 ## 2026-09-22
 
 ### Improved

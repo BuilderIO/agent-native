@@ -307,7 +307,7 @@ export function DocumentTreeItem({
                   }}
                 >
                   <IconDatabase className="me-2 size-4" />
-                  {t("sidebar.database")}
+                  {t("sidebar.collection")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

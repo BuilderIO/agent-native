@@ -105,6 +105,31 @@ describe("db/client Postgres URL handling", () => {
     expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
   });
 
+  it("uses the workspace app ID to resolve app-specific database URLs", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL",
+      "postgres://account-expert.example/db",
+    );
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+      "postgres://account-expert-direct.example/db",
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://workspace.example/db");
+
+    const { getDatabaseUrl, getRuntimeDatabaseSource, getRuntimeDatabaseUrl } =
+      await import("./client.js");
+
+    expect(getDatabaseUrl()).toBe("postgres://account-expert.example/db");
+    expect(getRuntimeDatabaseUrl()).toBe(
+      "postgres://account-expert-direct.example/db",
+    );
+    expect(getRuntimeDatabaseSource()).toBe(
+      "ACCOUNT_EXPERT_DATABASE_URL_UNPOOLED",
+    );
+  });
+
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
     const {
@@ -130,6 +155,56 @@ describe("db/client Postgres URL handling", () => {
       application_name: "agent-native:app",
       idle_in_transaction_session_timeout: 30_000,
     });
+  });
+
+  it("uses AGENT_NATIVE_DB_POOL_MAX for Neon and postgres-js pools", async () => {
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "3");
+    vi.stubEnv("NETLIFY", "true");
+    const { neonPoolMax, neonPoolOptions, pgPoolOptions } =
+      await import("./client.js");
+
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(3);
+    expect(neonPoolMax()).toBe(3);
+    expect(neonPoolOptions().max).toBe(3);
+
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(3);
+    expect(neonPoolMax()).toBe(3);
+  });
+
+  it("uses the runtime defaults when the database pool override is absent", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_VERSION", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubEnv("VERCEL_REGION", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    const { neonPoolMax, pgPoolOptions } = await import("./client.js");
+
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(20);
+    expect(neonPoolMax()).toBe(20);
+  });
+
+  it("rejects invalid database pool overrides", async () => {
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "0");
+    const { pgPoolOptions } = await import("./client.js");
+
+    expect(() => pgPoolOptions("postgres://example.test/db")).toThrow(
+      /databasePoolMax/i,
+    );
+    vi.stubEnv("AGENT_NATIVE_DB_POOL_MAX", "1.5");
+    expect(() => pgPoolOptions("postgres://example.test/db")).toThrow(
+      /databasePoolMax/i,
+    );
   });
 
   it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
@@ -475,6 +550,20 @@ describe("initClient hosted-runtime local database guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    // markServerRuntimeStarted() / markEmbeddedRuntimeAuthorized() are
+    // permanent by design (mirror a real process's whole lifetime) — a test
+    // that calls either must undo it itself, or it silently stays true for
+    // every later test in the file.
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_EMBEDDED_RUNTIME__",
+    );
   });
 
   it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
@@ -490,6 +579,136 @@ describe("initClient hosted-runtime local database guard", () => {
       await import("./client.js");
 
     await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("throws on a Cloudflare Worker/Pages invocation without a database URL, even without NODE_ENV=production", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    // Set by the generated Worker fetch handler on a real request
+    // (generateCloudflareModuleWorkerEntry() in deploy/build.ts), never by
+    // the Node process that runs the build.
+    vi.stubGlobal("__cf_env", {});
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not treat NETLIFY=true alone as an invocation (netlify build / migrate-production, not a request)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    // Explicitly cleared rather than assumed absent: an earlier, unrelated
+    // describe block in this file restores env via `process.env = snapshot`
+    // instead of `vi.unstubAllEnvs()`, which can leave a stub from a prior
+    // test's `vi.stubEnv` call live here. This test's whole point is "every
+    // real invocation marker is off", so it must not rely on ambient cleanliness.
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { isHostedFunctionInvocationRuntime } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+  });
+
+  // Bare Node/Docker has no platform env var for "this is a real invocation"
+  // the way Netlify/Lambda/Vercel/Cloudflare do, so this relies on the
+  // server-runtime marker set by `getH3App()`'s bootstrap instead (see
+  // db/server-runtime.js and server/framework-request-handler.spec.ts).
+  it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not throw for the server-runtime marker outside NODE_ENV=production (pnpm dev, test suites, embedded hosts)", async () => {
+    // getH3App() also bootstraps for `pnpm dev`, NODE_ENV=test integration
+    // suites, and createAgentNativeEmbeddedPlugin() hosts that deliberately
+    // pass a pglite: databaseUrl for a real embedded install — none of those
+    // are the "deployed server with a missing DATABASE_URL" bug this guards.
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+  });
+
+  it("does not throw for a migration-authorized runtime, even with the server-runtime marker set on NODE_ENV=production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    markServerRuntimeStarted();
+
+    await withMigrationRuntime(async () => {
+      expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+    });
+  });
+
+  // Regression: isEmbeddedRuntimeAuthorized() used to be checked before
+  // isHostedFunctionInvocationRuntime(), so it exempted a real serverless
+  // invocation too — an embedded host that actually ends up running as a
+  // Netlify/Vercel/Lambda/Cloudflare function would silently keep its local
+  // PGlite, recreating the exact per-instance-fallback bug this guard exists
+  // to prevent. The embedded exemption must only cover the bare Node/Docker
+  // branch.
+  it("still throws on a real hosted function invocation even when embedded-runtime authorized", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markEmbeddedRuntimeAuthorized } =
+      await import("./embedded-runtime.js");
+    markEmbeddedRuntimeAuthorized();
+    vi.stubEnv("DATABASE_URL", "pglite:./data/embedded");
+
+    expect(() => assertHostedRuntimeDatabase()).toThrow(
       HostedRuntimeLocalDatabaseError,
     );
   });

@@ -112,7 +112,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "The email or password is incorrect.",
     failedToConnect: "We couldn't connect. Please try again.",
     googleNeverFinished:
-      "Google sign-in did not finish. Check the Google OAuth redirect URI and server logs for [agent-native][google-oauth].",
+      "Unable to sign in with Google right now. Please try again or use another sign-in method.",
     checking: "Checking...",
   },
   "zh-CN": {
@@ -152,7 +152,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "邮箱或密码无效",
     failedToConnect: "连接失败。请重试。",
     googleNeverFinished:
-      "Google 登录未完成。请检查 Google OAuth 重定向 URI 和服务器日志中的 [agent-native][google-oauth]。",
+      "暂时无法使用 Google 登录。请重试，或使用其他登录方式。",
     checking: "正在检查...",
   },
   "zh-TW": {
@@ -192,7 +192,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "電子郵件或密碼無效",
     failedToConnect: "連線失敗。請重試。",
     googleNeverFinished:
-      "Google 登入未完成。請檢查 Google OAuth 重新導向 URI，以及伺服器記錄中的 [agent-native][google-oauth]。",
+      "目前無法使用 Google 登入。請再試一次，或改用其他登入方式。",
     checking: "正在檢查...",
   },
   "es-ES": {
@@ -233,7 +233,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "Email o contraseña no válidos",
     failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
     googleNeverFinished:
-      "El inicio de sesión con Google no terminó. Comprueba el URI de redirección de Google OAuth y los logs del servidor para [agent-native][google-oauth].",
+      "No se pudo iniciar sesión con Google. Inténtalo de nuevo o usa otro método de inicio de sesión.",
     checking: "Comprobando...",
   },
   "fr-FR": {
@@ -274,7 +274,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "E-mail ou mot de passe invalide",
     failedToConnect: "Connexion impossible. Veuillez réessayer.",
     googleNeverFinished:
-      "La connexion Google n'a pas abouti. Vérifiez l'URI de redirection Google OAuth et les logs serveur pour [agent-native][google-oauth].",
+      "Impossible de vous connecter avec Google pour le moment. Réessayez ou utilisez une autre méthode de connexion.",
     checking: "Vérification...",
   },
   "de-DE": {
@@ -316,7 +316,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "E-Mail oder Passwort ungültig",
     failedToConnect: "Verbindung fehlgeschlagen. Bitte erneut versuchen.",
     googleNeverFinished:
-      "Die Google-Anmeldung wurde nicht abgeschlossen. Prüfe die Google-OAuth-Redirect-URI und Serverlogs für [agent-native][google-oauth].",
+      "Die Anmeldung mit Google ist gerade nicht möglich. Bitte versuche es erneut oder nutze eine andere Anmeldemethode.",
     checking: "Prüfen...",
   },
   "ja-JP": {
@@ -359,7 +359,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "メールまたはパスワードが正しくありません",
     failedToConnect: "接続できませんでした。もう一度お試しください。",
     googleNeverFinished:
-      "Google サインインが完了しませんでした。Google OAuth リダイレクト URI と [agent-native][google-oauth] のサーバーログを確認してください。",
+      "現在 Google でログインできません。もう一度お試しいただくか、別の方法でログインしてください。",
     checking: "確認中...",
   },
   "ko-KR": {
@@ -400,7 +400,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "이메일 또는 비밀번호가 올바르지 않습니다",
     failedToConnect: "연결하지 못했습니다. 다시 시도하세요.",
     googleNeverFinished:
-      "Google 로그인이 완료되지 않았습니다. Google OAuth 리디렉션 URI와 [agent-native][google-oauth] 서버 로그를 확인하세요.",
+      "지금은 Google로 로그인할 수 없습니다. 다시 시도하거나 다른 로그인 방법을 이용해 주세요.",
     checking: "확인 중...",
   },
   "pt-BR": {
@@ -441,7 +441,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "Email ou senha inválidos",
     failedToConnect: "Não foi possível conectar. Tente novamente.",
     googleNeverFinished:
-      "O login com Google não terminou. Confira o URI de redirecionamento do Google OAuth e os logs do servidor para [agent-native][google-oauth].",
+      "Não foi possível entrar com o Google agora. Tente novamente ou use outra forma de entrar.",
     checking: "Verificando...",
   },
   "hi-IN": {
@@ -482,7 +482,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "ईमेल या पासवर्ड अमान्य है",
     failedToConnect: "कनेक्ट नहीं हो सका। कृपया फिर कोशिश करें।",
     googleNeverFinished:
-      "Google साइन इन पूरा नहीं हुआ। Google OAuth redirect URI और [agent-native][google-oauth] के server logs देखें।",
+      "अभी Google से साइन इन नहीं हो सका। फिर से कोशिश करें या साइन इन का कोई दूसरा तरीका इस्तेमाल करें।",
     checking: "जांच हो रही है...",
   },
   "ar-SA": {
@@ -523,7 +523,7 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     invalidLogin: "البريد الإلكتروني أو كلمة المرور غير صحيحة",
     failedToConnect: "تعذر الاتصال. حاول مرة أخرى.",
     googleNeverFinished:
-      "لم يكتمل تسجيل الدخول عبر Google. تحقق من URI إعادة التوجيه في Google OAuth وسجلات الخادم لـ [agent-native][google-oauth].",
+      "تعذّر تسجيل الدخول باستخدام Google الآن. يُرجى المحاولة مرة أخرى أو استخدام طريقة أخرى لتسجيل الدخول.",
     checking: "جارٍ التحقق...",
   },
 };

@@ -171,6 +171,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     // Ordinary bridge traffic proves the document is reachable, but not that
     // the editor-chrome message listener is attached yet.
+    posted.length = 0;
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -203,6 +204,18 @@ describe("DesignCanvas one-shot bridge queue", () => {
           source: iframeWindow,
         }),
       );
+    });
+
+    expect(
+      posted.filter(
+        (message) =>
+          (message as { type?: unknown }).type ===
+          "agent-native:editor-chrome-ready-probe",
+      ),
+    ).toHaveLength(1);
+    expect(posted).toContainEqual({
+      type: "set-text-editing-enabled",
+      enabled: true,
     });
 
     const inserts = posted.filter(

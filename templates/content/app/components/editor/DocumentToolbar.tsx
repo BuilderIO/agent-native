@@ -1,4 +1,4 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { AgentToggleButton } from "@agent-native/core/client/AgentSidebar";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";

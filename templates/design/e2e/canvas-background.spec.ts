@@ -191,7 +191,9 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
             'h3.design-sidebar-section-title:text-is("Canvas")',
           ),
         });
-      await expect(canvasSection).toContainText(canvasHex);
+      await expect(
+        canvasSection.getByRole("textbox", { name: "Color" }),
+      ).toHaveValue(canvasHex);
       await expect(canvasSection).not.toContainText("NONE");
 
       await page.locator('button[aria-label="Rectangle"]').first().click();

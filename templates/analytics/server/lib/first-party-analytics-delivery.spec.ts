@@ -20,7 +20,6 @@ vi.mock("./first-party-analytics-backend.js", () => ({
 }));
 
 const {
-  FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS,
   FIRST_PARTY_ANALYTICS_DELIVERY_STALE_MS,
   firstPartyAnalyticsDeliveryNeedsAttention,
   getFirstPartyAnalyticsDeliveryHealth,
@@ -319,18 +318,13 @@ describe("BigQuery delivery queue", () => {
     }
   });
 
-  it("expires terminal source events after their recovery retention", async () => {
-    const terminalEventId = "evt_terminal";
+  it("never selects undelivered receipts for cleanup", async () => {
     const claimTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
     const cleanupTx = {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ event_id: terminalEventId }] })
-        .mockResolvedValueOnce({ rowsAffected: 1 })
-        .mockResolvedValueOnce({ rowsAffected: 1 })
-        .mockResolvedValueOnce({ rowsAffected: 1 }),
+        .mockResolvedValueOnce({ rows: [] }),
     };
     const db = {
       execute: vi
@@ -359,13 +353,73 @@ describe("BigQuery delivery queue", () => {
       runFirstPartyAnalyticsBigQueryDeliveryOnce(),
     ).resolves.toMatchObject({
       status: "idle",
-      cleaned: 1,
+      cleaned: 0,
     });
 
-    expect(cleanupTx.execute).toHaveBeenCalledWith(
+    expect(cleanupTx.execute).toHaveBeenCalledTimes(2);
+    expect(cleanupTx.execute.mock.calls[0]?.[0]?.sql).toContain(
+      "WHERE delivered_at IS NOT NULL",
+    );
+    expect(
+      cleanupTx.execute.mock.calls.some(([query]) =>
+        String(query?.sql).includes("DELETE FROM"),
+      ),
+    ).toBe(false);
+  });
+
+  it("cleans acknowledged events and delivered fallback markers", async () => {
+    const acknowledgedEventId = "evt_acknowledged";
+    const fallbackEventId = "evt_fallback_delivered";
+    const claimTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const cleanupTx = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ event_id: acknowledgedEventId }] })
+        .mockResolvedValueOnce({ rows: [{ event_id: fallbackEventId }] })
+        .mockResolvedValueOnce({ rowsAffected: 2 })
+        .mockResolvedValueOnce({ rowsAffected: 2 })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rowsAffected: 0 })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              pending_count: "0",
+              oldest_pending_at: null,
+              last_delivered_at: null,
+              last_error: null,
+            },
+          ],
+        }),
+      transaction: vi
+        .fn()
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) => fn(claimTx))
+        .mockImplementationOnce((fn: (tx: unknown) => unknown) =>
+          fn(cleanupTx),
+        ),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(
+      runFirstPartyAnalyticsBigQueryDeliveryOnce(),
+    ).resolves.toMatchObject({ status: "idle", cleaned: 2 });
+
+    expect(cleanupTx.execute.mock.calls[1]?.[0]?.sql).toMatch(
+      /deliveryState[\s\S]*NOT EXISTS[\s\S]*delivered_at IS NULL/,
+    );
+    expect(cleanupTx.execute.mock.calls[2]?.[0]).toEqual(
       expect.objectContaining({
         sql: expect.stringContaining("DELETE FROM analytics_events"),
-        args: [terminalEventId],
+        args: [acknowledgedEventId, fallbackEventId],
+      }),
+    );
+    expect(cleanupTx.execute.mock.calls[4]?.[0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("delivered_at IS NOT NULL"),
+        args: [acknowledgedEventId],
       }),
     );
   });
@@ -498,15 +552,15 @@ describe("BigQuery delivery queue", () => {
     errorSpy.mockRestore();
   });
 
-  it("marks repeated failures terminal after the bounded retry budget", async () => {
-    const terminalQueueRow = {
+  it("keeps retrying and reporting receipts after many failures", async () => {
+    const repeatedlyFailedQueueRow = {
       ...queueRow,
-      attempt_count: FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS - 1,
+      attempt_count: 100,
     };
     const claimTx = {
       execute: vi
         .fn()
-        .mockResolvedValueOnce({ rows: [terminalQueueRow] })
+        .mockResolvedValueOnce({ rows: [repeatedlyFailedQueueRow] })
         .mockResolvedValueOnce({ rowsAffected: 1 }),
     };
     const emptyTx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
@@ -521,10 +575,10 @@ describe("BigQuery delivery queue", () => {
         .mockResolvedValueOnce({
           rows: [
             {
-              pending_count: "0",
-              oldest_pending_at: null,
+              pending_count: "1",
+              oldest_pending_at: queueRow.created_at,
               last_delivered_at: null,
-              last_error: `[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] warehouse rejected`,
+              last_error: "warehouse rejected",
             },
           ],
         }),
@@ -547,14 +601,15 @@ describe("BigQuery delivery queue", () => {
     await expect(runFirstPartyAnalyticsBigQueryDeliveryOnce()).resolves.toEqual(
       expect.objectContaining({
         status: "retry-scheduled",
-        pendingCount: 0,
-        lastError: `[terminal after ${FIRST_PARTY_ANALYTICS_DELIVERY_MAX_ATTEMPTS} attempts] warehouse rejected`,
+        pendingCount: 1,
+        lastError: "warehouse rejected",
       }),
     );
     const retryCall = db.execute.mock.calls.find(([query]) =>
-      String(query?.sql).includes("terminal after"),
+      String(query?.sql).includes("attempt_count = attempt_count + 1"),
     );
-    expect(retryCall?.[0]?.sql).toContain("attempt_count <");
+    expect(retryCall?.[0]?.sql).toContain("next_attempt_at = $1");
+    expect(retryCall?.[0]?.sql).not.toContain("attempt_count <");
     expect(retryCall?.[0]?.args).toEqual(
       expect.arrayContaining(["warehouse rejected"]),
     );

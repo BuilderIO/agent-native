@@ -221,6 +221,39 @@ const BOTTOM_NAV_ITEMS = [
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 
+export interface DispatchSidebarBrandProps {
+  /** Label shown beside the workspace mark and in collapsed-sidebar affordances. */
+  brandName?: ReactNode;
+  /** Optional workspace mark. Defaults to the Agent-Native mark. */
+  brandIcon?: ReactNode;
+}
+
+export interface DispatchNavContentProps extends DispatchSidebarBrandProps {
+  onNavigate?: () => void;
+  extensions?: DispatchExtensionConfig;
+  chatFirstMode?: boolean;
+  chatFirstEmbedded?: boolean;
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  chatFirstAppLayout?: ChatFirstAppLayoutPreference;
+  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
+  chatFirstApps?: readonly ChatFirstAppItem[];
+  chatFirstAppsLoading?: boolean;
+  chatFirstAppsError?: string | null;
+  chatFirstActiveAppId?: string;
+  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
+  onChatFirstNewChat?: () => void;
+  onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
+  onChatFirstAppsRetry?: () => void;
+}
+
+export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
+  children: ReactNode;
+  extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
+}
+
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
@@ -967,6 +1000,8 @@ function DispatchChatsSection({
 export function NavContent({
   onNavigate,
   extensions,
+  brandName = DISPATCH_SIDEBAR_LABEL,
+  brandIcon,
   chatFirstMode = false,
   chatFirstEmbedded = false,
   collapsed = false,
@@ -982,25 +1017,7 @@ export function NavContent({
   onChatFirstNewChat,
   onChatFirstAppOpen,
   onChatFirstAppsRetry,
-}: {
-  onNavigate?: () => void;
-  extensions?: DispatchExtensionConfig;
-  chatFirstMode?: boolean;
-  chatFirstEmbedded?: boolean;
-  collapsed?: boolean;
-  collapsible?: boolean;
-  onCollapsedChange?: (collapsed: boolean) => void;
-  chatFirstAppLayout?: ChatFirstAppLayoutPreference;
-  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
-  chatFirstApps?: readonly ChatFirstAppItem[];
-  chatFirstAppsLoading?: boolean;
-  chatFirstAppsError?: string | null;
-  chatFirstActiveAppId?: string;
-  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
-  onChatFirstNewChat?: () => void;
-  onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
-  onChatFirstAppsRetry?: () => void;
-}) {
+}: DispatchNavContentProps) {
   const t = useT();
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const location = useLocation();
@@ -1209,7 +1226,8 @@ export function NavContent({
   return (
     <>
       <AppSidebarHeader
-        brandName={DISPATCH_SIDEBAR_LABEL}
+        brandName={brandName}
+        brandIcon={brandIcon}
         appId="dispatch"
         brandHref={dispatchNavLinkTarget("/overview")}
         collapsed={collapsed}
@@ -1342,11 +1360,9 @@ export function Layout({
   children,
   extensions,
   agentPageHref,
-}: {
-  children: ReactNode;
-  extensions?: DispatchExtensionConfig;
-  agentPageHref?: string;
-}) {
+  brandName,
+  brandIcon,
+}: DispatchLayoutProps) {
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
@@ -2481,6 +2497,8 @@ export function Layout({
           >
             <NavContent
               extensions={extensions}
+              brandName={brandName}
+              brandIcon={brandIcon}
               chatFirstMode={chatFirstMode}
               chatFirstEmbedded={chatFirstEmbedded}
               collapsed={sidebarCollapsed}
@@ -2525,6 +2543,8 @@ export function Layout({
               <div className="flex h-full w-full flex-col">
                 <NavContent
                   extensions={extensions}
+                  brandName={brandName}
+                  brandIcon={brandIcon}
                   chatFirstMode={chatFirstMode}
                   chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={false}

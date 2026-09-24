@@ -59,6 +59,22 @@ describe("createDrizzleConfig", () => {
     });
   });
 
+  it("uses the workspace app ID for app-scoped migration URLs", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "ACCOUNT_EXPERT_DATABASE_URL",
+      "postgres://account-expert.example/db",
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://workspace.example/db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      dbCredentials: { url: "postgres://account-expert.example/db" },
+    });
+  });
+
   // `url: process.env.DATABASE_URL_UNPOOLED` has to stay correct on hosts that
   // set only DATABASE_URL, so a blank url is not an override.
   it("falls back to DATABASE_URL when the url option is unset or blank", async () => {

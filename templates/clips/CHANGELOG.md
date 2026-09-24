@@ -3,6 +3,25 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-23
+
+### Improved
+
+- Clip share sidebars stay expanded in stacked layouts and use a floating, borderless control when collapsed.
+- Clip viewers can collapse the comments, transcript, and Agent sidebar
+- Search results clarify where a match appears in the video.
+- Search results show where a transcript or comment match appears
+- Insights charts load only when opened, keeping the recording library faster.
+
+### Fixed
+
+- Comment fields grow as you type so longer messages stay visible
+- New recordings stay loading until their share is available
+- Playback errors no longer cover the video player controls
+- Trash recordings are excluded from search results.
+- Opening a trashed recording now links its breadcrumb back to Trash.
+- Long recording menus scroll within the visible space so every action stays reachable.
+
 ## 2026-09-22
 
 ### Added
@@ -18,6 +37,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Stopped Clips AI actions now clear the in-progress status.
 - Clips keeps uploaded videos visible while the library refreshes and localizes Loom import failures.
 - Clips recovers dropped uploads after a lost finalization response and clears saving feedback after successful saves.
 - The desktop app stops re-checking flags and meetings every few seconds after your session expires, and resumes when you sign in again.

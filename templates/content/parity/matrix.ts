@@ -4,17 +4,22 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sidebar.personal-recent-visits",
     surface: "sidebar",
-    label: "Read personal Recent entries and record foreground visits",
+    label:
+      "Read personal Recent entries, record foreground visits, and remove an entry from Recent",
     uiEntrypoints: [
       "app/components/sidebar/PersonalSidebarSections.tsx",
       "app/hooks/use-content-recent.ts",
     ],
     durableEffect:
-      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels under current access.",
+      "Per-user Recent stores bounded Page destinations and one destination per Database with its latest visited View, then resolves current labels and the requester's pinned state under current access. Removing an entry forgets only that visit.",
     uiImplementation:
-      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action.",
+      "Recent reads use the shared Action; successful foreground navigation records a visit through the UI-only Action; the Recent row menu removes an entry through the shared Action and pins through update-document.",
     status: "action-backed",
-    actions: ["get-content-recent", "record-content-visit"],
+    actions: [
+      "get-content-recent",
+      "record-content-visit",
+      "remove-content-recent",
+    ],
     exception:
       "record-content-visit is hidden with agentTool: false so agent reads and edits cannot manufacture human visit history.",
     reliabilityRisk: "none",
@@ -56,28 +61,34 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
-    label: "Create, delete, move, favorite, list, search, and open pages",
+    label:
+      "Create, rename, duplicate, delete, move, favorite, list, search, and open pages",
     uiEntrypoints: [
       "app/components/sidebar/DocumentSidebar.tsx",
       "app/components/sidebar/DocumentTreeItem.tsx",
+      "app/components/sidebar/SidebarRowActions.tsx",
+      "app/components/sidebar/MovePageDialog.tsx",
       "app/components/editor/DocumentToolbar.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
     status: "action-backed",
     actions: [
       "create-document",
       "clone-creative-context-document",
       "delete-document",
+      "duplicate-page",
       "get-document",
+      "get-document-activity",
       "list-trashed-documents",
       "list-documents",
       "move-document",
       "permanently-delete-document",
       "restore-document",
+      "rollback-created-slash-document",
       "search-documents",
       "update-document",
     ],
@@ -91,6 +102,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/rollback-created-slash-document.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },

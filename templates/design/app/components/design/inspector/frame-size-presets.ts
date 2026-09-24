@@ -36,11 +36,22 @@ export interface FrameSizePresetCategory {
 }
 
 /**
- * Ordered categories, first-group-expanded-by-default matching Figma (Phone
- * first). Sizes are Figma's current preset list, abbreviated to the most
- * common devices per category.
+ * Ordered categories, first-group-expanded-by-default with desktop sizes first
+ * for screen design. Sizes are Figma's current preset list, abbreviated to the
+ * most common devices per category.
  */
 export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
+  {
+    key: "desktop",
+    presets: [
+      { name: "Desktop", width: 1440, height: 1024 },
+      { name: "Wireframe", width: 1440, height: 1024 },
+      { name: "MacBook Air", width: 1280, height: 832 },
+      { name: 'MacBook Pro 14"', width: 1512, height: 982 },
+      { name: 'MacBook Pro 16"', width: 1728, height: 1117 },
+      { name: "TV", width: 1280, height: 720 },
+    ],
+  },
   {
     key: "phone",
     presets: [
@@ -66,17 +77,6 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
       { name: 'iPad Pro 11"', width: 834, height: 1194 },
       { name: 'iPad Pro 12.9"', width: 1024, height: 1366 },
       { name: "Android Expanded", width: 1280, height: 800 },
-    ],
-  },
-  {
-    key: "desktop",
-    presets: [
-      { name: "Desktop", width: 1440, height: 1024 },
-      { name: "Wireframe", width: 1440, height: 1024 },
-      { name: "MacBook Air", width: 1280, height: 832 },
-      { name: 'MacBook Pro 14"', width: 1512, height: 982 },
-      { name: 'MacBook Pro 16"', width: 1728, height: 1117 },
-      { name: "TV", width: 1280, height: 720 },
     ],
   },
   {

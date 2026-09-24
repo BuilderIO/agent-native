@@ -32,6 +32,7 @@ import {
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowInlineRunError,
+  withoutBanneredRunErrorSummary,
   shouldShowMissingFinalResponse,
   useSettledFlag,
   ThinkingIndicator,
@@ -1228,6 +1229,44 @@ describe("shouldShowInlineRunError", () => {
         bannerRunErrorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("withoutBanneredRunErrorSummary", () => {
+  const message =
+    "The model provider is rate-limiting this chat right now. Wait a moment, then retry.";
+  const runError = { message, errorCode: "provider_rate_limited" };
+
+  it("hides duplicate assistant text when the recovery banner is visible", () => {
+    expect(
+      withoutBanneredRunErrorSummary(
+        `Error: ${message}`,
+        runError,
+        runErrorKey(runError),
+      ),
+    ).toBe(null);
+  });
+
+  it("keeps recovery links after removing their repeated error summary", () => {
+    expect(
+      withoutBanneredRunErrorSummary(
+        `Error: ${message}\n\n[Retry in settings](https://example.com)`,
+        runError,
+        runErrorKey(runError),
+      ),
+    ).toBe("[Retry in settings](https://example.com)");
+  });
+
+  it("keeps error text when the banner belongs to another turn", () => {
+    expect(
+      withoutBanneredRunErrorSummary(`Error: ${message}`, runError, "other"),
+    ).toBe(`Error: ${message}`);
+  });
+
+  it("keeps older-turn text when there is no banner", () => {
+    expect(
+      withoutBanneredRunErrorSummary(`Error: ${message}`, runError, null),
+    ).toBe(`Error: ${message}`);
   });
 });
 

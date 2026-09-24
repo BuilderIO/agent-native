@@ -371,6 +371,7 @@ describe("comment review interactions", () => {
       ).click(),
     );
     expect(actions.create).toHaveBeenCalledOnce();
+    expect(richEditorValue(richEditor(container)!)).toBe("");
     await type("Newer unsent draft");
     await act(async () =>
       resolveCreate({
@@ -421,7 +422,7 @@ describe("comment review interactions", () => {
         "fixture",
         actions.create.mock.calls[0][0].clientOperationId,
       );
-      expect(replyDraft.draft.text).toBe(addMentions ? "Hello @Reviewer" : "");
+      expect(replyDraft.draft.text).toBe("");
       expect(replyDraft.draft.mentions).toEqual(
         addMentions
           ? [{ email: "reviewer@example.test", name: "Reviewer" }]
@@ -463,7 +464,7 @@ describe("comment review interactions", () => {
     },
   );
 
-  it("reconciles the original submission without clearing a second submitted draft", async () => {
+  it("prevents duplicate submits in a pending thread", async () => {
     render("one");
     await type("First draft");
     act(() =>
@@ -473,7 +474,6 @@ describe("comment review interactions", () => {
         ) as HTMLButtonElement
       ).click(),
     );
-    const firstOperationId = actions.create.mock.calls[0][0].clientOperationId;
     await type("Second draft");
     act(() =>
       (
@@ -482,30 +482,33 @@ describe("comment review interactions", () => {
         ) as HTMLButtonElement
       ).click(),
     );
-    expect(actions.create.mock.calls[1][0].clientOperationId).not.toBe(
-      firstOperationId,
-    );
-    const ambiguous = thread("one");
-    ambiguous.comments.push({
-      ...ambiguous.comments[0],
-      id: "optimistic-first",
-      parent_id: ambiguous.comments[0].id,
-      content: "First draft",
-      mutation: {
-        kind: "create",
-        status: "error",
-        operationId: firstOperationId,
-        ambiguous: true,
-      },
-    });
-    render("one", [ambiguous]);
-    actions.reconcile.mockResolvedValue("confirmed");
-    const check = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("comments.checkSaved"),
-    )!;
-    await act(async () => check.click());
-    expect(actions.reconcile).toHaveBeenCalledWith("fixture", firstOperationId);
+    expect(actions.create).toHaveBeenCalledOnce();
     expect(richEditorValue(richEditor(container)!)).toBe("Second draft");
+  });
+
+  it("allows another thread to submit while a reply save is pending", async () => {
+    render("one");
+    await type("First thread reply");
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="comments.submit"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    render("two");
+    await type("Second thread reply");
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="comments.submit"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(actions.create).toHaveBeenCalledTimes(2);
+    expect(
+      actions.create.mock.calls.map(([payload]) => payload.threadId),
+    ).toEqual(["one", "two"]);
   });
 
   it("blocks replies immediately while resolution waits for cancellation", async () => {

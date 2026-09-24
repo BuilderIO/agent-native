@@ -24,14 +24,18 @@ export default defineAction({
     hostDocumentId: z.string().describe("Host page document ID"),
     title: z.string().optional().describe("Collection title"),
     description: z.string().optional().describe("Stable collection guidance"),
+    newDocumentId: z.string().min(1).optional(),
+    ownerBlockId: z.string().min(1).optional(),
   }),
   run: async ({
     hostDocumentId,
     title,
     description,
+    newDocumentId,
+    ownerBlockId: requestedOwnerBlockId,
   }): Promise<CreateInlineDatabaseResponse> => {
     const db = getDb();
-    const ownerBlockId = createInlineDatabaseBlockId();
+    const ownerBlockId = requestedOwnerBlockId ?? createInlineDatabaseBlockId();
     let databaseId: string | null = null;
     let databaseDocumentId: string | null = null;
     const spaceId = await resolveContentDatabaseSpace(
@@ -45,6 +49,7 @@ export default defineAction({
           parentId: hostDocumentId,
           title: databaseTitleForPage(title),
           description,
+          newDocumentId,
         },
         { db: tx, spaceId },
       );

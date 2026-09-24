@@ -162,13 +162,12 @@ approve it and never bypass that consent.
   localhost screens; pending changes stay in the browser until applied.
   This capability is not an account session: `/_agent-native/session` remains
   signed out, and account-backed save/share/generate actions remain denied.
-- The editor page registers a page-local WebMCP tool named
-  `get-visual-edit-prompt`. Call it after canvas edits to retrieve the latest
-  bounded source instructions instead of copying stale chat text. It returns
-  `status: "empty"` when there is nothing to apply. If a previous editor
-  session ended with unapplied edits, it returns `status: "session-ended"`
-  with the pending count; `status: "unknown"` means the session marker
-  could not be read and must not be treated as an empty result.
+- Hosted MCP highlights `get-visual-edit-pending`; pass the visual-edit
+  design ID for a tab-free handoff. It returns a revision; after applying,
+  call `acknowledge-visual-edit-pending` with that revision, then pull again.
+  `empty` means no edits; `session-ended` means edits were lost;
+  `unknown` means the marker was unreadable, not proof of no change.
+- Browser hosts can use page-local `get-visual-edit-prompt`.
 - The `open-visual-edit` action is owned by Design. From another app, use the
   hosted MCP server at `https://design.agent-native.com/mcp` or the page's
   WebMCP helper, not `pnpm action` in the target app. The page path works
@@ -487,7 +486,11 @@ bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Applying Visual Edits Back To Source
 
-With the Design tab closed, recover the bridge handoff with:
+With the Design tab closed, use highlighted hosted Design MCP tool
+`get-visual-edit-pending` with the visual-edit design ID. It returns the
+handoff and revision. After verifying the source change,
+acknowledge that revision and pull again. If the MCP server is unavailable,
+recover the bridge handoff with:
 
 ```bash
 npx @agent-native/core@latest design pending --root .
@@ -501,12 +504,12 @@ button on the canvas. An MCP App sends the bounded prompt to the host;
 otherwise it uses the local Design agent. The dropdown's **Copy prompt to your
 agent** action is the manual fallback.
 
-ChatGPT, Claude, and WebMCP hosts receive a short instruction to call
-`get-visual-edit-prompt`; Apply sends the same batch when the host bridge is
-available, while ordinary browsers copy the detailed handoff.
+ChatGPT and Claude Code should pull, apply, acknowledge, and pull again.
+Browser WebMCP hosts can call `get-visual-edit-prompt`. Never acknowledge
+before applying the source change.
 
-- Style, text, and drag/drop structure edits all collect into the same pending
-  batch, so the user can make several changes and apply once.
+- Style, text, and drag/drop edits collect into one pending batch for a single
+  apply.
 - After the write lands, the target app's own dev-server HMR refreshes the
   frames — no manual reload. If frames do not refresh, the write did not land;
   say so rather than assuming.
@@ -596,6 +599,6 @@ only to diagnose an actual report, or to confirm an applied edit landed:
   reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
-- `get-visual-edit-prompt` returns the latest pending source handoff from the
-  page without requiring a Design account.
+- `get-visual-edit-pending` is the tab-free handoff; acknowledge its revision
+  after applying. `get-visual-edit-prompt` is the browser equivalent.
 - The Code tab shows a local-files root for the connection and opens its files.

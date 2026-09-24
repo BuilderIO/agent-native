@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import Settings from "@/pages/Settings";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
+  return [{ title: enUSMessages.routeTitles.settings }];
 }
 
 export default function SettingsRoute() {

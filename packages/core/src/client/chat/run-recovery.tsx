@@ -36,10 +36,8 @@ import {
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
 import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
-import {
-  DeferredBuilderConnectPopover,
-  LazyChunkRetryFallback,
-} from "../settings/deferred-builder-connect-popover.js";
+import { LazyChunkRetryFallback } from "../lazy-chunk-retry-fallback.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 

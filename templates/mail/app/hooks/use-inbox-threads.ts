@@ -55,6 +55,15 @@ type InboxQueryResult = ListInboxThreadsResult & {
   clientSnapshotId: number;
 };
 
+export function keepLatestInboxSnapshot(
+  current: InboxQueryResult | undefined,
+  incoming: InboxQueryResult,
+): InboxQueryResult {
+  return current && current.clientSnapshotId > incoming.clientSnapshotId
+    ? current
+    : incoming;
+}
+
 let nextInboxSnapshotId = 0;
 
 function readInboxQueryParams(key: QueryKey): Record<string, unknown> | null {
@@ -105,13 +114,19 @@ function freshCompleteInboxScope(
 function fetchInboxThreads(
   input: ListInboxThreadsInput,
   signal: AbortSignal,
+  qc: QueryClient,
+  queryKey: QueryKey,
 ): Promise<InboxQueryResult> {
   const clientSnapshotId = ++nextInboxSnapshotId;
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
     { method: "GET", signal },
-  ).then((data) => ({ ...data, clientSnapshotId }));
+  ).then((data) => {
+    const incoming = { ...data, clientSnapshotId };
+    const current = qc.getQueryData<InboxQueryResult>(queryKey);
+    return keepLatestInboxSnapshot(current, incoming);
+  });
 }
 
 /**
@@ -128,7 +143,8 @@ export function useInboxThreads(
   const qc = useQueryClient();
   return useQuery<InboxQueryResult>({
     queryKey: ["action", "list-inbox-threads", input],
-    queryFn: ({ signal }) => fetchInboxThreads(input, signal),
+    queryFn: ({ signal, queryKey }) =>
+      fetchInboxThreads(input, signal, qc, queryKey),
     enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
     retry: false,
     // The 3s/20s poll below already keeps this fresh — an extra unbounded
@@ -161,8 +177,13 @@ export function useInboxThreadsPages(
       const params: ListInboxThreadsInput = { ...input, offset };
       return {
         queryKey: ["action", "list-inbox-threads", params],
-        queryFn: ({ signal }: { signal: AbortSignal }) =>
-          fetchInboxThreads(params, signal),
+        queryFn: ({
+          signal,
+          queryKey,
+        }: {
+          signal: AbortSignal;
+          queryKey: QueryKey;
+        }) => fetchInboxThreads(params, signal, qc, queryKey),
         enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
         retry: false,
         placeholderData: keepPreviousData,

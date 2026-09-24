@@ -742,6 +742,21 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("forwards approval keys as a hidden protocol continuation", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Approved.",
+        approvedToolCalls: ["publish-release:{}"],
+      });
+    });
+
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Approved.",
+      undefined,
+      { approvedToolCalls: ["publish-release:{}"], hideUserMessage: true },
+    );
+  });
+
   it("implements the latest plan when /act is selected", () => {
     chatHandleMocks.implementPlan.mockImplementationOnce(() => true);
 

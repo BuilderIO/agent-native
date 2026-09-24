@@ -59,6 +59,22 @@ async function createFreeDragFixture(page: Page): Promise<string> {
   return id;
 }
 
+async function showAltHoverMeasurement(page: Page): Promise<Locator> {
+  await selectByText(page, "Alpha Button");
+  const betaBox = (await (await frameNode(page, "Beta Button")).boundingBox())!;
+  const measurementOverlay = designFrame(page).locator(
+    "[data-agent-native-measurement-overlay]",
+  );
+  await page.mouse.move(betaBox.x - 20, betaBox.y - 20);
+  await page.keyboard.down("Alt");
+  await page.mouse.move(
+    betaBox.x + betaBox.width / 2,
+    betaBox.y + betaBox.height / 2,
+  );
+  await expect(measurementOverlay).toHaveCSS("display", "block");
+  return measurementOverlay;
+}
+
 let designId: string;
 
 test.describe.serial("rare-but-real unique paths", () => {
@@ -530,6 +546,17 @@ test.describe.serial("rare-but-real unique paths", () => {
     const betaBox = (await (
       await frameNode(page, "Beta Button")
     ).boundingBox())!;
+    const measurementOverlay = designFrame(page).locator(
+      "[data-agent-native-measurement-overlay]",
+    );
+    await page.mouse.move(
+      betaBox.x + betaBox.width / 2,
+      betaBox.y + betaBox.height / 2,
+      { steps: 5 },
+    );
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+
+    await page.mouse.move(betaBox.x - 20, betaBox.y - 20);
     await page.keyboard.down("Alt");
     await page.mouse.move(
       betaBox.x + betaBox.width / 2,
@@ -538,15 +565,31 @@ test.describe.serial("rare-but-real unique paths", () => {
         steps: 5,
       },
     );
-    await page.waitForTimeout(150);
-    const overlayCount = await page
-      .locator("[data-agent-native-measurement-overlay]")
-      .count();
+    await expect(measurementOverlay).toHaveCSS("display", "block");
+    await expect(measurementOverlay.locator("div")).not.toHaveCount(0);
     await page.keyboard.up("Alt");
-    expect(
-      overlayCount,
-      "Alt-hovering a sibling while another object is selected should show a distance measurement overlay",
-    ).toBeGreaterThan(0);
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+  });
+
+  test("Alt-hover measurements clear on preview iframe focus loss without pointer movement", async ({
+    page,
+  }) => {
+    const measurementOverlay = await showAltHoverMeasurement(page);
+    await page
+      .locator("iframe[data-design-preview-iframe]")
+      .last()
+      .evaluate((iframe) => iframe.dispatchEvent(new FocusEvent("blur")));
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+    await page.keyboard.up("Alt");
+  });
+
+  test("Alt-hover measurements clear on host window blur without pointer movement", async ({
+    page,
+  }) => {
+    const measurementOverlay = await showAltHoverMeasurement(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await expect(measurementOverlay).toHaveCSS("display", "none");
+    await page.keyboard.up("Alt");
   });
 
   test("Ctrl-dragging a child overrides auto-layout resistance and drags it out cleanly", async ({

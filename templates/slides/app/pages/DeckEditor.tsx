@@ -103,8 +103,10 @@ import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
   deckAccessCheckKey,
+  retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
+import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { getPreset } from "@/lib/design-systems";
 import {
   isGoogleSlidesCommentShortcut,
@@ -281,6 +283,7 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
@@ -866,12 +869,15 @@ export default function DeckEditor() {
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
     try {
-      await refetchOrg();
-      await reloadDecks();
+      await retryMissingDeck({
+        refetchOrg,
+        reloadDecks,
+        refetchAccessStatus: refetchDeckAccessStatus,
+      });
     } finally {
       setRetryingMissingDeck(false);
     }
-  }, [refetchOrg, reloadDecks]);
+  }, [refetchDeckAccessStatus, refetchOrg, reloadDecks]);
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
@@ -1830,6 +1836,7 @@ export default function DeckEditor() {
   const handleNewSlideAfter = useCallback(
     (afterSlideId: string) => {
       if (!deck || !id) return;
+      preloadAddSlidePopover();
       const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
       // Immediate persistence: mirrors handleAddEmptySlide, since this also
       // opens the "describe this slide" popover right away.
@@ -2324,10 +2331,8 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      privateDeckAccessConfirmed: Boolean(
-        deckAccessStatus?.exists &&
-        !deckAccessStatus.hasAccess &&
-        deckAccessStatus.visibility === "private",
+      deckAccessDeniedConfirmed: Boolean(
+        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
       ),
     })
   ) {
@@ -2526,6 +2531,7 @@ export default function DeckEditor() {
   const handleAddEmptySlide = () => insertSlideAfterActive("blank");
 
   const handleNewSlideClick = () => {
+    preloadAddSlidePopover();
     const newId = handleAddEmptySlide();
     if (newId) {
       // The rail owns the anchor node the describe-slide popover attaches
@@ -2811,7 +2817,7 @@ export default function DeckEditor() {
             questions={questionFlowQuestions ?? []}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
-            designSystem={deck.designSystemId ? designSystem : undefined}
+            designSystem={designSystem}
             title={questionFlowTitle}
             description={questionFlowDescription}
             skipLabel={questionFlowSkipLabel}

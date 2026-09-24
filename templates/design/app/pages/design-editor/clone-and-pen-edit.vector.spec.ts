@@ -2,7 +2,14 @@
 
 import { applyVisualEdit } from "@shared/code-layer";
 import {
+  appendPenNode,
+  closePenPath,
   createCornerNode,
+  parsePenNodes,
+  resumePenPathAtEnd,
+  setPenNodeCornerRadius,
+  serializePenNodes,
+  serializePenPath,
   translatePenPath,
   type PenPath,
 } from "@shared/pen-path";
@@ -26,6 +33,135 @@ const editedPath: PenPath = {
 };
 
 describe("nested Pen path commits", () => {
+  it("updates only the selected child path in a grouped pasted SVG", () => {
+    const firstPath: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const secondPath: PenPath = {
+      closed: true,
+      nodes: [
+        createCornerNode({ x: 50, y: 0 }),
+        createCornerNode({ x: 80, y: 0 }),
+        createCornerNode({ x: 80, y: 30 }),
+      ],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 80 40" style="position:absolute;left:10px;top:20px;width:80px;height:40px;overflow:hidden">
+      <g>
+        <path data-agent-native-node-id="first" data-an-pen-nodes="${serializePenNodes(firstPath)}"
+          d="${serializePenPath(firstPath)}" fill="#f97316" />
+        <path data-agent-native-node-id="second" data-an-pen-nodes="${serializePenNodes(secondPath)}"
+          d="${serializePenPath(secondPath)}" fill="#16a34a" />
+      </g></svg>`;
+    const editedSecondPath = translatePenPath(secondPath, 5, 2);
+
+    const updated = writeBackVectorEditedPenPath(
+      html,
+      "second",
+      editedSecondPath,
+    );
+    const doc = new DOMParser().parseFromString(updated!, "text/html");
+    const svg = doc.querySelector("svg");
+    const first = doc.querySelector('[data-agent-native-node-id="first"]');
+    const second = doc.querySelector('[data-agent-native-node-id="second"]');
+
+    expect(updated).not.toBeNull();
+    expect(first?.getAttribute("d")).toBe(serializePenPath(firstPath));
+    expect(
+      parsePenNodes(first?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(firstPath);
+    expect(second?.getAttribute("d")).toBe(serializePenPath(editedSecondPath));
+    expect(
+      parsePenNodes(second?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(editedSecondPath);
+    expect(second?.getAttribute("fill")).toBe("#16a34a");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 80 40");
+    expect(svg?.style.left).toBe("10px");
+    expect(svg?.style.top).toBe("20px");
+    expect(svg?.style.width).toBe("80px");
+    expect(svg?.style.height).toBe("40px");
+    expect(svg?.style.overflow).toBe("visible");
+  });
+
+  it("preserves fill and stroke when a nested stroke-only path is reopened", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 30, y: 0 }),
+        createCornerNode({ x: 30, y: 30 }),
+      ],
+    };
+    const closedPath = closePenPath(openPath);
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 30 30" style="position:absolute;left:0px;top:0px;width:30px;height:30px">
+      <path data-agent-native-node-id="stroke-only" data-an-pen-nodes="${serializePenNodes(closedPath)}"
+        d="${serializePenPath(closedPath)}" fill="none" stroke="#000000" />
+    </svg>`;
+
+    const reopened = writeBackVectorEditedPenPath(
+      html,
+      "stroke-only",
+      openPath,
+    );
+    expect(reopened).not.toBeNull();
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened!, "text/html")
+      .querySelector("path");
+    expect(reopenedPath?.getAttribute("fill")).toBe("none");
+    expect(reopenedPath?.getAttribute("fill-opacity")).toBe("0");
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened!,
+      "stroke-only",
+      closedPath,
+    );
+    const reclosedPath = new DOMParser()
+      .parseFromString(reclosed!, "text/html")
+      .querySelector("path");
+    expect(reclosedPath?.getAttribute("fill")).toBe("none");
+    expect(reclosedPath?.getAttribute("stroke")).toBe("#000000");
+    expect(reclosedPath?.getAttribute("fill-opacity")).toBeNull();
+  });
+
+  it("persists one rounded anchor through vector writeback and node rehydration", () => {
+    const path = closePenPath(
+      appendPenNode(
+        appendPenNode(
+          appendPenNode(
+            appendPenNode(null, createCornerNode({ x: 0, y: 0 })),
+            createCornerNode({ x: 100, y: 0 }),
+          ),
+          createCornerNode({ x: 100, y: 100 }),
+        ),
+        createCornerNode({ x: 0, y: 100 }),
+      ),
+    );
+    const rounded = setPenNodeCornerRadius(path, 1, 12)!;
+    const html = `<!doctype html><svg data-agent-native-node-id="rounded-pen" data-an-primitive="path"
+      viewBox="0 0 100 100" style="position:absolute;left:0px;top:0px;width:100px;height:100px">
+      <path d="${serializePenPath(path)}" fill="#336699" /></svg>`;
+
+    const updated = writeBackVectorEditedPenPath(html, "rounded-pen", rounded);
+    const svg = new DOMParser()
+      .parseFromString(updated!, "text/html")
+      .querySelector("svg");
+    const persisted = parsePenNodes(
+      svg?.getAttribute("data-an-pen-nodes") ?? "",
+    );
+
+    expect(svg?.querySelector("path")?.getAttribute("d")).toBe(
+      serializePenPath(rounded),
+    );
+    expect(persisted?.nodes[1]?.cornerRadius).toBe(12);
+    expect(persisted?.nodes.filter((node) => node.cornerRadius).length).toBe(1);
+  });
+
   it("keeps parent-local placement, fractional geometry, and authored styles", () => {
     const html = `<!doctype html><main style="position:relative;left:18px;top:-157px">
       <svg data-agent-native-node-id="pen-1" viewBox="33.25 -74.5 10.25 10.5"
@@ -166,11 +302,87 @@ describe("nested Pen path commits", () => {
 
     expect(penPathScreenContentOffset(svg)).toEqual({ x: 18, y: -157 });
 
-    Object.defineProperty(svg, "getScreenCTM", {
-      configurable: true,
-      value: () => ({ a: 1.25, b: 0, c: 0, d: 1, e: 0, f: 0 }),
-    });
-    expect(penPathScreenContentOffset(svg)).toBeNull();
+    for (const matrix of [
+      { a: 1.25, b: 0, c: 0, d: 1, e: 0, f: 0 }, // scale
+      { a: 0, b: 1, c: -1, d: 0, e: 0, f: 0 }, // rotation
+      { a: 1, b: 0.25, c: 0.5, d: 1, e: 0, f: 0 }, // skew
+    ]) {
+      Object.defineProperty(svg, "getScreenCTM", {
+        configurable: true,
+        value: () => matrix,
+      });
+      expect(penPathScreenContentOffset(svg)).toBeNull();
+    }
+  });
+});
+
+describe("continuing a committed open Pen path", () => {
+  it("appends and closes in place while preserving stroke-only paint", () => {
+    const path: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 40, y: 0 }),
+      ],
+    };
+    const continued = appendPenNode(
+      resumePenPathAtEnd(path, { x: 40, y: 0 }, 8)!,
+      createCornerNode({ x: 40, y: 30 }),
+    );
+    const html = `<!doctype html><svg data-agent-native-node-id="pen-continue" data-an-primitive="path"
+      viewBox="0 0 40 30" style="position:absolute;left:0px;top:0px;width:40px;height:30px">
+      <path d="M 0 0 L 40 0" fill="none" stroke="#000000" stroke-width="1" />
+    </svg>`;
+
+    const extended = writeBackVectorEditedPenPath(
+      html,
+      "pen-continue",
+      continued,
+    );
+    expect(extended).not.toBeNull();
+    const extendedDocument = new DOMParser().parseFromString(
+      extended!,
+      "text/html",
+    );
+    const extendedSvg = extendedDocument.querySelector("svg");
+    expect(
+      extendedDocument.querySelectorAll(
+        '[data-agent-native-node-id="pen-continue"]',
+      ),
+    ).toHaveLength(1);
+    expect(extendedSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      "M 0 0 L 40 0 L 40 30",
+    );
+    expect(extendedSvg?.getAttribute("data-an-pen-nodes")).not.toBeNull();
+    expect(
+      parsePenNodes(extendedSvg?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(continued);
+    expect(extendedSvg?.querySelector("path")?.getAttribute("fill")).toBe(
+      "none",
+    );
+
+    const closed = writeBackVectorEditedPenPath(
+      extended!,
+      "pen-continue",
+      closePenPath(continued),
+    );
+    expect(closed).not.toBeNull();
+    const closedSvg = new DOMParser()
+      .parseFromString(closed!, "text/html")
+      .querySelector("svg");
+    expect(closedSvg?.getAttribute("data-agent-native-node-id")).toBe(
+      "pen-continue",
+    );
+    expect(closedSvg?.querySelector("path")?.getAttribute("d")).toBe(
+      "M 0 0 L 40 0 L 40 30 L 0 0 Z",
+    );
+    expect(closedSvg?.querySelector("path")?.getAttribute("fill")).toBe("none");
+    expect(closedSvg?.querySelector("path")?.getAttribute("stroke")).toBe(
+      "#000000",
+    );
+    expect(
+      parsePenNodes(closedSvg?.getAttribute("data-an-pen-nodes") ?? ""),
+    ).toEqual(closePenPath(continued));
   });
 });
 

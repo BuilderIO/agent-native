@@ -137,6 +137,7 @@ describe("new comment real mutation observer lifetime", () => {
             .click(),
         );
         expect(fetch).toHaveBeenCalledTimes(1);
+        expect(richEditorValue(richEditor(container)!)).toBe("");
         expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
         await show("desktop");
         await settle();
@@ -152,7 +153,7 @@ describe("new comment real mutation observer lifetime", () => {
                   : { error: "offline" },
               ),
               {
-                status: outcome === "success" ? 200 : 500,
+                status: outcome === "success" ? 200 : 400,
                 headers: { "content-type": "application/json" },
               },
             ),
@@ -291,6 +292,7 @@ describe("reply real mutation observer lifetime", () => {
             .click(),
         );
         expect(fetch).toHaveBeenCalledTimes(1);
+        expect(richEditorValue(input())).toBe("");
         expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
         const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         expect(body).toMatchObject({

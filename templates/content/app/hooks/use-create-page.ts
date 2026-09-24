@@ -54,7 +54,7 @@ export function useCreatePage(opts?: {
   const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
-    async (parentId?: string) => {
+    async (parentId?: string, requestedId?: string) => {
       let spaceId: string | undefined;
       try {
         spaceId = contentSpaceIdForCreate({
@@ -67,7 +67,7 @@ export function useCreatePage(opts?: {
         );
         throw error;
       }
-      const id = nanoid();
+      const id = requestedId ?? nanoid();
       const now = new Date().toISOString();
       const tempDoc = markDocumentCreationPending({
         id,

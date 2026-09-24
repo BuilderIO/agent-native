@@ -1,5 +1,57 @@
 # @agent-native/skills
 
+## 0.3.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [07a6277]
+- Updated dependencies [48387db]
+- Updated dependencies [97d8280]
+- Updated dependencies [212d1b3]
+- Updated dependencies [92d3374]
+- Updated dependencies [039d52c]
+- Updated dependencies [69fac98]
+- Updated dependencies [ee516e2]
+- Updated dependencies [a10ae73]
+- Updated dependencies [15e304f]
+- Updated dependencies [a10ae73]
+- Updated dependencies [a10ae73]
+- Updated dependencies [68a89eb]
+- Updated dependencies [11208d2]
+- Updated dependencies [30aa31d]
+- Updated dependencies [ee70391]
+- Updated dependencies [9a22c5b]
+- Updated dependencies
+- Updated dependencies [1b15104]
+- Updated dependencies [ddabced]
+- Updated dependencies [c3c47f1]
+- Updated dependencies [eb6523c]
+- Updated dependencies [eb6523c]
+- Updated dependencies [fe9609c]
+- Updated dependencies [34ad348]
+- Updated dependencies [1b889ff]
+- Updated dependencies [7e014ff]
+- Updated dependencies [45ad5f3]
+  - @agent-native/core@0.187.0
+
+## 0.3.0
+
+### Minor Changes
+
+- 6ce7517: Let users choose an installer group, then install all or a selected subset.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [69ecbfb]
+- Updated dependencies [6ce7517]
+- Updated dependencies [e383d8d]
+- Updated dependencies [67cf8bb]
+- Updated dependencies
+- Updated dependencies [be380fa]
+  - @agent-native/core@0.186.0
+
 ## 0.2.732
 
 ### Patch Changes
@@ -1439,19 +1491,5 @@
 - Updated dependencies [fc85cb2]
 - Updated dependencies [61ca441]
   - @agent-native/core@0.164.5
-
-## 0.2.634
-
-### Patch Changes
-
-- Updated dependencies [c58cd6e]
-  - @agent-native/core@0.164.4
-
-## 0.2.633
-
-### Patch Changes
-
-- Updated dependencies [f790010]
-  - @agent-native/core@0.164.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

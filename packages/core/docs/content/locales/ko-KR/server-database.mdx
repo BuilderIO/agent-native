@@ -99,6 +99,8 @@ DATABASE_URL=pglite:./data/pglite
 
 프레임워크는 `DATABASE_URL`을 기준으로 Drizzle을 PostgreSQL용으로 구성합니다.
 
+프레임워크는 풀별 연결 수를 제한합니다. 기본값은 장기 실행 Node.js 프로세스 20, serverless foreground 함수 2, background 함수 4, 저연결 예약 worker 1입니다. `AGENT_NATIVE_DB_POOL_MAX`로 Neon 및 표준 PostgreSQL 클라이언트의 풀별 최대값을 바꿀 수 있습니다. 활성 함수 인스턴스 또는 Node.js 프로세스, 앱, 데이터베이스 URL 전체의 연결 합계를 계산하세요. 각 프로세스는 별도 풀을 가집니다. 데이터베이스 또는 풀러 한도보다 낮게 유지하고 마이그레이션, 관리, 기타 클라이언트를 위한 여유를 남기세요. 공급자의 풀링 엔드포인트가 있으면 사용하세요. 앱 프로세스가 많은 자체 호스팅 PostgreSQL에서는 PgBouncer 트랜잭션 풀링을 고려하세요.
+
 ### Builder.io 관리형 데이터베이스 {#builder-managed}
 
 _계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 PostgreSQL 연결 문자열 없이도 자동으로 프로비저닝되는 관리형 PostgreSQL 데이터베이스를 사용할 수 있게 됩니다.
