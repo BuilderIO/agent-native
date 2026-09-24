@@ -45,7 +45,7 @@ merging, except when the user explicitly invokes `/ship-now`.
 ## Setup
 
 Before creating or resuming a heartbeat, query the live PR with
-`gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid`.
+`gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
 If it is closed but unmerged, do not create or resume a watcher; if this task
 already owns one, clean it up and report the unsuccessful shipment. If it is
 already merged under inherited `ship_mode=merge-authorized`, do not create or
@@ -518,9 +518,11 @@ missing, preserve the source branch. Continue the parent `/ship` endpoint
 before pausing the watcher or releasing its lease:
 
 1. Fetch origin and verify `mergeCommit.oid` is an ancestor of `origin/main`.
-   If it has not arrived yet, keep the existing watcher and lease active and
-   retry on its already-scheduled next tick; do not create or reactivate a
-   watcher after the PR is terminal. A foreground-only run continues here.
+   If it has not arrived yet, keep this continuation in the foreground and
+   retry the fetch and ancestry check with interruptible waits until the proof
+   is available. Do not depend on another scheduled tick or reactivate a
+   watcher after the PR is terminal. Leave an already-owned watcher and lease
+   untouched while this foreground wait runs.
 2. Re-run the final inline-thread and review-summary audits below before
    rotating. If new actionable feedback appears after merge, record it as a
    post-merge follow-up, retain the source branch, and do not restart this PR's
