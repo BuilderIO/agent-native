@@ -104,6 +104,7 @@ import { AgentActivityTrace } from "./chat/agent-activity-trace.js";
 import {
   DownscalingImageAttachmentAdapter,
   BinaryDocumentAttachmentAdapter,
+  MAX_PDF_BYTES,
   MAX_ESTIMATED_BODY_BYTES,
   AGGRESSIVE_MAX_IMAGE_DIMENSION,
   AGGRESSIVE_JPEG_QUALITY,
@@ -7517,6 +7518,7 @@ const AssistantChatInner = forwardRef<
                                   <ComposerAttachmentPreviewStrip />
                                   <TiptapComposer
                                     focusRef={tiptapRef}
+                                    maxDocumentAttachmentBytes={MAX_PDF_BYTES}
                                     initialText={
                                       initialComposerText ?? undefined
                                     }

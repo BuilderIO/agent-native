@@ -13,9 +13,9 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 
-// Maximum document size (4 MB). Larger files would bloat the JSON POST
-// body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
-export const MAX_PDF_BYTES = 4 * 1024 * 1024;
+// A 2.5 MiB PDF becomes about 3.33 MiB after base64 encoding, within the
+// 3.5 MiB attachment budget.
+export const MAX_PDF_BYTES = 2.5 * 1024 * 1024;
 
 // Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
 // base64-encoding a raw screenshot eats enough heap to crash the composer
@@ -69,7 +69,7 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
 
 function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
-  const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+  const maxMb = Number((MAX_PDF_BYTES / 1024 / 1024).toFixed(1)).toString();
   return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
@@ -180,14 +180,11 @@ export async function getImageFileDataURL(file: File): Promise<string> {
  */
 export function estimateAttachmentBodyBytes(values: string[]): number {
   const encodedBytes = new TextEncoder();
-  // Measure each string after JSON escaping so quote-heavy or control-heavy
-  // text cannot pass the guard with an underestimated request size.
-  return (
-    values.reduce(
-      (sum, value) =>
-        sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
-      0,
-    ) * 1.15
+  // JSON.stringify includes quotes and escaping; don't add another estimate
+  // on top of the exact encoded byte count.
+  return values.reduce(
+    (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+    0,
   );
 }
 
