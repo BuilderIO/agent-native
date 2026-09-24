@@ -367,26 +367,29 @@ function buildAxisScale(
 }
 
 /**
- * Segment edges for a stacked chart group. Positives and negatives stack away
- * from zero separately, and the y-domain has to cover every segment edge — the
- * running total alone puts a mixed-sign stack's tallest mark off-canvas.
+ * Segment edges for diverging bars or signed cumulative areas. The y-domain
+ * has to cover every edge so mixed-sign segments stay inside the plot.
  */
 function stackSegments(
   series: ResolvedSeries[],
   seriesIndexes: number[],
   labelCount: number,
+  mode: "diverging" | "cumulative",
 ): Map<string, { base: number; top: number }> {
   const segments = new Map<string, { base: number; top: number }>();
   for (let labelIndex = 0; labelIndex < labelCount; labelIndex += 1) {
     let up = 0;
     let down = 0;
+    let total = 0;
     for (const seriesIndex of seriesIndexes) {
       const value = series[seriesIndex].data[labelIndex];
       if (value === null) continue;
-      const base = value >= 0 ? up : down;
-      if (value >= 0) up += value;
-      else down += value;
-      segments.set(`${labelIndex}:${seriesIndex}`, { base, top: base + value });
+      const base = mode === "cumulative" ? total : value >= 0 ? up : down;
+      const top = base + value;
+      if (mode === "cumulative") total = top;
+      else if (value >= 0) up = top;
+      else down = top;
+      segments.set(`${labelIndex}:${seriesIndex}`, { base, top });
     }
   }
   return segments;
@@ -470,8 +473,18 @@ function renderCartesianChartSvg({
   const stackedSegments =
     stackedBars || stackedAreas
       ? new Map([
-          ...stackSegments(series, leftAxisIndexes, labels.length),
-          ...stackSegments(series, rightAxisIndexes, labels.length),
+          ...stackSegments(
+            series,
+            leftAxisIndexes,
+            labels.length,
+            stackedAreas ? "cumulative" : "diverging",
+          ),
+          ...stackSegments(
+            series,
+            rightAxisIndexes,
+            labels.length,
+            stackedAreas ? "cumulative" : "diverging",
+          ),
         ])
       : new Map<string, { base: number; top: number }>();
 

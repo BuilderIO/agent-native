@@ -303,6 +303,33 @@ describe("renderReportChartSvg", () => {
     expect(topValues).toEqual([firstGridY, firstGridY]);
   });
 
+  it("uses signed cumulative segments for mixed-sign stacked areas", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: ["W1", "W2"],
+      type: "area",
+      stacked: true,
+      series: [
+        { label: "Base", color: "#ff0000", data: [10, 10] },
+        { label: "Negative", color: "#0000ff", data: [-20, -20] },
+      ],
+    });
+
+    expect(leftAxisTicks(svg)).toEqual(["10", "5", "0", "-5", "-10"]);
+    const baseY = Number(
+      svg
+        .match(/<path d="[^"]*" fill="none" stroke="#ff0000"[^>]*>/)?.[0]
+        ?.match(/[ML] -?[\d.]+,(-?[\d.]+)/)?.[1],
+    );
+    const negativeArea = svg.match(/<path d="([^"]*)" fill="#0000ff"/)?.[1];
+    const negativeAreaYs = negativeArea
+      ? [...negativeArea.matchAll(/[ML] -?[\d.]+,(-?[\d.]+)/g)].map((match) =>
+          Number(match[1]),
+        )
+      : [];
+    expect(negativeAreaYs).toContain(baseY);
+  });
+
   it("keeps a mixed-sign stacked bar inside the plot area", () => {
     const svg = renderReportChartSvg({
       ...base,
