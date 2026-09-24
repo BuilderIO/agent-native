@@ -31,6 +31,61 @@ describe("readSystemClipboard", () => {
     ]);
   });
 
+  it("prefers SVG text when one clipboard item also exposes a raster image", async () => {
+    const contents = await readSystemClipboard({
+      clipboard: {
+        read: async () => [
+          {
+            types: ["text/plain", "image/png"],
+            getType: async (type: string) =>
+              type === "text/plain"
+                ? new Blob(['<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>'])
+                : new Blob(["png"], { type: "image/png" }),
+          },
+        ],
+      },
+      trustToken: null,
+    });
+    expect(contents?.files.map((file) => file.type)).toEqual(["image/svg+xml"]);
+  });
+
+  it("prefers an SVG image representation over raster when text is unavailable", async () => {
+    const contents = await readSystemClipboard({
+      clipboard: {
+        read: async () => [
+          {
+            types: ["image/png", "image/svg+xml"],
+            getType: async (type: string) =>
+              new Blob([type === "image/svg+xml" ? "<svg></svg>" : "png"], {
+                type,
+              }),
+          },
+        ],
+      },
+      trustToken: null,
+    });
+    expect(contents?.files.map((file) => file.type)).toEqual(["image/svg+xml"]);
+  });
+
+  it("continues after one clipboard item rejects a representation read", async () => {
+    const contents = await readSystemClipboard({
+      clipboard: {
+        read: async () => [
+          {
+            types: ["image/png"],
+            getType: async () => Promise.reject(new Error("denied")),
+          },
+          {
+            types: ["image/png"],
+            getType: async () => new Blob(["png"], { type: "image/png" }),
+          },
+        ],
+      },
+      trustToken: null,
+    });
+    expect(contents?.files).toHaveLength(1);
+  });
+
   it("reports a denied read as unreadable, not as an empty clipboard", async () => {
     const contents = await readSystemClipboard({
       clipboard: {

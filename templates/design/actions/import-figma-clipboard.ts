@@ -117,6 +117,28 @@ function convertedLayers(
   }));
 }
 
+function restNodePlacements(
+  nodesById: Record<
+    string,
+    { absoluteBoundingBox?: { x: number; y: number }; type?: string }
+  >,
+): ClipboardLayerPlacement[] {
+  return Object.values(nodesById).map((node) => ({
+    wrapsLooseNode: ![
+      "FRAME",
+      "SECTION",
+      "COMPONENT",
+      "INSTANCE",
+      "SLICE",
+    ].includes(node.type ?? ""),
+    origin: {
+      x: node.absoluteBoundingBox?.x ?? 0,
+      y: node.absoluteBoundingBox?.y ?? 0,
+    },
+    sourceOffset: null,
+  }));
+}
+
 /** Keep the copied arrangement, moved so its top-left lands on `placeAt`. */
 function placeFilesAt(
   files: ImportedDesignFile[],
@@ -278,10 +300,11 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        const placements = restNodePlacements(nodesById);
         const selectionWarnings = selectedNodeIdsTruncated
           ? [SELECTION_TRUNCATED_GUIDANCE]
           : [];
-        const placed = placePaste(files);
+        const placed = placePaste(files, placements);
         if (!placed.save) {
           return {
             designId: resolvedDesignId,
@@ -339,7 +362,7 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
-        const placed = placePaste(files);
+        const placed = placePaste(files, restNodePlacements(nodesById));
         if (!placed.save) {
           return {
             designId: resolvedDesignId,

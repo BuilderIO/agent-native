@@ -507,10 +507,40 @@ export function runPastedImageFiles(
  * The overview camera lives inside MultiScreenCanvas; an unrotated screen's
  * rendered iframe against its canvas geometry gives the same mapping.
  */
-function canvasPointFromClient(
+export function canvasPointFromClient(
   { clientX, clientY }: PastedImageFilesClientAnchor,
   frames: ReturnType<typeof getAllScreenFrameEntries>,
 ): { x: number; y: number } | null {
+  const surface = document.querySelector<HTMLElement>(
+    "[data-multi-screen-canvas-surface]",
+  );
+  const world = surface?.querySelector<HTMLElement>(
+    "[data-multi-screen-canvas-world]",
+  );
+  if (surface && world) {
+    const transform = getComputedStyle(world).transform;
+    const matrixValues =
+      transform === "none"
+        ? [1, 0, 0, 1, 0, 0]
+        : /^matrix\(([^)]+)\)$/.exec(transform)?.[1]?.split(",").map(Number);
+    if (matrixValues?.length === 6 && matrixValues.every(Number.isFinite)) {
+      const [a, b, c, d, e, f] = matrixValues;
+      const determinant = a! * d! - b! * c!;
+      if (Math.abs(determinant) > Number.EPSILON) {
+        const rect = surface.getBoundingClientRect();
+        const x = clientX - rect.left - e!;
+        const y = clientY - rect.top - f!;
+        return {
+          x: (d! * x - c! * y) / determinant,
+          y: (-b! * x + a! * y) / determinant,
+        };
+      }
+    }
+  }
+
+  // Keep the iframe fallback scoped to the frame under the pointer. The
+  // first iframe is not a canvas transform when Paste here targets another
+  // screen or empty board space.
   for (const frame of frames) {
     if (frame.geometry.rotation) continue;
     const iframe = document.querySelector<HTMLIFrameElement>(
@@ -518,6 +548,12 @@ function canvasPointFromClient(
     );
     if (!iframe?.offsetWidth) continue;
     const rect = iframe.getBoundingClientRect();
+    const pointIsWithinFrame =
+      rect.left <= clientX &&
+      clientX <= rect.right &&
+      rect.top <= clientY &&
+      clientY <= rect.bottom;
+    if (!pointIsWithinFrame) continue;
     const scale = rect.width / iframe.offsetWidth;
     return {
       x: frame.geometry.x + (clientX - rect.left) / scale,

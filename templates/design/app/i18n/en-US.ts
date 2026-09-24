@@ -809,6 +809,8 @@ export default {
       figmaPasteTarget: "Paste into the canvas",
       figmaPasteApiKeyHint:
         "Connect your Figma access token for exact node imports.",
+      figmaPasteAccessDenied:
+        'The connected Figma token can\'t access this file. Check your file permissions and that the token has the "File content" scope.',
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteUnreadable:

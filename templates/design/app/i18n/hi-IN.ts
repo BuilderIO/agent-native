@@ -802,6 +802,8 @@ export default {
       figmaPasteTarget: "canvas में paste करें",
       figmaPasteApiKeyHint:
         "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
+      figmaPasteAccessDenied:
+        'कनेक्ट किया गया Figma टोकन इस फ़ाइल तक नहीं पहुँच सकता। अपनी फ़ाइल अनुमतियाँ जाँचें और सुनिश्चित करें कि टोकन में "File content" स्कोप हो।',
       figmaPasteMatchGuidance:
         "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
       figmaPasteUnreadable:

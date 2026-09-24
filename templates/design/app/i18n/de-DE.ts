@@ -818,6 +818,8 @@ export default {
       figmaPasteTarget: "In die Leinwand einfügen",
       figmaPasteApiKeyHint:
         "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
+      figmaPasteAccessDenied:
+        'Der verbundene Figma-Zugriffstoken kann nicht auf diese Datei zugreifen. Prüfe deine Dateiberechtigung und ob der Token den Bereich "File content" enthält.',
       figmaPasteMatchGuidance:
         "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
       figmaPasteUnreadable:

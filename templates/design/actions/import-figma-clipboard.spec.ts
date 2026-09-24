@@ -250,6 +250,54 @@ describe("import-figma-clipboard", () => {
     ]);
   });
 
+  it("preserves REST multi-node coordinates when returning layers for paste placement", async () => {
+    const secondNode = {
+      ...HERO_NODE_DOCUMENT,
+      id: "1:2",
+      name: "Card",
+      absoluteBoundingBox: { x: 260, y: 220, width: 80, height: 40 },
+    };
+    const firstNode = {
+      ...HERO_NODE_DOCUMENT,
+      absoluteBoundingBox: { x: 100, y: 200, width: 100, height: 50 },
+    };
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({
+        nodes: {
+          "1:1": { document: firstNode },
+          "1:2": { document: secondNode },
+        },
+      }),
+    );
+
+    const result = (await action.run({
+      figmetaFileKey: FILE_KEY,
+      selectedNodeIds: ["1:1", "1:2"],
+      clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+      pasteScene: {
+        container: null,
+        viewport: { x: 0, y: 0, width: 500, height: 500 },
+        screens: [
+          { fileId: "screen-1", x: 130, y: 220, width: 500, height: 500 },
+        ],
+      },
+    } as any)) as any;
+
+    expect(result.strategy).toBe("restNodes");
+    expect(result.layers.map((layer: any) => layer.origin)).toEqual([
+      { x: 100, y: 200 },
+      { x: 260, y: 220 },
+    ]);
+    expect(result.plan).toMatchObject({
+      kind: "layers",
+      fileId: "screen-1",
+      positions: [
+        { x: 0, y: 0 },
+        { x: 160, y: 20 },
+      ],
+    });
+  });
+
   it("returns setup guidance instead of throwing when current Figma clipboard has no visible fallback and the token is missing", async () => {
     mocks.executeProviderApiRequest.mockRejectedValue(
       new Error("figma credential not configured. Tried: FIGMA_ACCESS_TOKEN"),

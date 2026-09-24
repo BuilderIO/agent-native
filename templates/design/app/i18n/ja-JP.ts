@@ -815,6 +815,8 @@ export default {
       figmaPasteTarget: "キャンバスに貼り付け",
       figmaPasteApiKeyHint:
         "正確なノードインポートのために Figma アクセストークンを接続してください。",
+      figmaPasteAccessDenied:
+        "接続済みのFigmaトークンではこのファイルにアクセスできません。ファイルへのアクセス権と、トークンに「File content」スコープがあることを確認してください。",
       figmaPasteMatchGuidance:
         "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
       figmaPasteUnreadable:

@@ -785,6 +785,8 @@ export default {
         "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
       figmaPasteTarget: "粘贴到画布",
       figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
+      figmaPasteAccessDenied:
+        '已连接的 Figma 令牌无法访问此文件。请检查文件访问权限，并确认令牌包含 "File content" 权限范围。',
       figmaPasteMatchGuidance:
         "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
       figmaPasteUnreadable:

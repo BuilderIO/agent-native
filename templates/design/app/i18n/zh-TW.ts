@@ -936,6 +936,8 @@ export default {
         "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
       figmaPasteTarget: "貼到畫布",
       figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
+      figmaPasteAccessDenied:
+        "已連結的 Figma 權杖無法存取此檔案。請檢查檔案存取權限，並確認權杖包含「File content」範圍。",
       figmaPasteMatchGuidance:
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
       figmaPasteUnreadable:

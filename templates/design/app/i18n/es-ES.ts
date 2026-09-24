@@ -816,6 +816,8 @@ export default {
       figmaPasteTarget: "Pega en el lienzo",
       figmaPasteApiKeyHint:
         "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
+      figmaPasteAccessDenied:
+        'El token de Figma conectado no puede acceder a este archivo. Comprueba tus permisos y que el token incluya el alcance "File content".',
       figmaPasteMatchGuidance:
         "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
       figmaPasteUnreadable:

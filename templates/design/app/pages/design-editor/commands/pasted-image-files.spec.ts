@@ -17,6 +17,7 @@ vi.mock("@/lib/svg-paste", async (importOriginal) => ({
 
 import type { DesignFile } from "../types";
 import {
+  canvasPointFromClient,
   pngDensityScale,
   replacePastedImageSource,
   runPastedImageFiles,
@@ -69,6 +70,35 @@ function args(
 }
 
 const file = new File(["image"], "photo.png", { type: "image/png" });
+
+describe("canvasPointFromClient", () => {
+  it("inverts the overview camera for paste anchors anywhere on the board", () => {
+    const surface = document.createElement("div");
+    surface.dataset.multiScreenCanvasSurface = "";
+    const world = document.createElement("div");
+    world.dataset.multiScreenCanvasWorld = "";
+    world.style.transform = "matrix(2, 0, 0, 2, -300, -200)";
+    surface.append(world);
+    document.body.append(surface);
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 50,
+      right: 900,
+      bottom: 650,
+      width: 800,
+      height: 600,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    expect(canvasPointFromClient({ clientX: 200, clientY: 150 }, [])).toEqual({
+      x: 200,
+      y: 150,
+    });
+    surface.remove();
+  });
+});
 
 describe("runPastedImageFiles", () => {
   beforeEach(() => {

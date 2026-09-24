@@ -821,6 +821,8 @@ export default {
       figmaPasteTarget: "Collez dans le canevas",
       figmaPasteApiKeyHint:
         "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
+      figmaPasteAccessDenied:
+        'Le jeton Figma connecté ne peut pas accéder à ce fichier. Vérifiez vos autorisations et assurez-vous que le jeton dispose du droit "File content".',
       figmaPasteMatchGuidance:
         "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
       figmaPasteUnreadable:

@@ -6,14 +6,18 @@ const warnings = vi.hoisted(() => ({
     "33 images could not be loaded without a Figma access token. Connect Figma to fill them in.",
   ] as string[],
 }));
-const toastCalls = vi.hoisted(() => ({ warning: [] as string[] }));
+const toastCalls = vi.hoisted(() => ({
+  warning: [] as string[],
+  error: [] as Array<{ title: string; options?: Record<string, unknown> }>,
+}));
 const callAction = vi.hoisted(() => vi.fn());
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
     info: vi.fn(),
     success: vi.fn(),
-    error: vi.fn(),
+    error: (title: string, options?: Record<string, unknown>) =>
+      toastCalls.error.push({ title, options }),
     dismiss: vi.fn(),
     loading: vi.fn(() => "toast-id"),
     warning: (title: string) => {
@@ -182,5 +186,55 @@ describe("a Figma paste placed inside the canvas", () => {
     expect(insertPasteLayers).toHaveBeenCalledWith("board", null, [
       expect.objectContaining({ position: { x: 45, y: 45 } }),
     ]);
+  });
+});
+
+describe("Figma paste access failures", () => {
+  it("localizes a missing Figma token instead of showing the action error", async () => {
+    toastCalls.error.length = 0;
+    callAction.mockRejectedValueOnce(
+      Object.assign(new Error("No Figma token is available"), {
+        errorCode: "figma_auth_required",
+        statusCode: 401,
+      }),
+    );
+
+    await runImportFigmaClipboardIntoDesign(args(vi.fn()), "<figmeta>");
+
+    expect(
+      toastCalls.error[toastCalls.error.length - 1]?.options?.description,
+    ).toBe("designEditor.import.figmaPasteApiKeyHint");
+  });
+
+  it("localizes a Figma file permission denial", async () => {
+    toastCalls.error.length = 0;
+    callAction.mockRejectedValueOnce(
+      Object.assign(new Error("Figma nodes request failed: Forbidden"), {
+        errorCode: "figma_request_failed",
+        statusCode: 403,
+        details: { figmaStatus: 403 },
+      }),
+    );
+
+    await runImportFigmaClipboardIntoDesign(args(vi.fn()), "<figmeta>");
+
+    expect(
+      toastCalls.error[toastCalls.error.length - 1]?.options?.description,
+    ).toBe("designEditor.import.figmaPasteAccessDenied");
+  });
+
+  it("keeps typed access details when the action resolves with an error result", async () => {
+    toastCalls.error.length = 0;
+    callAction.mockResolvedValueOnce({
+      error: "No Figma token is available",
+      errorCode: "figma_auth_required",
+      statusCode: 401,
+    });
+
+    await runImportFigmaClipboardIntoDesign(args(vi.fn()), "<figmeta>");
+
+    expect(
+      toastCalls.error[toastCalls.error.length - 1]?.options?.description,
+    ).toBe("designEditor.import.figmaPasteApiKeyHint");
   });
 });

@@ -804,6 +804,8 @@ export default {
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+      figmaPasteAccessDenied:
+        '연결된 Figma 토큰으로 이 파일에 액세스할 수 없습니다. 파일 권한과 토큰에 "File content" 범위가 포함되어 있는지 확인하세요.',
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:

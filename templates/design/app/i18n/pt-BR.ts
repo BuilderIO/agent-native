@@ -811,6 +811,8 @@ export default {
       figmaPasteTarget: "Cole na tela",
       figmaPasteApiKeyHint:
         "Conecte seu token de acesso do Figma para importações exatas de nós.",
+      figmaPasteAccessDenied:
+        'O token do Figma conectado não consegue acessar este arquivo. Verifique suas permissões e se o token inclui o escopo "File content".',
       figmaPasteMatchGuidance:
         "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
       figmaPasteUnreadable:

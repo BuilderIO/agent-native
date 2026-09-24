@@ -797,6 +797,8 @@ export default {
       figmaPasteTarget: "الصق في اللوحة",
       figmaPasteApiKeyHint:
         "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
+      figmaPasteAccessDenied:
+        'لا يمكن لرمز Figma المتصل الوصول إلى هذا الملف. تحقق من أذونات الملف ومن أن الرمز يتضمن نطاق "File content".',
       figmaPasteMatchGuidance:
         "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
       figmaPasteUnreadable:

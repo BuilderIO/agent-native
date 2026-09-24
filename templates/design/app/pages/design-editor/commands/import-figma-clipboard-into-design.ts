@@ -14,6 +14,29 @@ import { importResultSummary } from "@/lib/design-import";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import { figmaPasteLayerHtml } from "@/lib/figma-paste-layers";
 
+function figmaPasteFailureDescription(
+  error: unknown,
+  t: (key: string) => string,
+): string {
+  const failure = error as
+    | {
+        errorCode?: unknown;
+        statusCode?: unknown;
+        details?: Record<string, unknown>;
+      }
+    | undefined;
+  if (failure?.errorCode === "figma_auth_required") {
+    return t("designEditor.import.figmaPasteApiKeyHint");
+  }
+  if (
+    failure?.errorCode === "figma_request_failed" &&
+    (failure.statusCode === 403 || failure.details?.figmaStatus === 403)
+  ) {
+    return t("designEditor.import.figmaPasteAccessDenied");
+  }
+  return error instanceof Error ? error.message : t("common.genericError");
+}
+
 export interface FigmaPasteLayerInsert {
   html: string;
   headLinks: string[];
@@ -85,10 +108,19 @@ export async function runImportFigmaClipboardIntoDesign(
         ? { pasteScene: resolvePasteScene() }
         : {}),
     })) as ImportResult & {
+      errorCode?: unknown;
+      statusCode?: unknown;
+      details?: Record<string, unknown>;
       layers?: FigmaPasteLayer[];
       plan?: Exclude<FigmaPastePlan, { kind: "screens" }>;
     };
-    if (result?.error) throw new Error(result.error);
+    if (result?.error) {
+      throw Object.assign(new Error(result.error), {
+        errorCode: result.errorCode,
+        statusCode: result.statusCode,
+        details: result.details,
+      });
+    }
     const { layers, plan } = result;
     if (plan && layers?.length) {
       const fileId = plan.kind === "layers" ? plan.fileId : boardFileId;
@@ -136,8 +168,7 @@ export async function runImportFigmaClipboardIntoDesign(
     );
   } catch (error) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
-      description:
-        error instanceof Error ? error.message : t("common.genericError"),
+      description: figmaPasteFailureDescription(error, t),
     });
   } finally {
     figmaPasteImportingRef.current = false;
