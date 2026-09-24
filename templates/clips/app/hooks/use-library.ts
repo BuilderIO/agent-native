@@ -2,6 +2,7 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import type { RecordingKind } from "@shared/recording-kind";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
@@ -14,6 +15,8 @@ export interface RecordingSummary {
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   description: string;
+  /** "image" rows are screenshots: no duration, no transcript, no player. */
+  kind: RecordingKind;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
@@ -45,6 +48,8 @@ export interface RecordingSummary {
 
 export interface ListRecordingsArgs {
   view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" is the Screenshots view; omitted means clips and screenshots. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -161,6 +166,22 @@ export function useCreateSpace() {
       iconEmoji?: string | null;
     }
   >("create-space");
+}
+
+export function useCreateScreenshot() {
+  return useActionMutation<
+    { id: string; kind: "image"; imageUrl: string },
+    {
+      dataUrl: string;
+      width: number;
+      height: number;
+      title?: string;
+      sourceAppName?: string | null;
+      sourceWindowTitle?: string | null;
+      folderId?: string | null;
+      spaceIds?: string[];
+    }
+  >("create-screenshot");
 }
 
 export function useRenameFolder() {

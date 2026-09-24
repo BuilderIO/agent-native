@@ -9,6 +9,7 @@ import { parseTimeParam } from "@/lib/time-param";
 
 export type ClipsView =
   | "library"
+  | "screenshots"
   | "shared"
   | "spaces"
   | "space"
@@ -185,6 +186,7 @@ export function stateFromLocation(
     };
   }
 
+  if (p === "/screenshots") return { view: "screenshots" };
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/shared") return { view: "shared" };
   if (p === "/archive") return { view: "archive" };

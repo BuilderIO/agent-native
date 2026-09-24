@@ -1,12 +1,14 @@
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isImageRecording } from "@shared/recording-kind";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
+  IconPhoto,
   IconPlayerPlay,
   IconShare,
   IconFolder,
@@ -155,7 +157,10 @@ export function RecordingCard({
   const staleUpload = isStaleRecordingUpload(recording);
   const atRiskUpload = isAtRiskRecordingUpload(recording);
   const displayFailed = recording.status === "failed" || staleUpload;
-  const showPlaybackChrome = !displayFailed && !waitingForStorage;
+  // A screenshot has nothing to play and no length to show, so the card drops
+  // the play overlay and the duration badge rather than claiming "0:00".
+  const isImage = isImageRecording(recording);
+  const showPlaybackChrome = !displayFailed && !waitingForStorage && !isImage;
   const failureReason = staleUpload
     ? (recording.failureReason ??
       t("recordingPage.processingStuck", { status: recording.status }))
@@ -319,9 +324,11 @@ export function RecordingCard({
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
-                {showPlaybackChrome && (
+                {isImage ? (
+                  <IconPhoto className="h-10 w-10 text-primary/40" />
+                ) : showPlaybackChrome ? (
                   <IconPlayerPlay className="h-10 w-10 text-primary/40" />
-                )}
+                ) : null}
               </div>
             )}
 

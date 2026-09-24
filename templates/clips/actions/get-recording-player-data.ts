@@ -23,10 +23,50 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "@shared/recording-kind.js";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+/**
+ * `editsJson` with a screenshot's editing record stripped out — see the
+ * matching helper on the public endpoint.
+ */
+function withoutScreenshotEdits(editsJson: string | null): string {
+  try {
+    const parsed = JSON.parse(editsJson || "{}") as Record<string, unknown>;
+    delete parsed.redactions;
+    delete parsed.annotations;
+    // Where pending redaction boxes sit says where the secret is.
+    delete parsed.overlays;
+    delete parsed.crop;
+    return JSON.stringify(parsed);
+  } catch {
+    return "{}";
+  }
+}
+
+/**
+ * The movable marks stored on a screenshot, if any.
+ *
+ * They live alongside the video editor's own entries in `editsJson`, so this
+ * reads defensively: anything unexpected in there is treated as "no marks"
+ * rather than handed to the editor.
+ */
+function screenshotAnnotationsOf(editsJson: string | null): unknown[] {
+  try {
+    const parsed = JSON.parse(editsJson || "{}");
+    const annotations = (parsed as { annotations?: unknown }).annotations;
+    return Array.isArray(annotations) ? annotations : [];
+  } catch {
+    return [];
+  }
+}
+
+
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
@@ -350,6 +390,25 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
+        kind: resolveRecordingKind(rec.kind),
+        // A screenshot is served through the thumbnail route, which is the
+        // full stored image and already enforces the share password, expiry
+        // and visibility — the same gate the video URL goes through.
+        imageUrl: isImageRecording(rec) ? resolvePlayerThumbnailUrl(rec) : null,
+        // Editing material, for people who can edit. A viewer is served the
+        // flattened picture and nothing else — the base is the same image
+        // without the movable marks, so there is no reason to hand it out.
+        // Proxied like every other media URL: the stored object lives in a
+        // private bucket the browser cannot reach directly.
+        baseImageUrl:
+          isImageRecording(rec) && canEditRecording
+            ? (resolvePlayerThumbnailUrl(rec, { base: true }) ??
+              resolvePlayerThumbnailUrl(rec))
+            : null,
+        annotations:
+          isImageRecording(rec) && canEditRecording
+            ? screenshotAnnotationsOf(rec.editsJson)
+            : [],
         thumbnailUrl: resolvePlayerThumbnailUrl(rec),
         animatedThumbnailUrl: rec.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(rec, { animated: true })
@@ -369,13 +428,19 @@ export default defineAction({
         sourceAppName: rec.sourceAppName,
         sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
-        editsJson: rec.editsJson,
+        // Same reasoning as the public endpoint: a viewer of a screenshot has
+        // no use for the mark list, and `redactions` would tell them where
+        // content was hidden and how much of it there was.
+        editsJson:
+          isImageRecording(rec) && !canEditRecording
+            ? withoutScreenshotEdits(rec.editsJson)
+            : rec.editsJson,
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
-        // The version of the stored bytes. A redaction burn re-uploads under
-        // the same URL, so without this the browser can keep playing the copy
-        // it already has — the one with the boxes still only drawn on.
+        // The version of the stored bytes. A redaction burn or a screenshot
+        // edit replaces the file behind a URL that stays the same, so without
+        // this the browser keeps showing the copy it already has.
         mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,

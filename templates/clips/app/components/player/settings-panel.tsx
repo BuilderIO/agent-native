@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import { useRef, useState } from "react";
+import { isImageRecording } from "@shared/recording-kind";
 import { toast } from "sonner";
 
 import {
@@ -41,6 +42,7 @@ export interface SettingsPanelProps {
     enableDownloads: boolean;
     defaultSpeed: string;
     animatedThumbnailEnabled: boolean;
+    kind?: string | null;
   };
   ctas: {
     id: string;
@@ -57,6 +59,9 @@ export interface SettingsPanelProps {
 export function SettingsPanel(props: SettingsPanelProps) {
   const t = useT();
   const { recording, ctas, onClose, onRefetch, showHeader = true } = props;
+  // A screenshot has no playback and no end of video: playback speed, the
+  // animated thumbnail and a call to action all describe something that plays.
+  const isImage = isImageRecording(recording);
 
   const update = useActionMutation("update-recording", {
     onSuccess: () => onRefetch?.(),
@@ -133,13 +138,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
               disabled={update.isPending}
               onChange={(v) => patch({ enableComments: v })}
             />
-            <ToggleRow
-              id="viewer-reactions"
-              label={t("playerSettings.reactions")}
-              checked={recording.enableReactions}
-              disabled={update.isPending}
-              onChange={(v) => patch({ enableReactions: v })}
-            />
+            {isImage ? null : (
+              <ToggleRow
+                id="viewer-reactions"
+                label={t("playerSettings.reactions")}
+                checked={recording.enableReactions}
+                disabled={update.isPending}
+                onChange={(v) => patch({ enableReactions: v })}
+              />
+            )}
             <ToggleRow
               id="viewer-downloads"
               label={t("playerSettings.allowDownloads")}
@@ -147,13 +154,16 @@ export function SettingsPanel(props: SettingsPanelProps) {
               disabled={update.isPending}
               onChange={(v) => patch({ enableDownloads: v })}
             />
-            <ToggleRow
-              id="viewer-animated-thumbnail"
-              label={t("playerSettings.animatedThumbnail")}
-              checked={recording.animatedThumbnailEnabled}
-              disabled={update.isPending}
-              onChange={(v) => patch({ animatedThumbnailEnabled: v })}
-            />
+            {isImage ? null : (
+              <ToggleRow
+                id="viewer-animated-thumbnail"
+                label={t("playerSettings.animatedThumbnail")}
+                checked={recording.animatedThumbnailEnabled}
+                disabled={update.isPending}
+                onChange={(v) => patch({ animatedThumbnailEnabled: v })}
+              />
+            )}
+            {isImage ? null : (
             <div className="flex min-h-8 items-center gap-3 py-1">
               <Label
                 htmlFor="recording-default-speed"
@@ -182,9 +192,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 </SelectContent>
               </Select>
             </div>
+            )}
           </CardContent>
         </Card>
 
+        {isImage ? null : (
         <Card className="border border-border/70 bg-card shadow-none">
           <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 p-3 pb-1.5">
             <CardTitle className="text-sm leading-none">
@@ -249,6 +261,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             ) : null}
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   );

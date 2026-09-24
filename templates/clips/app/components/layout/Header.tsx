@@ -11,6 +11,7 @@ const pageTitleKeys: Record<string, string> = {
   "/library": "navigation.library",
   "/shared": "navigation.sharedWithMe",
   "/spaces": "navigation.spaces",
+  "/screenshots": "navigation.screenshots",
   "/archive": "navigation.archive",
   "/trash": "navigation.trash",
   "/notifications": "navigation.notifications",

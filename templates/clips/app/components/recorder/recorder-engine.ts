@@ -2,6 +2,11 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { redactBrowserDiagnosticString } from "@shared/browser-diagnostics";
+import {
+  errorMessage,
+  errorName,
+  isScreenPickerDismissal,
+} from "@shared/display-capture-errors";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
   chooseFallbackAudioInput,
@@ -278,10 +283,6 @@ function voiceFocusedAudioConstraints(
   };
 }
 
-function errorName(err: unknown): string {
-  return (err as { name?: string } | null)?.name ?? "";
-}
-
 // getUserMedia failed because the requested device is gone (unplugged / stale
 // saved id), not a permission error — recoverable by retrying with the default.
 function isDeviceUnavailableError(err: unknown): boolean {
@@ -291,16 +292,6 @@ function isDeviceUnavailableError(err: unknown): boolean {
     name === "NotFoundError" ||
     name === "DevicesNotFoundError"
   );
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err || "Unknown error";
-  try {
-    return JSON.stringify(err) ?? "Unknown error";
-  } catch {
-    return "Unknown error";
-  }
 }
 
 function micLabelDiagnostic(label: string | null | undefined): string {
@@ -367,24 +358,6 @@ function capturePolicyBlockMessage(source: CaptureSource): string | null {
     return "This page is blocking microphone access via Permissions-Policy. Open Clips directly in a browser tab, or use a frame that allows microphone access.";
   }
   return null;
-}
-
-function isScreenPickerDismissal(err: unknown): boolean {
-  const name = errorName(err);
-  const message = errorMessage(err);
-  if (name === "AbortError") return true;
-  if (/cancelled|canceled|dismissed/i.test(message)) return true;
-  // Chromium reports a user-cancelled screen picker as NotAllowedError with
-  // a "by user" / "user denied" signal in the message. A bare NotAllowedError
-  // without that signal can be an enterprise-policy block or other genuine
-  // denial — surface those as errors instead of silently swallowing them.
-  if (
-    name === "NotAllowedError" &&
-    /by user|user (cancelled|canceled|denied|dismissed)/i.test(message)
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function canUseTimeslicedRecorderChunks(mimeType: string): boolean {

@@ -273,8 +273,12 @@ describe("/api/public-recording route", () => {
 
     expect(result).toMatchObject({
       recording: {
-        thumbnailUrl: "/api/thumbnail/rec-1?t=media-token",
-        animatedThumbnailUrl: "/api/thumbnail/rec-1?t=media-token&animated=1",
+        // Versioned by when the stored image last changed, so an edited
+        // screenshot is a new URL and the browser fetches it again.
+        thumbnailUrl:
+          "/api/thumbnail/rec-1?t=media-token&media=2026-01-01T00%3A00%3A00.000Z",
+        animatedThumbnailUrl:
+          "/api/thumbnail/rec-1?t=media-token&animated=1&media=2026-01-01T00%3A00%3A00.000Z",
       },
     });
   });

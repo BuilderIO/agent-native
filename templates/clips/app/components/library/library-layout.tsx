@@ -18,6 +18,7 @@ import {
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
+  IconPhoto,
   IconArchive,
   IconCalendar,
   IconMicrophone2,
@@ -77,6 +78,7 @@ import { cn } from "@/lib/utils";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
+import { useRecordingSection } from "@/lib/recording-section";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
@@ -190,6 +192,8 @@ function ExpandedSidebarNavGroup({
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  // A recording page says which section it belongs to; see recording-section.
+  const recordingSection = useRecordingSection();
   const navigate = useNavigate();
   const t = useT();
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
@@ -233,7 +237,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
   // Clip count for the "Library" nav item — count-only, no row payload or
   // title polling across the app shell.
-  const { data: libraryCount } = useRecordingsCount({ view: "library" });
+  // Counts match what each section actually lists: clips in Library,
+  // screenshots in Screenshots.
+  const { data: libraryCount } = useRecordingsCount({
+    view: "library",
+    kind: "video",
+  });
+  const { data: screenshotCount } = useRecordingsCount({
+    view: "library",
+    kind: "image",
+  });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
   const libFolderList: FolderNode[] = useMemo(
@@ -426,9 +439,19 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       match: (p) =>
         p === "/home" ||
         p.startsWith("/library") ||
-        p.startsWith("/r/") ||
+        (p.startsWith("/r/") &&
+          (recordingSection ?? "library") === "library") ||
         p.startsWith("/share/"),
       count: libraryCount,
+    },
+    {
+      to: "/screenshots",
+      label: t("navigation.screenshots"),
+      icon: IconPhoto,
+      match: (p) =>
+        p.startsWith("/screenshots") ||
+        (p.startsWith("/r/") && recordingSection === "screenshots"),
+      count: screenshotCount,
     },
     {
       to: "/shared",
@@ -441,7 +464,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       to: "/spaces",
       label: t("navigation.spaces"),
       icon: IconUsersGroup,
-      match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
+      match: (p) =>
+        p === "/spaces" ||
+        p.startsWith("/spaces/") ||
+        (p.startsWith("/r/") && recordingSection === "spaces"),
     },
     ...(meetingsLabEnabled
       ? [

@@ -25,6 +25,9 @@ export default function LibraryIndexRoute() {
   return (
     <LibraryGrid
       view="library"
+      // Clips only: screenshots have their own section in the sidebar, so a
+      // still never turns up mixed into a list of videos.
+      kind="video"
       folderId={null}
       title={t("navigation.library")}
       extraActions={<LibraryPrimaryActions />}

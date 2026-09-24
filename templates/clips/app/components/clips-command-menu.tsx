@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/shared";
 import {
   IconArchive,
+  IconPhoto,
   IconCalendar,
   IconFileText,
   IconFolder,
@@ -609,6 +610,13 @@ export function ClipsCommandMenu({
           <IconMicrophone2 size={16} />
           {t("navigation.dictate")}
           <CommandMenu.Shortcut>G D</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => void navigate("/screenshots")}
+          keywords={["screenshots", "screenshot", "images", "stills"]}
+        >
+          <IconPhoto size={16} />
+          {t("navigation.screenshots")}
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => void navigate("/archive")}

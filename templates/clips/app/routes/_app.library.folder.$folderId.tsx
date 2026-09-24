@@ -34,6 +34,7 @@ export default function LibraryFolderRoute() {
   return (
     <LibraryGrid
       view="library"
+      kind="video"
       folderId={folderId}
       emptyKind="folder"
       title={folder?.name ?? t("navigation.folder")}

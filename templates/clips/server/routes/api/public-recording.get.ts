@@ -43,6 +43,10 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import {
@@ -193,6 +197,37 @@ function addProtectedMediaTokenFallback(
 ): string | null {
   if (!videoUrl || !token || !isLocalVideoRoute(videoUrl)) return videoUrl;
   return appendQueryParam(videoUrl, "t", token);
+}
+
+/**
+ * `editsJson` with a screenshot's editing record removed.
+ *
+ * The page needs the video editor's entries (trims and so on) to play a clip,
+ * but a screenshot's marks are already burned into the image it is served, so
+ * the mark list is of no use to a viewer — and `redactions` carries the
+ * position and size of every area that was hidden. That says where a secret
+ * was and how long it was, which is not something a share link should hand
+ * out just because the picture itself is safe.
+ */
+function publicEditsJson(recording: {
+  kind?: string | null;
+  editsJson: string;
+}): string {
+  if (!isImageRecording(recording)) return recording.editsJson;
+  try {
+    const parsed = JSON.parse(recording.editsJson || "{}") as Record<
+      string,
+      unknown
+    >;
+    delete parsed.redactions;
+    delete parsed.annotations;
+    // Where pending redaction boxes sit says where the secret is.
+    delete parsed.overlays;
+    delete parsed.crop;
+    return JSON.stringify(parsed);
+  } catch {
+    return "{}";
+  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -501,11 +536,16 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
+      kind: resolveRecordingKind(rec.kind),
+      // A screenshot's picture is served by the thumbnail route, which is the
+      // full stored image and carries the same short-lived token as the video
+      // URL — so the share password gates the image bytes too.
+      imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: rec.editsJson,
+      editsJson: publicEditsJson(rec),
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,

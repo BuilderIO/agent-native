@@ -50,3 +50,26 @@ describe("player thumbnail URLs", () => {
     );
   });
 });
+
+describe("resolvePlayerThumbnailUrl versioning", () => {
+  it("changes the URL when the stored image changes, so a card refetches it", () => {
+    const before = resolvePlayerThumbnailUrl({
+      id: "rec1",
+      thumbnailUrl: "https://storage/a.png",
+      mediaUpdatedAt: "2026-09-23T10:00:00.000Z",
+    });
+    const after = resolvePlayerThumbnailUrl({
+      id: "rec1",
+      thumbnailUrl: "https://storage/a.png",
+      mediaUpdatedAt: "2026-09-23T10:05:00.000Z",
+    });
+    expect(before).toContain("media=");
+    expect(after).not.toBe(before);
+  });
+
+  it("leaves a never-edited image's URL as it was", () => {
+    expect(
+      resolvePlayerThumbnailUrl({ id: "rec1", thumbnailUrl: "https://storage/a.png" }),
+    ).toBe("/api/thumbnail/rec1");
+  });
+});

@@ -39,4 +39,4 @@ export function isHeldForRedaction(
 
 /** What the viewer is told. Deliberately says nothing about what is covered. */
 export const REDACTION_HOLD_MESSAGE =
-  "This clip is being edited by its owner and is unavailable for now.";
+  "This is being edited by its owner and is unavailable for now.";

@@ -163,6 +163,22 @@ export const recordings = table("recordings", {
   filmstripFrameWidth: integer("filmstrip_frame_width").notNull().default(0),
   filmstripFrameHeight: integer("filmstrip_frame_height").notNull().default(0),
 
+  // What this row holds. 'video' is a recorded or uploaded clip and owns
+  // `videoUrl`; 'image' is a single screenshot and owns `imageUrl` instead —
+  // it has no duration, transcript, filmstrip or editable timeline, so the
+  // pipelines that produce those skip it rather than failing on a missing
+  // video file.
+  kind: text("kind", { enum: ["video", "image"] })
+    .notNull()
+    .default("video"),
+  imageUrl: text("image_url"),
+  // The screenshot as it stands before the movable marks are drawn on: the
+  // capture with any blur already burned into it, and nothing else. Marks stay
+  // editable because this is what the editor re-renders from, while everyone
+  // else is served `imageUrl` with the marks baked in. It is safe to keep —
+  // redaction has already destroyed the hidden pixels in this file too.
+  baseImageUrl: text("base_image_url"),
+
   durationMs: integer("duration_ms").notNull().default(0),
   videoUrl: text("video_url"),
   videoFormat: text("video_format", { enum: ["webm", "mp4"] })

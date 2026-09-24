@@ -29,22 +29,12 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { requiresConfiguredVideoStorage } from "../server/lib/video-storage.js";
+import { decodeDataUrl } from "./lib/data-url.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
 const THUMBNAIL_STORAGE_REQUIRED_REASON =
   "Thumbnail storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to save thumbnails.";
-
-function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error("dataUrl must be base64-encoded data: URL");
-  const mime = match[1];
-  const base64 = match[2];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return { bytes, mime };
-}
 
 export default defineAction({
   description:

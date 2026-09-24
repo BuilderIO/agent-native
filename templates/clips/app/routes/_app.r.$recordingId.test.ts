@@ -342,7 +342,15 @@ describe("direct recording route shell cue", () => {
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
     expect(normalizedEffect).toContain(
-      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
+      "setPanel( recording && !recording.enableComments ? defaultPanel : \"comments\", )",
+    );
+
+    // `defaultPanel` is where the panel lands when the requested tab does not
+    // apply. It is transcript for a video and comments for a screenshot,
+    // which has no transcript tab at all.
+    const route2 = readRoute("_app.r.$recordingId.tsx");
+    expect(route2.replace(/\s+/g, " ")).toContain(
+      'const defaultPanel: SidePanel = isImage ? "comments" : "transcript";',
     );
   });
 
