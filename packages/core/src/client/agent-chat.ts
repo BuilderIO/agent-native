@@ -1135,7 +1135,19 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
-  const localChatTarget = opts.chatTarget === "local";
+  const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
+  // MCP host follow-up APIs accept a prompt only; richer sends stay in this app's chat.
+  const localChatTarget =
+    opts.chatTarget === "local" ||
+    (mcpBridgeEnabled &&
+      Boolean(
+        opts.attachments?.length ||
+        opts.images?.length ||
+        opts.referenceImagePaths?.length ||
+        opts.uploadedReferenceImages?.length ||
+        opts.usageLabel ||
+        actionScope,
+      ));
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1171,22 +1183,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
-  if (
-    opts.submit !== false &&
-    !localChatTarget &&
-    isMcpAppChatBridgeEnabled()
-  ) {
-    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
-    // label. Use the normal wrapper transport when either needs to reach the
-    // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel || actionScope) {
-      window.parent.postMessage(
-        payload,
-        getFramePostMessageTargetOrigin() || "*",
-      );
-      return tabId;
-    }
+  if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,

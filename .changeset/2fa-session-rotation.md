@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Rotate Better Auth and framework sessions after two-factor changes and normalize `pglite:memory:` as in-memory.
+Rotate sessions after two-factor changes, filter resolved action surfaces by `initialToolNames`, preserve rich MCP chat submits, and retain device-flow catalog scope.

@@ -492,7 +492,8 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).not.toHaveBeenCalled();
   });
 
-  it("uses the wrapper relay when MCP App attachments need to reach chat", () => {
+  it("routes MCP App attachments to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     const attachments = [
@@ -511,9 +512,11 @@ describe("sendToAgentChat", () => {
     });
 
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
-    expect(targetOrigin).toBe("*");
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.attachments).toEqual(attachments);
@@ -569,22 +572,28 @@ describe("sendToAgentChat", () => {
     );
   });
 
-  it("uses the wrapper relay when an MCP App send carries a usage label", () => {
+  it("routes MCP App usage labels and action scopes to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
 
-    sendToAgentChat({
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+    const tabId = sendToAgentChat({
       message: "enrich this record",
       submit: true,
       usageLabel: "crm:enrich-record",
+      actionScope,
     });
 
-    // The host follow-up API has no field for the label, so taking that path
-    // would record the run as an ordinary chat turn.
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
   });
 
   it("can force MCP App embeds to use the local app chat", () => {

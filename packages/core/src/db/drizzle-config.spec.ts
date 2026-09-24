@@ -21,18 +21,12 @@ describe("createDrizzleConfig", () => {
   it("passes memory PGlite URLs through as memory data dirs", async () => {
     const { createDrizzleConfig } = await import("./drizzle-config.js");
 
-    for (const databaseUrl of [
-      "pglite:memory",
-      "pglite:memory:",
-      "pglite:/memory:",
-    ]) {
-      vi.stubEnv("DATABASE_URL", databaseUrl);
-      expect(createDrizzleConfig()).toMatchObject({
-        dialect: "postgresql",
-        driver: "pglite",
-        dbCredentials: { url: "memory://" },
-      });
-    }
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    expect(createDrizzleConfig()).toMatchObject({
+      dialect: "postgresql",
+      driver: "pglite",
+      dbCredentials: { url: "memory://" },
+    });
   });
 
   // Hosts that pool their DATABASE_URL cannot run DDL through it: a Neon

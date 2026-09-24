@@ -82,6 +82,7 @@ export async function ensureTable(): Promise<void> {
           org_id TEXT,
           status TEXT NOT NULL DEFAULT 'pending',
           token_jti TEXT,
+          catalog_scope TEXT,
           created_at BIGINT,
           expires_at BIGINT,
           consumed_at BIGINT
@@ -105,6 +106,11 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
       );
       await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
+      await ensureColumnExists(
+        "mcp_device_codes",
+        "catalog_scope",
+        `ALTER TABLE mcp_device_codes ADD COLUMN IF NOT EXISTS catalog_scope TEXT`,
+      );
     })().catch((err) => {
       // Don't cache a rejected init. A transient DB blip should let the next
       // connect/mint/revoke call retry rather than wedging the process.
@@ -394,6 +400,7 @@ export interface DeviceCodeRow {
   orgId: string | null;
   status: "pending" | "approved" | "minting" | "consumed" | "expired";
   tokenJti: string | null;
+  catalogScope: "full" | null;
   createdAt: number | null;
   expiresAt: number | null;
   consumedAt: number | null;
@@ -425,7 +432,9 @@ function generateDeviceCode(): string {
  * Throws `RATE_LIMITED` when the cap is exceeded so the route can map it to a
  * 429.
  */
-export async function createDeviceCode(): Promise<DeviceCodeRow> {
+export async function createDeviceCode(
+  catalogScope: "full" | null = null,
+): Promise<DeviceCodeRow> {
   await ensureTable();
   const client = getDbExec();
 
@@ -449,7 +458,7 @@ export async function createDeviceCode(): Promise<DeviceCodeRow> {
   const userCode = generateUserCode();
   const expiresAt = now + DEVICE_CODE_TTL_MS;
   await client.execute({
-    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_device_codes (device_code, user_code, owner_email, org_id, status, token_jti, catalog_scope, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       deviceCode,
       userCode,
@@ -457,6 +466,7 @@ export async function createDeviceCode(): Promise<DeviceCodeRow> {
       null,
       "pending",
       null,
+      catalogScope,
       now,
       expiresAt,
       null,
@@ -469,6 +479,7 @@ export async function createDeviceCode(): Promise<DeviceCodeRow> {
     orgId: null,
     status: "pending",
     tokenJti: null,
+    catalogScope,
     createdAt: now,
     expiresAt,
     consumedAt: null,
@@ -483,6 +494,8 @@ function mapDeviceRow(r: any): DeviceCodeRow {
     orgId: (r.org_id ?? r.orgId ?? null) as string | null,
     status: (r.status ?? "pending") as DeviceCodeRow["status"],
     tokenJti: (r.token_jti ?? r.tokenJti ?? null) as string | null,
+    catalogScope:
+      (r.catalog_scope ?? r.catalogScope) === "full" ? "full" : null,
     createdAt: numOrNull(r.created_at ?? r.createdAt),
     expiresAt: numOrNull(r.expires_at ?? r.expiresAt),
     consumedAt: numOrNull(r.consumed_at ?? r.consumedAt),
@@ -507,7 +520,7 @@ export async function getDeviceCode(
   }
 }
 
-async function getDeviceCodeByUserCode(
+export async function getDeviceCodeByUserCode(
   userCode: string,
 ): Promise<DeviceCodeRow | null> {
   try {

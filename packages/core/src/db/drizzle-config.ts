@@ -39,9 +39,7 @@ function pgliteDataDirFromUrl(url: string): string {
   if (!dataDir || dataDir === "/") return "./data/pglite";
   if (
     dataDir === "memory" ||
-    dataDir === "memory:" ||
     dataDir === "/memory" ||
-    dataDir === "/memory:" ||
     dataDir === ":memory:" ||
     dataDir === "/:memory:" ||
     dataDir === "memory://"

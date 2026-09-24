@@ -25,6 +25,7 @@ interface DeviceRow {
   org_id: string | null;
   status: string;
   token_jti: string | null;
+  catalog_scope: string | null;
   created_at: number | null;
   expires_at: number | null;
   consumed_at: number | null;
@@ -49,6 +50,9 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   }
   // Additive org-service-token columns — already part of the in-memory shape.
   if (/^ALTER TABLE mcp_connect_tokens ADD COLUMN/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (/^ALTER TABLE mcp_device_codes ADD COLUMN/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
 
@@ -145,9 +149,10 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
       org_id: args[3],
       status: args[4],
       token_jti: args[5],
-      created_at: args[6],
-      expires_at: args[7],
-      consumed_at: args[8],
+      catalog_scope: args[6],
+      created_at: args[7],
+      expires_at: args[8],
+      consumed_at: args[9],
     });
     return { rows: [], rowsAffected: 1 };
   }
@@ -509,6 +514,19 @@ describe("connect-store", () => {
       expect(row.deviceCode.length).toBeGreaterThan(20);
       expect(row.status).toBe("pending");
       expect(row.expiresAt).toBe(t + store.DEVICE_CODE_TTL_MS);
+    });
+
+    it("persists requested catalog scope for approval and token minting", async () => {
+      const created = await store.createDeviceCode("full");
+      expect(created.catalogScope).toBe("full");
+      await expect(
+        store.getDeviceCode(created.deviceCode),
+      ).resolves.toMatchObject({
+        catalogScope: "full",
+      });
+      await expect(
+        store.getDeviceCodeByUserCode(created.userCode),
+      ).resolves.toMatchObject({ catalogScope: "full" });
     });
 
     it("rate-limits device code creation within the window", async () => {
