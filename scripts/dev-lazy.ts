@@ -1224,7 +1224,7 @@ function startApp(app: TemplateApp): void {
   });
 }
 
-function scheduleAppRestart(
+export function scheduleAppRestart(
   app: TemplateApp,
   input: { code: number | null; output: string; logMessage: string },
 ): void {
@@ -1245,7 +1245,6 @@ function scheduleAppRestart(
     app.restartTimer = undefined;
     startApp(app);
   }, delay);
-  app.restartTimer.unref();
 }
 
 /**

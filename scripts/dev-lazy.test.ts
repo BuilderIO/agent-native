@@ -12,6 +12,7 @@ import {
   markAppReady,
   probeHttpReady,
   readinessProbeTimeoutMs,
+  scheduleAppRestart,
   selectProxyResponseTimeout,
   shouldEvict,
   shouldRestartPersistent5xx,
@@ -439,5 +440,29 @@ describe("dev-lazy backoff reset on ready", () => {
     assert.equal(app.ready, true);
     assert.equal(app.restartAttempts, 0);
     assert.ok(app.lastNon5xxAt !== undefined && app.lastNon5xxAt >= before);
+  });
+});
+
+describe("dev-lazy restart scheduling", () => {
+  it("keeps the process alive until a scheduled restart starts", () => {
+    const app: Parameters<typeof scheduleAppRestart>[0] = {
+      id: "test-app",
+      name: "Test App",
+      description: "",
+      dir: "/tmp/test-app",
+      port: 34_567,
+      core: false,
+    };
+
+    try {
+      scheduleAppRestart(app, {
+        code: 1,
+        output: "",
+        logMessage: "test failure",
+      });
+      assert.equal(app.restartTimer?.hasRef(), true);
+    } finally {
+      if (app.restartTimer) clearTimeout(app.restartTimer);
+    }
   });
 });
