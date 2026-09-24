@@ -8936,6 +8936,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           if (pressTarget) {
             dispatchAt(pressTarget, "mousedown", point, ev, 1);
             dispatchAt(pressTarget, "mouseup", point, ev, 0);
+            // This surface covers the selected object, so the native dblclick
+            // that starts text editing never reaches the board bridge.
+            if (ev.detail >= 2) {
+              dispatchAt(pressTarget, "dblclick", point, ev, 0);
+            }
           }
           finishDrag();
           return;
@@ -11448,6 +11453,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       : null;
   const boardSelectionBoxVisible =
     !boardTextEditing &&
+    !vectorEdit &&
     (boardFileId
       ? (selectedLayerSelectorGroupsByScreen[boardFileId]?.length ?? 0)
       : 0) <= 1 &&

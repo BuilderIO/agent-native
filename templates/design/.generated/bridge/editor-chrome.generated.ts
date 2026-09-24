@@ -4323,6 +4323,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
       var computed = collectComputedStyles(cs, paintCs, strokeCs);
+      var paintTarget = vectorPaintTarget(el) || (el.tagName.toLowerCase() === "path" && el.hasAttribute("data-an-pen-nodes") ? el : null);
+      var penNodesOwner = paintTarget && paintTarget.hasAttribute("data-an-pen-nodes") ? paintTarget : el;
+      if (paintTarget && paintTarget.getAttribute("fill-opacity") === "0" && (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") === 0) {
+        computed.fillOpacity = paintTarget.style.getPropertyValue("fill-opacity") || "1";
+      }
       if (el.tagName.toLowerCase() === "svg" && el.getAttribute("data-an-primitive") === "pasted-svg" && !vectorPaintTarget(el) && !el.hasAttribute("fill") && !el.style.getPropertyValue("fill")) {
         computed.fill = "";
       }
@@ -8326,25 +8331,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         active.blur();
       }
     }
+    function syncShieldPointerEvents() {
+      shieldOverlay.style.pointerEvents = interactionMode || textEditPointerState ? "none" : "auto";
+    }
     function setTextEditingPointerPassthrough(enabled) {
       if (enabled) {
         if (!textEditPointerState) {
           textEditPointerState = {
-            shield: shieldOverlay.style.pointerEvents,
             selection: selectionOverlay.style.pointerEvents,
             highlight: highlightOverlay.style.pointerEvents
           };
         }
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
         selectionOverlay.style.pointerEvents = "none";
         highlightOverlay.style.pointerEvents = "none";
         return;
       }
       if (!textEditPointerState) return;
-      shieldOverlay.style.pointerEvents = textEditPointerState.shield;
       selectionOverlay.style.pointerEvents = textEditPointerState.selection;
       highlightOverlay.style.pointerEvents = textEditPointerState.highlight;
       textEditPointerState = null;
+      syncShieldPointerEvents();
     }
     function hasTextContent(el) {
       return !!(el && el.textContent && el.textContent.trim().length > 0);
@@ -17624,6 +17631,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!target || target.nodeType !== 1) {
         if (!programmaticFlag) {
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+          if (descendHit && selectedEl && selectedEl.hasAttribute("data-an-pen-nodes") && selectedEl.contains(descendHit)) {
+            postDesignHotkey({ key: "Enter", code: "Enter" });
+            return;
+          }
           if (descendHit && descendHit !== document.body && descendHit !== document.documentElement && !isLayerInteractionBlocked(descendHit)) {
             var previousSelectedElForDescend = selectedEl;
             if (previousSelectedElForDescend && document.documentElement.contains(previousSelectedElForDescend) && previousSelectedElForDescend.contains(descendHit)) {
@@ -18370,7 +18381,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           cancelActiveBridgeDrag();
           setSelectionOverlayResizeChromeVisible(false);
         }
-        shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+        syncShieldPointerEvents();
         setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
         if (interactionMode) hideSelectionOverlay();
         else if (selectedEl?.isConnected)
@@ -18398,11 +18409,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSelectionOverlay();
           highlightOverlay.style.display = "none";
           marqueeSelectionOverlay.style.display = "none";
-          shieldOverlay.style.pointerEvents = "none";
+          syncShieldPointerEvents();
         } else {
           textEditingEnabled = !readOnly && textEditingEnabledFlag;
           setSelectionOverlayResizeChromeVisible(!readOnly);
-          shieldOverlay.style.pointerEvents = "auto";
+          syncShieldPointerEvents();
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
@@ -19642,10 +19653,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSelectionOverlay();
           highlightOverlay.style.display = "none";
           marqueeSelectionOverlay.style.display = "none";
-          shieldOverlay.style.pointerEvents = "none";
+          syncShieldPointerEvents();
         } else {
           setSelectionOverlayResizeChromeVisible(!readOnly);
-          shieldOverlay.style.pointerEvents = "auto";
+          syncShieldPointerEvents();
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
         }

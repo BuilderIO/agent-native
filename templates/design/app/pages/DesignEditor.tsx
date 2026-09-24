@@ -111,7 +111,6 @@ import {
   type CodeLayerSource,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { parseCssColor } from "@shared/color-utils";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
@@ -273,11 +272,9 @@ import {
   rewriteSelectionFillStyles,
   selectionColorTargets,
 } from "@/components/design/edit-panel/document-colors";
-import {
-  isVectorShapeElement,
-  sizeNeedsMeasurement,
-} from "@/components/design/edit-panel/element-classification";
+import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
+import type { ScaleToolControls } from "@/components/design/edit-panel/scale-properties";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
 import {
   mergeRotationValue,
@@ -346,7 +343,10 @@ import {
   getResponsiveScreenCullGeometry,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
-import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import {
+  findCanvasIframeForScreen,
+  getBreakpointIframeId,
+} from "@/components/design/multi-screen/iframe-targeting";
 import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
 import {
   designPreviewWindows,
@@ -589,8 +589,10 @@ import {
 } from "./design-editor/canvas-primitive-insert";
 import { createPrimitiveInsertFromSpec } from "./design-editor/canvas-primitives";
 import {
+  boardRenderOffset,
   getElementOuterHtml,
   insertClonedHtmlLayers,
+  penPathForVectorEdit,
   penPathScreenContentOffset,
   primitiveVectorEditSource,
   writeBackPrimitiveAsVector,
@@ -752,6 +754,7 @@ import {
   runFileContentSaveKeepalive,
   runSaveFileContent,
 } from "./design-editor/commands/save-file-content";
+import { runScaleSelection } from "./design-editor/commands/scale-selection";
 import { runScreenElementSelect } from "./design-editor/commands/screen-element-select";
 import { runScreenTextContentChange } from "./design-editor/commands/screen-text-content-change";
 import { runScreenVisualDuplicateChange } from "./design-editor/commands/screen-visual-duplicate-change";
@@ -776,6 +779,7 @@ import { runStyleChange } from "./design-editor/commands/style-change";
 import { styleWriteTarget } from "./design-editor/commands/style-write-target";
 import { runStylesChange } from "./design-editor/commands/styles-change";
 import { runSuggestAutoLayout } from "./design-editor/commands/suggest-auto-layout";
+import { runSwapFillStroke } from "./design-editor/commands/swap-fill-stroke";
 import {
   runContextMenuPaste,
   runSystemPasteToReplace,
@@ -1578,6 +1582,7 @@ function DesignEditor() {
   const [vectorEditingState, setVectorEditingState] = useState<{
     screenId: string;
     nodeId: string;
+    layerId: string;
     path: PenPath;
     selectedAnchorIndex: number | null;
     sourceOffset: { x: number; y: number };
@@ -8295,16 +8300,14 @@ function DesignEditor() {
       const escaped =
         typeof CSS !== "undefined" && CSS.escape ? CSS.escape(fileId) : fileId;
       return (
-        container.querySelector<HTMLIFrameElement>(
-          `iframe[data-screen-iframe-id="${escaped}"]`,
-        ) ??
+        findCanvasIframeForScreen(container, fileId, boardFileId) ??
         container.querySelector<HTMLIFrameElement>(
           `iframe[data-screen-iframe-id^="${escaped}::bp-"]`,
         ) ??
         null
       );
     },
-    [canvasContainerRef],
+    [boardFileId, canvasContainerRef],
   );
 
   // Overview resolvers: the agent's presence rides on `overviewPresenceFileId`,
@@ -11567,6 +11570,17 @@ function DesignEditor() {
    * (e.g. the owning screen was deleted mid-edit) — MultiScreenCanvas
    * doesn't render the overlay in that case.
    */
+  // A click outside the overlay lands in the screen or board iframe and only
+  // changes the selection, so the edit session must follow the selection.
+  useEffect(() => {
+    if (
+      vectorEditingState &&
+      !selectedLayerIdsState.includes(vectorEditingState.layerId)
+    ) {
+      setVectorEditingState(null);
+    }
+  }, [selectedLayerIdsState, vectorEditingState]);
+
   const vectorEditOverlayState = useMemo<VectorEditOverlayState | null>(() => {
     if (!vectorEditingState) return null;
     const originCanvas = getScreenFrameOriginCanvas({
@@ -11995,6 +12009,29 @@ function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
   }, [activeFile, canEditDesign]);
+  const scaleToolControls = useMemo<ScaleToolControls>(
+    () => ({
+      onScale: (factor, anchor) =>
+        runScaleSelection(
+          {
+            selectedElement,
+            boardFileId,
+            activeBreakpointWidthPx: activeBreakpointWidthState,
+            fallbackIframe: canvasIframeRef.current,
+          },
+          factor,
+          anchor,
+        ),
+      onExit: handleMoveTool,
+    }),
+    [
+      activeBreakpointWidthState,
+      boardFileId,
+      canvasIframeRef,
+      handleMoveTool,
+      selectedElement,
+    ],
+  );
 
   const handleDrawTool = useCallback(() => {
     if (!activeFile || !canEditDesign) return;
@@ -17570,62 +17607,15 @@ function DesignEditor() {
     );
   }, [canEditDesign, handleStyleChange, selectedElement]);
 
-  // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
-  // is empty: an element with a fill and no stroke ends up with a stroke and
-  // no fill (not a no-op). Both properties are committed together via
-  // handleStylesChange so the swap is a single undo step.
-  const handleSwapFillStroke = useCallback(() => {
-    if (!canEditDesign || !selectedElement) return;
-    if (isVectorShapeElement(selectedElement)) {
-      const styles = selectedElement.computedStyles;
-      // SVG gradient styles render as url(#id), but the editor's authored
-      // custom properties hold the portable gradient values. Capture both
-      // before committing either side so Shift+X can rebuild each definition
-      // without leaving the other paint pointing at a removed id.
-      const fill =
-        selectedElement.inlineStyles?.["--an-vector-fill-gradient"] ||
-        styles["--an-vector-fill-gradient"] ||
-        styles.fill ||
-        "";
-      const stroke =
-        selectedElement.inlineStyles?.["--an-vector-stroke-gradient"] ||
-        styles["--an-vector-stroke-gradient"] ||
-        styles.stroke ||
-        "";
-      const hasPaint = (value: string) => {
-        const normalized = value.trim().toLowerCase();
-        if (
-          !normalized ||
-          normalized === "none" ||
-          normalized === "transparent"
-        )
-          return false;
-        const color = parseCssColor(value);
-        return color ? color.a > 0 : true;
-      };
-      const fillHasPaint = hasPaint(fill);
-      const strokeWidth = Number.parseFloat(styles.strokeWidth ?? "0");
-      const strokeOpacity = Number.parseFloat(styles.strokeOpacity ?? "1");
-      const strokeHasPaint =
-        hasPaint(stroke) && strokeWidth > 0 && strokeOpacity > 0;
-      if (!fillHasPaint && !strokeHasPaint) return;
-      const fillOpacity = styles.fillOpacity ?? "1";
-      handleStylesChange({
-        fill: strokeHasPaint ? stroke : "none",
-        fillOpacity: strokeHasPaint ? (styles.strokeOpacity ?? "1") : "1",
-        stroke: fillHasPaint ? fill : "none",
-        strokeOpacity: fillHasPaint ? fillOpacity : "1",
-        ...(fillHasPaint && !strokeHasPaint ? { strokeWidth: "1px" } : {}),
-      });
-      return;
-    }
-    const currentFill = selectedElement.computedStyles.backgroundColor ?? "";
-    const currentStroke = selectedElement.computedStyles.borderColor ?? "";
-    handleStylesChange({
-      backgroundColor: currentStroke || "transparent",
-      borderColor: currentFill || "transparent",
-    });
-  }, [canEditDesign, handleStylesChange, selectedElement]);
+  const handleSwapFillStroke = useCallback(
+    () =>
+      runSwapFillStroke({
+        canEditDesign,
+        selectedElement,
+        handleStylesChange,
+      }),
+    [canEditDesign, handleStylesChange, selectedElement],
+  );
 
   // Figma's Ctrl+C — eyedropper: sample a color from anywhere on screen and
   // apply it to the current selection's fill (shape/frame) or text color
@@ -19115,20 +19105,30 @@ function DesignEditor() {
         const isPastedChildPath =
           elementTag === "path" &&
           svg?.getAttribute("data-an-primitive") === "pasted-svg";
-        const offset =
-          svg && (elementTag === "svg" || isPastedChildPath)
-            ? penPathScreenContentOffset(svg)
+        const renderOffset =
+          owner.fileId === boardFileId
+            ? boardRenderOffset(element)
+            : { x: 0, y: 0 };
+        // A pasted child path writes back only its own `d`, so it cannot
+        // re-base a scaled parent viewBox the way a drawn vector does.
+        const editable =
+          path &&
+          svg &&
+          (elementTag === "svg" ||
+            (isPastedChildPath && penPathScreenContentOffset(svg)))
+            ? penPathForVectorEdit(svg, path, renderOffset)
             : null;
-        if (!path || !offset) {
+        if (!editable) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
           return true;
         }
         setVectorEditingState({
           screenId: owner.fileId,
           nodeId,
-          path: translatePenPath(path, offset.x, offset.y),
+          layerId: owner.node.id,
+          path: editable.path,
           selectedAnchorIndex: null,
-          sourceOffset: offset,
+          sourceOffset: editable.sourceOffset,
           primitiveSource: null,
         });
         return true;
@@ -19146,6 +19146,7 @@ function DesignEditor() {
       setVectorEditingState({
         screenId: owner.fileId,
         nodeId,
+        layerId: owner.node.id,
         path: source.path,
         selectedAnchorIndex: null,
         sourceOffset: { x: 0, y: 0 },
@@ -27337,6 +27338,7 @@ function DesignEditor() {
     mode,
     files: documentColorFiles,
     activeTool,
+    scaleToolControls: canEditDesign ? scaleToolControls : undefined,
     onCreateScreenFromPreset: canEditDesign
       ? handleCreateScreenFromPreset
       : undefined,

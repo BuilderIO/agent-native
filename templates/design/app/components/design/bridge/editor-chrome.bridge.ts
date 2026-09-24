@@ -4992,6 +4992,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ? window.getComputedStyle(strokeTarget)
       : paintCs;
     var computed = collectComputedStyles(cs, paintCs, strokeCs);
+    // An open pen path's fill-opacity="0" only keeps its chord unpainted
+    // (Figma fills closed regions only); it is not the fill's own opacity.
+    var paintTarget =
+      vectorPaintTarget(el) ||
+      (el.tagName.toLowerCase() === "path" &&
+      el.hasAttribute("data-an-pen-nodes")
+        ? el
+        : null);
+    var penNodesOwner =
+      paintTarget && paintTarget.hasAttribute("data-an-pen-nodes")
+        ? paintTarget
+        : el;
+    if (
+      paintTarget &&
+      paintTarget.getAttribute("fill-opacity") === "0" &&
+      (penNodesOwner.getAttribute("data-an-pen-nodes") || "").indexOf("[0") ===
+        0
+    ) {
+      computed.fillOpacity =
+        (paintTarget as HTMLElement).style.getPropertyValue("fill-opacity") ||
+        "1";
+    }
     // A multi-shape pasted SVG has no single paint target. Its wrapper's
     // computed `fill` is the SVG initial value (black), not an authored fill.
     // Keep authored wrapper fills visible, while leaving child paints to the
@@ -6188,7 +6210,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
   } | null = null;
   var textEditPointerState: {
-    shield: string;
     selection: string;
     highlight: string;
   } | null = null;
@@ -11261,25 +11282,31 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  // The host replays read-only and interaction mode many times a second, so
+  // every writer must derive the shield from both states, not overwrite it.
+  function syncShieldPointerEvents(): void {
+    shieldOverlay.style.pointerEvents =
+      interactionMode || textEditPointerState ? "none" : "auto";
+  }
+
   function setTextEditingPointerPassthrough(enabled: boolean): void {
     if (enabled) {
       if (!textEditPointerState) {
         textEditPointerState = {
-          shield: shieldOverlay.style.pointerEvents,
           selection: selectionOverlay.style.pointerEvents,
           highlight: highlightOverlay.style.pointerEvents,
         };
       }
-      shieldOverlay.style.pointerEvents = "none";
+      syncShieldPointerEvents();
       selectionOverlay.style.pointerEvents = "none";
       highlightOverlay.style.pointerEvents = "none";
       return;
     }
     if (!textEditPointerState) return;
-    shieldOverlay.style.pointerEvents = textEditPointerState.shield;
     selectionOverlay.style.pointerEvents = textEditPointerState.selection;
     highlightOverlay.style.pointerEvents = textEditPointerState.highlight;
     textEditPointerState = null;
+    syncShieldPointerEvents();
   }
 
   function hasTextContent(el: Element | null): boolean {
@@ -24890,6 +24917,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // hit-test, and we already tried the explicit target above.
       if (!programmaticFlag) {
         var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
+        // Figma: double-clicking the selected vector opens point editing,
+        // which the host already owns behind Enter.
+        if (
+          descendHit &&
+          selectedEl &&
+          selectedEl.hasAttribute("data-an-pen-nodes") &&
+          selectedEl.contains(descendHit)
+        ) {
+          postDesignHotkey({ key: "Enter", code: "Enter" });
+          return;
+        }
         if (
           descendHit &&
           descendHit !== document.body &&
@@ -25960,7 +25998,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       // Preserve the more specific Interact ownership when read-only state is
       // replayed after a mode change on a retained iframe.
-      shieldOverlay.style.pointerEvents = interactionMode ? "none" : "auto";
+      syncShieldPointerEvents();
       setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
       if (interactionMode) hideSelectionOverlay();
       else if (selectedEl?.isConnected)
@@ -25990,11 +26028,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
         textEditingEnabled = !readOnly && textEditingEnabledFlag;
         setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
@@ -27786,10 +27824,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         hideSelectionOverlay();
         highlightOverlay.style.display = "none";
         marqueeSelectionOverlay.style.display = "none";
-        shieldOverlay.style.pointerEvents = "none";
+        syncShieldPointerEvents();
       } else {
         setSelectionOverlayResizeChromeVisible(!readOnly);
-        shieldOverlay.style.pointerEvents = "auto";
+        syncShieldPointerEvents();
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
       }
