@@ -112,23 +112,26 @@ describe("attachment body size estimation", () => {
     expect(estimateAttachmentBodyBytes(['"\\\né'])).toBe(10);
   });
 
-  it("keeps a largest-size PDF below budget with a short duplicated prompt", () => {
+  it("keeps a largest-size PDF below budget with a short continuation prompt", () => {
     const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
     const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
     const prompt = "Create a Content page from this PDF.";
 
+    expect(
+      estimateAttachmentBodyBytes([dataUrl, prompt, prompt, prompt]),
+    ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
+  });
+
+  it("reserves budget for the prompt copy added by continuation history", () => {
+    const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
+    const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
+    const prompt = "x".repeat(60 * 1024);
+
     expect(estimateAttachmentBodyBytes([dataUrl, prompt, prompt])).toBeLessThan(
       MAX_ESTIMATED_BODY_BYTES,
     );
-  });
-
-  it("counts both serialized prompt fields against the shared body budget", () => {
-    const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
-    const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
-    const prompt = "x".repeat(700 * 1024);
-
     expect(
-      estimateAttachmentBodyBytes([dataUrl, prompt, prompt]),
+      estimateAttachmentBodyBytes([dataUrl, prompt, prompt, prompt]),
     ).toBeGreaterThan(MAX_ESTIMATED_BODY_BYTES);
   });
 });

@@ -5951,8 +5951,12 @@ const AssistantChatInner = forwardRef<
         // rejecting a request that still exceeds the Vercel/Netlify body budget.
         let messageAttachments = allAttachments;
         {
-          // The request serializes the submitted prompt as both message and displayMessage.
-          const promptPayloadStrings = [submittedText, submittedText];
+          // Continuations resend the prompt in displayMessage, history, and structuredHistory.
+          const promptPayloadStrings = [
+            submittedText,
+            submittedText,
+            submittedText,
+          ];
           const allPayloadStrings = [
             ...getAttachmentBodyStrings(allAttachments),
             ...promptPayloadStrings,
