@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
@@ -36,6 +37,9 @@ vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
+  isDocumentUpdatePreservationRequired: (result: {
+    preservationRequired?: boolean;
+  }) => result.preservationRequired === true,
   usePreviewDocumentDraft: () => ({
     data: { draft: state.draft },
     refetch: state.refetch,
@@ -56,6 +60,26 @@ vi.mock("./document-save-rebase", () => ({
 }));
 vi.mock("./DocumentEditorSkeleton", () => ({
   DocumentEditorSkeleton: () => <div data-testid="editor-skeleton" />,
+}));
+vi.mock("./RecoveryComparison", () => ({
+  RecoveryComparison: ({
+    failure,
+    onKeepMine,
+    onUseSaved,
+    onSaveSeparately,
+  }: {
+    failure: string;
+    onKeepMine: () => void;
+    onUseSaved: () => void;
+    onSaveSeparately: () => void;
+  }) => (
+    <div data-testid="recovery-comparison">
+      <span>{failure}</span>
+      <button onClick={onKeepMine}>Keep mine</button>
+      <button onClick={onUseSaved}>Use saved</button>
+      <button onClick={onSaveSeparately}>Save separately</button>
+    </div>
+  ),
 }));
 
 import { PageDraftRecovery } from "./PageDraftRecovery";
@@ -182,12 +206,19 @@ describe("Page draft recovery", () => {
       editorSessionId: null,
       editGeneration: null,
     };
-    state.resolve.mockRejectedValue(new Error("offline"));
+    state.resolve.mockRejectedValueOnce(new Error("offline"));
     await act(async () => render());
     expect(state.remove).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "empty.genericError",
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]')
+        ?.textContent,
+    ).toContain("empty.genericError");
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+    });
+    expect(state.resolve).toHaveBeenLastCalledWith(
+      expect.objectContaining({ choice: "keep_mine" }),
     );
   });
 });

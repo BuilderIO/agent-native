@@ -1,8 +1,10 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { Document } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -27,6 +29,7 @@ import {
   readPageDraftJournal,
   writePageDraftJournal,
 } from "./page-draft-journal";
+import { RecoveryComparison } from "./RecoveryComparison";
 
 type DraftRecoveryFailure = "conflict" | "error";
 
@@ -38,6 +41,7 @@ export function PageDraftRecovery({
   children: ReactNode;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -497,8 +501,19 @@ export function PageDraftRecovery({
         setConflictDocument(result.document ?? null);
         return;
       }
+      if (result.status !== "resolved")
+        throw new Error("The draft could not be resolved.");
       if (choice === "use_saved")
         toast.success(t("editor.previewDraftSavedToHistory"));
+      if (choice === "save_separately")
+        toast.success(t("editor.previewDraftSavedSeparately"), {
+          action: result.urlPath
+            ? {
+                label: t("editor.previewDraftOpenSavedPage"),
+                onClick: () => void navigate(result.urlPath!),
+              }
+            : undefined,
+        });
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
     } catch {
@@ -627,7 +642,7 @@ export function PageDraftRecovery({
   )
     return <DocumentEditorSkeleton title={document.title} />;
   if (!draft) return children;
-  if (!hasEditIdentity)
+  if (!hasEditIdentity && !failure)
     return (
       <>
         <div role="status">
@@ -638,12 +653,36 @@ export function PageDraftRecovery({
         {children}
       </>
     );
-  if (hasEditIdentity && !failure)
-    return <DocumentEditorSkeleton title={document.title} />;
+  if (!failure) return <DocumentEditorSkeleton title={document.title} />;
+  const savedVersion = conflictDocument ?? document;
   return (
-    <>
-      <div role="status">{t("empty.genericError")}</div>
-      {children}
-    </>
+    <RecoveryComparison
+      mine={{ title: draft.title, content: draft.content }}
+      saved={{ title: savedVersion.title, content: savedVersion.content }}
+      busy={busy}
+      keepMineDisabled={documentBodyHydrationIsPending(document)}
+      failure={
+        failure === "conflict"
+          ? t("editor.previewDraftConflict")
+          : t("empty.genericError")
+      }
+      onKeepMine={() => {
+        if (documentBodyHydrationIsPending(document)) return;
+        if (
+          failure === "conflict" ||
+          draft.baseDocumentUpdatedAt !== document.updatedAt
+        )
+          void resolveConflict("keep_mine");
+        else void settleDraft(true);
+      }}
+      onUseSaved={() => void resolveConflict("use_saved")}
+      onSaveSeparately={() => void resolveConflict("save_separately")}
+      onCopy={() => {
+        void writeClipboardText(draft.content).then((copied) => {
+          if (copied) toast.success(t("editor.unsavedTextCopied"));
+          else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+        });
+      }}
+    />
   );
 }

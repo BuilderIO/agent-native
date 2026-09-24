@@ -594,6 +594,46 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("replays a lost title-only browser response without reverting a later rename", async () => {
+    const id = await createDocument({ title: "Before", content: "Body" });
+    const args = {
+      id,
+      title: "Browser title",
+      browserSaveAttemptId: nextId("title-save"),
+    };
+    const deliver = () =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(args, {
+          caller: "frontend",
+          userEmail: OWNER,
+        }),
+      );
+    const first = await deliver();
+    expect(first.browserSaveAttempt).toMatchObject({
+      attemptId: args.browserSaveAttemptId,
+      result: "applied",
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id, title: "Newer title" }),
+    );
+    const replay = await deliver();
+    expect(replay.browserSaveAttempt).toMatchObject({
+      attemptId: args.browserSaveAttemptId,
+      result: "replayed",
+    });
+    expect(await documentRow(id)).toMatchObject({
+      title: "Newer title",
+      content: "Body",
+      bodyRevision: 0,
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBrowserSaveAttempts)
+        .where(eq(schema.documentBrowserSaveAttempts.documentId, id)),
+    ).toHaveLength(1);
+  });
+
   it("deduplicates concurrent browser deliveries of one lifecycle attempt", async () => {
     const id = await createDocument({ content: "Before" });
     const args = {

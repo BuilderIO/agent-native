@@ -1307,7 +1307,10 @@ export default defineAction({
               now: updatedAt,
             });
         }
-        if (settlesPreviewDraft && committedEditorSnapshot === null) {
+        if (
+          (settlesPreviewDraft || args.browserSaveAttemptId) &&
+          committedEditorSnapshot === null
+        ) {
           const [snapshot] = await tx
             .select({
               title: schema.documents.title,

@@ -48,6 +48,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ refetchQueries: state.refetch }),
 }));
