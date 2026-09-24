@@ -634,6 +634,10 @@ interface EmojiPickerProps {
   portalled?: boolean;
   container?: HTMLElement | null;
   contentClassName?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchored?: boolean;
+  anchorElement?: HTMLElement | null;
 }
 
 export function EmojiPicker({
@@ -645,6 +649,10 @@ export function EmojiPicker({
   portalled,
   container,
   contentClassName,
+  open,
+  onOpenChange,
+  anchored,
+  anchorElement,
 }: EmojiPickerProps) {
   const t = useT();
   const iconPickerLabels = useIconPickerLabels();
@@ -655,44 +663,48 @@ export function EmojiPicker({
       ? t("editor.emojiChangeIcon")
       : t("editor.emojiAddIcon");
 
-  return (
-    <Tooltip>
-      <ResourceIconPicker
-        value={value}
-        portalled={portalled}
-        container={container}
-        contentClassName={contentClassName}
-        onValueChange={onSelect}
-        onUpload={async (file) => {
-          const url = await uploadImageFile(file);
-          return {
-            version: 1,
-            kind: "image",
-            authority: "url",
-            assetId: url,
-            alt: file.name,
-          };
-        }}
-        onUploadError={(error) => toast.error(imageUploadErrorMessage(error))}
-        resolveImageUrl={(image) =>
-          image.authority === "url" ? image.assetId : undefined
-        }
-        labels={{
-          ...iconPickerLabels,
-          trigger: triggerLabel,
-          iconsTab: t("editor.iconPickerIcons"),
-          emojiTab: t("editor.iconPickerEmoji"),
-          uploadTab: t("editor.iconPickerUpload"),
-          search: t("editor.emojiFilter"),
-          noResults: t("editor.emojiNoEmojisFound"),
-          recents: t("editor.iconPickerRecent"),
-          colors: t("editor.iconPickerColors"),
-          defaultColor: t("editor.iconPickerDefault"),
-          remove: t("editor.emojiRemoveIcon"),
-          upload: t("editor.iconPickerUpload"),
-          uploading: t("editor.iconPickerUploading"),
-        }}
-      >
+  const picker = (
+    <ResourceIconPicker
+      value={value}
+      portalled={portalled}
+      container={container}
+      contentClassName={contentClassName}
+      open={open}
+      onOpenChange={onOpenChange}
+      anchored={anchored}
+      anchorElement={anchorElement}
+      onValueChange={onSelect}
+      onUpload={async (file) => {
+        const url = await uploadImageFile(file);
+        return {
+          version: 1,
+          kind: "image",
+          authority: "url",
+          assetId: url,
+          alt: file.name,
+        };
+      }}
+      onUploadError={(error) => toast.error(imageUploadErrorMessage(error))}
+      resolveImageUrl={(image) =>
+        image.authority === "url" ? image.assetId : undefined
+      }
+      labels={{
+        ...iconPickerLabels,
+        trigger: triggerLabel,
+        iconsTab: t("editor.iconPickerIcons"),
+        emojiTab: t("editor.iconPickerEmoji"),
+        uploadTab: t("editor.iconPickerUpload"),
+        search: t("editor.emojiFilter"),
+        noResults: t("editor.emojiNoEmojisFound"),
+        recents: t("editor.iconPickerRecent"),
+        colors: t("editor.iconPickerColors"),
+        defaultColor: t("editor.iconPickerDefault"),
+        remove: t("editor.emojiRemoveIcon"),
+        upload: t("editor.iconPickerUpload"),
+        uploading: t("editor.iconPickerUploading"),
+      }}
+    >
+      {!anchored ? (
         <TooltipTrigger asChild>
           {value ? (
             <button
@@ -743,7 +755,14 @@ export function EmojiPicker({
             </button>
           )}
         </TooltipTrigger>
-      </ResourceIconPicker>
+      ) : null}
+    </ResourceIconPicker>
+  );
+  return anchored ? (
+    picker
+  ) : (
+    <Tooltip>
+      {picker}
       <TooltipContent>{triggerLabel}</TooltipContent>
     </Tooltip>
   );

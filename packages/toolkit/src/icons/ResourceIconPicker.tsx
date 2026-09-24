@@ -8,7 +8,12 @@ import * as React from "react";
 
 import { Button } from "../ui/button.js";
 import { Input } from "../ui/input.js";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover.js";
 import {
   Select,
   SelectContent,
@@ -88,6 +93,10 @@ export interface ResourceIconPickerProps {
   contentClassName?: string;
   portalled?: boolean;
   container?: React.ComponentProps<typeof PopoverContent>["container"];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  anchored?: boolean;
+  anchorElement?: HTMLElement | null;
   children?: React.ReactNode;
 }
 
@@ -322,12 +331,21 @@ export function ResourceIconPicker({
   contentClassName,
   portalled,
   container,
+  open: controlledOpen,
+  onOpenChange,
+  anchored,
+  anchorElement,
   children,
 }: ResourceIconPickerProps) {
   const [localRecents, setLocalRecents] = React.useState<ResourceIconValue[]>(
     [],
   );
-  const [open, setOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const changeOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [tab, setTab] = React.useState("icons");
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState("all");
@@ -440,7 +458,7 @@ export function ResourceIconPicker({
     try {
       await onValueChange(persisted);
       if (persisted) remember(persisted);
-      if (close) setOpen(false);
+      if (close) changeOpen(false);
     } catch (error) {
       console.error("Icon could not be saved", error);
       setSaveFailed(true);
@@ -517,7 +535,7 @@ export function ResourceIconPicker({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
+        changeOpen(next);
         if (next) {
           setQuery("");
           setSaveFailed(false);
@@ -525,22 +543,28 @@ export function ResourceIconPicker({
         }
       }}
     >
-      <PopoverTrigger asChild disabled={disabled}>
-        {children ?? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={labels.trigger}
-          >
-            <ResourceIcon
-              value={value}
-              fallback={<IconPhotoPlus />}
-              resolveImageUrl={resolveImageUrl}
-            />
-          </Button>
-        )}
-      </PopoverTrigger>
+      {anchored ? (
+        anchorElement ? (
+          <PopoverAnchor virtualRef={{ current: anchorElement }} />
+        ) : null
+      ) : (
+        <PopoverTrigger asChild disabled={disabled}>
+          {children ?? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={labels.trigger}
+            >
+              <ResourceIcon
+                value={value}
+                fallback={<IconPhotoPlus />}
+                resolveImageUrl={resolveImageUrl}
+              />
+            </Button>
+          )}
+        </PopoverTrigger>
+      )}
       <PopoverContent
         align="start"
         collisionPadding={8}

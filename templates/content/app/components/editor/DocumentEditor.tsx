@@ -5201,7 +5201,7 @@ function PageEditorSessionBody({
     }
   }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
-    defaultIconKind === "database" && !isDatabasePage ? (
+    defaultIconKind === "database" ? (
       <IconDatabase className="size-12" aria-hidden="true" />
     ) : undefined;
   const exportTitle = isInitializedRef.current ? localTitle : document.title;
@@ -5552,66 +5552,61 @@ function PageEditorSessionBody({
                     host,
                   )}
                 >
-                  {document.icon || !isDatabasePage ? (
-                    <div className="mb-1">
-                      {documentCanonicalMutationsEnabled(
-                        editorCanEdit,
-                        isSuggesting,
-                      ) ? (
-                        <EmojiPicker
-                          icon={document.icon}
-                          defaultIcon={defaultIcon}
-                          defaultIconLabel={
-                            defaultIconKind === "database" ? "database" : "page"
-                          }
-                          onSelect={async (icon) => {
-                            if (
-                              !documentCanonicalMutationsEnabled(
-                                editorCanEdit,
-                                isSuggesting,
-                              )
-                            ) {
-                              throw new Error(
-                                t("editor.pageSaveBeforeNavigationFailed"),
-                              );
-                            }
-                            const updates = metadataUpdatesWithPendingTitle(
-                              { icon },
-                              localTitleRef.current,
-                              lastSavedTitleRef.current.title,
+                  <div className="mb-1">
+                    {documentCanonicalMutationsEnabled(
+                      editorCanEdit,
+                      isSuggesting,
+                    ) ? (
+                      <EmojiPicker
+                        icon={document.icon}
+                        defaultIcon={defaultIcon}
+                        defaultIconLabel={
+                          defaultIconKind === "database" ? "database" : "page"
+                        }
+                        onSelect={async (icon) => {
+                          if (
+                            !documentCanonicalMutationsEnabled(
+                              editorCanEdit,
+                              isSuggesting,
+                            )
+                          ) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
                             );
-                            const saved = await persistDocumentUpdates(updates);
-                            if (isDocumentUpdateConflict(saved)) {
-                              throw new Error(
-                                t("editor.pageSaveBeforeNavigationFailed"),
-                              );
-                            }
-                            adoptConfirmedSaveWatermarks({
-                              saved,
-                              savedAt:
-                                saved?.updatedAt ?? new Date().toISOString(),
-                              title: localTitleRef.current,
-                              content: localContentRef.current,
-                              updates,
-                              lastSavedTitleRef,
-                              lastSavedContentRef,
-                            });
-                          }}
-                        />
-                      ) : document.icon ? (
-                        <div className="p-1 -ml-1">
-                          <ContentIcon value={document.icon} size={48} />
-                        </div>
-                      ) : defaultIconKind === "database" && !isDatabasePage ? (
-                        <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
-                          <IconDatabase
-                            className="size-12"
-                            aria-hidden="true"
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                          }
+                          const updates = metadataUpdatesWithPendingTitle(
+                            { icon },
+                            localTitleRef.current,
+                            lastSavedTitleRef.current.title,
+                          );
+                          const saved = await persistDocumentUpdates(updates);
+                          if (isDocumentUpdateConflict(saved)) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
+                            );
+                          }
+                          adoptConfirmedSaveWatermarks({
+                            saved,
+                            savedAt:
+                              saved?.updatedAt ?? new Date().toISOString(),
+                            title: localTitleRef.current,
+                            content: localContentRef.current,
+                            updates,
+                            lastSavedTitleRef,
+                            lastSavedContentRef,
+                          });
+                        }}
+                      />
+                    ) : document.icon ? (
+                      <div className="p-1 -ml-1">
+                        <ContentIcon value={document.icon} size={48} />
+                      </div>
+                    ) : defaultIconKind === "database" ? (
+                      <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                        <IconDatabase className="size-12" aria-hidden="true" />
+                      </div>
+                    ) : null}
+                  </div>
                   <textarea
                     ref={titleInputRef}
                     rows={1}

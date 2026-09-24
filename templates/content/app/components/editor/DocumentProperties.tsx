@@ -1269,6 +1269,8 @@ export function PropertyManagementPopover({
     blocksFieldCount,
   });
   const [open, setOpen] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const propertyMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [view, setView] = useState<"quick" | "edit">(
     hasColumnMenu ? "quick" : "edit",
   );
@@ -1488,6 +1490,7 @@ export function PropertyManagementPopover({
       >
         <DropdownMenuTrigger asChild>
           <button
+            ref={propertyMenuTriggerRef}
             type="button"
             aria-label={t("editor.properties.propertyMenuFor", {
               name: property.definition.name,
@@ -1693,15 +1696,20 @@ export function PropertyManagementPopover({
                 className="flex items-center gap-2 p-1"
                 onKeyDown={(event) => event.stopPropagation()}
               >
-                <EmojiPicker
-                  icon={property.definition.icon ?? null}
-                  variant="compact"
-                  container={popoverContainer}
-                  contentClassName="z-[310]"
-                  defaultIcon={<Icon className="size-4" />}
-                  defaultIconLabel={property.definition.name}
-                  onSelect={(icon) => configureProperty({ icon })}
-                />
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpen(false);
+                    setIconPickerOpen(true);
+                  }}
+                >
+                  <PropertyDefinitionIcon
+                    property={property}
+                    className="size-4"
+                  />
+                </button>
                 <Input
                   ref={propertyNameInputRef}
                   value={name}
@@ -2008,6 +2016,17 @@ export function PropertyManagementPopover({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <EmojiPicker
+        icon={property.definition.icon ?? null}
+        open={iconPickerOpen}
+        onOpenChange={setIconPickerOpen}
+        anchored
+        anchorElement={propertyMenuTriggerRef.current}
+        container={popoverContainer}
+        contentClassName="z-[310]"
+        onSelect={(icon) => configureProperty({ icon })}
+      />
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent className="max-w-sm gap-0 rounded-lg p-5">
