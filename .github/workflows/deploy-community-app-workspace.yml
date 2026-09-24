@@ -34,27 +34,49 @@ jobs:
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       NETLIFY_ACCOUNT_ID: ${{ secrets.NETLIFY_ACCOUNT_ID }}
-      NETLIFY_SITE_ID: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.NETLIFY_COMMUNITY_PRODUCTION_SITE_ID || secrets.NETLIFY_COMMUNITY_BETA_SITE_ID }}
     steps:
-      - name: Check publish lane
-        id: gate
+      - name: Select deployment lane
+        id: lane
+        env:
+          DISPATCH_LANE: ${{ inputs.lane }}
         run: |
           set -euo pipefail
-          ready=true
-          if [[ -z "$NETLIFY_AUTH_TOKEN" || -z "$NETLIFY_ACCOUNT_ID" || -z "$NETLIFY_SITE_ID" ]]; then
-            ready=false
-            echo "Netlify app-workspace credentials are not configured; skipping publish."
-          elif [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(TZ=America/Los_Angeles date +%H)" != "12" ]]; then
-            ready=false
-            echo "This UTC tick is not noon in America/Los_Angeles; skipping."
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" || "$DISPATCH_LANE" == "production" ]]; then
+            echo "site_id_secret=NETLIFY_COMMUNITY_PRODUCTION_SITE_ID" >> "$GITHUB_OUTPUT"
+            echo "database_url_secret=COMMUNITY_DATABASE_URL" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" || "$DISPATCH_LANE" == "beta" ]]; then
+            echo "site_id_secret=NETLIFY_COMMUNITY_BETA_SITE_ID" >> "$GITHUB_OUTPUT"
+            echo "database_url_secret=COMMUNITY_BETA_DATABASE_URL" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unsupported app-workspace deployment lane."
+            exit 1
           fi
-          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Check publish lane
+        id: gate
+        env:
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
+          COMMUNITY_DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
+        run: |
+          set -euo pipefail
+          ready=false
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(TZ=America/Los_Angeles date +%H)" != "12" ]]; then
+            echo "This UTC tick is not noon in America/Los_Angeles; skipping."
+          elif [[ -z "$NETLIFY_AUTH_TOKEN" || -z "$NETLIFY_ACCOUNT_ID" || -z "$NETLIFY_SITE_ID" ]]; then
+            echo "Netlify app-workspace credentials are not configured; skipping publish."
+          elif [[ -z "$COMMUNITY_DATABASE_URL" ]]; then
+            echo "::error::The selected app-workspace database secret is not configured."
+            exit 1
+          else
+            ready=true
+          fi
           if [[ "$ready" != "true" ]]; then
             {
               echo "### App workspace publish skipped"
               echo "The configured lane was not ready to publish."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         if: steps.gate.outputs.ready == 'true'
@@ -83,7 +105,7 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         env:
           CONTEXT: production
-          DATABASE_URL: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.COMMUNITY_DATABASE_URL || secrets.COMMUNITY_BETA_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
         run: |
           set -euo pipefail
           if [[ -z "$DATABASE_URL" ]]; then
@@ -102,7 +124,8 @@ jobs:
       - name: Point the runtime to the migrated database
         if: steps.gate.outputs.ready == 'true'
         env:
-          DATABASE_URL: ${{ (github.event_name == 'schedule' || inputs.lane == 'production') && secrets.COMMUNITY_DATABASE_URL || secrets.COMMUNITY_BETA_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets[steps.lane.outputs.database_url_secret] }}
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
         run: |
           set -euo pipefail
           if [[ -z "$DATABASE_URL" ]]; then
@@ -155,6 +178,8 @@ jobs:
 
       - name: Publish the prebuilt bundle
         if: steps.gate.outputs.ready == 'true'
+        env:
+          NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
         run: |
           netlify deploy \
             --site "$NETLIFY_SITE_ID" \
