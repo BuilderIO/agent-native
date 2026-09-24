@@ -85,7 +85,7 @@ const STALE_PR_WATCHER_RE = new RegExp(
 );
 
 const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
-  [
+  String.raw`^(?![\s\S]*\b(?:ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?|(?:user\s+)?(?:explicitly\s+)?(?:asked|told|requested)[^.!?\n]{0,100}\b(?:to\s+not\s+merge|not\s+to\s+merge|leave\s+(?:the\s+)?PR\s+open|no[- ]merge)|(?:user\s+)?(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)\b)[\s\S]*(?:${[
     String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
     String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
@@ -97,7 +97,7 @@ const SHIP_STOPPED_BEFORE_MERGE_RE = new RegExp(
     String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,60}\b(?:merge|merged)\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:already|again|repeatedly|multiple times|more than once)\b[^.!?\n]{0,100}\b(?:asked|told|reminded|said)\b[^.!?\n]{0,100}\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\buntil\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:told|asked|instructed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|watchdog|babysit|left\s+(?:the\s+)?(?:PR|pull request)\s+open|unmerged)\b`,
-  ].join("|"),
+  ].join("|")})`,
   "i",
 );
 
@@ -212,6 +212,15 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [true, "The agent ended /ship before the PR was merged."],
   [true, "Why did /ship finish before merging the pull request?"],
   [true, "The agent reported /ship complete but left the PR open."],
+  [
+    false,
+    "The agent reported /ship complete but left the PR open because I asked to leave it open; ship_mode=ready-only.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with the pull request unmerged because I explicitly opted out of merging.",
+  ],
+  [false, "Ready-only shipment: the PR stayed open after checks passed."],
   [true, "The agent stopped /ship with the pull request unmerged."],
   [
     false,
