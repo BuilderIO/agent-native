@@ -16,6 +16,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  penPathForVectorEdit,
   penPathScreenContentOffset,
   primitiveVectorEditSource,
   writeBackPrimitiveAsVector,
@@ -313,6 +314,48 @@ describe("nested Pen path commits", () => {
       });
       expect(penPathScreenContentOffset(svg)).toBeNull();
     }
+  });
+});
+
+describe("editing a resized vector", () => {
+  it("places anchors where the scaled SVG draws them and re-bases it at 1:1 on commit", () => {
+    const path: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 100, y: 50 }),
+      ],
+    };
+    const html = `<!DOCTYPE html><html><body><svg data-agent-native-node-id="resized" data-an-primitive="path" viewBox="0 0 100 50" preserveAspectRatio="none" style="position: absolute; left: 10px; top: 20px; width: 200px; height: 100px" data-an-pen-nodes='${serializePenNodes(path)}'><path d="${serializePenPath(path)}" fill="none" stroke="#000"></path></svg></body></html>`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 100 50");
+    Object.defineProperty(svg, "getScreenCTM", {
+      configurable: true,
+      value: () => ({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }),
+    });
+
+    const editable = penPathForVectorEdit(svg, path, { x: 0, y: 0 });
+    expect(editable?.path.nodes.map((node) => node.point)).toEqual([
+      { x: 10, y: 20 },
+      { x: 210, y: 120 },
+    ]);
+
+    const committed = writeBackVectorEditedPenPath(
+      html,
+      "resized",
+      translatePenPath(
+        editable!.path,
+        -editable!.sourceOffset.x,
+        -editable!.sourceOffset.y,
+      ),
+    );
+    const committedSvg = new DOMParser()
+      .parseFromString(committed!, "text/html")
+      .querySelector<SVGSVGElement>('[data-agent-native-node-id="resized"]')!;
+    expect(committedSvg.getAttribute("viewBox")).toBe("0 0 200 100");
+    expect(committedSvg.style.left).toBe("10px");
+    expect(committedSvg.style.width).toBe("200px");
+    expect(committedSvg.style.height).toBe("100px");
   });
 });
 

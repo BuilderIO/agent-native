@@ -7,10 +7,6 @@ import {
 
 import { gotoEditor } from "./helpers";
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
-
 // Board objects are covered by the host's selection box once selected, so the
 // second click of a real double-click never lands in the board iframe itself.
 const BOARD_HTML = `<!DOCTYPE html>
@@ -26,10 +22,9 @@ async function action(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
-  );
+  const response = await request.post(`/_agent-native/actions/${name}`, {
+    data: input,
+  });
   if (!response.ok()) {
     throw new Error(`${name}: ${response.status()} ${await response.text()}`);
   }
@@ -62,7 +57,7 @@ async function persistedBoard(
   boardFileId: string,
 ) {
   const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
   );
   if (!response.ok()) throw new Error(`get-design: ${await response.text()}`);
   const design = await response.json();
@@ -180,6 +175,37 @@ test("double-clicking a selected board vector opens point editing that persists"
         return nodes[2]![0];
       })
       .toBeGreaterThan(330);
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
+test("an empty board click ends point editing and deselects the vector", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createBoardDesign(request);
+  try {
+    await openBoard(page, designId);
+    const selectedRows = page.locator(
+      '[role="treeitem"][aria-selected="true"]',
+    );
+    const onStroke = await boardPoint(page, "board-vector", 0.5, 0.93);
+    await page.mouse.click(onStroke.x, onStroke.y);
+    await expect(selectedRows).toHaveCount(1);
+    await page.mouse.dblclick(onStroke.x, onStroke.y);
+    const overlay = page.locator("[data-vector-edit-overlay]");
+    await expect(overlay).toBeVisible();
+
+    const empty = await boardPoint(page, "board-text", 0.5, 1.9);
+    // Clicks inside the double-click interval extend the double-click.
+    await page.waitForTimeout(600);
+    await page.mouse.click(empty.x, empty.y);
+
+    await expect(overlay).toBeHidden();
+    await expect(selectedRows).toHaveCount(0);
+    await page.waitForTimeout(1500); // e2e-harness-ignore: the stale re-select lands after the board's ready handshake; there is no positive state to await.
+    await expect(selectedRows).toHaveCount(0);
   } finally {
     await action(request, "delete-design", { id: designId });
   }
