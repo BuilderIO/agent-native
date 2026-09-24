@@ -456,7 +456,10 @@ export function useCreateComment(author: CommentAuthor = {}) {
         comment: optimistic,
       });
       queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
-        updateComments(response, (comments) => [...comments, optimistic]),
+        updateComments(response, (comments) => [
+          ...comments.filter(({ id }) => id !== temporaryId),
+          optimistic,
+        ]),
       );
       return {
         operationId,
