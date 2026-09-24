@@ -303,11 +303,24 @@ export interface ReviewOptimisticMutationContext {
 export class ReviewOptimisticCache {
   private readonly queries = new Map<string, OptimisticQueryState>();
   private readonly resourceOperations = new Map<string, Set<string>>();
+  private readonly activeMutations = new Map<
+    string,
+    {
+      mutation: ReviewOptimisticMutation;
+      context: ReviewOptimisticMutationContext;
+    }
+  >();
   private nextOperation = 0;
   private rendering = false;
 
   constructor(private readonly queryClient: QueryClient) {
     queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === "added") {
+        for (const { mutation, context } of this.activeMutations.values()) {
+          this.attach(event.query, mutation, context);
+        }
+        return;
+      }
       if (event.type !== "updated") return;
       const state = this.queries.get(event.query.queryHash);
       if (!state || this.rendering || event.query.state.data === state.rendered)
@@ -325,39 +338,19 @@ export class ReviewOptimisticCache {
     resourceOperations.add(operationId);
     this.resourceOperations.set(resourceKey, resourceOperations);
 
-    const queryHashes: string[] = [];
-    for (const query of this.queryClient
-      .getQueryCache()
-      .findAll({ queryKey: ["action", mutation.action] })) {
-      const params = query.queryKey[2];
-      if (!matchesReviewResource(params, mutation.resource)) continue;
-
-      const existing = this.queries.get(query.queryHash);
-      const state = existing ?? {
-        queryKey: query.queryKey,
-        resource: mutation.resource,
-        base: query.state.data,
-        rendered: query.state.data,
-        operations: new Map<string, OptimisticOperation>(),
-      };
-      state.operations.set(operationId, {
-        id: operationId,
-        pending: true,
-        transform: mutation.transform,
-        onSuccess: mutation.onSuccess,
-        successReplacesOptimistic: mutation.successReplacesOptimistic,
-      });
-      this.queries.set(query.queryHash, state);
-      this.render(state);
-      queryHashes.push(query.queryHash);
-    }
-
-    return {
+    const context: ReviewOptimisticMutationContext = {
       operationId,
       action: mutation.action,
       resource: mutation.resource,
-      queryHashes,
+      queryHashes: [],
     };
+    this.activeMutations.set(operationId, { mutation, context });
+    for (const query of this.queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["action", mutation.action] })) {
+      this.attach(query, mutation, context);
+    }
+    return context;
   }
 
   succeed(
@@ -393,6 +386,7 @@ export class ReviewOptimisticCache {
 
   settle(context: ReviewOptimisticMutationContext | undefined) {
     if (!context) return;
+    this.activeMutations.delete(context.operationId);
     const resourceKey = reviewResourceKey(context.resource);
     const resourceOperations = this.resourceOperations.get(resourceKey);
     resourceOperations?.delete(context.operationId);
@@ -431,6 +425,42 @@ export class ReviewOptimisticCache {
     } finally {
       this.rendering = false;
     }
+  }
+
+  private attach(
+    query: {
+      queryHash: string;
+      queryKey: readonly unknown[];
+      state: { data: unknown };
+    },
+    mutation: ReviewOptimisticMutation,
+    context: ReviewOptimisticMutationContext,
+  ) {
+    if (
+      query.queryKey[0] !== "action" ||
+      query.queryKey[1] !== mutation.action ||
+      !matchesReviewResource(query.queryKey[2], mutation.resource) ||
+      context.queryHashes.includes(query.queryHash)
+    ) {
+      return;
+    }
+    const state = this.queries.get(query.queryHash) ?? {
+      queryKey: query.queryKey,
+      resource: mutation.resource,
+      base: query.state.data,
+      rendered: query.state.data,
+      operations: new Map<string, OptimisticOperation>(),
+    };
+    state.operations.set(context.operationId, {
+      id: context.operationId,
+      pending: true,
+      transform: mutation.transform,
+      onSuccess: mutation.onSuccess,
+      successReplacesOptimistic: mutation.successReplacesOptimistic,
+    });
+    this.queries.set(query.queryHash, state);
+    context.queryHashes.push(query.queryHash);
+    this.render(state);
   }
 }
 

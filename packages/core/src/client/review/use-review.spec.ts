@@ -124,6 +124,69 @@ describe("ReviewOptimisticCache", () => {
     ).toEqual([saved]);
   });
 
+  it("does not duplicate a canonical comment refetched before its create response", () => {
+    const queryClient = createQueryClient();
+    const queryKey = ["action", "list-review-comments", resource] as const;
+    queryClient.setQueryData(queryKey, commentsResult([]));
+    const cache = new ReviewOptimisticCache(queryClient);
+    const canonical = comment("rev_comment_operation-1", "New comment");
+    const context = cache.begin({
+      action: "list-review-comments",
+      resource,
+      transform: (data, params) => {
+        const result = data as ListReviewCommentsResult;
+        return {
+          ...result,
+          comments: insertOptimisticComment(result.comments, canonical, params),
+        };
+      },
+    });
+
+    queryClient.setQueryData(queryKey, commentsResult([canonical]));
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments,
+    ).toEqual([canonical]);
+    cache.succeed(context, canonical);
+    cache.settle(context);
+  });
+
+  it("applies a pending comment overlay to a query mounted after the mutation begins", () => {
+    const queryClient = createQueryClient();
+    const cache = new ReviewOptimisticCache(queryClient);
+    const optimistic = comment("rev_comment_operation-2", "New comment");
+    const context = cache.begin({
+      action: "list-review-comments",
+      resource,
+      transform: (data, params) => {
+        const result = data as ListReviewCommentsResult;
+        if (!result?.comments) return data;
+        return {
+          ...result,
+          comments: insertOptimisticComment(
+            result.comments,
+            optimistic,
+            params,
+          ),
+        };
+      },
+    });
+    const queryKey = [
+      "action",
+      "list-review-comments",
+      { ...resource, includeResolved: true },
+    ] as const;
+    queryClient.setQueryData(queryKey, commentsResult([]));
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments,
+    ).toEqual([optimistic]);
+
+    cache.fail(context);
+    cache.settle(context);
+    expect(
+      queryClient.getQueryData<ListReviewCommentsResult>(queryKey)?.comments,
+    ).toEqual([]);
+  });
+
   it("keeps a newer refetched suggestion revision when an amendment response arrives late", () => {
     const original = suggestion("suggestion-1", "Original");
     const saved = { ...original, revision: 2, summary: "Older amendment" };
