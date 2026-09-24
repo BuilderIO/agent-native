@@ -2,6 +2,7 @@
 
 import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { IconBrandGithub } from "@tabler/icons-react";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
@@ -3122,12 +3123,26 @@ export function AuthPage(props: AuthPageProps) {
         <p className="auth-marketing-headline" data-marketing-field="headline">
           {marketingCopy.authHeadline ?? marketingCopy.tagline}
         </p>
-        {(marketingCopy.authDescription ?? marketingCopy.description) ? (
+        {(marketingCopy.authDescription ?? marketingCopy.description) ||
+        marketingCopy.learnMoreUrl ? (
           <p
             className="auth-marketing-description"
             data-marketing-field="description"
           >
             {marketingCopy.authDescription ?? marketingCopy.description}
+            {marketingCopy.learnMoreUrl ? (
+              <>
+                {" "}
+                <a
+                  className="auth-marketing-description-link"
+                  href={marketingCopy.learnMoreUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("learnMore")}
+                </a>
+              </>
+            ) : null}
           </p>
         ) : null}
         <div className="marketing-actions">
@@ -3137,6 +3152,7 @@ export function AuthPage(props: AuthPageProps) {
             target="_blank"
             rel="noreferrer"
           >
+            <IconBrandGithub aria-hidden="true" size={16} />
             <span data-i18n="openSource">{t("openSource")}</span>
           </a>
         </div>
@@ -3148,23 +3164,6 @@ export function AuthPage(props: AuthPageProps) {
       appName={marketingAppName}
       variant="auth"
       background={null}
-      topRight={
-        marketingCopy.learnMoreUrl ? (
-          <a
-            className="auth-marketing-learn-more"
-            data-auth-marketing-learn-more="true"
-            href={marketingCopy.learnMoreUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span>{t("newToApp").replace("{appName}", marketingAppName)}</span>
-            <span aria-hidden="true"> </span>
-            <span className="auth-marketing-learn-more-link">
-              {t("learnMore")}
-            </span>
-          </a>
-        ) : null
-      }
       auth={authCard}
       className="auth-marketing-home"
     >
