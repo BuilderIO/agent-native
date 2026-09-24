@@ -15,6 +15,7 @@ const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "get-layout-overflows",
+  "get-contrast-issues",
   "list-decks",
   "get-deck",
   "get-design-system",

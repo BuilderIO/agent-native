@@ -54,6 +54,22 @@ column. If the source is denser, split it across slides. Never use zoom,
 text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
 
+## Contrast
+
+A "fix contrast" or "hard to read" request has no verifiable completion
+signal from visual review alone. Call `get-contrast-issues` with the `deckId`
+(and `slideId` for a single slide) to audit every text run's actual resolved
+foreground and background color against WCAG AA thresholds. It is the
+contrast analog of `get-layout-overflows`: a deterministic check, not a
+guess. Read every reported issue's `foreground`, `background`, and
+`requiredRatio` before editing, fix those elements with an `update-slide`
+`styleOnly` edit that changes only the offending `color`/`background`
+declaration, then call `get-contrast-issues` again on the same slide(s) to
+confirm `canClaimDeckPassesContrast` is true before reporting the fix done.
+Do not treat `unresolvedElements` as passing — those are colors (gradients,
+`background: currentColor`, or design-system tokens this audit could not
+read) that need manual review instead.
+
 ## Updating a Slide
 
 To edit a slide's content:
