@@ -62,6 +62,23 @@ describe("runSwapFillStroke", () => {
     expect(patch?.strokeOpacity).toBe("");
   });
 
+  it("keeps a gradient's partial opacity, which the value cannot carry", () => {
+    const gradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const patch = swap(
+      element("path", {
+        fill: gradient,
+        fillOpacity: "0.5",
+        stroke: "none",
+        strokeWidth: "0px",
+      }),
+    );
+
+    expect(patch?.stroke).toBe(gradient);
+    expect(patch?.strokeOpacity).toBe("0.5");
+    expect(patch?.fill).toBe("none");
+    expect(patch?.fillOpacity).toBe("");
+  });
+
   it("swaps a box's background and border colours", () => {
     const patch = swap(
       element("div", {

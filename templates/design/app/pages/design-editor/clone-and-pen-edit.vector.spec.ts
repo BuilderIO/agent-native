@@ -329,6 +329,8 @@ describe("editing a resized vector", () => {
     const html = `<!DOCTYPE html><html><body><svg data-agent-native-node-id="resized" data-an-primitive="path" viewBox="0 0 100 50" preserveAspectRatio="none" style="position: absolute; left: 10px; top: 20px; width: 200px; height: 100px" data-an-pen-nodes='${serializePenNodes(path)}'><path d="${serializePenPath(path)}" fill="none" stroke="#000"></path></svg></body></html>`;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 100 50");
+    svg.style.width = "200px";
+    svg.style.height = "100px";
     Object.defineProperty(svg, "getScreenCTM", {
       configurable: true,
       value: () => ({ a: 2, b: 0, c: 0, d: 2, e: 10, f: 20 }),
@@ -356,6 +358,28 @@ describe("editing a resized vector", () => {
     expect(committedSvg.style.left).toBe("10px");
     expect(committedSvg.style.width).toBe("200px");
     expect(committedSvg.style.height).toBe("100px");
+  });
+});
+
+describe("editing a CSS-transformed vector", () => {
+  it("refuses a scale that write-back would keep applying", () => {
+    const path: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        createCornerNode({ x: 100, y: 50 }),
+      ],
+    };
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 100 50");
+    svg.style.width = "200px";
+    svg.style.height = "100px";
+    Object.defineProperty(svg, "getScreenCTM", {
+      configurable: true,
+      value: () => ({ a: 4, b: 0, c: 0, d: 4, e: 10, f: 20 }),
+    });
+
+    expect(penPathForVectorEdit(svg, path, { x: 0, y: 0 })).toBeNull();
   });
 });
 

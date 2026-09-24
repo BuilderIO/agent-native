@@ -327,6 +327,19 @@ export function penPathForVectorEdit(
   const mapping = penPathScreenContentMapping(svg);
   if (!mapping) return null;
   const { viewBox, scaleX, scaleY } = mapping;
+  // Only the box-vs-viewBox stretch is re-based; a CSS transform survives
+  // write-back, so baking its scale into the nodes would apply it twice.
+  const boxStretchMatches = (scale: number, box: string, extent: number) => {
+    const size = parsePixelValue(box);
+    if (size === null) return false;
+    return extent === 0 || Math.abs(scale - size / extent) <= 0.001;
+  };
+  if (
+    !boxStretchMatches(scaleX, svg.style.width, viewBox.width) ||
+    !boxStretchMatches(scaleY, svg.style.height, viewBox.height)
+  ) {
+    return null;
+  }
   const sourceOffset = {
     x: mapping.offset.x - renderOffset.x,
     y: mapping.offset.y - renderOffset.y,

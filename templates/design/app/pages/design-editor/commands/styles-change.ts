@@ -78,7 +78,7 @@ export function runStylesChange(
   if (meta?.capturedStyleTargets && meta.phase !== "preview") {
     commitCapturedStyleTargets(
       Object.fromEntries(
-        Object.entries(styles).filter(([, value]) => Boolean(value)),
+        Object.entries(styles).filter(([, value]) => value !== undefined),
       ),
       meta.capturedStyleTargets,
       meta.interactionState,
@@ -115,7 +115,9 @@ export function runStylesChange(
     return;
   }
   const selector = selectedElement?.selector ?? "body";
-  const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
+  const entries = Object.entries(styles).filter(
+    ([, value]) => value !== undefined,
+  );
   if (entries.length === 0) return;
   if (meta?.relativeExpression && entries.length === 1) {
     const [property] = entries[0]!;

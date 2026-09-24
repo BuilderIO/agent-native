@@ -18,11 +18,18 @@ function hasPaint(value: string): boolean {
   return color ? color.a > 0 : true;
 }
 
-function withOpacity(paint: string, opacity: string | undefined): string {
+function swappedPaint(
+  paint: string,
+  opacity: string | undefined,
+): { paint: string; opacity: string } {
   const alpha = Number.parseFloat(opacity ?? "1");
+  if (!Number.isFinite(alpha) || alpha >= 1) return { paint, opacity: "" };
   const color = parseCssColor(paint);
-  if (!color || !Number.isFinite(alpha) || alpha >= 1) return paint;
-  return rgbaToCss({ ...color, a: color.a * alpha });
+  if (color) {
+    return { paint: rgbaToCss({ ...color, a: color.a * alpha }), opacity: "" };
+  }
+  // A gradient value has nowhere to carry alpha, so it keeps its opacity.
+  return { paint, opacity: String(alpha) };
 }
 
 /**
@@ -58,13 +65,20 @@ export function runSwapFillStroke({
     const strokeHasPaint =
       hasPaint(stroke) && strokeWidth > 0 && strokeOpacity > 0;
     if (!fillHasPaint && !strokeHasPaint) return;
-    // Opacity rides in the colours: an inline fill-opacity would override
-    // the fill-opacity="0" that keeps an open path's chord unpainted.
+    // Opacity rides in the colours where it can: an inline fill-opacity
+    // would override the fill-opacity="0" that keeps an open path's chord
+    // unpainted. An empty value removes the old declaration.
+    const nextFill = strokeHasPaint
+      ? swappedPaint(stroke, styles.strokeOpacity)
+      : { paint: "none", opacity: "" };
+    const nextStroke = fillHasPaint
+      ? swappedPaint(fill, styles.fillOpacity)
+      : { paint: "none", opacity: "" };
     handleStylesChange({
-      fill: strokeHasPaint ? withOpacity(stroke, styles.strokeOpacity) : "none",
-      fillOpacity: "",
-      stroke: fillHasPaint ? withOpacity(fill, styles.fillOpacity) : "none",
-      strokeOpacity: "",
+      fill: nextFill.paint,
+      fillOpacity: nextFill.opacity,
+      stroke: nextStroke.paint,
+      strokeOpacity: nextStroke.opacity,
       ...(fillHasPaint && !strokeHasPaint ? { strokeWidth: "1px" } : {}),
     });
     return;
