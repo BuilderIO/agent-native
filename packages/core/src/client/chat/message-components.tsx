@@ -2106,12 +2106,12 @@ export function shouldShowInlineRunError({
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
-export function withoutRunErrorSummary(
+export function withoutBanneredRunErrorSummary(
   text: string,
   runError: RunErrorInfo | null,
-  showRunErrorNotice: boolean,
+  bannerRunErrorKey: string | null | undefined,
 ): string | null {
-  if (!runError || !showRunErrorNotice) return text;
+  if (!runError || runErrorKey(runError) !== bannerRunErrorKey) return text;
   const summary = runError.message.trim();
   for (const prefix of [`Error: ${summary}`, summary]) {
     if (text === prefix) return null;
@@ -2284,10 +2284,6 @@ export function AssistantMessage() {
       runError: messageRunError,
       bannerRunErrorKey: messageActions?.bannerRunErrorKey,
     });
-  const runErrorBannerIsVisible =
-    !isUserStoppedRun &&
-    messageRunError !== null &&
-    messageActions?.bannerRunErrorKey === runErrorKey(messageRunError);
   const missingFinalResponseCandidate =
     missingWarningText == null &&
     shouldShowMissingFinalResponse({
@@ -2641,10 +2637,10 @@ export function AssistantMessage() {
                       />
                     );
                   }
-                  const text = withoutRunErrorSummary(
+                  const text = withoutBanneredRunErrorSummary(
                     part.text,
                     messageRunError,
-                    runErrorBannerIsVisible,
+                    isUserStoppedRun ? null : messageActions?.bannerRunErrorKey,
                   );
                   return text === null ? null : <MarkdownText text={text} />;
                 case "reasoning":
