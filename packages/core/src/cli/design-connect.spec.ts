@@ -763,7 +763,7 @@ describe("design connect bridge endpoints", () => {
             designId: "design-1",
             pendingEditCount: 1,
             status: "ready",
-            prompt: "x".repeat(520_000),
+            prompt: "x".repeat(64 * 1024 + 1),
           },
         },
         auth,

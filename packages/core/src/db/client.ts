@@ -1263,10 +1263,13 @@ function poolApplicationName(): string {
 
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
+  const max =
+    getAppConfig().runtime.databasePoolMax ??
+    (serverless ? serverlessPoolMax() : 20);
   return {
     onnotice: () => {},
     connection: { application_name: poolApplicationName() },
-    max: serverless ? serverlessPoolMax() : 20,
+    max,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -1316,8 +1319,10 @@ export function neonPoolOptions(): {
  * Keep pools shared if you raise this.
  */
 export function neonPoolMax(): number {
-  if (!isServerlessRuntime()) return 20;
-  return serverlessPoolMax();
+  return (
+    getAppConfig().runtime.databasePoolMax ??
+    (isServerlessRuntime() ? serverlessPoolMax() : 20)
+  );
 }
 
 function serverlessPoolMax(): number {

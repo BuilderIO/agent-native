@@ -550,10 +550,6 @@ export default {
       },
     },
     askAgent: "Ask agent",
-    deepSelectGuidance: {
-      message: "按住 {{modifier}} 并点击以选择内部图层。",
-      dismiss: "关闭图层选择提示",
-    },
     autoLayoutSuggestion: {
       menuLabel: "建议自动布局…",
       title: "建议自动布局",
