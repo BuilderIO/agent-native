@@ -1,4 +1,4 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { nanoid } from "nanoid";
 import {
   useCallback,
@@ -154,7 +154,7 @@ export function useNewDeckGenerationRun(
   submitQuestionContinuation: (input: {
     message: string;
     context: string;
-  }) => void;
+  }) => Promise<{ delivered: boolean }>;
 } {
   const [run, setRun] = useState<NewDeckGenerationRun>(() =>
     createRun(deckId, isNewDeckRoute, submitMessageId),
@@ -181,6 +181,7 @@ export function useNewDeckGenerationRun(
   const [activeRun, setActiveRun] = useState({ runKey, generating: false });
   const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const continuationTargetTabIdRef = useRef<string | null>(null);
+  const continuationSubmitMessageIdRef = useRef<string | null>(null);
   const [continuation, setContinuation] = useState({
     runKey,
     submitMessageId: null as string | null,
@@ -191,6 +192,7 @@ export function useNewDeckGenerationRun(
       : { runKey, submitMessageId: null };
   if (continuation.runKey !== runKey) {
     continuationTargetTabIdRef.current = null;
+    continuationSubmitMessageIdRef.current = null;
     setContinuation(currentContinuation);
   }
   if (activeRun.runKey !== runKey) {
@@ -199,6 +201,7 @@ export function useNewDeckGenerationRun(
   const expectQuestionContinuation = useCallback(
     (continuationSubmitMessageId: string) => {
       continuationTargetTabIdRef.current = null;
+      continuationSubmitMessageIdRef.current = continuationSubmitMessageId;
       setContinuation({
         runKey,
         submitMessageId: continuationSubmitMessageId,
@@ -210,13 +213,29 @@ export function useNewDeckGenerationRun(
     ({ message, context }: { message: string; context: string }) => {
       const submitMessageId = nanoid();
       expectQuestionContinuation(submitMessageId);
-      sendToAgentChat({
-        message,
-        context,
-        submit: true,
-        submitMessageId,
-        ...(currentRun.tabId ? { targetTabId: currentRun.tabId } : {}),
+      const submission = sendToAgentChatAndConfirm(
+        {
+          message,
+          context,
+          submit: true,
+          ...(currentRun.tabId ? { targetTabId: currentRun.tabId } : {}),
+        },
+        { submitMessageId },
+      );
+      void submission.then(({ delivered }) => {
+        if (delivered) return;
+        continuationTargetTabIdRef.current = null;
+        if (continuationSubmitMessageIdRef.current === submitMessageId) {
+          continuationSubmitMessageIdRef.current = null;
+          setContinuation((previous) =>
+            previous.runKey === runKey &&
+            previous.submitMessageId === submitMessageId
+              ? { runKey, submitMessageId: null }
+              : previous,
+          );
+        }
       });
+      return submission;
     },
     [currentRun.tabId, expectQuestionContinuation],
   );
@@ -225,7 +244,10 @@ export function useNewDeckGenerationRun(
     const continuationSubmitId = currentContinuation.submitMessageId;
     if (!continuationSubmitId) return;
     const timer = setTimeout(() => {
-      continuationTargetTabIdRef.current = null;
+      if (continuationSubmitMessageIdRef.current === continuationSubmitId) {
+        continuationTargetTabIdRef.current = null;
+        continuationSubmitMessageIdRef.current = null;
+      }
       setContinuation((previous) =>
         previous.runKey === runKey &&
         previous.submitMessageId === continuationSubmitId
@@ -246,7 +268,7 @@ export function useNewDeckGenerationRun(
         typeof detail?.tabId !== "string"
       ) {
         if (
-          detail?.submitMessageId === currentContinuation.submitMessageId &&
+          detail?.submitMessageId === continuationSubmitMessageIdRef.current &&
           detail?.tabId === currentRun.tabId
         ) {
           continuationTargetTabIdRef.current = detail.tabId;
@@ -267,12 +289,7 @@ export function useNewDeckGenerationRun(
         "agentNative.chatSubmitTarget",
         handleSubmitTarget,
       );
-  }, [
-    currentContinuation.submitMessageId,
-    currentRun.deckId,
-    currentRun.submitMessageId,
-    currentRun.tabId,
-  ]);
+  }, [currentRun.deckId, currentRun.submitMessageId, currentRun.tabId]);
 
   useEffect(() => {
     const tabId = currentRun.tabId;
@@ -293,6 +310,7 @@ export function useNewDeckGenerationRun(
         setActiveRun({ runKey, generating: true });
         if (continuationTargetTabIdRef.current === tabId) {
           continuationTargetTabIdRef.current = null;
+          continuationSubmitMessageIdRef.current = null;
           setContinuation((previous) =>
             previous.runKey === runKey
               ? { runKey, submitMessageId: null }
@@ -318,6 +336,7 @@ export function useNewDeckGenerationRun(
       setActiveRun({ runKey, generating: false });
       if (continuationTargetTabIdRef.current === tabId) {
         continuationTargetTabIdRef.current = null;
+        continuationSubmitMessageIdRef.current = null;
         setContinuation((previous) =>
           previous.runKey === runKey
             ? { runKey, submitMessageId: null }

@@ -735,6 +735,7 @@ export default function DeckEditor() {
     submitLabel: questionFlowSubmitLabel,
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
+    isSubmitting: questionFlowSubmitting,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
@@ -2893,6 +2894,7 @@ export default function DeckEditor() {
             description={questionFlowDescription}
             skipLabel={questionFlowSkipLabel}
             submitLabel={questionFlowSubmitLabel}
+            isSubmitting={questionFlowSubmitting}
           />
         )}
 

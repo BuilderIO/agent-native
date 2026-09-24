@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -25,7 +25,7 @@ import {
 } from "./use-new-deck-generation";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  sendToAgentChat: vi.fn(),
+  sendToAgentChatAndConfirm: vi.fn(),
 }));
 
 describe("useNewDeckGeneration", () => {
@@ -33,7 +33,7 @@ describe("useNewDeckGeneration", () => {
   afterEach(() => {
     cleanup();
     sessionStorage.clear();
-    vi.mocked(sendToAgentChat).mockReset();
+    vi.mocked(sendToAgentChatAndConfirm).mockReset();
     vi.useRealTimers();
   });
 
@@ -321,6 +321,10 @@ describe("useNewDeckGeneration", () => {
           initialProps.submitMessageId,
         ),
       );
+      vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
+        tabId: "original-generation-tab",
+        delivered: true,
+      });
 
       act(() => {
         window.dispatchEvent(
@@ -339,20 +343,23 @@ describe("useNewDeckGeneration", () => {
         });
       });
 
-      const request = vi.mocked(sendToAgentChat).mock.calls[0][0];
+      const [request, options] = vi.mocked(sendToAgentChatAndConfirm).mock
+        .calls[0];
       expect(request).toMatchObject({
         message: `Guided question ${choice}`,
         context: "Continue the original deck generation.",
         submit: true,
         targetTabId: "original-generation-tab",
       });
+      expect(options).toMatchObject({ submitMessageId: expect.any(String) });
+      const submitMessageId = options?.submitMessageId;
       expect(result.current.questionContinuationPending).toBe(true);
 
       act(() => {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatSubmitTarget", {
             detail: {
-              submitMessageId: request.submitMessageId,
+              submitMessageId,
               tabId: "original-generation-tab",
             },
           }),
@@ -367,6 +374,97 @@ describe("useNewDeckGeneration", () => {
       expect(result.current.questionContinuationPending).toBe(false);
     },
   );
+
+  it("matches a synchronous continuation target event before React rerenders", async () => {
+    const submitMessageId = "submit-sync-continuation";
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-sync-continuation", true, submitMessageId),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "original-generation-tab" },
+        }),
+      );
+    });
+    vi.mocked(sendToAgentChatAndConfirm).mockImplementation(
+      (request, options) => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitTarget", {
+            detail: {
+              submitMessageId: options?.submitMessageId,
+              tabId: "original-generation-tab",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitResult", {
+            detail: {
+              submitMessageId: options?.submitMessageId,
+              delivered: true,
+            },
+          }),
+        );
+        return Promise.resolve({
+          tabId: request.targetTabId ?? "original-generation-tab",
+          delivered: true,
+        });
+      },
+    );
+
+    let submission!: Promise<{ delivered: boolean }>;
+    act(() => {
+      submission = result.current.submitQuestionContinuation({
+        message: "Here are my answers.",
+        context: "Continue the original run.",
+      });
+    });
+    expect(result.current.questionContinuationPending).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "original-generation-tab" },
+        }),
+      );
+    });
+    expect(result.current.questionContinuationPending).toBe(false);
+    await act(async () => submission);
+  });
+
+  it("clears pending continuation state when targeted delivery is rejected", async () => {
+    const submitMessageId = "submit-rejected-continuation";
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun(
+        "deck-rejected-continuation",
+        true,
+        submitMessageId,
+      ),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "closed-generation-tab" },
+        }),
+      );
+    });
+    vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
+      tabId: "closed-generation-tab",
+      delivered: false,
+      reason: "target-tab-not-open",
+    });
+
+    let submission!: Promise<{ delivered: boolean }>;
+    act(() => {
+      submission = result.current.submitQuestionContinuation({
+        message: "Here are my answers.",
+        context: "Continue the original run.",
+      });
+    });
+    await act(async () => submission);
+
+    expect(result.current.questionContinuationPending).toBe(false);
+  });
 
   it("captures the synchronous submit target in the flushSync route commit", () => {
     const deckId = "deck-sync-target";

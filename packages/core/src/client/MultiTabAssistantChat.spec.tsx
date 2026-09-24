@@ -325,6 +325,7 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  threadMocks.switchThread.mockReset();
   threadMocks.isNewThread.mockReset();
   threadMocks.isNewThread.mockReturnValue(false);
   threadMocks.pinThread.mockReset();
@@ -482,6 +483,56 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     expect(threadMocks.switchThread).not.toHaveBeenCalled();
     window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("activates an open targeted tab when it has no mounted chat ref", async () => {
+    const generationThread = {
+      id: "unmounted-generation-thread",
+      title: "Generation thread",
+      preview: "Create a presentation",
+      messageCount: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    threadMocks.threads = [...threadMocks.threads, generationThread];
+    threadMocks.switchThread.mockImplementation(() => undefined);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-task-open", {
+          detail: {
+            threadId: generationThread.id,
+          },
+        }),
+      );
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(
+      container.querySelectorAll('[data-testid="assistant-chat"]'),
+    ).toHaveLength(1);
+
+    threadMocks.switchThread.mockImplementation((threadId: string) => {
+      threadMocks.activeThreadId = threadId;
+    });
+    threadMocks.switchThread.mockClear();
+    chatHandleMocks.sendMessage.mockClear();
+    act(() => {
+      dispatchSubmitChat({
+        message: "Continue the deck generation.",
+        submit: true,
+        targetTabId: generationThread.id,
+        submitMessageId: "unmounted-generation-submit",
+      });
+    });
+    expect(threadMocks.switchThread).toHaveBeenCalledWith(generationThread.id);
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelectorAll('[data-testid="assistant-chat"]'),
+    ).toHaveLength(2);
   });
 
   it("defaults effort to high", () => {

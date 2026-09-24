@@ -1353,7 +1353,7 @@ export interface SendToAgentChatAndConfirmResult {
  */
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { timeoutMs?: number },
+  options?: { submitMessageId?: string; timeoutMs?: number },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
@@ -1374,7 +1374,8 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateAgentChatSubmitMessageId();
+  const submitMessageId =
+    options?.submitMessageId ?? generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,

@@ -706,4 +706,55 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
     expect(sendToAgentChatMock).not.toHaveBeenCalled();
   });
+
+  it("keeps guided questions available when correlated delivery is rejected", async () => {
+    let resolveDelivery!: (result: { delivered: boolean }) => void;
+    const onSubmitMessage = vi.fn(
+      () =>
+        new Promise<{ delivered: boolean }>((resolve) => {
+          resolveDelivery = resolve;
+        }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              questions: [
+                {
+                  id: "format",
+                  type: "text-options",
+                  question: "Which format should I use?",
+                  options: [{ label: "Summary", value: "summary" }],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+      onSubmitMessage,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ format: "A concise memo" });
+      await Promise.resolve();
+    });
+    expect(result.current().questions).toHaveLength(1);
+    expect(result.current().isSubmitting).toBe(true);
+
+    await act(async () => {
+      resolveDelivery({ delivered: false });
+      await Promise.resolve();
+    });
+    expect(result.current().questions).toHaveLength(1);
+    expect(result.current().isSubmitting).toBe(false);
+  });
 });

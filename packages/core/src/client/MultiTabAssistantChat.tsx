@@ -2047,6 +2047,9 @@ export function MultiTabAssistantChat({
           );
           return;
         }
+        if (!chatRefs.current.has(targetTabId)) {
+          switchThread(targetTabId);
+        }
         sendToTab(targetTabId);
       } else if (newTab) {
         const previousTabId = activeThreadIdRef.current;

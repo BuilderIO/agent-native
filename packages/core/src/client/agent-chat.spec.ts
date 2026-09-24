@@ -885,6 +885,26 @@ describe("sendToAgentChat", () => {
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });
 
+  it("confirms a local submit with a caller-provided correlation id", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "continue the existing run",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "continuation-submit" },
+    );
+
+    vi.advanceTimersByTime(0);
+    expect(
+      selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data?.submitMessageId,
+    ).toBe("continuation-submit");
+    reportAgentChatSubmitResult("continuation-submit", true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
   it("preserves an explicit local rejection reason", async () => {
     vi.useFakeTimers();
     const resultPromise = sendToAgentChatAndConfirm({
