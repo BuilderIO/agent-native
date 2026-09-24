@@ -174,6 +174,16 @@ const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 const MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS = 59_500;
 const SESSION_QUERY_DEBOUNCE_MS = 250;
 
+export function shouldShowZeroMinuteRecoveryAction(
+  includeZeroMinuteSessions: boolean,
+  filteredCount: number,
+  unfilteredCount: number,
+): boolean {
+  return (
+    !includeZeroMinuteSessions && filteredCount === 0 && unfilteredCount > 0
+  );
+}
+
 /**
  * Local input state for a URL-backed filter, debounced into the URL.
  *
@@ -247,14 +257,17 @@ export default function SessionsPage() {
   );
   const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
 
+  const sessionListFilters = {
+    from: from ?? undefined,
+    app: app || undefined,
+    query: query || undefined,
+  };
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
   >(
     "list-session-recordings",
     {
-      from: from ?? undefined,
-      app: app || undefined,
-      query: query || undefined,
+      ...sessionListFilters,
       minDurationMs: includeZeroMinuteSessions
         ? undefined
         : MIN_DURATION_FOR_ONE_MINUTE_LABEL_MS,
@@ -264,6 +277,33 @@ export default function SessionsPage() {
   );
 
   const recordings = data ?? [];
+  const shouldCheckForHiddenSessions =
+    !includeZeroMinuteSessions &&
+    !isLoading &&
+    !error &&
+    recordings.length === 0;
+  const {
+    data: unfilteredRecordings,
+    isLoading: isCheckingForHiddenSessions,
+    isFetching: isFetchingHiddenSessions,
+    error: hiddenSessionsError,
+    refetch: refetchHiddenSessions,
+  } = useActionQuery<SessionRecordingSummary[]>(
+    "list-session-recordings",
+    { ...sessionListFilters, limit: 1 },
+    { enabled: shouldCheckForHiddenSessions, staleTime: 30_000 },
+  );
+  const showZeroMinuteRecoveryAction = shouldShowZeroMinuteRecoveryAction(
+    includeZeroMinuteSessions,
+    recordings.length,
+    unfilteredRecordings?.length ?? 0,
+  );
+  const loadError =
+    error ?? (shouldCheckForHiddenSessions ? hiddenSessionsError : null);
+  const isCheckingEmptyState =
+    shouldCheckForHiddenSessions && isCheckingForHiddenSessions;
+  const isRefreshing =
+    isFetching || (shouldCheckForHiddenSessions && isFetchingHiddenSessions);
   const popoverFiltered =
     range !== "30d" || app !== "" || includeZeroMinuteSessions;
 
@@ -375,12 +415,17 @@ export default function SessionsPage() {
               variant="ghost"
               size="icon"
               className="h-9 w-9"
-              onClick={() => void refetch()}
-              disabled={isFetching}
+              onClick={() => {
+                void refetch();
+                if (shouldCheckForHiddenSessions) {
+                  void refetchHiddenSessions();
+                }
+              }}
+              disabled={isRefreshing}
               aria-label={t("sessions.refresh")}
             >
               <IconRefresh
-                className={cn("h-4 w-4", isFetching && "animate-spin")}
+                className={cn("h-4 w-4", isRefreshing && "animate-spin")}
               />
             </Button>
           </div>
@@ -389,21 +434,21 @@ export default function SessionsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {error ? (
+          {loadError ? (
             <div className="p-6 text-sm text-destructive">
-              {t("sessions.loadFailed", { message: error.message })}
+              {t("sessions.loadFailed", { message: loadError.message })}
             </div>
-          ) : isLoading ? (
+          ) : isLoading || isCheckingEmptyState ? (
             <SessionSkeleton />
           ) : recordings.length === 0 ? (
-            includeZeroMinuteSessions ? (
-              <EmptySessionsState />
-            ) : (
+            showZeroMinuteRecoveryAction ? (
               <FilteredEmptySessionsState
                 onIncludeZeroMinuteSessions={() =>
                   updateFilter("includeZeroMinuteSessions", "true")
                 }
               />
+            ) : (
+              <EmptySessionsState />
             )
           ) : (
             <div>
