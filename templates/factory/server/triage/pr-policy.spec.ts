@@ -542,6 +542,15 @@ describe("pull-request governance", () => {
       "packages/core/src/client/MCPClientManager.ts",
       "packages/core/src/server/CSRFPlugin.ts",
       "packages\\core\\src\\client\\ApiKeySettings.tsx",
+      "packages/core/src/extensions/url-safety.ts",
+      "packages/core/src/extensions/fetch-tool.ts",
+      "packages/core/src/client/extensions/iframe-bridge.ts",
+      "packages/core/src/client/extensions/AgentNativeExtensionFrame.tsx",
+      "packages/core/src/client/extensions/InlineExtensionFrame.tsx",
+      "packages/core/src/db-admin/routes.ts",
+      "packages/core/src/db-admin/operations.ts",
+      "packages/core/src/triggers/webhook.ts",
+      "packages/core/src/triggers/webhook-store.ts",
     ]) {
       expect(isUltraScaryChange([path])).toBe(true);
       expect(
