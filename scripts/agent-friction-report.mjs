@@ -100,13 +100,17 @@ const SHIP_FALSE_OPT_OUT_AFTER_RE =
   /^(?:\s*[,;]?\s*(?:but|although|however|which)\s+)?(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s*$|\s*[.!?]\s*$|\s*[,;]\s*(?:because|since|as|i|we)\b)/i;
 const SHIP_FALSE_OPT_OUT_CLAIM_RE =
   /\b(?:(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)|(?:i|we)\s+asked\s+for\s+(?:the\s+)?opposite)\b/i;
+const SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE = new RegExp(
+  String.raw`\b(?:it|(?:the\s+)?(?:agent|assistant|model))\s+(?:(?:falsely|wrongly)\s+)?(?:claimed|thought|assumed|believed|asserted|reported|said)\s+(?:that\s+)?${SHIP_USER}\s+(?:(?:had|has)\s+)?(?:explicitly\s+)?(?:asked|told|said|requested)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
+  "i",
+);
 const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
   /^\s*[,;]?\s*(?:(?:but|although|however|which)\s+)?(?:(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s+(?:ask|tell|say|request)\b|[.!?,;]?\s*$)|(?:i|we)\s+(?:never|didn['’]?t|did not)\s+(?:authoriz\w*|approv\w*)\s+(?:that|it)\b|(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)\b|(?:i|we)\s+(?:asked|told|requested)\s+(?:for\s+)?(?:the\s+)?opposite\b)/i;
 
 const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
   String.raw`(?:${[
     String.raw`\b(?:i|we)\b[^.!?\n]{0,30}\b(?:had|have)\s+to\s+tell\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:running|active)\b`,
-    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)|(?:(?:the\s+)?merge|it)\s+never\s+happened|never\s+happened)\b`,
     String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50}\b(?:stopp?ed|ended|quit|returned)\b[^.!?\n]{0,50}\bwithout\s+merg(?:e|ing)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\s*#?\d+\b`,
     String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
     String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
@@ -236,6 +240,10 @@ function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
 
 function hasFalseOptOutDenial(optOut) {
   const { match: optOutMatch, sentence: optOutSentence } = optOut;
+  if (SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE.test(optOutSentence)) {
+    return true;
+  }
+
   const denials = [
     ...optOutSentence.matchAll(
       new RegExp(SHIP_FALSE_OPT_OUT_BEFORE_RE.source, "gi"),
@@ -299,7 +307,7 @@ function isShipStoppedBeforeMerge(text) {
     const stopPrs = shipStopPrNumbers(sentence, stopMatch);
 
     const optOutMatch = [
-      ...shipOptOutMatches(previousSentence)
+      ...shipOptOutMatches(previousSentence, stopPrs)
         .filter(
           (optOut) =>
             stopPrs.size > 0 &&
@@ -603,6 +611,8 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [true, "I had to tell the agent to keep /ship running."],
   [false, "Please tell the agent to keep /ship running until the checks pass."],
   [true, "I told /ship to merge the pull request, but it never did."],
+  [true, "I asked /ship to merge PR #123, but the merge never happened."],
+  [true, "I asked /ship to merge PR #123, but it never happened."],
   [true, "/ship stopped without merging PR #123."],
   [
     false,
@@ -651,6 +661,14 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     true,
     "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, but I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I told it to leave PR #123 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it thought I said don’t merge PR #123, but I had asked /ship to merge it.",
   ],
   [
     true,
@@ -715,6 +733,10 @@ const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
   [
     false,
     "I asked to leave PR #123 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    false,
+    "I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged.",
   ],
   [
     true,
