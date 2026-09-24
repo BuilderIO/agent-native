@@ -217,10 +217,7 @@ Derive a contract from the deck's subject and write it as literal values:
 </div>
 ```
 
-That example is a deck about forest restoration, not a default. A deck about
-cardiology, municipal bonds, or a hardcore techno label should each arrive
-looking like their subject and unlike each other. Pick the values once, before
-the first slide, and repeat the identical contract on every wrapper.
+That example is a nature-related deck, so colors match the topic of deck. Pick the values once, before the first slide, and repeat the identical contract on every wrapper.
 
 Inheriting when nothing is linked is the failure mode to avoid: a
 `var(--ds-accent, currentColor)` reference on an unlinked deck silently
