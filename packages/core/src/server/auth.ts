@@ -1100,16 +1100,15 @@ async function rotateTwoFactorSession(
   if (!session.token) throw new Error("The current session token is missing.");
 
   const replacement = await resolveBetterAuthSessionToken(cookieToken);
-  if (replacement?.token === session.token) return;
-  await removeSession(session.token);
   if (!replacement) {
     throw new Error(
       "Better Auth replaced the session without a resolvable token.",
     );
   }
-
+  if (replacement.token === session.token) return;
   await addSession(replacement.token, replacement.email);
   setFrameworkSessionCookie(event, replacement.token);
+  await removeSession(session.token);
 }
 
 function betterAuthApiBody(result: unknown): Record<string, any> {
@@ -1381,16 +1380,12 @@ async function ensureEmailVerifiedForRedirect(
 async function emailFromBetterAuthSessionToken(
   token: string,
 ): Promise<string | null> {
-  try {
-    const db = getDbExec();
-    const { rows } = await db.execute({
-      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
-      args: [token],
-    });
-    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
-  } catch {
-    return null;
-  }
+  const db = getDbExec();
+  const { rows } = await db.execute({
+    sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+    args: [token],
+  });
+  return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
 }
 
 async function emailFromVerificationResponseSession(
@@ -5990,8 +5985,8 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result);
         await rotateTwoFactorSession(event, session, result);
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);
@@ -6016,8 +6011,8 @@ async function mountBetterAuthRoutes(
           headers: betterAuthHeadersForSession(event, session.token),
           returnHeaders: true,
         });
-        forwardBetterAuthSetCookies(event, result);
         await rotateTwoFactorSession(event, session, result);
+        forwardBetterAuthSetCookies(event, result);
         return betterAuthApiBody(result);
       } catch (error) {
         return twoFactorError(event, error);

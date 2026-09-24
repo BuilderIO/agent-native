@@ -1350,6 +1350,8 @@ describe("server/auth", () => {
         ["current-session-token", email],
       ]);
       const betterAuthSessions = new Set(["current-session-token"]);
+      let failBetterAuthSessionLookup = false;
+      let failLegacySessionMirror = false;
       const execute = vi.fn(
         async (query: { sql: string; args?: unknown[] }) => {
           const token = query.args?.[0] as string | undefined;
@@ -1366,10 +1368,13 @@ describe("server/auth", () => {
             return { rows: [] };
           }
           if (query.sql.startsWith("INSERT INTO sessions")) {
+            if (failLegacySessionMirror) throw new Error("connection reset");
             if (token) legacySessions.set(token, query.args?.[1] as string);
             return { rows: [] };
           }
           if (query.sql.includes('FROM "session" s JOIN "user"')) {
+            if (failBetterAuthSessionLookup)
+              throw new Error("connection reset");
             return token && betterAuthSessions.has(token)
               ? { rows: [{ email }] }
               : { rows: [] };
@@ -1479,6 +1484,37 @@ describe("server/auth", () => {
         });
         expect(unauthorized.res.status).toBe(401);
         expect(issueReplacementSession).toHaveBeenCalledTimes(callCount);
+      }
+
+      for (const [path, failLookup, failMirror] of [
+        ["/_agent-native/auth/two-factor/enable", true, false],
+        ["/_agent-native/auth/two-factor/disable", false, true],
+      ] as const) {
+        legacySessions.clear();
+        legacySessions.set("current-session-token", email);
+        betterAuthSessions.clear();
+        betterAuthSessions.add("current-session-token");
+        failBetterAuthSessionLookup = failLookup;
+        failLegacySessionMirror = failMirror;
+
+        const handler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === path,
+        )?.[1];
+        const event = createJsonPostEvent(
+          path,
+          {},
+          {
+            cookie: "an_session=current-session-token",
+          },
+        );
+        const result = await handler(event);
+
+        expect(result).toMatchObject({ error: expect.any(String) });
+        expect(legacySessions.get("current-session-token")).toBe(email);
+        expect(legacySessions.has("replacement-session-token")).toBe(false);
+        expect(event.res.headers.get("set-cookie") ?? "").not.toContain(
+          "replacement-session-token",
+        );
       }
     });
 
