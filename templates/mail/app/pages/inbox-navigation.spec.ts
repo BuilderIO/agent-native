@@ -57,13 +57,14 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("selects the first label by default on a plain inbox route", () => {
+  it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
     expect(source).toContain("settingsError ||");
     expect(source).toContain("!settings ||");
     expect(source).toContain("resolveDefaultMailHref({");
+    expect(source).toContain("showAllTab: settings?.showAllTab");
     expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
@@ -108,7 +109,7 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",

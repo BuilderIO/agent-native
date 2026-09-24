@@ -19,7 +19,7 @@ import {
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
-import { inboxTabHref } from "@shared/inbox-threads";
+import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconArrowUpRight,
@@ -547,6 +547,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
   const combineInbox = settings?.combineInbox === true;
+  const showAllTab = settings?.showAllTab !== false;
   const pinnedLabels = useMemo(
     () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
     [isGoogleConnected, userPinnedLabels],
@@ -728,7 +729,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
         filterId: tab.kind === "filter" ? tab.id : undefined,
-        label: tab.name,
+        label: tab.kind === "all" ? t("mail.views.all") : tab.name,
         fullLabel: label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && inboxThreads.data?.activeTabId === tab.id,
@@ -739,7 +740,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxThreads.data?.tabs, inboxThreads.data?.activeTabId, labels, view]);
+  }, [
+    inboxThreads.data?.tabs,
+    inboxThreads.data?.activeTabId,
+    labels,
+    t,
+    view,
+  ]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
@@ -908,6 +915,41 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [pinnedLabels, updateSettings],
   );
 
+  const handleAllTabChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ showAllTab: next });
+      if (
+        next ||
+        view !== "inbox" ||
+        threadId ||
+        activeInboxTab !== ALL_TAB_PARAM
+      ) {
+        return;
+      }
+      void navigate(
+        resolveDefaultMailHref({
+          combineInbox,
+          showAllTab: false,
+          pinnedLabels,
+          savedFilters,
+          isGoogleConnected,
+        }),
+        { replace: true },
+      );
+    },
+    [
+      activeInboxTab,
+      combineInbox,
+      isGoogleConnected,
+      navigate,
+      pinnedLabels,
+      savedFilters,
+      threadId,
+      updateSettings,
+      view,
+    ],
+  );
+
   const handleCombinedInboxChange = useCallback(
     (next: boolean) => {
       updateSettings.mutate({ combineInbox: next });
@@ -915,7 +957,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         if (
           view !== "inbox" ||
           (!isInboxScopedAppLabel(activeLabel) &&
-            activeInboxTab !== OTHER_INBOX_TAB_PARAM)
+            activeInboxTab !== OTHER_INBOX_TAB_PARAM &&
+            activeInboxTab !== ALL_TAB_PARAM)
         ) {
           return;
         }
@@ -941,6 +984,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
       const splitRoute = resolveDefaultMailHref({
         combineInbox: false,
+        showAllTab,
         pinnedLabels,
         savedFilters,
         isGoogleConnected,
@@ -959,6 +1003,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       navigate,
       pinnedLabels,
       savedFilters,
+      showAllTab,
       threadId,
       updateSettings,
       view,
@@ -1463,11 +1508,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     combinedInbox={combineInbox}
+                    allTabVisible={showAllTab}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onAllTabChange={handleAllTabChange}
                     onCombinedInboxChange={handleCombinedInboxChange}
                     onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
@@ -2582,11 +2629,13 @@ function TabSettingsPopover({
   labelDisplayNames,
   pinnedLabels,
   combinedInbox,
+  allTabVisible,
   savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onAllTabChange,
   onCombinedInboxChange,
   onRemoveFilter,
   onRename,
@@ -2596,11 +2645,13 @@ function TabSettingsPopover({
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   combinedInbox: boolean;
+  allTabVisible: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onAllTabChange: (checked: boolean) => void;
   onCombinedInboxChange: (checked: boolean) => void;
   onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
@@ -2694,6 +2745,20 @@ function TabSettingsPopover({
           id="combined-inbox-toggle"
           checked={combinedInbox}
           onCheckedChange={onCombinedInboxChange}
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+        <label
+          htmlFor="all-inbox-tab-toggle"
+          className="text-[13px] text-foreground"
+        >
+          {t("mail.tabSettings.allTab")}
+        </label>
+        <Switch
+          id="all-inbox-tab-toggle"
+          checked={allTabVisible}
+          onCheckedChange={onAllTabChange}
         />
       </div>
 

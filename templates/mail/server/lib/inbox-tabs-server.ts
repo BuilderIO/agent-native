@@ -6,7 +6,7 @@ import { mailLabelsInclude } from "@shared/gmail-labels.js";
  * tab's badge can never disagree with the rows it shows.
  *
  * Spec (Superhuman semantics):
- * - Tab order: Important, then one tab per pinned label (excluding
+ * - Tab order: All (when enabled), Important, one tab per pinned label (excluding
  *   "important"/"note-to-self" and any {@link COLLAPSIBLE_VIEW_IDS} system
  *   view id), then one tab per saved filter, then Other. `combineInbox`
  *   collapses all of that to a single "inbox" tab.
@@ -16,6 +16,7 @@ import { mailLabelsInclude } from "@shared/gmail-labels.js";
  *   automated (see `inbox-classify.ts`), in which case it falls to Other.
  */
 import {
+  ALL_TAB_ID,
   ALL_INBOX_TAB_ID,
   IMPORTANT_TAB_ID,
   OTHER_TAB_ID,
@@ -55,6 +56,9 @@ export function resolveInboxTabs(
   // "Important" and "Other" are fixed English source strings — the client
   // localizes built-in tab ids by `kind`, not by this `name`.
   const tabs: ResolvedInboxTab[] = [
+    ...(config.showAllTab === false
+      ? []
+      : [{ id: ALL_TAB_ID, kind: "all" as const, name: "All" }]),
     { id: IMPORTANT_TAB_ID, kind: "important", name: "Important" },
   ];
 
@@ -90,6 +94,7 @@ export function inboxTabsForItem(
 ): string[] {
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
+  const allTab = tabs.find((tab) => tab.kind === "all");
   const isAiImportant = mailLabelsInclude(item.labelIds, AI_IMPORTANT_LABEL);
 
   const matched = tabs
@@ -97,9 +102,15 @@ export function inboxTabsForItem(
     .filter((tab) => emailMessageMatchesSearch(item, tab.query!))
     .map((tab) => tab.id);
   if (isAiImportant) matched.unshift(IMPORTANT_TAB_ID);
-  if (matched.length > 0) return matched;
+  if (matched.length > 0) {
+    if (allTab) matched.unshift(allTab.id);
+    return matched;
+  }
 
-  return [item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID];
+  return [
+    ...(allTab ? [allTab.id] : []),
+    item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID,
+  ];
 }
 
 /** Partitions `items` into every tab's member list (tab id -> items), in tab order. */
@@ -123,5 +134,6 @@ export function resolveActiveTabId(
 ): string {
   const first = tabs[0]?.id ?? OTHER_TAB_ID;
   if (!requested) return first;
-  return tabs.some((t) => t.id === requested) ? requested : first;
+  const requestedId = requested === "all" ? ALL_TAB_ID : requested;
+  return tabs.some((t) => t.id === requestedId) ? requestedId : first;
 }

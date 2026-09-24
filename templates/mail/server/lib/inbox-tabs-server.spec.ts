@@ -1,4 +1,5 @@
 import {
+  ALL_TAB_ID,
   IMPORTANT_TAB_ID,
   type InboxTabConfig,
   type InboxThreadItem,
@@ -41,6 +42,7 @@ describe("resolveInboxTabs", () => {
       savedFilters: [{ id: "f1", name: "Needs reply", query: "is:unread" }],
       labelAliases: { clients: "VIPs" },
       combineInbox: false,
+      showAllTab: false,
     };
     const tabs = resolveInboxTabs(config, new Map([["clients", "Clients"]]));
 
@@ -68,6 +70,21 @@ describe("resolveInboxTabs", () => {
       { id: "inbox", kind: "inbox", name: "Inbox" },
     ]);
   });
+
+  it("shows All first by default and lets the preference hide it", () => {
+    const config: InboxTabConfig = {
+      pinnedLabels: ["important"],
+      savedFilters: [],
+      labelAliases: {},
+      combineInbox: false,
+    };
+    const tabs = resolveInboxTabs(config, new Map());
+
+    expect(tabs[0]).toEqual({ id: ALL_TAB_ID, kind: "all", name: "All" });
+    expect(
+      resolveInboxTabs({ ...config, showAllTab: false }, new Map())[0]?.id,
+    ).toBe(IMPORTANT_TAB_ID);
+  });
 });
 
 describe("partitionInboxItems", () => {
@@ -76,6 +93,7 @@ describe("partitionInboxItems", () => {
     savedFilters: [{ id: "f1", name: "Pitches", query: "label:pitch" }],
     labelAliases: {},
     combineInbox: false,
+    showAllTab: false,
   };
   const tabs = resolveInboxTabs(config, new Map());
 
@@ -132,6 +150,20 @@ describe("partitionInboxItems", () => {
     const byTab = partitionInboxItems([notif], tabs);
     expect(byTab.get("automated notifications")).toContain(notif);
   });
+
+  it("includes every inbox thread in All without changing its other tabs", () => {
+    const allTabs = resolveInboxTabs(
+      { ...config, showAllTab: true },
+      new Map(),
+    );
+    const custom = item({ id: "custom", labelIds: ["pitch"] });
+    const automated = item({ id: "automated", isAutomated: true });
+    const byTab = partitionInboxItems([custom, automated], allTabs);
+
+    expect(byTab.get(ALL_TAB_ID)).toEqual([custom, automated]);
+    expect(byTab.get("f1")).toContain(custom);
+    expect(byTab.get("other")).toContain(automated);
+  });
 });
 
 describe("resolveActiveTabId", () => {
@@ -140,6 +172,7 @@ describe("resolveActiveTabId", () => {
     savedFilters: [{ id: "f1", name: "Pitches", query: "label:pitch" }],
     labelAliases: {},
     combineInbox: false,
+    showAllTab: false,
   };
   const tabs = resolveInboxTabs(config, new Map());
 
@@ -153,9 +186,15 @@ describe("resolveActiveTabId", () => {
     expect(resolveActiveTabId("not-a-real-tab", tabs)).toBe("important");
   });
 
-  it("lands on Important, not a pinned label, when clicking Inbox with pinned labels and saved filters present", () => {
-    // Regression: /inbox must never resolve to the user's first pinned
-    // label — Important is always tabs[0] regardless of what's pinned.
+  it("resolves the public All tab parameter to its built-in tab id", () => {
+    const allTabs = resolveInboxTabs(
+      { ...config, showAllTab: true },
+      new Map(),
+    );
+    expect(resolveActiveTabId("all", allTabs)).toBe(ALL_TAB_ID);
+  });
+
+  it("lands on All by default even when pinned labels and saved filters exist", () => {
     const configWithPinnedLabels: InboxTabConfig = {
       pinnedLabels: ["important", "clients", "2-tasks"],
       savedFilters: [{ id: "f1", name: "Needs reply", query: "is:unread" }],
@@ -167,9 +206,9 @@ describe("resolveActiveTabId", () => {
       new Map(),
     );
 
-    expect(tabsWithPinnedLabels[0]?.id).toBe(IMPORTANT_TAB_ID);
+    expect(tabsWithPinnedLabels[0]?.id).toBe(ALL_TAB_ID);
     expect(resolveActiveTabId(undefined, tabsWithPinnedLabels)).toBe(
-      IMPORTANT_TAB_ID,
+      ALL_TAB_ID,
     );
   });
 });

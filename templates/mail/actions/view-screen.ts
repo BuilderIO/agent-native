@@ -3,6 +3,7 @@ import { readAppStateForCurrentTab } from "@agent-native/core/application-state"
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
+import { ALL_TAB_ID, ALL_TAB_PARAM } from "@shared/inbox-threads.js";
 import {
   emailMessageMatchesSearch,
   searchQueryNeedsAttachmentMetadata,
@@ -144,7 +145,10 @@ async function fetchEmailList(
       Boolean(requestedFilterId) ||
       (view === "inbox" &&
         !search &&
-        (activeInboxTab === OTHER_INBOX_TAB_PARAM || Boolean(label)));
+        (activeInboxTab === OTHER_INBOX_TAB_PARAM ||
+          activeInboxTab === ALL_TAB_PARAM ||
+          activeInboxTab === ALL_TAB_ID ||
+          Boolean(label)));
     const settings = shouldReadSettings
       ? await readSettings(ownerEmail)
       : undefined;
@@ -217,6 +221,9 @@ async function fetchEmailList(
             )
           : prepared;
       if (effectiveView !== "inbox" || effectiveSearch || label) {
+        return filtered;
+      }
+      if (activeInboxTab === ALL_TAB_PARAM || activeInboxTab === ALL_TAB_ID) {
         return filtered;
       }
       const savedFilterThreads = savedFilterThreadIds(
@@ -464,6 +471,7 @@ async function buildInboxTabsSummary(
       savedFilters: settings.savedFilters ?? [],
       labelAliases: settings.labelAliases ?? {},
       combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
     const tabs = resolveInboxTabs(config, labelNameById);
