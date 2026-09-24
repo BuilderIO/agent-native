@@ -19,6 +19,7 @@ function createFakeWindow(
     lockReload?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
+    sessionStorage?: Storage;
   } = {},
 ) {
   const documentListeners = new Map<string, EventListener[]>();
@@ -63,15 +64,17 @@ function createFakeWindow(
     replaceState: originalReplaceState,
   };
   const sessionStore = new Map<string, string>();
-  const sessionStorage = {
-    getItem: vi.fn((key: string) => sessionStore.get(key) ?? null),
-    setItem: vi.fn((key: string, value: string) => {
-      sessionStore.set(key, value);
-    }),
-    removeItem: vi.fn((key: string) => {
-      sessionStore.delete(key);
-    }),
-  };
+  const sessionStorage =
+    opts.sessionStorage ??
+    ({
+      getItem: vi.fn((key: string) => sessionStore.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        sessionStore.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        sessionStore.delete(key);
+      }),
+    } as unknown as Storage);
   const fakeWindow = {
     document: {
       addEventListener: vi.fn((type: string, listener: EventListener) => {
@@ -680,6 +683,98 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.assign).toHaveBeenCalledWith(
       "https://example.com/home",
     );
+  });
+
+  it("finishes the interrupted click once the page the safety reload lands on re-installs", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/home",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/chat/chat-new",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    // The safety reload lands back on /home, same as the previous test.
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/home",
+    );
+
+    // A real reload gets a fresh window/module state but keeps sessionStorage.
+    // Simulate that by installing again on a new fake window rooted at the
+    // page the reload actually served, sharing the same session storage.
+    const reloaded = createFakeWindow("https://example.com/home", {
+      viteDevRecovery: true,
+      sessionStorage: fakeWindow.sessionStorage,
+    });
+
+    installRouteChunkRecovery(reloaded.fakeWindow);
+
+    expect(reloaded.fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/chat/chat-new",
+    );
+  });
+
+  it("does not resume a pending navigation once it has gone stale", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/home",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/chat/chat-new",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    const reloaded = createFakeWindow("https://example.com/home", {
+      viteDevRecovery: true,
+      sessionStorage: fakeWindow.sessionStorage,
+    });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+
+    installRouteChunkRecovery(reloaded.fakeWindow);
+
+    expect(reloaded.fakeLocation.assign).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it("recoverFromStaleChunkError only recovers dynamic import failures", () => {

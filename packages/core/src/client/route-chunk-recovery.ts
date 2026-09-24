@@ -5,6 +5,14 @@ const INTENDED_NAV_MAX_AGE_MS = 15_000;
 // window-scoped fallback for environments where sessionStorage throws.
 const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
+// The Vite-dev branch below deliberately reloads the *current* page instead
+// of replaying a possibly-stale click target (see the "does not replay a
+// stale navigation target" test). That leaves the click's destination
+// unresolved. Stash it here so the next installRouteChunkRecovery() call —
+// the one that runs on the page the reload lands on — can finish that one
+// interrupted navigation exactly once, instead of leaving the user stuck on
+// the page they clicked away from.
+const PENDING_NAV_KEY = "__agentNativePendingRouteNav";
 
 export interface RouteChunkRecoveryState {
   intendedHref: string | null;
@@ -184,6 +192,38 @@ function markStaleChunkReload(win: Window, now: number): void {
   } catch {}
 }
 
+function persistPendingNavigation(win: Window, href: string, now: number): void {
+  try {
+    (win as unknown as { sessionStorage?: Storage }).sessionStorage?.setItem(
+      PENDING_NAV_KEY,
+      JSON.stringify({ href, at: now }),
+    );
+  } catch {}
+}
+
+/**
+ * Reads and clears the pending navigation left by persistPendingNavigation().
+ * Consume-once: whether or not it is fresh enough to act on, it must not
+ * survive to be replayed against a second, unrelated reload later.
+ */
+function consumePendingNavigation(win: Window, now: number): string | null {
+  const storage = (win as unknown as { sessionStorage?: Storage })
+    .sessionStorage;
+  try {
+    const raw = storage?.getItem(PENDING_NAV_KEY);
+    storage?.removeItem(PENDING_NAV_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { href?: unknown; at?: unknown };
+    if (typeof parsed.href !== "string" || typeof parsed.at !== "number") {
+      return null;
+    }
+    if (now - parsed.at > INTENDED_NAV_MAX_AGE_MS) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Last resort when a stale lazy chunk fails to load for the *current* route —
  * an old tab whose hashed chunk filenames no longer exist after a deploy — and
@@ -315,6 +355,17 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
         }
       }
       if (isAgentNativeDesktop(win)) return;
+      // The reload below lands back on the current route, not wherever was
+      // clicked. Stash that destination so the install on the reloaded page
+      // can finish the navigation once the module graph is fresh, instead of
+      // leaving the click looking like it did nothing.
+      const pendingTarget = getFreshIntendedNavigation(
+        state,
+        win.location.href,
+      );
+      if (pendingTarget) {
+        persistPendingNavigation(win, pendingTarget, Date.now());
+      }
       // A current-route failure has no alternate target. Refresh once using
       // the session-scoped cooldown, then leave persistent failures visible.
       reloadForStaleChunk(win);
@@ -353,6 +404,18 @@ export function installRouteChunkRecovery(
   const installedTarget = win as unknown as Record<string, boolean>;
   if (installedTarget[INSTALL_KEY]) return;
   installedTarget[INSTALL_KEY] = true;
+
+  // This install may be running on the page a route-module-failure reload
+  // just landed on. Finish that interrupted navigation once, so the click
+  // that triggered the reload still ends up where it was headed.
+  const pendingHref = consumePendingNavigation(win, Date.now());
+  if (
+    pendingHref &&
+    pendingHref !== win.location.href &&
+    sameOriginHref(win, pendingHref) === pendingHref
+  ) {
+    hardNavigate(win, pendingHref);
+  }
 
   const state = createRouteChunkRecoveryState();
 
