@@ -33,6 +33,7 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { AnalyticsReviewArtifactPreview } from "../components/AnalyticsReviewArtifactPreview";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -167,6 +168,12 @@ export default function Settings() {
                 <ObservabilityDashboard
                   routeBasePath={observabilityBasePath}
                   showHumanReview
+                  renderArtifactPreview={(artifact, compact) => (
+                    <AnalyticsReviewArtifactPreview
+                      artifactId={artifact.artifactId}
+                      compact={compact}
+                    />
+                  )}
                 />
               ),
             },

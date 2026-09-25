@@ -72,16 +72,25 @@ vi.mock("@agent-native/core/client/observability", () => ({
   ObservabilityDashboard: ({
     routeBasePath,
     showHumanReview,
+    renderArtifactPreview,
   }: {
     routeBasePath: string;
     showHumanReview?: boolean;
+    renderArtifactPreview?: (...args: unknown[]) => React.ReactNode;
   }) => (
     <div
       data-testid="observability-dashboard"
       data-route-base-path={routeBasePath}
       data-show-human-review={String(showHumanReview === true)}
+      data-has-artifact-preview={String(
+        typeof renderArtifactPreview === "function",
+      )}
     />
   ),
+}));
+
+vi.mock("../components/AnalyticsReviewArtifactPreview", () => ({
+  AnalyticsReviewArtifactPreview: () => null,
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
@@ -336,6 +345,11 @@ describe("Analytics Settings", () => {
         container
           .querySelector("[data-testid='observability-dashboard']")
           ?.getAttribute("data-show-human-review"),
+      ).toBe("true");
+      expect(
+        container
+          .querySelector("[data-testid='observability-dashboard']")
+          ?.getAttribute("data-has-artifact-preview"),
       ).toBe("true");
     },
   );
