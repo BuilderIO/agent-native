@@ -1121,7 +1121,9 @@ export function UsageSection({
           </Button>
         </section>
       ) : null}
-      {!appId && builderCreditUsageQuery.data ? (
+      {!appId &&
+      data?.builderCreditUsageEnabled &&
+      builderCreditUsageQuery.data ? (
         <BuilderCreditUsagePanel usage={builderCreditUsageQuery.data} />
       ) : null}
       {data ? (
