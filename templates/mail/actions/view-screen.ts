@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import {
   emailMessageMatchesSearch,
@@ -38,6 +37,7 @@ import {
   resolveInboxTabs,
 } from "../server/lib/inbox-tabs-server.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
+import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import {
   listQueuedDrafts,
@@ -346,50 +346,46 @@ async function fetchEmailList(
     }
 
     // Fallback: local store
-    const data = await getSetting("local-emails");
-    if (data && Array.isArray((data as any).emails)) {
-      let emails = (data as any).emails;
-      switch (effectiveView) {
-        case "inbox":
-          emails = emails.filter(
-            (e: any) =>
-              !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-          );
-          break;
-        case "unread":
-          emails = emails.filter(
-            (e: any) =>
-              !e.isRead &&
-              !e.isArchived &&
-              !e.isTrashed &&
-              !e.isDraft &&
-              !e.isSent,
-          );
-          break;
-        case "starred":
-          emails = emails.filter((e: any) => e.isStarred && !e.isTrashed);
-          break;
-        case "sent":
-          emails = emails.filter((e: any) => e.isSent && !e.isTrashed);
-          break;
-        case "drafts":
-          emails = emails.filter((e: any) => e.isDraft);
-          break;
-        case "archive":
-          emails = emails.filter((e: any) => e.isArchived && !e.isTrashed);
-          break;
-        case "trash":
-          emails = emails.filter((e: any) => e.isTrashed);
-          break;
-      }
-      if (effectiveSearch) {
-        emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, effectiveSearch),
+    let emails = await readLocalEmails(ownerEmail);
+    switch (effectiveView) {
+      case "inbox":
+        emails = emails.filter(
+          (e: any) =>
+            !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
         );
-      }
-      return boundEmailPreview(applyActiveInboxTab(emails));
+        break;
+      case "unread":
+        emails = emails.filter(
+          (e: any) =>
+            !e.isRead &&
+            !e.isArchived &&
+            !e.isTrashed &&
+            !e.isDraft &&
+            !e.isSent,
+        );
+        break;
+      case "starred":
+        emails = emails.filter((e: any) => e.isStarred && !e.isTrashed);
+        break;
+      case "sent":
+        emails = emails.filter((e: any) => e.isSent && !e.isTrashed);
+        break;
+      case "drafts":
+        emails = emails.filter((e: any) => e.isDraft);
+        break;
+      case "archive":
+        emails = emails.filter((e: any) => e.isArchived && !e.isTrashed);
+        break;
+      case "trash":
+        emails = emails.filter((e: any) => e.isTrashed);
+        break;
     }
-    return boundEmailPreview([]);
+    if (effectiveSearch) {
+      emails = emails.filter((e: any) =>
+        emailMessageMatchesSearch(e, effectiveSearch),
+      );
+    }
+    return boundEmailPreview(applyActiveInboxTab(emails));
   } catch (error) {
     return {
       ...boundEmailPreview([]),

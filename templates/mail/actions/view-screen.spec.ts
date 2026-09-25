@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   readAppStateForCurrentTab: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  getSetting: vi.fn(),
+  readLocalEmails: vi.fn(),
   readSettings: vi.fn(),
   isConnected: vi.fn(),
   getClientsWithErrors: vi.fn(),
@@ -22,12 +22,12 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
-vi.mock("@agent-native/core/settings", () => ({
-  getSetting: mocks.getSetting,
-}));
-
 vi.mock("../server/lib/mail-settings.js", () => ({
   readSettings: mocks.readSettings,
+}));
+
+vi.mock("../server/lib/local-email-store.js", () => ({
+  readLocalEmails: mocks.readLocalEmails,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => ({
@@ -82,7 +82,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.readAppStateForCurrentTab.mockResolvedValue({ view: "inbox" });
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
-  mocks.getSetting.mockResolvedValue(null);
+  mocks.readLocalEmails.mockResolvedValue([]);
   mocks.readSettings.mockResolvedValue({ savedFilters: [], pinnedLabels: [] });
   mocks.isConnected.mockResolvedValue(true);
   mocks.getClientsWithErrors.mockResolvedValue({
@@ -139,6 +139,28 @@ describe("view-screen Mail preview", () => {
     expect(
       result.emailList.emails.map((item: { id: string }) => item.id),
     ).toEqual(["important", "ordinary"]);
+  });
+
+  it("reads local-only All snapshots from the authenticated owner's mailbox", async () => {
+    mocks.readAppStateForCurrentTab.mockResolvedValue({
+      view: "inbox",
+      tab: ALL_TAB_PARAM,
+      activeInboxTab: ALL_TAB_PARAM,
+    });
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.readSettings.mockResolvedValue({
+      showAllTab: true,
+      savedFilters: [],
+      pinnedLabels: [],
+    });
+    mocks.readLocalEmails.mockResolvedValue([email("local-inbox-message")]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(mocks.readLocalEmails).toHaveBeenCalledWith(OWNER);
+    expect(
+      result.emailList.emails.map((item: { id: string }) => item.id),
+    ).toEqual(["local-inbox-message"]);
   });
 
   it("keeps saved-filter inbox tab snapshots scoped to inbox mail", async () => {
