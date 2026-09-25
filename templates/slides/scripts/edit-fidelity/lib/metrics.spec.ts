@@ -182,3 +182,29 @@ describe("ratchetBaselineEntry", () => {
     expect(next.afterPct).toBeLessThan(existing.afterPct);
   });
 });
+
+describe("findBaselineProblems and errors", () => {
+  it("fails an errored result even against an errored baseline entry", () => {
+    const errored = {
+      status: "error" as const,
+      editingPct: 0,
+      afterPct: 0,
+      reloadPct: 0,
+      outsideEditingPct: 0,
+      outsideAfterPct: 0,
+      styleDeltasEditing: 0,
+      styleDeltasAfter: 0,
+      missingAfter: 0,
+      htmlDiffLines: 0,
+      hardFailures: 0,
+      violations: 0,
+    };
+    expect(
+      findBaselineProblems(
+        new Map([["c/s01/t00/noop", errored]]),
+        { "c/s01/t00/noop": errored },
+        () => true,
+      ),
+    ).toEqual(["c/s01/t00/noop: errored"]);
+  });
+});

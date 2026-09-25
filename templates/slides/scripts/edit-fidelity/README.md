@@ -30,23 +30,23 @@ To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,
 because it creates and rewrites decks.
 
-| Option                         | Meaning                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------- |
-| `case-filter`                  | Substring of the corpus file name                                                       |
-| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                  |
-| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                      |
-| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept |
-| `--accept-failing`             | With `--update`, also record non-passing results as accepted ceilings                   |
-| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                    |
-| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                   |
-| `--slides 1,3`                 | 1-based slide numbers                                                                   |
-| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                            |
-| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                         |
-| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                  |
-| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                    |
-| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                         |
-| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                |
-| `--headed`                     | Show the browser                                                                        |
+| Option                         | Meaning                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `case-filter`                  | Substring of the corpus file name                                                          |
+| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                     |
+| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                         |
+| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept    |
+| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`) |
+| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                       |
+| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                      |
+| `--slides 1,3`                 | 1-based slide numbers                                                                      |
+| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                               |
+| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                            |
+| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                     |
+| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                       |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
+| `--headed`                     | Show the browser                                                                           |
 
 Exit codes:
 
@@ -255,8 +255,10 @@ A regression is any of:
 
 `--update` records only passing results: a ratchet seeded from a failing run
 would accept the failure as its ceiling. Record a known failure deliberately
-with `--accept-failing`. Ceilings should only go down. With no baseline file
-the run cannot gate and exits 2.
+with `--accept-failing`; an `error` is never recorded. `--update` keeps the
+stricter of the old and new value, so ceilings only go down, and it refuses to
+write while a slide errored or a baselined scenario did not run. With no
+baseline file the run cannot gate and exits 2.
 
 ## Limitations
 

@@ -1676,19 +1676,23 @@ async function main() {
 
   const baselineMissing = !existsSync(baselinePath);
   const erroredSlides = slides.filter((s) => s.error);
-  if (update && erroredSlides.length) {
-    // An errored slide recorded no targets, so writing now would drop its
-    // coverage from the ratchet without anything noticing.
+  const unrun = Object.keys(baseline).filter(
+    (key) => !byKey.has(key) && isExpected(key),
+  );
+  if (update && (erroredSlides.length || unrun.length)) {
+    // Writing now would drop the coverage of what did not run from the
+    // ratchet without anything noticing.
     console.error(
-      `\n[edit-fidelity] baseline not updated: ${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ")}). Re-run them (--resume) first.`,
+      `\n[edit-fidelity] baseline not updated: ${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) first.`,
     );
     exitCode = 1;
   } else if (update && results.length) {
     const next = { ...baseline };
     // A ratchet seeded from a failing run would accept the failure as the
     // ceiling, so only passing results are recorded unless asked.
+    // An error has no measurements to hold a ceiling, so it is never recorded.
     const refused = results.filter(
-      (r) => r.status !== "pass" && !acceptFailing,
+      (r) => r.status === "error" || (r.status !== "pass" && !acceptFailing),
     );
     for (const r of results) {
       if (!refused.includes(r))
@@ -1696,7 +1700,7 @@ async function main() {
     }
     if (refused.length) {
       console.log(
-        `\n${refused.length} non-passing result(s) not recorded (pass --accept-failing to record them as accepted ceilings):`,
+        `\n${refused.length} result(s) not recorded (errors never are; --accept-failing records fail/no-edit as accepted ceilings):`,
       );
       for (const r of refused) console.log(`  ${r.key} (${r.status})`);
       exitCode = 1;

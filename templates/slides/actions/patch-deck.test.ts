@@ -169,7 +169,7 @@ describe("applyOperation — patch-slide", () => {
         errorCode: "render_artifact_in_slide_content",
         details: {
           slideId: "s1",
-          markers: ["data-slide-content-scope", "contenteditable"],
+          markers: ["scoped-style-selector", "contenteditable"],
         },
       }),
     );

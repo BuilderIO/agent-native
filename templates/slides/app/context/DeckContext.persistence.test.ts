@@ -861,7 +861,7 @@ describe("DeckContext deck creation persistence", () => {
           { content: flattened },
           { persistence: "immediate" },
         ),
-      ).toThrow(/data-slide-content-scope/);
+      ).toThrow(/scoped-style-selector/);
       await act(async () => {
         await result.current.flushDeckSave("artifact-deck");
       });

@@ -4,7 +4,10 @@
  */
 import { fail } from "@agent-native/core/action";
 
-import { renderArtifactGrowth } from "../app/lib/slide-source-map.js";
+import {
+  renderArtifactGrowth,
+  SCOPED_STYLE_SELECTOR_MARKER,
+} from "../app/lib/slide-source-map.js";
 
 /**
  * Refuses a content write that adds markers only the editor's rendered DOM
@@ -31,15 +34,16 @@ export function assertNoRenderArtifacts(
 /**
  * The check for a slide with no stored predecessor (a new deck, a duplicate,
  * an undo-restored slide), whose history the server cannot see. Older saves
- * stored the scoped stylesheet's selectors, and the renderer heals them, so a
- * copy of such a slide may carry them; every other marker is refused.
+ * stored the scoped stylesheet's selectors in `<style>`, and the renderer heals
+ * them, so a copy of such a slide may carry them; every other marker, the
+ * scope attribute included, is refused.
  */
 export function assertNoRenderArtifactsInNewSlide(
   content: string,
   slideId: string,
 ): void {
   const markers = renderArtifactGrowth("", content).filter(
-    (marker) => marker !== "data-slide-content-scope",
+    (marker) => marker !== SCOPED_STYLE_SELECTOR_MARKER,
   );
   if (markers.length === 0) return;
   fail(

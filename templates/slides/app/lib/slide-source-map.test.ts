@@ -418,8 +418,26 @@ describe("renderArtifactGrowth", () => {
         prev,
         `${prev}<style>[data-slide-content-scope="s"] p { color: red; }</style>`,
       ),
-    ).toEqual(["data-slide-content-scope"]);
+    ).toEqual(["scoped-style-selector"]);
     expect(renderArtifactGrowth(prev, prev.replace("x", "y"))).toEqual([]);
+  });
+
+  it("reads markers from parsed attributes, whatever comes before them", () => {
+    expect(
+      renderArtifactGrowth(
+        "<p>a</p>",
+        '<p title="Plan > 3" data-builder-id="x">a</p>',
+      ),
+    ).toEqual(["data-builder-id"]);
+    expect(
+      renderArtifactGrowth("<p>a</p>", "<p contenteditable>a</p>"),
+    ).toEqual(["contenteditable"]);
+    expect(
+      renderArtifactGrowth(
+        "<p>a</p>",
+        '<div class="card ProseMirror"><p>a</p></div>',
+      ),
+    ).toEqual(["ProseMirror"]);
   });
 
   it("allows a copy of stored styling and text that names a marker", () => {

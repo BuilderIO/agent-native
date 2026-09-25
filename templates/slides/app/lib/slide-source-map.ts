@@ -927,9 +927,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
 
 // --------------------------------------------------------------- guard ---
 
-/** Matches `attr` inside a start tag, so typed text that names it is not a marker. */
-const inStartTag = (attr: string, flags = "g") =>
-  new RegExp(`<[^>]*\\s${attr}`, flags);
+/** The scoped stylesheet's selectors, which the renderer writes into `<style>`. */
+export const SCOPED_STYLE_SELECTOR_MARKER = "scoped-style-selector";
+const SCOPED_SELECTOR = /\[data-slide-content-scope\s*=/g;
 
 /**
  * Markers only the renderer or the editor puts into slide HTML: the scoped
@@ -937,40 +937,55 @@ const inStartTag = (attr: string, flags = "g") =>
  * adds one stored rendered markup; the growth check lets content that already
  * carries them (older flattened decks) keep saving. Author-writable styling,
  * such as a logo filter or a hidden element, is not a marker: a copy of stored
- * content legitimately carries it.
+ * content legitimately carries it. Markers are read from parsed attributes and
+ * `<style>` text, so text that names one is not a marker and a quoted `>` in
+ * an earlier attribute cannot hide one.
  */
-const RENDER_ARTIFACTS: Array<{ name: string; pattern: RegExp }> = [
-  {
-    name: "data-slide-content-scope",
-    pattern: new RegExp(
-      `\\[data-slide-content-scope\\s*=|${inStartTag("data-slide-content-scope\\s*=").source}`,
-      "g",
-    ),
-  },
-  { name: SOURCE_STAMP_ATTR, pattern: inStartTag("data-src-i\\s*=") },
-  { name: "data-builder-id", pattern: inStartTag("data-builder-id\\s*=") },
-  { name: "data-editing-block", pattern: inStartTag("data-editing-block\\b") },
-  {
-    name: "data-slide-text-block",
-    pattern: inStartTag("data-slide-text-block\\b"),
-  },
-  {
-    name: "contenteditable",
-    pattern: inStartTag("contenteditable\\s*=", "gi"),
-  },
-  {
-    name: "ProseMirror",
-    pattern: inStartTag("class\\s*=\\s*[\"'][^\"']*\\bProseMirror\\b"),
-  },
-  {
-    name: "slide-rich-editor",
-    pattern: inStartTag("class\\s*=\\s*[\"'][^\"']*\\bslide-rich-editor"),
-  },
-  {
-    name: "data-fmd-autofit-content",
-    pattern: inStartTag("data-fmd-autofit-content\\b"),
-  },
+const MARKER_ATTRS = [
+  "data-slide-content-scope",
+  SOURCE_STAMP_ATTR,
+  "data-builder-id",
+  "data-editing-block",
+  "data-slide-text-block",
+  "contenteditable",
+  "data-fmd-autofit-content",
 ];
+const MARKER_CLASSES: Array<[string, RegExp]> = [
+  ["ProseMirror", /(?:^|\s)ProseMirror(?:\s|$)/],
+  ["slide-rich-editor", /(?:^|\s)slide-rich-editor/],
+];
+const MARKER_ORDER = [
+  SCOPED_STYLE_SELECTOR_MARKER,
+  ...MARKER_ATTRS,
+  ...MARKER_CLASSES.map(([name]) => name),
+];
+
+function countRenderArtifacts(html: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  const add = (name: string, n = 1) =>
+    n > 0 && counts.set(name, (counts.get(name) ?? 0) + n);
+  const walk = (parent: P5.ParentNode) => {
+    for (const node of parent.childNodes) {
+      if (!isElement(node)) continue;
+      for (const { name, value } of node.attrs) {
+        if (MARKER_ATTRS.includes(name)) add(name);
+        if (name !== "class") continue;
+        for (const [marker, pattern] of MARKER_CLASSES) {
+          if (pattern.test(value)) add(marker);
+        }
+      }
+      if (node.tagName === "style") {
+        add(
+          SCOPED_STYLE_SELECTOR_MARKER,
+          textOf(node).match(SCOPED_SELECTOR)?.length ?? 0,
+        );
+      }
+      walk(node.tagName === "template" ? (node as P5.Template).content : node);
+    }
+  };
+  walk(parseFragment(html, PARSE_OPTIONS));
+  return counts;
+}
 
 /**
  * Names of the render/editor markers `next` has more of than `prev`. The
@@ -978,11 +993,11 @@ const RENDER_ARTIFACTS: Array<{ name: string; pattern: RegExp }> = [
  * writes with the same list.
  */
 export function renderArtifactGrowth(prev: string, next: string): string[] {
-  const count = (html: string, pattern: RegExp) =>
-    html.match(pattern)?.length ?? 0;
-  return RENDER_ARTIFACTS.filter(
-    ({ pattern }) => count(next, pattern) > count(prev, pattern),
-  ).map(({ name }) => name);
+  const before = countRenderArtifacts(prev);
+  const after = countRenderArtifacts(next);
+  return MARKER_ORDER.filter(
+    (name) => (after.get(name) ?? 0) > (before.get(name) ?? 0),
+  );
 }
 
 /** Removes source stamps from HTML that leaves the canvas. */

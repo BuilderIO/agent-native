@@ -366,6 +366,11 @@ export function findBaselineProblems(
 ): string[] {
   const problems: string[] = [];
   for (const [key, m] of results) {
+    // An error measured nothing, so no baseline can make it a pass.
+    if (m.status === "error") {
+      problems.push(`${key}: errored`);
+      continue;
+    }
     const b = baseline[key];
     if (!b) {
       problems.push(
