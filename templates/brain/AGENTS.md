@@ -66,7 +66,8 @@ Read the matching skill before deeper work:
   `sources`, `source`, `capture`, `knowledge`, `review`, `proposals`,
   `extensions`, `ops`, or `settings`, with matching `sourceId` / `captureId` /
   `knowledgeId` / `proposalId` / `extensionId` / `query` / `provider` /
-  `status` / `issue` params.
+  `status` / `issue` / `settingsSection` params (`settingsSection` picks the
+  Settings tab).
 - Use retrieval actions for full source context, not ambient screen text.
 
 ## Action Map

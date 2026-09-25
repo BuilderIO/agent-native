@@ -666,6 +666,24 @@ vi.mock("@agent-native/core/settings", () => ({
   putSetting: vi.fn(async (_key: string, value: typeof mocks.settings) => {
     mocks.settings = { ...mocks.settings, ...value };
   }),
+  // Mirrors the store's compare-and-swap: a write lands only when the row is
+  // still the one the updater read, otherwise the updater reruns.
+  mutateSetting: vi.fn(
+    async (
+      _key: string,
+      updater: (
+        current: typeof mocks.settings,
+      ) => typeof mocks.settings | Promise<typeof mocks.settings>,
+    ) => {
+      for (;;) {
+        const snapshot = mocks.settings;
+        const next = await updater(snapshot);
+        if (mocks.settings !== snapshot) continue;
+        mocks.settings = next;
+        return next;
+      }
+    },
+  ),
 }));
 
 vi.mock("./audiences.js", () => ({
@@ -759,6 +777,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import { mutateSetting, putSetting } from "@agent-native/core/settings";
+
 import claimDistillationAction from "../../actions/claim-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
@@ -781,6 +801,7 @@ import {
   setKnowledgeCanonicalResource,
   sha256Hex,
   validateEvidence,
+  writeBrainSettings,
   writeKnowledgeRecord,
 } from "./brain.js";
 import { buildSanitizerSystemPrompt } from "./capture-sanitization.js";
@@ -5146,5 +5167,45 @@ describe("Brain demo eval", () => {
     expect(mocks.rows.sources).toHaveLength(1);
     expect(mocks.rows.captures).toHaveLength(6);
     expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+});
+
+describe("writeBrainSettings", () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it("keeps both of two overlapping one-field saves", async () => {
+    // A plain read-then-overwrite loses the first save under these semantics.
+    const overwrite = async (_key: string, value: Record<string, unknown>) => {
+      mocks.settings = value as typeof mocks.settings;
+    };
+    vi.mocked(putSetting)
+      .mockImplementationOnce(overwrite)
+      .mockImplementationOnce(overwrite);
+    await Promise.all([
+      writeBrainSettings({ requireCitations: false }),
+      writeBrainSettings({ autoArchiveResolved: false }),
+    ]);
+
+    expect(mocks.settings).toMatchObject({
+      requireCitations: false,
+      autoArchiveResolved: false,
+      distillationInstructions:
+        "Distill durable, reusable institutional knowledge. Preserve short direct quotes as evidence.",
+      connectorPollMinutes: 60,
+    });
+  });
+
+  it("fails the save instead of writing defaults when the read fails", async () => {
+    const before = mocks.settings;
+    vi.mocked(mutateSetting).mockRejectedValueOnce(
+      new Error("settings read failed"),
+    );
+
+    await expect(
+      writeBrainSettings({ requireCitations: false }),
+    ).rejects.toThrow("settings read failed");
+    expect(mocks.settings).toBe(before);
   });
 });

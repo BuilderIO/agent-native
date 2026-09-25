@@ -14,7 +14,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import { getSetting, mutateSetting } from "@agent-native/core/settings";
 import {
   accessFilter,
   assertAccess,
@@ -199,15 +199,18 @@ export async function readBrainSettings(): Promise<BrainSettings> {
   } as BrainSettings;
 }
 
+// Patches merge inside the store's compare-and-swap so concurrent one-field
+// saves both land, and a failed read fails the save instead of merging the
+// patch into defaults and wiping every other stored field.
 export async function writeBrainSettings(
   patch: Partial<BrainSettings>,
 ): Promise<BrainSettings> {
-  const next = {
-    ...(await readBrainSettings()),
+  const stored = await mutateSetting(BRAIN_SETTINGS_KEY, (current) => ({
+    ...DEFAULT_BRAIN_SETTINGS,
+    ...(current ?? {}),
     ...patch,
-  };
-  await putSetting(BRAIN_SETTINGS_KEY, next);
-  return next;
+  }));
+  return { ...DEFAULT_BRAIN_SETTINGS, ...stored } as BrainSettings;
 }
 
 export interface BrainAgentGuidance {
