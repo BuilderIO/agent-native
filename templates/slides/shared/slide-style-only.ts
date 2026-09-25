@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import { parseHTML } from "linkedom/worker";
 
 function styleInvariant(content: string): string {
   return content
@@ -47,6 +48,7 @@ const protectedStyleProperties = new Set([
   "min-height",
   "max-height",
   "position",
+  "z-index",
   "top",
   "right",
   "bottom",
@@ -64,13 +66,20 @@ const protectedStyleProperties = new Set([
   "white-space",
   "word-break",
   "overflow-wrap",
+  "all",
+  "direction",
+  "unicode-bidi",
+  "writing-mode",
   "flex",
+  "flex-flow",
   "flex-direction",
   "flex-wrap",
   "flex-grow",
   "flex-shrink",
   "flex-basis",
+  "order",
   "grid",
+  "grid-auto-flow",
   "grid-template-columns",
   "grid-template-rows",
   "grid-column",
@@ -96,10 +105,6 @@ function protectedStyleInvariant(content: string): string {
     content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
     (match) => match[1] ?? "",
   );
-  const inlineStyles = Array.from(
-    content.matchAll(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
-    (match) => match[1] ?? match[2] ?? match[3] ?? "",
-  );
   const ruleSignatures: string[] = [];
   for (const stylesheet of styleBlocks) {
     const source = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -113,13 +118,20 @@ function protectedStyleInvariant(content: string): string {
     }
   }
   const inlineSignatures: string[] = [];
-  let inlineIndex = 0;
-  for (const style of inlineStyles) {
-    const declarations = protectedCssDeclarations(style);
-    if (declarations.length > 0) {
-      inlineSignatures.push(`inline:${inlineIndex}{${declarations.join(";")}}`);
-      inlineIndex += 1;
+  const { document } = parseHTML(`<body>${content}</body>`);
+  let elementIndex = 0;
+  for (const element of document.querySelectorAll("*")) {
+    if (element.localName.toLowerCase() === "style") continue;
+    const style = element.getAttribute("style");
+    if (style !== null) {
+      const declarations = protectedCssDeclarations(style);
+      if (declarations.length > 0) {
+        inlineSignatures.push(
+          `inline:${elementIndex}{${declarations.join(";")}}`,
+        );
+      }
     }
+    elementIndex += 1;
   }
   return [...ruleSignatures.sort(), ...inlineSignatures].join("|");
 }

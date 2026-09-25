@@ -210,6 +210,49 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe(source);
   });
 
+  it.each([
+    ["order", "0", "1"],
+    ["flex-flow", "row", "column"],
+    ["grid-auto-flow", "row", "column"],
+    ["all", "initial", "unset"],
+  ])("rejects styleOnly edits that change %s", (property, before, after) => {
+    const source = `<div class="fmd-slide" style="${property}:${before}"><p>Keep this</p></div>`;
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content: `<div class="fmd-slide" style="${property}:${after}"><p>Keep this</p></div>`,
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("does not move protected CSS between elements in a styleOnly patch", () => {
+    const source =
+      '<div class="fmd-slide"><p style="padding:1px">Keep this</p><p style="color:red">Also keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p>Keep this</p><p style="padding:1px;color:red">Also keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
   it("ignores the op when the slide has been concurrently deleted", () => {
     const deck = { slides: [{ id: "s2", content: "<p>Two</p>" }] };
     const op: Operation = {
