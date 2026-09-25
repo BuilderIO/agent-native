@@ -181,6 +181,13 @@ export function writeFirstRunOnboardingBuildMarker(
   fs.writeFileSync(filePath, mode);
 }
 
+/** Called before each `agent-native build` so a marker can only come from this build's Vite step. */
+export function clearFirstRunOnboardingBuildMarker(cwd: string): void {
+  fs.rmSync(path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER), {
+    force: true,
+  });
+}
+
 /** `undefined` when no Vite build recorded a mode; "" is a recorded unknown. */
 export function readFirstRunOnboardingBuildMarker(
   cwd: string,

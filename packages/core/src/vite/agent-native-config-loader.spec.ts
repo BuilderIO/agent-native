@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  clearFirstRunOnboardingBuildMarker,
   readFirstRunOnboardingBuildMarker,
   resolveFirstRunOnboardingBuildReplacement,
   writeFirstRunOnboardingBuildMarker,
@@ -177,6 +178,17 @@ describe("first-run onboarding build marker", () => {
     expect(readFirstRunOnboardingBuildMarker(root)).toBe("off");
     writeFirstRunOnboardingBuildMarker(root, "");
     expect(readFirstRunOnboardingBuildMarker(root)).toBe("");
+  });
+
+  it("drops a previous build's marker when a new build starts", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    writeFirstRunOnboardingBuildMarker(root, "off");
+
+    clearFirstRunOnboardingBuildMarker(root);
+
+    expect(readFirstRunOnboardingBuildMarker(root)).toBeUndefined();
+    expect(() => clearFirstRunOnboardingBuildMarker(root)).not.toThrow();
   });
 
   it("rejects a marker that is not a known mode", () => {
