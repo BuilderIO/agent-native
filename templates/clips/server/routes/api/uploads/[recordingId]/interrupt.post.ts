@@ -168,6 +168,7 @@ export default defineEventHandler(async (event: H3Event) => {
       }
       trackRecordingFailure({
         recordingId,
+        userId: ownerEmail,
         uploadAttemptId: interrupted[0]?.uploadAttemptId,
         platform: interrupted[0]?.recordingPlatform,
         failureCode: "upload_interrupted",

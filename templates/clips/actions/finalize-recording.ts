@@ -351,6 +351,7 @@ async function failStoredButUnservableRecording(params: {
   }
   trackRecordingFailure({
     recordingId: id,
+    userId: ownerEmail,
     uploadAttemptId: failed[0]?.uploadAttemptId,
     platform: failed[0]?.recordingPlatform,
     failureCode: "media_verification_failed",
@@ -1521,6 +1522,7 @@ export default defineAction({
           });
         trackRecordingFailure({
           recordingId: id,
+          userId: ownerEmail,
           uploadAttemptId: failedRecording?.uploadAttemptId,
           platform: failedRecording?.recordingPlatform,
           failureCode: "chunk_assembly_failed",
@@ -1853,6 +1855,7 @@ export default defineAction({
             });
           trackRecordingFailure({
             recordingId: id,
+            userId: ownerEmail,
             uploadAttemptId: failedRecording?.uploadAttemptId,
             platform: failedRecording?.recordingPlatform,
             failureCode: "storage_setup_required",

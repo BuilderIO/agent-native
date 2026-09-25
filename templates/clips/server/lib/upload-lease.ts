@@ -271,7 +271,7 @@ export async function reapExpiredUploads(
             WHERE status IN ('uploading', 'processing')
               AND upload_lease_expires_at < $3
               AND id IN (${ids.map((_, i) => `$${i + 4}`).join(", ")})
-            RETURNING id, upload_attempt_id, recording_platform`,
+            RETURNING id, owner_email, upload_attempt_id, recording_platform`,
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
 
@@ -286,8 +286,12 @@ export async function reapExpiredUploads(
     failed = terminated.size;
 
     for (const row of terminatedRows) {
+      if (typeof row.owner_email !== "string") {
+        throw new Error("Upload timeout row is missing owner email");
+      }
       trackRecordingFailure({
         recordingId: String(row.id),
+        userId: row.owner_email,
         uploadAttemptId:
           typeof row.upload_attempt_id === "string"
             ? row.upload_attempt_id

@@ -27,6 +27,7 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
+import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
@@ -36,6 +37,21 @@ import {
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
+
+export function classifyInitialUploadFailure(error: unknown): {
+  failureCode: "storage_setup_required" | "multipart_start_failed";
+  failureStage?: "multipart_start";
+  httpStatus?: number;
+} {
+  if (error instanceof S3MultipartStartError) {
+    return {
+      failureCode: "multipart_start_failed",
+      failureStage: "multipart_start",
+      httpStatus: error.status,
+    };
+  }
+  return { failureCode: "storage_setup_required" };
+}
 
 export default defineAction({
   description:
@@ -115,21 +131,27 @@ export default defineAction({
     });
     const streamingRequired = !bufferedFallbackAvailable;
 
-    const failUploadSetup = async (reason: string): Promise<never> => {
+    const failUploadSetup = async (
+      reason: string,
+      failure: ReturnType<typeof classifyInitialUploadFailure> = {
+        failureCode: "storage_setup_required",
+      },
+    ): Promise<never> => {
       const failedAt = new Date().toISOString();
       await db
         .update(schema.recordings)
         .set({
           status: "failed",
-          failureCode: "storage_setup_required",
+          failureCode: failure.failureCode,
           failureReason: reason,
           updatedAt: failedAt,
         })
         .where(eq(schema.recordings.id, id));
       trackRecordingFailure({
         recordingId: id,
+        userId: ownerEmail,
         platform: args.recordingPlatform,
-        failureCode: "storage_setup_required",
+        ...failure,
       });
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
@@ -197,6 +219,7 @@ export default defineAction({
             reason
               ? `Video storage could not start an upload: ${reason}`
               : "Video storage could not start a resumable upload session. Refresh and try again.",
+            classifyInitialUploadFailure(err),
           );
         }
         console.warn(

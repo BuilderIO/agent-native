@@ -17,6 +17,7 @@ describe("recording failure analytics", () => {
   it("normalizes unknown platforms and correlates failure to the attempt", () => {
     trackRecordingFailure({
       recordingId: "rec_1",
+      userId: "owner@example.com",
       uploadAttemptId: "attempt_1",
       platform: "future-client",
       failureCode: "finalize_failed",
@@ -30,8 +31,9 @@ describe("recording failure analytics", () => {
         recording_platform: "unknown",
         failure_code: "finalize_failed",
       }),
+      { userId: "owner@example.com" },
     );
-    expect(mockTrack.mock.calls[0]).toHaveLength(2);
+    expect(mockTrack.mock.calls[0][2]).toEqual({ userId: "owner@example.com" });
   });
 
   it("accepts only the normalized platform vocabulary", () => {
@@ -42,6 +44,7 @@ describe("recording failure analytics", () => {
   it("tracks normalized stage and status for an HTML chunk error", () => {
     trackRecordingFailure({
       recordingId: "rec_1",
+      userId: "owner@example.com",
       platform: "web",
       failureCode: "chunk_html_error",
       failureStage: "chunk_upload",
@@ -55,12 +58,14 @@ describe("recording failure analytics", () => {
         failure_stage: "chunk_upload",
         http_status: 502,
       }),
+      { userId: "owner@example.com" },
     );
   });
 
   it("records cancellation separately from recording failures", () => {
     trackRecordingFailure({
       recordingId: "rec_1",
+      userId: "owner@example.com",
       platform: "web",
       failureCode: "user_cancelled",
     });
@@ -68,6 +73,7 @@ describe("recording failure analytics", () => {
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_cancelled",
       expect.objectContaining({ failure_code: "user_cancelled" }),
+      { userId: "owner@example.com" },
     );
   });
 });

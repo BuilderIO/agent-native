@@ -515,6 +515,7 @@ export async function handleRecordingChunk(
       const now = new Date().toISOString();
       trackRecordingFailure({
         recordingId,
+        userId: ownerEmail,
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "storage_setup_required",
@@ -596,6 +597,7 @@ export async function handleRecordingChunk(
       const now = new Date().toISOString();
       trackRecordingFailure({
         recordingId,
+        userId: ownerEmail,
         uploadAttemptId: attemptId,
         platform: existing.recordingPlatform,
         failureCode: "recording_too_large",
@@ -911,6 +913,7 @@ export async function handleRecordingChunk(
         }
         trackRecordingFailure({
           recordingId,
+          userId: ownerEmail,
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
           failureCode: "finalize_failed",
@@ -1487,6 +1490,7 @@ async function handleResumableChunk(
     if (failed.length !== 1) throw err;
     trackRecordingFailure({
       recordingId,
+      userId: ownerEmail,
       uploadAttemptId: attemptId,
       platform: recordingPlatform,
       failureCode: "finalize_failed",

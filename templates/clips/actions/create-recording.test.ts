@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
 
+import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
+import { classifyInitialUploadFailure } from "./create-recording.js";
 import { createRecordingSchema } from "./lib/create-recording-schema";
 
 describe("create-recording schema", () => {
+  it("classifies initial multipart startup failures separately", () => {
+    expect(
+      classifyInitialUploadFailure(new S3MultipartStartError(503)),
+    ).toEqual({
+      failureCode: "multipart_start_failed",
+      failureStage: "multipart_start",
+      httpStatus: 503,
+    });
+    expect(
+      classifyInitialUploadFailure(new Error("storage unavailable")),
+    ).toEqual({ failureCode: "storage_setup_required" });
+  });
+
   it("leaves visibility unset so the organization default can apply", () => {
     const parsed = createRecordingSchema.parse({
       title: "Uploaded demo",

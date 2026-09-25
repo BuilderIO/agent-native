@@ -542,6 +542,7 @@ export async function handleResetRecordingChunks(
               if (failed.length === 1) {
                 trackRecordingFailure({
                   recordingId,
+                  userId: ownerEmail,
                   uploadAttemptId: existingAttemptId,
                   platform: existing.recordingPlatform,
                   failureCode: "multipart_start_failed",

@@ -284,6 +284,7 @@ export async function handleAbortRecordingUpload(
     ) {
       trackRecordingFailure({
         recordingId,
+        userId: ownerEmail,
         uploadAttemptId: aborted[0]?.uploadAttemptId,
         platform: aborted[0]?.recordingPlatform,
         failureCode: persistedFailureCode,

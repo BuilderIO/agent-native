@@ -68,6 +68,7 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
 
 export function trackRecordingFailure(params: {
   recordingId: string;
+  userId: string;
   uploadAttemptId?: string | null;
   platform: unknown;
   failureCode: RecordingFailureCode;
@@ -95,6 +96,7 @@ export function trackRecordingFailure(params: {
           ? { http_status: params.httpStatus }
           : {}),
       },
+      { userId: params.userId },
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not affect recording recovery.

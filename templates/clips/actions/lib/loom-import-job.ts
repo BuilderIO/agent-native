@@ -88,12 +88,14 @@ export async function failLoomImport(
     )
     .returning({
       id: schema.recordings.id,
+      ownerEmail: schema.recordings.ownerEmail,
       uploadAttemptId: schema.recordings.uploadAttemptId,
       recordingPlatform: schema.recordings.recordingPlatform,
     });
   if (!updated) return { status: "failed", failureReason };
   trackRecordingFailure({
     recordingId,
+    userId: updated.ownerEmail,
     uploadAttemptId: updated.uploadAttemptId,
     platform: updated.recordingPlatform ?? "import",
     failureCode: "loom_import_failed",
