@@ -80,4 +80,59 @@ describe("mapAxeContrastResults", () => {
     ]);
     expect(mapped.checkedNodeCount).toBe(1);
   });
+
+  it("turns text axe could not judge into a failure or a pass once its background is measured", () => {
+    const low = element(
+      '<div data-slide-object-id="low"><p>Low</p></div>',
+      "p",
+    );
+    const ok = element("<p>Ok</p>", "p");
+    const glyph = element("<p>Icon</p>", "p");
+    const measurement = (ratio: number) => ({
+      foreground: "#777777",
+      background: "#ffffff",
+      ratio,
+      requiredRatio: 4.5,
+      fontSize: "12.0pt (16px)",
+      fontWeight: "400",
+    });
+    const mapped = mapAxeContrastResults(
+      results({
+        incomplete: [
+          rule([
+            node({ messageKey: "bgOverlap" }, low),
+            node({ messageKey: "bgGradient" }, ok),
+            node({ messageKey: "nonBmp" }, glyph),
+          ]),
+        ],
+      }),
+      "slide-1",
+      (target) => measurement(target === low ? 4.47 : 7),
+    );
+    expect(mapped.failures).toEqual([
+      {
+        slideId: "slide-1",
+        objectId: "low",
+        text: "Low",
+        ...measurement(4.47),
+      },
+    ]);
+    expect(mapped.unverified).toEqual([
+      { slideId: "slide-1", text: "Icon", reason: "nonBmp" },
+    ]);
+    expect(mapped.checkedNodeCount).toBe(3);
+  });
+
+  it("keeps text unverified when its background cannot be measured", () => {
+    const text = element("<p>Over photo</p>", "p");
+    const mapped = mapAxeContrastResults(
+      results({ incomplete: [rule([node({ messageKey: "bgImage" }, text)])] }),
+      "slide-1",
+      () => null,
+    );
+    expect(mapped.failures).toEqual([]);
+    expect(mapped.unverified).toEqual([
+      { slideId: "slide-1", text: "Over photo", reason: "bgImage" },
+    ]);
+  });
 });

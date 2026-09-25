@@ -13,8 +13,15 @@ import {
 } from "@shared/contrast-audit";
 import type { AxeResults, NodeResult, RunOptions } from "axe-core";
 
+import {
+  type ContrastMeasurement,
+  measureRenderedContrast,
+  RESOLVABLE_REASONS,
+} from "./contrast-resolve";
+
 const MAX_TEXT_CHARS = 80;
-const RENDER_WAIT_MS = 4_000;
+// Returns as soon as the tab catches up; the ceiling only matters when sync lags.
+const RENDER_WAIT_MS = 15_000;
 const RENDER_POLL_MS = 150;
 
 const CONTRAST_RUN_OPTIONS: RunOptions = {
@@ -74,6 +81,7 @@ function parseRequiredRatio(value: string | undefined): number {
 export function mapAxeContrastResults(
   results: ContrastResults,
   slideId: string,
+  resolve?: (element: Element) => ContrastMeasurement | null,
 ): {
   failures: ContrastFailure[];
   unverified: ContrastUnverified[];
@@ -85,8 +93,26 @@ export function mapAxeContrastResults(
       .flatMap((rule) => rule.nodes);
 
   const violations = nodesFor(results.violations);
-  const incomplete = nodesFor(results.incomplete);
+  const allIncomplete = nodesFor(results.incomplete);
   const passes = nodesFor(results.passes);
+  const incomplete: NodeResult[] = [];
+  const resolvedFailures: ContrastFailure[] = [];
+  for (const node of allIncomplete) {
+    const reason = checkData(node).messageKey ?? "";
+    const measured =
+      resolve && node.element && RESOLVABLE_REASONS.has(reason)
+        ? resolve(node.element)
+        : null;
+    if (!measured) {
+      incomplete.push(node);
+    } else if (measured.ratio < measured.requiredRatio) {
+      resolvedFailures.push({
+        slideId,
+        ...describeElement(node.element),
+        ...measured,
+      });
+    }
+  }
 
   const failures = violations.map((node): ContrastFailure => {
     const data = checkData(node);
@@ -110,9 +136,9 @@ export function mapAxeContrastResults(
   );
 
   return {
-    failures,
+    failures: [...failures, ...resolvedFailures],
     unverified,
-    checkedNodeCount: violations.length + incomplete.length + passes.length,
+    checkedNodeCount: violations.length + allIncomplete.length + passes.length,
   };
 }
 
@@ -172,6 +198,26 @@ async function auditCanvas(
     ],
     passes: [...results.passes, ...recheck.passes],
   };
+}
+
+// Hit-testing skips pointer-events:none, which thumbnails and decorative
+// overlays commonly set; without this a translucent overlay would be missing
+// from the stack and the text measured against the layer beneath it.
+function withCanvasHitTesting<T>(
+  canvas: HTMLElement,
+  run: (hitTest: (x: number, y: number) => Element[]) => T,
+): T {
+  const style = document.createElement("style");
+  style.textContent =
+    "[data-contrast-hit-test], [data-contrast-hit-test] * { pointer-events: auto !important; }";
+  canvas.setAttribute("data-contrast-hit-test", "");
+  document.head.append(style);
+  try {
+    return run((x, y) => document.elementsFromPoint(x, y));
+  } finally {
+    style.remove();
+    canvas.removeAttribute("data-contrast-hit-test");
+  }
 }
 
 /**
@@ -278,9 +324,11 @@ export async function runContrastAudit(
       continue;
     }
 
-    const mapped = mapAxeContrastResults(
-      await auditCanvas(axe, canvas),
-      target.id,
+    const axeResults = await auditCanvas(axe, canvas);
+    const mapped = withCanvasHitTesting(canvas, (hitTest) =>
+      mapAxeContrastResults(axeResults, target.id, (element) =>
+        measureRenderedContrast(element, canvas, hitTest),
+      ),
     );
     // A thumbnail scrolled out of the sidebar comes back as per-text
     // "outsideViewport". That describes the slide's position, not its text,

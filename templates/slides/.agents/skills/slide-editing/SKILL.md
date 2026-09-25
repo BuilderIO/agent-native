@@ -76,13 +76,24 @@ Run `audit-contrast` as the last step of any turn that created or changed
 slides, even when the user did not ask: after every other edit, including
 layout-fit repairs, and right before the final response. Also use it whenever
 the user asks about readability or accessibility. If it cannot run because the
-deck is not open in the editor, say contrast was not checked. Fix failures in one bounded pass that
-stays inside the deck's palette: adjust the offending role (`--deck-muted`,
-`--deck-ink`, a surface) rather than recoloring one element with a new hex, and
-when a design system is linked, report a token that fails instead of silently
-overriding it. Audit once more, then stop and report what remains. Unverified
-text and skipped slides were not checked; say so rather than calling the deck
-accessible.
+deck is not open in the editor, say contrast was not checked.
+
+Fix failures in one bounded pass: adjust the offending role (`--deck-muted`,
+`--deck-ink`, a surface) rather than recoloring one element with a new hex.
+Every replacement color must match the deck's theme:
+
+- Design system linked: choose a passing color from that system's own palette
+  (from `get-design-system`). If none passes, keep the token and report it
+  instead of inventing a color.
+- No design system: reuse a color already in the deck, or shift the failing
+  color's lightness while keeping its hue.
+
+Never introduce an unrelated hue just to pass contrast. Audit once more, then
+stop and report what remains. Unverified text and skipped slides were not
+checked; say so rather than calling the deck accessible. If slides come back
+skipped as `stale-render`, audit once more before reporting. Remaining
+unverified text sits over an image, gradient, or visual effect: name those
+slides and objects, and do not call them risky or fine without a measurement.
 
 ## Updating a Slide
 
