@@ -21,12 +21,18 @@ import {
   readDefaultModelSelectionRequest,
   selectDefaultModelForSavedKey,
 } from "./agent-engine-default-model-route.js";
+import {
+  checkProviderKeyForSave,
+  providerForKeyEnvVar,
+  type ProviderKeyCheckCode,
+} from "./agent-engine-provider-models-route.js";
 import { getSession } from "./auth.js";
 import {
   clearProviderCredentialAuthFailure,
   isTrustedSelfHostedRuntime,
 } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const PROVIDER_TO_ENV_VAR = new Map(
   Object.entries(PROVIDER_ENV_META).map(([provider, meta]) => [
@@ -40,8 +46,6 @@ const BASE_URL_KEYS = new Set([
   OLLAMA_BASE_URL_ENV_VAR,
 ]);
 const OPENAI_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openai") ?? "";
-const OPENROUTER_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openrouter") ?? "";
-const OPENROUTER_KEY_DETAILS_URL = "https://openrouter.ai/api/v1/key";
 
 type AgentEngineApiKeyScope = "user" | "org";
 
@@ -50,40 +54,34 @@ export interface AgentEngineApiKeyWriteTarget {
   scopeId: string;
 }
 
+/**
+ * Check a provider key before it is stored, by listing the models it
+ * reaches. `baseUrl` is OpenAI's gateway: a string checks that endpoint,
+ * `null` the default, `undefined` the saved one (read through the ambient
+ * request context).
+ */
 export async function validateAgentEngineProviderKey(
   key: string,
   value: string,
-): Promise<{ ok: true } | { ok: false; statusCode: number; error: string }> {
-  if (key !== OPENROUTER_PROVIDER_KEY) return { ok: true };
-
-  try {
-    const response = await fetch(OPENROUTER_KEY_DETAILS_URL, {
-      headers: { Authorization: `Bearer ${value}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (response.ok) return { ok: true };
-    if (response.status === 401 || response.status === 403) {
-      return {
-        ok: false,
-        statusCode: 400,
-        error:
-          "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
-      };
+  options: { baseUrl?: string | null } = {},
+): Promise<
+  | { ok: true; models: string[] }
+  | {
+      ok: false;
+      statusCode: number;
+      error: string;
+      code: ProviderKeyCheckCode;
     }
-    return {
-      ok: false,
-      statusCode: 502,
-      error:
-        "OpenRouter could not verify this API key right now. Try again in a moment.",
-    };
-  } catch {
-    return {
-      ok: false,
-      statusCode: 502,
-      error:
-        "Could not reach OpenRouter to verify this API key. Check your connection and try again.",
-    };
+> {
+  const provider = providerForKeyEnvVar(key);
+  if (!provider) {
+    throw new Error(`${key} is not a provider API key.`);
   }
+  return checkProviderKeyForSave({
+    provider,
+    key: value,
+    ...(provider === "openai" ? { baseUrl: options.baseUrl } : {}),
+  });
 }
 
 export function normalizeAgentEngineApiKeyPayload(body: unknown):
@@ -357,14 +355,31 @@ export function createAgentEngineApiKeyHandler() {
       }
     }
 
-    if (payload.value) {
-      const keyValidation = await validateAgentEngineProviderKey(
-        payload.key,
-        payload.value,
+    if (payload.value && PROVIDER_ENV_VAR_KEYS.has(payload.key)) {
+      const value = payload.value;
+      const baseUrl = payload.baseUrl
+        ? payload.baseUrl
+        : payload.clearBaseUrl
+          ? null
+          : undefined;
+      // A key saved without an endpoint keeps the saved one, which the
+      // runtime resolves across the caller's personal and org rows.
+      const needsSavedEndpoint =
+        payload.key === OPENAI_PROVIDER_KEY && baseUrl === undefined;
+      const session = await getSession(event);
+      const orgId =
+        resolved.target.scope === "org"
+          ? resolved.target.scopeId
+          : needsSavedEndpoint
+            ? ((await getOrgContext(event)).orgId ?? undefined)
+            : undefined;
+      const keyValidation = await runWithRequestContext(
+        { userEmail: session?.email, orgId },
+        () => validateAgentEngineProviderKey(payload.key, value, { baseUrl }),
       );
       if (!keyValidation.ok) {
         setResponseStatus(event, keyValidation.statusCode);
-        return { error: keyValidation.error };
+        return { error: keyValidation.error, code: keyValidation.code };
       }
     }
 

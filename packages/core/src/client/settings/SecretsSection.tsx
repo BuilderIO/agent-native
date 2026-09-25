@@ -74,10 +74,13 @@ interface SecretStatus {
   required: boolean;
   /**
    * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
+   * provider rejected the value in effect, which is still rendered like a set
+   * one so it can be rotated or removed; "unknown" = the credential store
    * could not be read.
    */
   status: "set" | "unset" | "invalid" | "unknown";
+  /** When the provider last rejected the value in effect (ms). */
+  rejectedAt?: number;
   /** Where the effective value comes from — only present when status === "set". */
   source?: SecretSource;
   /**
@@ -96,6 +99,10 @@ interface SecretStatus {
 }
 
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+
+function hasValueInEffect(secret: SecretStatus): boolean {
+  return secret.status === "set" || secret.status === "invalid";
+}
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -192,7 +199,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   // Vault keys count as "set", but until someone adds their own key the
   // quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
-    (secret) => secret.status === "set" && secret.managedHere !== false,
+    (secret) => hasValueInEffect(secret) && secret.managedHere !== false,
   );
   const showProviderEmptyState = !hasOwnKey && !customKeyOpen.open;
 
@@ -488,8 +495,9 @@ function SecretCard({
     }
   };
 
-  const isManagedSet = secret.status === "set" && secret.managedHere !== false;
-  const isShadowedSet = secret.status === "set" && secret.managedHere === false;
+  const isManagedSet = hasValueInEffect(secret) && secret.managedHere !== false;
+  const isShadowedSet =
+    hasValueInEffect(secret) && secret.managedHere === false;
 
   const pill = useMemo(() => {
     if (secret.status === "set") {
@@ -501,6 +509,16 @@ function SecretCard({
         <span className="flex items-center gap-1 text-[10px] text-green-500">
           <IconCheck size={10} />
           {sourceLabel ? `Set · ${sourceLabel}` : "Set"}
+        </span>
+      );
+    }
+    if (secret.status === "invalid") {
+      return (
+        <span
+          className="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-destructive"
+          title={secret.error}
+        >
+          {t("secrets.invalid")}
         </span>
       );
     }
@@ -539,7 +557,7 @@ function SecretCard({
   // Vault/workspace-shadowed rows only show the value form once the user
   // opts into a personal override.
   const showRotationForm =
-    (secret.status !== "set" && secret.status !== "unknown") || isRotating;
+    (!hasValueInEffect(secret) && secret.status !== "unknown") || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -558,7 +576,7 @@ function SecretCard({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
           {secret.label}
         </span>
-        {secret.status === "set" && secret.last4 && (
+        {hasValueInEffect(secret) && secret.last4 && (
           <code className="text-[10px] text-muted-foreground">
             ••••{secret.last4}
           </code>
@@ -721,7 +739,7 @@ function SecretCard({
                       if (event.key === "Enter") void handleSave();
                     }}
                     placeholder={
-                      secret.status === "set"
+                      hasValueInEffect(secret)
                         ? "Enter new value to rotate"
                         : "Paste key"
                     }

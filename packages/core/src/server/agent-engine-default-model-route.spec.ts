@@ -34,6 +34,13 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
 }));
 
+// The provider's key check has its own spec; here every key is accepted.
+vi.mock("./agent-engine-provider-models-route.js", () => ({
+  checkProviderKeyForSave: async () => ({ ok: true, models: [] }),
+  providerForKeyEnvVar: (envVar: string) =>
+    envVar === "OPENAI_API_KEY" ? "openai" : "anthropic",
+}));
+
 vi.mock("./credential-provider.js", () => ({
   clearProviderCredentialAuthFailure: vi.fn(),
   isTrustedSelfHostedRuntime: () => false,

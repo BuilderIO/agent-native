@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
@@ -25,14 +25,26 @@ vi.mock("../secrets/storage.js", () => ({
 vi.mock("../extensions/url-safety.js", () => ({
   isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
     mockIsBlockedExtensionUrlWithDns(...args),
+  ssrfSafeFetch: vi.fn(),
 }));
 
 vi.mock("./credential-provider.js", () => ({
   clearProviderCredentialAuthFailure: (...args: unknown[]) =>
     mockClearProviderCredentialAuthFailure(...args),
+  recordProviderCredentialAuthFailure: vi.fn(),
   isTrustedSelfHostedRuntime: (...args: unknown[]) =>
     mockIsTrustedSelfHostedRuntime(...args),
+  resolveSecretDetailed: async () => ({ value: null, lookupFailed: false }),
 }));
+
+// Every provider answers the model-list check with an empty list unless a
+// test says otherwise.
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ data: [] }))),
+  );
+});
 
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
@@ -45,14 +57,16 @@ import {
 
 describe("agent engine api-key route helpers", () => {
   it("validates OpenRouter keys against the authenticated key endpoint", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(null, { status: 200 }));
+    const fetchMock = vi.fn(async (url: string) =>
+      url.endsWith("/key")
+        ? new Response(JSON.stringify({ data: {} }))
+        : new Response(JSON.stringify({ data: [{ id: "vendor/model" }] })),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       validateAgentEngineProviderKey("OPENROUTER_API_KEY", "sk-or-example"),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true, models: ["vendor/model"] });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/key",
       expect.objectContaining({
@@ -73,9 +87,57 @@ describe("agent engine api-key route helpers", () => {
     ).resolves.toEqual({
       ok: false,
       statusCode: 400,
-      error:
-        "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
+      code: "rejected",
+      error: "OpenRouter rejected this key.",
     });
+  });
+
+  it("checks every provider's key before it is stored", async () => {
+    mockWriteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = keyRequest("POST", {
+      provider: "anthropic",
+      apiKey: "sk-ant-example",
+    });
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error: "Anthropic rejected this key.",
+      code: "rejected",
+    });
+    expect(event.res.status).toBe(400);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://api.anthropic.com/v1/models?limit=1000",
+    );
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("refuses another provider's key without sending it", async () => {
+    mockWriteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = keyRequest("POST", {
+      provider: "openai",
+      apiKey: "sk-ant-example",
+      clearBaseUrl: true,
+    });
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      error: "OpenAI rejected this key. This looks like an Anthropic key.",
+      code: "wrong-provider",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
   it("does not store a rejected OpenRouter key", async () => {
@@ -101,8 +163,8 @@ describe("agent engine api-key route helpers", () => {
     await expect(
       createAgentEngineApiKeyHandler()(event as any),
     ).resolves.toEqual({
-      error:
-        "OpenRouter rejected this API key. Get a new key from OpenRouter and try again.",
+      error: "OpenRouter rejected this key.",
+      code: "rejected",
     });
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });

@@ -137,13 +137,20 @@ export interface SecretStatusPayload {
   kind: "api-key" | "oauth";
   required: boolean;
   /**
-   * "set" = value present; "unset" = not configured; "invalid" = validator
-   * failed; "unknown" = the credential store could not be read.
+   * "set" = value present; "unset" = not configured; "invalid" = the
+   * provider rejected the value in effect (see `rejectedAt`); "unknown" = the
+   * credential store could not be read.
    */
   status: "set" | "unset" | "invalid" | "unknown";
+  /**
+   * When the provider last rejected the value in effect (ms). Stays until a
+   * call with it succeeds or the value is replaced. Metadata such as `last4`
+   * is still reported so the row can offer Replace.
+   */
+  rejectedAt?: number;
   /** Exact stored scope supplying the runtime value, without exposing its id. */
   effectiveScope?: SecretScope;
-  /** Where the effective value comes from — only when status === "set". */
+  /** Where the effective value comes from — only when status is "set" or "invalid". */
   source?: SecretSource;
   /**
    * True when the effective value is the row this UI writes for the
@@ -155,9 +162,9 @@ export interface SecretStatusPayload {
   overrides?: Exclude<SecretSource, "personal">;
   /** Scope of a shared value hidden by this user's personal row. */
   overriddenScope?: Exclude<SecretScope, "user">;
-  /** Last 4 chars — only populated when status === "set" for api-key kind. */
+  /** Last 4 chars — for api-key kind when status is "set" or "invalid". */
   last4?: string;
-  /** Timestamp (ms) of the last write — only populated when status === "set". */
+  /** Timestamp (ms) of the last write — when status is "set" or "invalid". */
   updatedAt?: number;
   /** OAuth-kind: the provider id backing this secret. */
   oauthProvider?: string;
@@ -227,8 +234,11 @@ async function resolveScopeId(
 /** GET /_agent-native/secrets — list registered secrets with status. */
 export function createListSecretsHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const { prefetchSecrets, resolveSecretDetailed } =
-      await import("../server/credential-provider.js");
+    const {
+      prefetchSecrets,
+      readProviderCredentialRejections,
+      resolveSecretDetailed,
+    } = await import("../server/credential-provider.js");
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -254,6 +264,25 @@ export function createListSecretsHandler() {
       },
       new Map<string, ResolvedSecretDetail>(),
     );
+    // null means the markers couldn't be read: the keys report "unknown"
+    // rather than "set", since nobody knows whether they still work.
+    let rejections: Awaited<
+      ReturnType<typeof readProviderCredentialRejections>
+    > | null;
+    try {
+      rejections = await readProviderCredentialRejections(
+        [...resolved].flatMap(([key, detail]) =>
+          detail.value && detail.source && detail.source !== "env"
+            ? [{ key, value: detail.value }]
+            : [],
+        ),
+      );
+    } catch (error) {
+      console.warn("[secrets] could not read provider rejection markers", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      rejections = null;
+    }
     const payload: SecretStatusPayload[] = [];
 
     for (const secret of secrets) {
@@ -309,7 +338,17 @@ export function createListSecretsHandler() {
         payload.push(base);
         continue;
       }
-      base.status = "set";
+      const rejection = rejections?.get(secret.key);
+      if (!rejections) {
+        base.status = "unknown";
+        base.error = "Could not check whether the provider rejected this key";
+      } else if (rejection) {
+        base.status = "invalid";
+        base.error = "The provider rejected this key";
+        base.rejectedAt = rejection.at;
+      } else {
+        base.status = "set";
+      }
       const hit = {
         key: secret.key,
         scope: effective.source,

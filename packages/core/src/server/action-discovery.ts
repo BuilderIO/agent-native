@@ -766,6 +766,10 @@ export async function mergeCoreSharingActions(
       () => import("../secrets/actions/preview-secret-removal.js"),
     ],
     [
+      "check-provider-key",
+      () => import("../agent/actions/check-provider-key.js"),
+    ],
+    [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
     ],

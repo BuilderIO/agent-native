@@ -346,8 +346,10 @@ bugs are calls whose value can only live in another org's vault.
 Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 
 - `GET /_agent-native/secrets` — list registered secrets with status (`set`
-  / `unset` / `invalid`), metadata, and — for set api-keys — the last 4
-  characters. Values are never returned.
+  / `unset` / `invalid` / `unknown`), metadata, and — for set or invalid
+  api-keys — the last 4 characters. `invalid` means the provider rejected the
+  key in effect (`rejectedAt`); it stays until a call with the key succeeds or
+  the key is replaced. Values are never returned.
 - `POST /_agent-native/secrets/:key` — body `{ value, scope?, scopeId? }`.
   Runs the registered validator; returns 400 with the error on failure.
 - `DELETE /_agent-native/secrets/:key` — remove the stored value. A managed
@@ -359,6 +361,12 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 - `GET /_agent-native/secrets/:key/usage[?scope=]` — the remove-impact
   preview (same result as the `preview-secret-removal` action). List payloads
   carry `usedFor` and `managedBy` for registered and ad-hoc keys.
+
+Model provider keys are checked by listing the models they reach: the
+`check-provider-key` action (or `POST /_agent-native/agent-engine/provider-models`,
+client helper `fetchProviderModels`) returns `{ ok, models }` or
+`{ ok: false, code, reason }`. Call it before saving a key the user gives you;
+the key-save route runs the same check and refuses a rejected key.
 
 ## Storage & encryption
 

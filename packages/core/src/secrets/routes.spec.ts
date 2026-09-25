@@ -12,6 +12,7 @@ const mockHasOAuthTokens = vi.fn();
 const mockListOAuthAccountsByOwner = vi.fn();
 const mockResolveSecretDetailed = vi.fn();
 const mockPreviewSecretRemoval = vi.fn();
+const mockReadProviderCredentialRejections = vi.fn();
 
 let lastStatus = 200;
 
@@ -69,6 +70,8 @@ vi.mock("./storage.js", () => ({
 vi.mock("../server/credential-provider.js", () => ({
   prefetchSecrets: () => Promise.resolve(),
   resolveSecretDetailed: (...args: any[]) => mockResolveSecretDetailed(...args),
+  readProviderCredentialRejections: (...args: any[]) =>
+    mockReadProviderCredentialRejections(...args),
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -113,6 +116,7 @@ describe("secrets routes", () => {
     });
     mockReadAppSecretMeta.mockResolvedValue(null);
     mockListAppSecretsForScope.mockResolvedValue([]);
+    mockReadProviderCredentialRejections.mockResolvedValue(new Map());
   });
 
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
@@ -742,6 +746,75 @@ describe("secrets routes", () => {
     ]);
     expect(result[0]).not.toHaveProperty("last4");
     expect(mockResolveSecretDetailed).not.toHaveBeenCalled();
+  });
+
+  it("reports a key its provider rejected as invalid, with the date and its metadata", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "ANTHROPIC_API_KEY",
+        label: "Anthropic",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-ant-fake-placeholder",
+      lookupFailed: false,
+      source: "user",
+      scopeId: "alice+qa@example.com",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({ last4: "lder", updatedAt: 5 });
+    mockReadProviderCredentialRejections.mockResolvedValue(
+      new Map([["ANTHROPIC_API_KEY", { at: 1_790_000_000_000, status: 401 }]]),
+    );
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(mockReadProviderCredentialRejections).toHaveBeenCalledWith([
+      { key: "ANTHROPIC_API_KEY", value: "sk-ant-fake-placeholder" },
+    ]);
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "ANTHROPIC_API_KEY",
+        status: "invalid",
+        rejectedAt: 1_790_000_000_000,
+        error: "The provider rejected this key",
+        last4: "lder",
+        managedHere: true,
+        effectiveScope: "user",
+      }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("sk-ant-fake-placeholder");
+  });
+
+  it("reports unknown rather than set when rejection markers can't be read", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-fake-placeholder",
+      lookupFailed: false,
+      source: "user",
+      scopeId: "alice+qa@example.com",
+    });
+    mockReadProviderCredentialRejections.mockRejectedValue(
+      new Error("settings unreachable"),
+    );
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", status: "unknown" }),
+    ]);
   });
 
   it("reports status unknown with an error when the lookup fails and nothing resolves", async () => {

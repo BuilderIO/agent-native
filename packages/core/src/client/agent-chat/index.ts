@@ -61,10 +61,14 @@ export {
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
 export {
+  fetchProviderModels,
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
   type AgentEngineDefaultModelOutcome,
   type AgentEngineProvider,
+  type FetchProviderModelsOptions,
+  type ProviderModelsCheck,
+  type ProviderModelsCheckCode,
   type SaveAgentEngineApiKeyOptions,
   type SaveAgentEngineProviderSettingsOptions,
   type SaveAgentEngineProviderSettingsResult,

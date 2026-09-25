@@ -282,6 +282,37 @@ describe("SecretsSection", () => {
     expect(findButton("Delete")).toBeUndefined();
   });
 
+  it("shows a key its provider rejected as invalid, still with Rotate and Delete", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "invalid",
+        error: "The provider rejected this key",
+        rejectedAt: 1,
+        source: "personal",
+        managedHere: true,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    expect(container.textContent).toContain("Invalid");
+    expect(container.textContent).toContain("••••1234");
+
+    await openRow("OpenAI API key");
+
+    expect(findButton("Rotate")).toBeTruthy();
+    expect(findButton("Delete")).toBeTruthy();
+  });
+
   it("adds a custom key by typed name from the New search", async () => {
     await act(async () => {
       renderSecretsSection(root);

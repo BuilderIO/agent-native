@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deleteAgentEnginePersonalProviderSettings,
   deleteAgentEngineProviderSettings,
+  fetchProviderModels,
   getAgentEngineProviderKeyStatus,
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
@@ -198,6 +199,94 @@ describe("saveAgentEngineApiKey", () => {
         apiKey: "sk-or-example",
       }),
     ).rejects.toThrow("Could not save provider settings (HTTP 502).");
+  });
+});
+
+describe("fetchProviderModels", () => {
+  it("posts the pasted key and returns the models it reaches", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          provider: "anthropic",
+          models: ["claude-a", 42],
+          checkedAt: 1,
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchProviderModels({ provider: "anthropic", key: " sk-ant-fake " }),
+    ).resolves.toEqual({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-a"],
+      checkedAt: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/agent-engine/provider-models",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ provider: "anthropic", key: "sk-ant-fake" }),
+      }),
+    );
+  });
+
+  it("resolves a provider's rejection as a verdict", async () => {
+    const verdict = {
+      ok: false,
+      provider: "groq",
+      models: [],
+      code: "rejected",
+      reason: "Groq keys start with gsk_.",
+      status: 401,
+      expectedPrefix: "gsk_",
+      checkedAt: 2,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify(verdict), { status: 200 }),
+        ),
+    );
+
+    await expect(
+      fetchProviderModels({ provider: "groq", scope: "org" }),
+    ).resolves.toEqual(verdict);
+  });
+
+  it("throws when the check itself can't run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "Authentication required" }), {
+          status: 401,
+        }),
+      ),
+    );
+
+    await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
+      "Authentication required",
+    );
+  });
+
+  it("throws on a response it can't read instead of reporting no models", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        ),
+    );
+
+    await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
+      "Could not read the key check response.",
+    );
   });
 });
 

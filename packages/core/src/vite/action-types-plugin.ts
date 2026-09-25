@@ -85,6 +85,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
   },
   {
+    name: "check-provider-key",
+    specifier: "@agent-native/core/agent/actions/check-provider-key",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",

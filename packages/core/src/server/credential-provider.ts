@@ -1539,6 +1539,46 @@ export async function getProviderCredentialAuthFailure(opts: {
   }
 }
 
+/** The recorded message is the provider's own and can echo the key, so it stays server-side. */
+export interface ProviderCredentialRejection {
+  at: number;
+  status?: number;
+}
+
+/**
+ * The last rejection recorded for each exact key/value pair, keyed by `key`,
+ * whether or not its backoff has passed: the engine retries an expired
+ * marker, but only a successful call or a new value clears it, so Settings
+ * shows the key as rejected until then. Throws when the markers can't be read,
+ * unlike `getProviderCredentialAuthFailure`, so an unreadable marker is never
+ * reported as a working key.
+ */
+export async function readProviderCredentialRejections(
+  credentials: ReadonlyArray<{ key: string; value: string }>,
+): Promise<Map<string, ProviderCredentialRejection>> {
+  const fingerprints = new Map<string, string>();
+  for (const { key, value } of credentials) {
+    const fingerprint = providerCredentialFingerprint(key, value);
+    if (fingerprint) fingerprints.set(key, fingerprint);
+  }
+  const result = new Map<string, ProviderCredentialRejection>();
+  if (fingerprints.size === 0) return result;
+  const { getSettings } = await import("../settings/store.js");
+  const rows = await getSettings(
+    [...fingerprints.values()].map(providerAuthFailureSettingKey),
+  );
+  for (const [key, fingerprint] of fingerprints) {
+    const row = rows.get(providerAuthFailureSettingKey(fingerprint));
+    if (!row || row.fingerprint !== fingerprint) continue;
+    if (typeof row.at !== "number") continue;
+    result.set(key, {
+      at: row.at,
+      ...(typeof row.status === "number" ? { status: row.status } : {}),
+    });
+  }
+  return result;
+}
+
 export async function recordProviderCredentialAuthFailure(opts: {
   key?: string | null;
   value?: string | null;

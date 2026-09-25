@@ -83,6 +83,66 @@ describe("list-agent-engines", () => {
     ).toBe(true);
   });
 
+  it("flags an engine whose saved key its provider rejected", async () => {
+    const savedKey = "sk-ant-fake-placeholder";
+    vi.doMock("../../secrets/storage.js", () => ({
+      readAppSecret: vi.fn(async (ref: { key: string; scope: string }) =>
+        ref.key === "ANTHROPIC_API_KEY" && ref.scope === "user"
+          ? { value: savedKey }
+          : null,
+      ),
+      readAppSecrets,
+    }));
+    const { providerCredentialFingerprint } =
+      await import("../../server/credential-provider.js");
+    const fingerprint = providerCredentialFingerprint(
+      "ANTHROPIC_API_KEY",
+      savedKey,
+    );
+    const marker = {
+      fingerprint,
+      key: "ANTHROPIC_API_KEY",
+      status: 401,
+      strikes: 1,
+      // Past the retry window: the engine may retry, Settings still flags it.
+      at: Date.now() - 60 * 60 * 1000,
+    };
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn(async (key: string) =>
+        key === `provider-auth-failure:${fingerprint}` ? marker : null,
+      ),
+      getSettings: vi.fn(
+        async (keys: string[]) =>
+          new Map(
+            keys.map((key) => [
+              key,
+              key === `provider-auth-failure:${fingerprint}` ? marker : null,
+            ]),
+          ),
+      ),
+    }));
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "rejected@example.com", orgId: "org-rejected" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: any) => engine.name === name);
+
+    expect(byName("anthropic")).toMatchObject({
+      credentialRejected: true,
+      credentialRejectedAt: marker.at,
+    });
+    expect(byName("ai-sdk:openai")?.credentialRejected).toBe(false);
+    expect(byName("builder")?.credentialRejected).toBe(false);
+  });
+
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {
     process.env.AGENT_ENGINE = "ai-sdk:missing-provider";
     const { registerAgentEngine } = await import("../../agent/engine/index.js");

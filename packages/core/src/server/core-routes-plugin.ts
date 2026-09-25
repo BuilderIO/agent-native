@@ -150,6 +150,7 @@ import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineDisconnectHandler } from "./agent-engine-default-model-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
+import { createAgentEngineProviderModelsHandler } from "./agent-engine-provider-models-route.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
@@ -5386,6 +5387,14 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-engine/ollama-models`,
         createAgentEngineOllamaModelsHandler(),
+      );
+
+      // POST /_agent-native/agent-engine/provider-models — checks a provider
+      // key by listing the models it reaches; the same list fills the
+      // provider dialog's model checklist.
+      getH3App(nitroApp).use(
+        `${P}/agent-engine/provider-models`,
+        createAgentEngineProviderModelsHandler(),
       );
 
       // GET /_agent-native/agent-engine/status — reports whether an engine

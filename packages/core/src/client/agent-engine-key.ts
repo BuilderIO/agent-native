@@ -87,7 +87,10 @@ export interface SaveAgentEngineProviderSettingsResult {
 }
 
 export interface AgentEngineProviderKeyStatus {
+  /** `"invalid"`: the provider rejected the key in effect (see `rejectedAt`). */
   status: "set" | "unset" | "invalid" | "unknown";
+  /** When the provider last rejected the key in effect (ms). */
+  rejectedAt?: number;
   effectiveScope?: "user" | "org" | "workspace" | "env";
   overriddenScope?: "org" | "workspace";
   personalKeyPresent: boolean;
@@ -154,6 +157,9 @@ export async function getAgentEngineProviderKeyStatus(
     : undefined;
   return {
     status: secret.status as AgentEngineProviderKeyStatus["status"],
+    ...(secret.status === "invalid" && typeof secret.rejectedAt === "number"
+      ? { rejectedAt: secret.rejectedAt }
+      : {}),
     ...(effectiveScope ? { effectiveScope } : {}),
     ...(overriddenScope ? { overriddenScope } : {}),
     personalKeyPresent: effectiveScope === "user",
@@ -452,6 +458,148 @@ export async function fetchOllamaModels(baseUrl?: string): Promise<string[]> {
   return Array.isArray(models)
     ? models.filter((model): model is string => typeof model === "string")
     : [];
+}
+
+export type ProviderModelsCheckCode =
+  | "rejected"
+  | "wrong-provider"
+  | "missing-key"
+  | "invalid-endpoint"
+  | "unreachable"
+  | "provider-error";
+
+/**
+ * A provider's answer about a key. `ok: false` is a verdict (the key or
+ * endpoint didn't work), not a transport failure; those throw.
+ */
+export type ProviderModelsCheck =
+  | {
+      ok: true;
+      provider: AgentEngineProvider;
+      models: string[];
+      /** More models existed than one check reads. */
+      truncated?: boolean;
+      checkedAt: number;
+    }
+  | {
+      ok: false;
+      provider: AgentEngineProvider;
+      models: [];
+      code: ProviderModelsCheckCode;
+      /** English reason; localize from `code` and the fields below. */
+      reason: string;
+      status?: number;
+      expectedPrefix?: string;
+      detectedProvider?: AgentEngineProvider;
+      checkedAt: number;
+    };
+
+export interface FetchProviderModelsOptions {
+  provider: AgentEngineProvider;
+  /** A pasted key. Omit to check the saved key. */
+  key?: string;
+  /**
+   * OpenAI-compatible gateway or Ollama endpoint. Omit to use the saved one.
+   * Needs `key` (except for Ollama): a saved key is only checked against its
+   * saved endpoint, and the server answers 400 otherwise.
+   */
+  baseUrl?: string;
+  /** Which saved key to check when `key` is omitted. `org` is owners/admins. */
+  scope?: AgentEngineKeyScope;
+}
+
+const PROVIDER_MODELS_CHECK_CODES: readonly ProviderModelsCheckCode[] = [
+  "rejected",
+  "wrong-provider",
+  "missing-key",
+  "invalid-endpoint",
+  "unreachable",
+  "provider-error",
+];
+
+function decodeProviderModelsCheck(
+  body: unknown,
+  provider: AgentEngineProvider,
+): ProviderModelsCheck | null {
+  if (!isRecord(body) || typeof body.checkedAt !== "number") return null;
+  if (body.ok === true && Array.isArray(body.models)) {
+    return {
+      ok: true,
+      provider,
+      models: body.models.filter(
+        (model): model is string => typeof model === "string",
+      ),
+      ...(body.truncated === true ? { truncated: true } : {}),
+      checkedAt: body.checkedAt,
+    };
+  }
+  if (
+    body.ok === false &&
+    typeof body.reason === "string" &&
+    PROVIDER_MODELS_CHECK_CODES.includes(body.code as ProviderModelsCheckCode)
+  ) {
+    return {
+      ok: false,
+      provider,
+      models: [],
+      code: body.code as ProviderModelsCheckCode,
+      reason: body.reason,
+      ...(typeof body.status === "number" ? { status: body.status } : {}),
+      ...(typeof body.expectedPrefix === "string"
+        ? { expectedPrefix: body.expectedPrefix }
+        : {}),
+      ...(typeof body.detectedProvider === "string"
+        ? { detectedProvider: body.detectedProvider as AgentEngineProvider }
+        : {}),
+      checkedAt: body.checkedAt,
+    };
+  }
+  return null;
+}
+
+/**
+ * Check a provider key by asking the provider which models it reaches. The
+ * same list fills the model checklist. Omit `key` to check the saved key
+ * ("Check again"). Resolves with the provider's verdict, including
+ * rejections; throws a readable Error only when the check itself couldn't run
+ * (signed out, malformed request, server unreachable).
+ */
+export async function fetchProviderModels({
+  provider,
+  key,
+  baseUrl,
+  scope,
+}: FetchProviderModelsOptions): Promise<ProviderModelsCheck> {
+  const trimmedKey = key?.trim() ?? "";
+  const trimmedBaseUrl = baseUrl?.trim() ?? "";
+  const response = await fetch(
+    agentNativePath("/_agent-native/agent-engine/provider-models"),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider,
+        ...(trimmedKey ? { key: trimmedKey } : {}),
+        ...(trimmedBaseUrl ? { baseUrl: trimmedBaseUrl } : {}),
+        ...(scope ? { scope } : {}),
+      }),
+    },
+  );
+  // coercion-ok: an unreadable body falls through to the errors below.
+  const body: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    throw new Error(
+      isRecord(body) && typeof body.error === "string"
+        ? body.error
+        : `Could not check this key (HTTP ${response.status}).`,
+    );
+  }
+  const check = decodeProviderModelsCheck(body, provider);
+  if (!check) {
+    throw new Error("Could not read the key check response.");
+  }
+  return check;
 }
 
 /**

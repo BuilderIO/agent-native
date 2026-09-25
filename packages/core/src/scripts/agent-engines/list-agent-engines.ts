@@ -21,11 +21,16 @@ import {
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
-import { prefetchSecrets } from "../../server/credential-provider.js";
+import {
+  prefetchSecrets,
+  readProviderCredentialRejections,
+  resolveSecretDetailed,
+  type ProviderCredentialRejection,
+} from "../../server/credential-provider.js";
 
 export const tool: ActionTool = {
   description:
-    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.), the currently selected engine, and whether the caller can change the organization default (canUpdateDefault). Use this to check what engines are available before calling manage-agent-engine with action="set".',
+    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.), the currently selected engine, and whether the caller can change the organization default (canUpdateDefault). credentialRejected marks an engine whose saved key its provider rejected; chats with it stop until the key is replaced. Use this to check what engines are available before calling manage-agent-engine with action="set".',
   parameters: {
     type: "object",
     properties: {},
@@ -33,11 +38,40 @@ export const tool: ActionTool = {
   },
 };
 
+type KeyRejectionState = ProviderCredentialRejection | null | undefined;
+
+/**
+ * The provider's last rejection of each saved key: a rejection, `null` for
+ * none, or `undefined` when the key or its marker couldn't be read.
+ */
+async function readSavedKeyRejections(
+  keys: readonly string[],
+): Promise<Map<string, KeyRejectionState>> {
+  const result = new Map<string, KeyRejectionState>();
+  const saved: Array<{ key: string; value: string }> = [];
+  for (const key of keys) {
+    const detail = await resolveSecretDetailed(key);
+    if (detail.value && detail.source && detail.source !== "env") {
+      saved.push({ key, value: detail.value });
+    } else {
+      // Deployment env keys aren't shown in Settings, so they aren't flagged.
+      result.set(key, detail.lookupFailed && !detail.value ? undefined : null);
+    }
+  }
+  try {
+    const rejections = await readProviderCredentialRejections(saved);
+    for (const { key } of saved) result.set(key, rejections.get(key) ?? null);
+  } catch {
+    for (const { key } of saved) result.set(key, undefined);
+  }
+  return result;
+}
+
 export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
   const engines = listAgentEngines();
-  await prefetchSecrets([
+  const providerKeys = [
     ...new Set(
       engines
         .filter(
@@ -46,7 +80,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         )
         .flatMap((entry) => entry.requiredEnvVars),
     ),
-  ]);
+  ];
+  await prefetchSecrets(providerKeys);
+  const keyRejections = await readSavedKeyRejections(providerKeys);
   const [defaultSetting, defaultAuthority] = await Promise.all([
     readDefaultAgentEngineSettingDetailed(),
     resolveDefaultAgentEngineAuthority(),
@@ -142,6 +178,17 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         configuredError =
           error instanceof Error ? error.message : String(error);
       }
+      // Builder's credentials carry their own markers and reconnect flow.
+      const rejectionStates =
+        e.name === "builder" || !isAgentEnginePackageInstalled(e)
+          ? []
+          : e.requiredEnvVars.map((key) => keyRejections.get(key));
+      const rejection = rejectionStates.find((state) => !!state);
+      const credentialRejected = rejection
+        ? true
+        : rejectionStates.includes(undefined)
+          ? undefined
+          : false;
       return {
         name: e.name,
         label: e.label,
@@ -156,6 +203,10 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         packageInstalled: isAgentEnginePackageInstalled(e),
         configured,
         configuredError,
+        // The provider rejected the saved key and it hasn't worked since.
+        // `undefined` means it couldn't be checked, not that it works.
+        credentialRejected,
+        ...(rejection ? { credentialRejectedAt: rejection.at } : {}),
       };
     }),
   );

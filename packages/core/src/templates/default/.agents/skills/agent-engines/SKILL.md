@@ -19,6 +19,7 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 | `list-agent-engines` | List all registered engines, their capabilities, the current selection, and whether you can change the organization default (`canUpdateDefault`) |
 | `set-agent-engine` | Set the organization's default engine and model (owners and admins only) |
 | `test-agent-engine` | Send a trivial prompt to verify the engine works (connectivity + API key) |
+| `check-provider-key` | Check a provider API key by listing the models it reaches, before saving it |
 
 ## Checking the Current Engine
 
@@ -26,7 +27,7 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 list-agent-engines
 ```
 
-Returns the registry of all engines (name, label, capabilities, supported models) plus the currently active engine and model.
+Returns the registry of all engines (name, label, capabilities, supported models) plus the currently active engine and model. `credentialRejected: true` means the provider rejected that engine's saved key (`credentialRejectedAt` says when); chats with it stop until the key is replaced, so tell the user.
 
 ## Switching Engines
 
@@ -51,6 +52,14 @@ test-agent-engine --engine "ai-sdk:openai" --model "gpt-4o"
 ```
 
 Returns `{ ok, latencyMs, response, capabilities }`. If `ok: false`, the error message explains what's wrong (missing API key, package not installed, etc.).
+
+To check a key without sending a prompt, for example one the user just gave you:
+
+```
+check-provider-key --provider "anthropic" --key "<the key>"
+```
+
+Returns `{ ok: true, models }` or `{ ok: false, code, reason }` (`rejected`, `wrong-provider`, `missing-key`, `invalid-endpoint`, `unreachable`, `provider-error`). Relay the reason. Omit `--key` to re-check the saved key; it is only checked against its saved endpoint, so `--baseUrl` needs `--key` (except for Ollama). `--scope org` is for owners and admins.
 
 ## Built-in Engines
 
