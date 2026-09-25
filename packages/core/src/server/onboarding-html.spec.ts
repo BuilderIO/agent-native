@@ -357,6 +357,22 @@ describe("getOnboardingHtml", () => {
     );
   });
 
+  it("does not claim Agent-Native provenance for catalog copy on a custom host", () => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+
+    const html = getOnboardingHtml({
+      requestHost: "inbox.example.com",
+      requestOrigin: "https://inbox.example.com",
+    });
+
+    expect(html).toContain('property="og:site_name"');
+    expect(html).not.toContain(
+      '<meta property="og:site_name" content="Agent-Native"/>',
+    );
+  });
+
   it("keeps a custom app's own name on its share card", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;

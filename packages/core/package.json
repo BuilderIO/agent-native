@@ -28,6 +28,7 @@
     "tsconfig.base.json",
     "src/eject",
     "src/integrations/eject",
+    "src/assets/fonts/LICENSE_*",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",

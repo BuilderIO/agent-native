@@ -926,10 +926,14 @@ export function createAgentNativeOgImageHandler(
       appName,
       brand: options.brand ?? brand.mode,
       logoUrl: options.logoUrl !== undefined ? options.logoUrl : brand.logoUrl,
+      // A caller-supplied app name outranks the host-derived sign-in copy,
+      // which would otherwise label the card with another app's name.
       presentation:
         options.presentation !== undefined
           ? options.presentation
-          : (brand.presentation ?? null),
+          : cleanText(options.appName)
+            ? null
+            : (brand.presentation ?? null),
       title: cleanText(options.title) || queryStringValue(query.title, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),

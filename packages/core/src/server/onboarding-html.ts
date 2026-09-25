@@ -1276,8 +1276,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   );
   // Templates pass their short sign-in name ("Mail"); share cards label the
   // link with og:title, so first-party apps use the full product name there.
+  // Catalog copy can also resolve from env app names on a custom host; only
+  // claim Agent-Native provenance when the host or the app's own config does.
   const isFirstPartySocial =
-    marketingWasResolvedFromCatalog || isFirstPartyMarketing;
+    isFirstPartyMarketing ||
+    (marketingWasResolvedFromCatalog &&
+      isAgentNativeHostedHost(opts.requestHost));
   const socialAppName =
     (isFirstPartySocial
       ? resolveBuiltInAuthMarketingByName(marketing?.appName)?.appName
