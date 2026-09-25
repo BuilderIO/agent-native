@@ -6,7 +6,7 @@ import { mailLabelsInclude } from "@shared/gmail-labels.js";
  * tab's badge can never disagree with the rows it shows.
  *
  * Spec (Superhuman semantics):
- * - Tab order: Important, then one tab per pinned label (excluding
+ * - Tab order: All (when enabled), Important, one tab per pinned label (excluding
  *   "important"/"note-to-self" and any {@link COLLAPSIBLE_VIEW_IDS} system
  *   view id), then one tab per saved filter, then Other. `combineInbox`
  *   collapses all of that to a single "inbox" tab.
@@ -16,6 +16,7 @@ import { mailLabelsInclude } from "@shared/gmail-labels.js";
  *   automated (see `inbox-classify.ts`), in which case it falls to Other.
  */
 import {
+  ALL_TAB_ID,
   ALL_INBOX_TAB_ID,
   IMPORTANT_TAB_ID,
   OTHER_TAB_ID,
@@ -24,6 +25,9 @@ import {
   type InboxThreadItem,
 } from "@shared/inbox-threads.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
+import type { EmailMessage } from "@shared/types.js";
+
+import { classifyAutomated } from "./inbox-classify.js";
 
 // Mirrors app/lib/inbox-tabs.ts's COLLAPSIBLE_VIEW_IDS — system views render
 // as their own collapsible sections, never as inbox triage tabs, so a stale
@@ -37,12 +41,60 @@ const COLLAPSIBLE_VIEW_IDS = new Set([
   "trash",
 ]);
 
+const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
+  promotions: "CATEGORY_PROMOTIONS",
+  social: "CATEGORY_SOCIAL",
+  updates: "CATEGORY_UPDATES",
+  forums: "CATEGORY_FORUMS",
+};
+
 export type ResolvedInboxTab = {
   id: string;
   kind: InboxTabKind;
   name: string;
   query?: string;
 };
+
+export function buildLocalInboxItems(
+  emails: EmailMessage[],
+): InboxThreadItem[] {
+  const byThread = new Map<string, EmailMessage[]>();
+  for (const email of emails) {
+    if (email.isArchived || email.isTrashed || email.isDraft) continue;
+    const key = email.threadId || email.id;
+    const list = byThread.get(key);
+    if (list) list.push(email);
+    else byThread.set(key, [email]);
+  }
+
+  const items = [...byThread.values()]
+    .filter((messages) => messages.some((message) => !message.isSent))
+    .map((messages): InboxThreadItem => {
+      const latest = messages.reduce((a, b) =>
+        new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
+      );
+      const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
+      const isAutomated = classifyAutomated({
+        headers: [],
+        labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
+        fromEmail: latest.from?.email ?? "",
+      });
+      return {
+        ...latest,
+        labelIds,
+        messageCount: messages.length,
+        unreadCount: messages.filter((m) => !m.isRead).length,
+        messageIds: messages.map((m) => m.id),
+        isAutomated,
+      };
+    });
+
+  return items.sort(
+    (a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime() ||
+      b.id.localeCompare(a.id),
+  );
+}
 
 export function resolveInboxTabs(
   config: InboxTabConfig,
@@ -55,12 +107,17 @@ export function resolveInboxTabs(
   // "Important" and "Other" are fixed English source strings — the client
   // localizes built-in tab ids by `kind`, not by this `name`.
   const tabs: ResolvedInboxTab[] = [
+    ...(config.showAllTab === false
+      ? []
+      : [{ id: ALL_TAB_ID, kind: "all" as const, name: "All" }]),
     { id: IMPORTANT_TAB_ID, kind: "important", name: "Important" },
   ];
+  const tabIds = new Set([ALL_TAB_ID, IMPORTANT_TAB_ID, OTHER_TAB_ID]);
 
   for (const labelId of config.pinnedLabels) {
     if (labelId === IMPORTANT_TAB_ID || labelId === "note-to-self") continue;
     if (COLLAPSIBLE_VIEW_IDS.has(labelId)) continue;
+    if (tabIds.has(labelId)) continue;
     tabs.push({
       id: labelId,
       kind: "label",
@@ -68,15 +125,18 @@ export function resolveInboxTabs(
         config.labelAliases[labelId] ?? labelNameById.get(labelId) ?? labelId,
       query: `label:"${labelId}"`,
     });
+    tabIds.add(labelId);
   }
 
   for (const filter of config.savedFilters) {
+    if (tabIds.has(filter.id)) continue;
     tabs.push({
       id: filter.id,
       kind: "filter",
       name: filter.name,
       query: filter.query,
     });
+    tabIds.add(filter.id);
   }
 
   tabs.push({ id: OTHER_TAB_ID, kind: "other", name: "Other" });
@@ -90,6 +150,7 @@ export function inboxTabsForItem(
 ): string[] {
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
+  const allTab = tabs.find((tab) => tab.kind === "all");
   const isAiImportant = mailLabelsInclude(item.labelIds, AI_IMPORTANT_LABEL);
 
   const matched = tabs
@@ -97,9 +158,15 @@ export function inboxTabsForItem(
     .filter((tab) => emailMessageMatchesSearch(item, tab.query!))
     .map((tab) => tab.id);
   if (isAiImportant) matched.unshift(IMPORTANT_TAB_ID);
-  if (matched.length > 0) return matched;
+  if (matched.length > 0) {
+    if (allTab) matched.unshift(allTab.id);
+    return matched;
+  }
 
-  return [item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID];
+  return [
+    ...(allTab ? [allTab.id] : []),
+    item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID,
+  ];
 }
 
 /** Partitions `items` into every tab's member list (tab id -> items), in tab order. */

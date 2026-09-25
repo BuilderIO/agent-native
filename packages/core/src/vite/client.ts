@@ -88,7 +88,8 @@ import {
   loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
-  writeFirstRunOnboardingBuildMarker,
+  resolveHarnessBuildReplacement,
+  writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -4358,10 +4359,15 @@ function createAgentNativeConfig(
     resolvedAppConfig,
     runtimeEnv,
   );
+  const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
   if (command === "build") {
-    writeFirstRunOnboardingBuildMarker(cwd, firstRunOnboardingMode);
+    writeAgentNativeBuildConfigMarker(cwd, {
+      firstRunOnboarding: firstRunOnboardingMode,
+      harness: harnessMode,
+    });
   }
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
+  const harnessBuildMode = JSON.stringify(harnessMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
@@ -4477,6 +4483,7 @@ function createAgentNativeConfig(
       replace: {
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
           firstRunOnboardingBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       },
     },
     logLevel:
@@ -4533,6 +4540,10 @@ function createAgentNativeConfig(
       // into the deployed function), so embed the resolved mode here too.
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
+      // hosted-harness-policy.ts's config read has the same problem: apps set
+      // `harness` only in agent-native.config.ts, which is not shipped into
+      // the deployed function either.
+      "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

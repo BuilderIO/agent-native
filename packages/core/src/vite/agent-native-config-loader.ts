@@ -14,6 +14,7 @@ import {
   type AgentNativeConfigInput,
   type AgentNativeFirstRunOnboardingMode,
 } from "../config.js";
+import { parseHostedHarnessBuildValue } from "../server/hosted-harness-build-mode.js";
 
 /** The canonical filename comes first; the remaining names stay compatible. */
 export const AGENT_NATIVE_CONFIG_FILE_CANDIDATES = [
@@ -161,54 +162,103 @@ export function resolveFirstRunOnboardingBuildReplacement(
   return resolveEffectiveFirstRunOnboardingMode(envOverride, configured);
 }
 
-const FIRST_RUN_ONBOARDING_BUILD_MARKER = path.join(
+/**
+ * The hosted harness setting to embed into the Nitro server bundle. Unlike
+ * first-run onboarding, harness has no separate client env override, so the
+ * fully resolved config value is always the final word — `config.harness` is
+ * never ambiguous the way an un-configured first-run mode is. JSON-encoded so
+ * "not configured" (`null`) stays distinct from the empty-string sentinel
+ * `hosted-harness-build-mode.ts` uses for "a build recorded nothing".
+ */
+export function resolveHarnessBuildReplacement(
+  config: AgentNativeConfig,
+): string {
+  return JSON.stringify(config.harness ?? null);
+}
+
+const AGENT_NATIVE_BUILD_CONFIG_MARKER = path.join(
   ".agent-native",
-  "first-run-onboarding",
+  "build-config.json",
 );
+
+export interface AgentNativeBuildConfigMarker {
+  firstRunOnboarding: AgentNativeFirstRunOnboardingMode | "";
+  /** The JSON-encoded return value of `resolveHarnessBuildReplacement`. */
+  harness: string;
+}
+
+const FIRST_RUN_ONBOARDING_MARKER_VALUES = new Set<string>([
+  "",
+  "off",
+  "connect",
+  "connect-and-integrations",
+]);
 
 /**
  * `agent-native build` runs the Vite build and the deploy (Nitro) build as
  * separate processes, and only the Vite build sees config passed inline to
- * `agentNative()`. The Vite build records the mode it resolved here so the
- * deploy build embeds the same value (same handoff as the Nitro preset marker).
+ * `agentNative()`. The Vite build records every build-time value it resolved
+ * here so the deploy build embeds the same values (one handoff file for every
+ * value the deploy build cannot re-derive on its own).
  */
-export function writeFirstRunOnboardingBuildMarker(
+export function writeAgentNativeBuildConfigMarker(
   cwd: string,
-  mode: AgentNativeFirstRunOnboardingMode | "",
+  marker: AgentNativeBuildConfigMarker,
 ): void {
-  const filePath = path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER);
+  const filePath = path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, mode);
+  fs.writeFileSync(filePath, JSON.stringify(marker));
 }
 
 /** Called before each `agent-native build` so a marker can only come from this build's Vite step. */
-export function clearFirstRunOnboardingBuildMarker(cwd: string): void {
-  fs.rmSync(path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER), {
+export function clearAgentNativeBuildConfigMarker(cwd: string): void {
+  fs.rmSync(path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER), {
     force: true,
   });
 }
 
-/** `undefined` when no Vite build recorded a mode; "" is a recorded unknown. */
-export function readFirstRunOnboardingBuildMarker(
+/** `undefined` when no Vite build recorded a marker (older core, or a build that skipped the Vite step). */
+export function readAgentNativeBuildConfigMarker(
   cwd: string,
-): AgentNativeFirstRunOnboardingMode | "" | undefined {
-  const filePath = path.join(cwd, FIRST_RUN_ONBOARDING_BUILD_MARKER);
-  let value: string;
+): AgentNativeBuildConfigMarker | undefined {
+  const filePath = path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER);
+  let raw: string;
   try {
-    value = fs.readFileSync(filePath, "utf8").trim();
+    raw = fs.readFileSync(filePath, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
-  if (
-    value === "" ||
-    value === "off" ||
-    value === "connect" ||
-    value === "connect-and-integrations"
-  ) {
-    return value;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
+      cause: error,
+    });
   }
-  throw new Error(`Invalid first-run onboarding build marker: ${filePath}`);
+  const record = parsed as Partial<AgentNativeBuildConfigMarker> | null;
+  if (
+    !record ||
+    typeof record !== "object" ||
+    !FIRST_RUN_ONBOARDING_MARKER_VALUES.has(
+      record.firstRunOnboarding as string,
+    ) ||
+    typeof record.harness !== "string"
+  ) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`);
+  }
+  try {
+    parseHostedHarnessBuildValue(record.harness);
+  } catch (error) {
+    throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
+      cause: error,
+    });
+  }
+  return {
+    firstRunOnboarding: record.firstRunOnboarding!,
+    harness: record.harness,
+  };
 }
 
 function findConfigPath(cwd: string): string | undefined {
