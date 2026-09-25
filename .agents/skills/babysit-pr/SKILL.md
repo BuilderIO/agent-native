@@ -57,12 +57,15 @@ an unexpected merge without rotating.
 1. Run one foreground tick immediately and continue here until this mode's
    endpoint. Never create or resume a watcher, and never acquire or renew a
    lease. For migration only, find an existing heartbeat whose full name and
-   prompt identify this PR; read its full definition and `ship_mode`, let any
-   separate target task finish, and pause it only if this invocation has the
-   same or stronger `ship_mode`. Resend its definition with only `status`
-   changed to `PAUSED` and verify the result. If none exists, do nothing. If
-   authorization, identity, or pause is uncertain, keep doing local/read-only
-   work and avoid PR writes until the legacy run is inactive.
+   prompt identify this PR; read its full definition and `ship_mode`, and let
+   any separate target task finish before updating it. Pause it by resending the
+   full definition with `status=PAUSED`; if this invocation is `ready-only`,
+   also downgrade its persisted `ship_mode` to `ready-only`, even if the legacy
+   run was merge-authorized. Verify the full result. If none exists, do nothing.
+   If identity, authorization, or pause is uncertain, keep doing local/read-only
+   work and avoid PR writes until the legacy run is inactive. A scheduled run
+   must reread its persisted `ship_mode` immediately before merging and leave
+   the PR open unless it is still `merge-authorized`.
 2. Before each PR write, reread the live state. Push normally (never force).
    On a non-fast-forward rejection, fetch and verify the remote PR head. If it
    does not already contain the local commits, confirm the tree is clean and
