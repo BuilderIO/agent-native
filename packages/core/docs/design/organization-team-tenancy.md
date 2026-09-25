@@ -30,6 +30,16 @@ Store team instructions, skills, and memory against the marked group's stable ID
 
 The user selects one active team in the current organization, retained until changed. That selection determines the team binding **only when a new conversation starts**. On every turn, the server validates current membership and loads context from the conversation's stored binding, regardless of the current selection; an unbound conversation loads organization and personal context only. Selection does not grant resource or connection access, and a person in several teams does not automatically load all their teams' context.
 
+```mermaid
+flowchart LR
+  A["Active team selection"] -->|"New conversation only"| B["Stored team group ID or no binding"]
+  B -->|"Every turn: check current membership"| C["Load bound team context if present"]
+  D["Workspace and app defaults"] --> E["Assemble prompt context"]
+  F["Organization context"] --> E
+  C --> E
+  P["Personal context"] --> E
+```
+
 For overridable instruction guidance, load workspace and app defaults, organization, the conversation's bound team if any, then personal instructions. Personal guidance takes precedence over conflicting team guidance, and team guidance over conflicting organization guidance. Enforced organization or team permissions and policies are checked outside the prompt and cannot be overridden by instruction text. For stored skills with the same exact name, keep one in this order: personal, bound team if any, organization, then workspace/app defaults. Keep organization, team, and personal memory sources distinct and identified by origin. V1 adds no semantic reconciliation of contradictory facts in memory.
 
 Organization-owned connections remain organization-owned. Reuse existing group connection allow-lists alongside existing app, actor, and organization authorization; selecting a team is not a substitute for those checks. Do not copy credentials into team resources or prompts.
@@ -38,9 +48,21 @@ Organization-owned connections remain organization-owned. Reuse existing group c
 
 Conversations remain person-owned and private at creation. Add a nullable, stable bound-group ID to each conversation (proposed `team_group_id`). When starting one with an active team, validate the marked group, its organization, and the creator's current membership, then record that ID. Starting without a team records no binding. Binding selects prompt context; it is **not** a share grant or generic resource ownership scope.
 
-Use the stored group, not the current UI selection, for every later turn. Switching the active team starts a new conversation with that team. It does not move or rebind an existing conversation in V1. On read, list, and continuation, a team-bound conversation requires current membership in both its organization and its bound team **even for its recorded owner**. If that membership is absent or the bound team no longer exists, deny access rather than silently dropping team context or replacing it with another team's context. Never infer a binding for an older conversation from the user's current selection.
+Switching the active team never rebinds an existing conversation. On read, list, and continuation, a team-bound conversation requires current membership in both its organization and its bound team **even for its recorded owner**. If that membership is absent or the bound team no longer exists, deny access rather than silently dropping team context or replacing it with another team's context. Never infer a binding for an older conversation from the user's current selection.
 
 The author can explicitly grant **viewer** access to the conversation's bound team, one conversation at a time. This grants read access to all current team members, including leads. It grants nobody continuation, management, or access to other conversations. A team-bound conversation cannot be shared with another team in V1. A conversation created without a team can later receive the same viewer-only share with a team. It remains unbound and personally owned, and it uses organization and personal context. Revoking a group share removes that grant under the existing share rules. Team membership and active-team selection alone never share a conversation.
+
+```mermaid
+flowchart TD
+  R["Read conversation or linked run"] --> B{"Conversation bound to a team?"}
+  B -->|Yes| M{"Current member of bound team and organization?"}
+  M -->|No| X["Deny, including recorded owner"]
+  M -->|Yes| A{"Owner or authorized viewer?"}
+  B -->|No| A
+  A -->|No| X
+  A -->|Yes| V["Read allowed"]
+  V --> W["Continue or manage: owner authorization required"]
+```
 
 Enable the existing group-principal sharing path for chat threads, including direct reads and list filtering. Check current organization and group membership on every team grant; a nonmember admin gets no exception. Offer one team-wide list of explicitly shared conversations and their linked runs to all current members, including leads. This is a discovery surface over authorized shares, not a new visibility grant. A private conversation does not appear in it merely because it is bound to the team.
 
