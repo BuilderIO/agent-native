@@ -413,20 +413,15 @@ body {
   pointer-events: auto;
 }
 
-.platform-darwin
-  .shell:has(.settings-overlay)
-  .collapsed-mac-window-controls::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
+.platform-darwin:has(.settings-overlay) .collapsed-mac-window-controls::before,
+.platform-darwin:has(.settings-overlay)
   .collapsed-mac-window-controls:hover::before,
-.platform-darwin
-  .shell:has(.settings-overlay)
+.platform-darwin:has(.settings-overlay)
   .collapsed-mac-window-controls:focus-within::before {
   opacity: 0;
 }
 
-.platform-darwin
-  .shell:has(.settings-overlay)
+.platform-darwin:has(.settings-overlay)
   .collapsed-mac-window-controls
   .win-btn--maximize {
   opacity: 1;
