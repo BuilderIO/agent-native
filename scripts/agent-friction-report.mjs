@@ -75,9 +75,9 @@ const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
 const WORKTREE_PERMISSION_CORRECTION_RE =
-  /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:are\s+)?needed\b[^.!?\n]{0,100}\bworktrees?\b/i;
+  /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
 const WORKTREE_BRANCH_CONTEXT_RE =
-  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|new\s+branches?)\b/i;
+  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|new\s+branches?|switch(?:ing)?\s+to\s+(?:a\s+)?task\s+branch(?:es)?)\b/i;
 const WORKTREE_BRANCH_PERMISSION_RE = {
   test(text) {
     // Keep unrelated branch mentions in neighboring sentences out of this metric.
@@ -96,6 +96,7 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     true,
     "Stop asking for permission for new branches in task-owned worktrees.",
   ],
+  [true, "In a worktree, no permission is needed to switch to a task branch."],
   [true, "Stop asking before creating a branch in a task-owned worktree."],
   [true, "Stop asking permission to create a new branch in a task worktree."],
   [true, "Stop asking whether you can create a branch in a worktree."],
@@ -115,6 +116,10 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     "Do not ask permission to access production data from this worktree.",
   ],
   [false, "No approvals are needed for reading customer data in worktrees."],
+  [
+    false,
+    "No permission is needed to open a production dashboard in this worktree.",
+  ],
   [
     false,
     "Do not ask permission to access production in this worktree; the feature branch was created yesterday.",
