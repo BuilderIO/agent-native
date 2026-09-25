@@ -17,7 +17,7 @@ export function assertNoRenderArtifacts(
   nextContent: string,
   slideId: string,
 ): void {
-  const markers = renderArtifactGrowth(previousContent, nextContent, "server");
+  const markers = renderArtifactGrowth(previousContent, nextContent);
   if (markers.length === 0) return;
   fail(
     `Slide ${slideId} content contains editor-rendered markup (${markers.join(", ")}). Write the slide's stored HTML, not the rendered editor DOM.`,

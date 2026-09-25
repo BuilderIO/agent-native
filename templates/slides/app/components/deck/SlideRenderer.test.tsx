@@ -688,6 +688,28 @@ describe("SlideInner autofit", () => {
     expect(document.querySelector("h2")).toBe(heading);
   });
 
+  it("renders a mermaid diagram in place inside the slide root", async () => {
+    const slide: Slide = {
+      id: "raw-mermaid-inside",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><h2>Diagram title</h2><div class="mermaid">graph TD; A--&gt;B;</div><p>Caption below</p></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fmdSlide = document.querySelector(".fmd-slide")!;
+    expect(document.querySelectorAll(".fmd-slide")).toHaveLength(1);
+    expect(fmdSlide.querySelector("p")?.textContent).toBe("Caption below");
+    const placeholder = fmdSlide.querySelector("[data-mermaid-index]")!;
+    expect(placeholder).toBeTruthy();
+    // The diagram component mounts inside the placeholder, not beside it.
+    await waitFor(() =>
+      expect(placeholder.querySelector("[data-mermaid-diagram]")).toBeTruthy(),
+    );
+  });
+
   it("does not fit the flow layer around a moved freeform object", async () => {
     const slide: Slide = {
       id: "raw-freeform",

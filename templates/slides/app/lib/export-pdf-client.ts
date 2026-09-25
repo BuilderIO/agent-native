@@ -217,9 +217,11 @@ function exportStageHasPendingRenderers(stage: HTMLElement): boolean {
   ).some((image) => !image.complete);
   if (pendingImages) return true;
 
+  // A raw-HTML slide's placeholder holds the diagram's own node; judge that.
   const pendingMermaid = Array.from(
     stage.querySelectorAll<HTMLElement>("[data-mermaid-index]"),
   ).some((node) => {
+    if (node.querySelector("[data-mermaid-index]")) return false;
     const state = node.dataset.mermaidState;
     if (state === "empty" || state === "error" || state === "ready") {
       return false;

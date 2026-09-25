@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -285,6 +285,99 @@ describe("mergeRenderedEdits", () => {
     q(root, ".fmd-slide p").append(" ok");
     expect(save().html).toBe(withDiagram.replace("Title", "Title ok"));
   });
+
+  it("keeps a diagram inside the slide root once, around an edit on either side", () => {
+    const inside =
+      '<div class="fmd-slide" style="padding:48px"><h2>Diagram title</h2><div class="mermaid">graph TD\nA-->B</div><p>Caption below</p></div>';
+    for (const target of ["p", "h2"]) {
+      const { root, save } = mount(inside);
+      // MermaidRenderer mounts its own node inside the placeholder.
+      q(root, "[data-mermaid-index]").innerHTML =
+        '<div data-mermaid-index="0" data-mermaid-state="ready"><svg></svg></div>';
+      q(root, `.fmd-slide ${target}`).append(" ok");
+      const edited = target === "p" ? "Caption below" : "Diagram title";
+      expect(save().html, target).toBe(inside.replace(edited, `${edited} ok`));
+    }
+  });
+
+  describe("an unclosed formatting tag the parser reopens in later paragraphs", () => {
+    const unclosed =
+      '<div class="fmd-slide" style="padding:48px"><p><strong>Heading text</p><p>Second para</p><p>Third para</p></div>';
+
+    it("gives each start tag one stamp", () => {
+      const { html } = stampSlideSource(unclosed, "n");
+      expect(html).not.toMatch(/data-src-i="[^"]*"\s+data-src-i=/);
+    });
+
+    it("edits a reopened copy without writing the copy", () => {
+      const { root, save } = mount(unclosed);
+      expect(root.querySelectorAll("strong")).toHaveLength(3);
+      q(root, "p:nth-of-type(3) strong").append(" ok");
+      const out = save().html;
+      expect(out).toBe(unclosed.replace("Third para", "Third para ok"));
+      // A second save of the result grows nothing.
+      const again = mount(out);
+      q(again.root, "p:nth-of-type(3) strong").append("!");
+      expect(again.save().html).toBe(
+        unclosed.replace("Third para", "Third para ok!"),
+      );
+    });
+
+    it("keeps the stored element's end implied, so later paragraphs stay bold", () => {
+      const { root, save } = mount(unclosed);
+      q(root, "p:nth-of-type(1) strong").append(" ok");
+      expect(save().html).toBe(
+        unclosed.replace("Heading text", "Heading text ok"),
+      );
+    });
+  });
+
+  it("writes a second live copy of a stored element without its stored-only nodes", () => {
+    const withMarker =
+      '<div class="fmd-slide"><ul><li><svg width="8"><circle r="4"/></svg><!-- n -->Item</li></ul></div>';
+    const { root, save } = mount(withMarker);
+    const li = q(root, "li");
+    li.before(li.cloneNode(false));
+    const out = save().html;
+    expect(out.match(/<svg/g)).toHaveLength(1);
+    expect(out.match(/<!-- n -->/g)).toHaveLength(1);
+    expect(out.match(/Item/g)).toHaveLength(1);
+  });
+
+  it("reads <noscript> content as markup, as the sanitizer does", () => {
+    const withNoscript =
+      '<noscript><p>x</p></noscript><div class="fmd-slide"><p>y</p></div>';
+    const { root, save } = mount(withNoscript);
+    q(root, ".fmd-slide p").append(" ok");
+    expect(save().html).toBe(withNoscript.replace("y</p>", "y ok</p>"));
+  });
+
+  it("keeps comments outside the document body when the root is rebuilt", () => {
+    const commented =
+      '<!-- Slide 3: Title --><div class="fmd-slide"><p>a</p></div>';
+    const { root, save } = mount(commented);
+    const added = document.createElement("p");
+    added.textContent = "New";
+    root.append(added);
+    expect(save().html).toBe(`${commented}<p>New</p>`);
+  });
+
+  it("applies a change to a shorthand that holds var()", () => {
+    const withVar =
+      '<div class="fmd-slide"><div class="card" style="border-left: 3px solid var(--accent); padding: 8px">x</div></div>';
+    const removed = mount(withVar);
+    q(removed.root, ".card").style.removeProperty("border-left");
+    expect(removed.save().html).toBe(
+      withVar.replace("border-left: 3px solid var(--accent); ", ""),
+    );
+    const changed = mount(withVar);
+    q(changed.root, ".card").style.setProperty(
+      "border-left",
+      "3px solid var(--ds-accent)",
+    );
+    expect(changed.save().html).toContain("var(--ds-accent)");
+    expect(changed.save().html).not.toContain("var(--accent)");
+  });
 });
 
 describe("renderArtifactGrowth", () => {
@@ -296,15 +389,30 @@ describe("renderArtifactGrowth", () => {
         '<div class="fmd-slide" data-slide-content-scope="s"><p data-builder-id="b-1">x</p></div>',
       ),
     ).toEqual(["data-slide-content-scope"]);
-    expect(renderArtifactGrowth(prev, prev.replace("x", "y"))).toEqual([]);
-    const withFilter = '<img style="filter:brightness(0) invert(1);" src="a">';
-    expect(renderArtifactGrowth("", withFilter)).toEqual(["logo-filter"]);
-    expect(renderArtifactGrowth("", withFilter, "server")).toEqual([]);
     expect(
       renderArtifactGrowth(
-        "",
-        '<div class="fmd-layout-spacer" data-slide-layout-preserved="true" style="visibility: hidden"></div>',
+        prev,
+        `${prev}<style>[data-slide-content-scope="s"] p { color: red; }</style>`,
       ),
-    ).toEqual([]);
+    ).toEqual(["data-slide-content-scope"]);
+    expect(renderArtifactGrowth(prev, prev.replace("x", "y"))).toEqual([]);
+  });
+
+  it("allows a copy of stored styling and text that names a marker", () => {
+    const logo =
+      '<img style="width:120px;filter: brightness(0) invert(1);" src="a">';
+    expect(renderArtifactGrowth(logo, logo + logo)).toEqual([]);
+    const spacer =
+      '<div class="card"><p style="visibility: hidden">x</p></div>';
+    expect(renderArtifactGrowth(spacer, spacer + spacer)).toEqual([]);
+    for (const text of [
+      ' set contenteditable="true" on it',
+      "the data-slide-content-scope attribute",
+      'class="ProseMirror" data-builder-id=1',
+    ]) {
+      expect(renderArtifactGrowth("<p>a</p>", `<p>a${text}</p>`), text).toEqual(
+        [],
+      );
+    }
   });
 });

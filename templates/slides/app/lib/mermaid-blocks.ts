@@ -30,12 +30,3 @@ export function extractMermaidBlocks(content: string): {
   );
   return { blocks, contentWithPlaceholders };
 }
-
-/**
- * The HTML between mermaid placeholders, as the renderer mounts it: each part
- * is parsed on its own, so an element that spans a placeholder is split.
- * Whitespace-only parts are not mounted.
- */
-export function splitMermaidFragments(html: string): string[] {
-  return html.split(/(<div data-mermaid-index="\d+"><\/div>)/);
-}

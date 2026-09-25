@@ -9,16 +9,14 @@ import {
   useId,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
-import {
-  extractMermaidBlocks,
-  splitMermaidFragments,
-} from "@/lib/mermaid-blocks";
+import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
@@ -944,19 +942,26 @@ export function renderRawSlideHtml(
   };
 }
 
-/** Renders blank slide HTML content and applies white filter to logo images */
+/**
+ * Mounts the rendered slide HTML once and renders each mermaid diagram into
+ * its placeholder, so the canvas tree is the stored tree: a diagram inside
+ * `.fmd-slide` stays inside it.
+ */
 function RawSlideHtmlContent({
   html,
   scopeId,
   source,
+  mermaidBlocks,
 }: {
   html: string;
   scopeId: string;
   source: RenderedSlideSource | null;
+  mermaidBlocks: string[];
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const renderedHtmlRef = useRef(html);
   const dangerousHtmlRef = useRef({ __html: html });
+  const [mermaidSlots, setMermaidSlots] = useState<HTMLElement[]>([]);
 
   useLayoutEffect(() => {
     const root = contentRef.current;
@@ -969,17 +974,44 @@ function RawSlideHtmlContent({
       renderedHtmlRef.current = html;
     }
     registerRenderedSlideSource(root, source);
-  }, [html, source]);
+    // The diagram component renders its own `data-mermaid-index` node inside
+    // the placeholder; only the outermost one is a slot.
+    const slots =
+      mermaidBlocks.length > 0
+        ? Array.from(
+            root.querySelectorAll<HTMLElement>("[data-mermaid-index]"),
+          ).filter((el) => !el.parentElement?.closest("[data-mermaid-index]"))
+        : [];
+    setMermaidSlots((prev) =>
+      prev.length === slots.length && prev.every((slot, i) => slot === slots[i])
+        ? prev
+        : slots,
+    );
+  }, [html, source, mermaidBlocks]);
 
   return (
-    <div
-      ref={contentRef}
-      className="slide-content w-full block h-full"
-      // guard:allow-raw-color - design-system text fallback for raw HTML
-      style={{ color: "var(--ds-text, #1f2933)" }}
-      data-slide-content-scope={scopeId}
-      dangerouslySetInnerHTML={dangerousHtmlRef.current}
-    />
+    <>
+      <div
+        ref={contentRef}
+        className="slide-content w-full block h-full"
+        // guard:allow-raw-color - design-system text fallback for raw HTML
+        style={{ color: "var(--ds-text, #1f2933)" }}
+        data-slide-content-scope={scopeId}
+        dangerouslySetInnerHTML={dangerousHtmlRef.current}
+      />
+      {mermaidSlots.map((slot) => {
+        const index = Number(slot.getAttribute("data-mermaid-index"));
+        return createPortal(
+          <MermaidRenderer
+            definition={mermaidBlocks[index] ?? ""}
+            index={index}
+            className="my-4 w-full"
+          />,
+          slot,
+          `mermaid-${index}`,
+        );
+      })}
+    </>
   );
 }
 
@@ -1013,86 +1045,18 @@ function BlankSlideContent({
           : null,
       };
     }, [content, scopeSelector, nonce]);
-  const mermaidRootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);
   }, [fontHrefs]);
-
-  useLayoutEffect(() => {
-    const root = mermaidRootRef.current;
-    if (root) registerRenderedSlideSource(root, source);
-  }, [source]);
-
-  if (mermaidBlocks.length > 0) {
-    return (
-      <div
-        ref={mermaidRootRef}
-        className="slide-content w-full block h-full"
-        // guard:allow-raw-color - design-system text fallback for raw HTML
-        style={{ color: "var(--ds-text, #1f2933)" }}
-        data-slide-content-scope={scopeId}
-      >
-        <MermaidHtmlContent
-          html={htmlWithPlaceholders}
-          mermaidBlocks={mermaidBlocks}
-        />
-      </div>
-    );
-  }
 
   return (
     <RawSlideHtmlContent
       html={htmlWithPlaceholders}
       scopeId={scopeId}
       source={source}
+      mermaidBlocks={mermaidBlocks}
     />
-  );
-}
-
-/** Renders HTML content with mermaid placeholders replaced by React MermaidRenderer */
-function MermaidHtmlContent({
-  html,
-  mermaidBlocks,
-}: {
-  html: string;
-  mermaidBlocks: string[];
-}) {
-  // Split on mermaid placeholders and interleave HTML + MermaidRenderer. The
-  // per-fragment `{ __html }` objects are memoized for the same reason as
-  // BlankSlideContent's `dangerousHtml` above: a fresh literal each render
-  // re-assigns `innerHTML` and wipes the live contentEditable block.
-  const fragments = useMemo(
-    () => splitMermaidFragments(html).map((part) => ({ __html: part })),
-    [html],
-  );
-
-  return (
-    <>
-      {fragments.map((fragment, i) => {
-        const part = fragment.__html;
-        const match = part.match(/data-mermaid-index="(\d+)"/);
-        if (match) {
-          const idx = parseInt(match[1], 10);
-          return (
-            <MermaidRenderer
-              key={`mermaid-${i}`}
-              definition={mermaidBlocks[idx]}
-              index={idx}
-              className="my-4 w-full"
-            />
-          );
-        }
-        if (!part.trim()) return null;
-        return (
-          <div
-            key={i}
-            data-slide-render-wrapper=""
-            dangerouslySetInnerHTML={fragment}
-          />
-        );
-      })}
-    </>
   );
 }
 

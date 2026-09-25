@@ -5,7 +5,7 @@ import {
   type DefaultTreeAdapterTypes as P5,
 } from "parse5";
 
-import { mermaidBlockPattern, splitMermaidFragments } from "./mermaid-blocks";
+import { mermaidBlockPattern } from "./mermaid-blocks";
 import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
 
 /**
@@ -63,7 +63,7 @@ const TRANSIENT_ATTRS = new Set([
   "spellcheck",
 ]);
 /** Renderer wrappers whose children belong to the wrapper's parent. */
-const TRANSPARENT = "[data-fmd-autofit-content],[data-slide-render-wrapper]";
+const TRANSPARENT = "[data-fmd-autofit-content]";
 const MERMAID_INDEX_ATTR = "data-mermaid-index";
 /** The document parse puts these around the fragment; they are not content. */
 const DOCUMENT_TAGS = new Set(["html", "head", "body"]);
@@ -100,7 +100,17 @@ interface LocatedSource {
   body: P5.ChildNode[];
   /** By placeholder index: the stored block and its element ordinal. */
   mermaid: Array<{ source: string; ordinal: number | null }>;
+  /**
+   * Ordinals of formatting elements the parser also rebuilt elsewhere (an
+   * unclosed `<b>` reopened in each later paragraph). Every copy carries the
+   * one stamp, and only the first is the stored element.
+   */
+  reconstructed: Set<number>;
 }
+
+// Parse as the sanitizer's DOMParser does: scripting off, so `<noscript>`
+// content is markup, not text.
+const PARSE_OPTIONS = { scriptingEnabled: false } as const;
 
 const isElement = (node: P5.Node): node is P5.Element =>
   "tagName" in node && typeof node.tagName === "string";
@@ -114,7 +124,7 @@ const isComment = (node: P5.Node): node is P5.CommentNode =>
  * (tbody, adoption-agency clones) get none.
  */
 function locateSource(stored: string): LocatedSource {
-  const doc = parse(stored, { sourceCodeLocationInfo: true });
+  const doc = parse(stored, { ...PARSE_OPTIONS, sourceCodeLocationInfo: true });
   const mermaid: LocatedSource["mermaid"] = [];
   const mermaidAt = new Map<number, number>();
   for (const match of stored.matchAll(mermaidBlockPattern())) {
@@ -123,6 +133,8 @@ function locateSource(stored: string): LocatedSource {
   }
   const elements: SourceElement[] = [];
   const ordinalOf = new Map<P5.Element, number>();
+  const ordinalAt = new Map<number, number>();
+  const reconstructed = new Set<number>();
   const head: P5.ChildNode[] = [];
   const body: P5.ChildNode[] = [];
 
@@ -135,8 +147,16 @@ function locateSource(stored: string): LocatedSource {
         visit(child);
         continue;
       }
+      const original = ordinalAt.get(start.startOffset);
+      if (original !== undefined) {
+        // A rebuilt copy reports the original's start tag.
+        reconstructed.add(original);
+        visit(child);
+        continue;
+      }
       const ordinal = elements.length;
       ordinalOf.set(child, ordinal);
+      ordinalAt.set(start.startOffset, ordinal);
       elements.push({
         node: child,
         range: {
@@ -160,15 +180,23 @@ function locateSource(stored: string): LocatedSource {
   };
   visit(doc);
 
-  const html = doc.childNodes.find(
-    (node): node is P5.Element => isElement(node) && node.tagName === "html",
-  );
-  for (const section of html?.childNodes ?? []) {
-    if (!isElement(section)) continue;
-    if (section.tagName === "head") head.push(...section.childNodes);
-    if (section.tagName === "body") body.push(...section.childNodes);
-  }
-  return { elements, ordinalOf, head, body, mermaid };
+  // Comments before the first tag or after `</body>` hang off the document
+  // and `<html>`; they sit before or after the body's children.
+  let afterBody = false;
+  const levels = (nodes: P5.ChildNode[]) => {
+    for (const node of nodes) {
+      if (isComment(node)) (afterBody ? body : head).push(node);
+      else if (!isElement(node)) continue;
+      else if (node.tagName === "html") levels(node.childNodes);
+      else if (node.tagName === "head") head.push(...node.childNodes);
+      else if (node.tagName === "body") {
+        body.push(...node.childNodes);
+        afterBody = true;
+      }
+    }
+  };
+  levels(doc.childNodes);
+  return { elements, ordinalOf, head, body, mermaid, reconstructed };
 }
 
 type ElementLocation = NonNullable<P5.Element["sourceCodeLocation"]>;
@@ -268,6 +296,18 @@ function styleDelta(base: Element, live: Element): Map<string, string | null> {
   const props = new Set<string>();
   for (let i = 0; i < bs.length; i++) props.add(bs[i]);
   for (let i = 0; i < ls.length; i++) props.add(ls[i]);
+  // A shorthand holding `var()` reads back only as itself, with every
+  // longhand empty, so it is compared by its declared name.
+  for (const el of [base, live]) {
+    for (const { name } of splitDeclarations(el.getAttribute("style") ?? "")) {
+      if (
+        `${bs.getPropertyValue(name)}${ls.getPropertyValue(name)}`.includes(
+          "var(",
+        )
+      )
+        props.add(name);
+    }
+  }
   for (const prop of props) {
     const before = bs.getPropertyValue(prop) + bs.getPropertyPriority(prop);
     const after = ls.getPropertyValue(prop) + ls.getPropertyPriority(prop);
@@ -384,10 +424,17 @@ function textOf(node: P5.Node): string {
   return (node as P5.ParentNode).childNodes.map(textOf).join("");
 }
 
-function elementCount(node: P5.ParentNode): number {
+/**
+ * Elements under `node` that its own source slice (from `from`) produces: a
+ * formatting element rebuilt from a start tag before the slice is not one.
+ */
+function elementCount(node: P5.ParentNode, from: number): number {
   let n = 0;
   for (const child of node.childNodes) {
-    if (isElement(child)) n += 1 + elementCount(child);
+    if (!isElement(child)) continue;
+    const start = child.sourceCodeLocation?.startTag?.startOffset;
+    n +=
+      (start !== undefined && start < from ? 0 : 1) + elementCount(child, from);
   }
   return n;
 }
@@ -450,24 +497,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
   const ranges = located.elements.map((element) => element.range);
   // Parsed in a template's inert document so base images never load.
   const template = live.ownerDocument.createElement("template");
+  template.innerHTML = input.base;
   const baseRoot = template.content;
   const inert = baseRoot.ownerDocument;
-  const parts = splitMermaidFragments(input.base);
-  if (parts.length === 1) {
-    template.innerHTML = input.base;
-  } else {
-    // Mirrors MermaidHtmlContent, which mounts each part on its own.
-    for (const part of parts) {
-      const holder = inert.createElement("div");
-      holder.innerHTML = part;
-      if (/^<div data-mermaid-index="\d+"><\/div>$/.test(part)) {
-        baseRoot.append(...Array.from(holder.childNodes));
-      } else if (part.trim()) {
-        holder.setAttribute("data-slide-render-wrapper", "");
-        baseRoot.append(holder);
-      }
-    }
-  }
   input.prepare?.(baseRoot);
   input.prepare?.(live);
 
@@ -501,6 +533,20 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const ordinal = stampOf(el);
     if (ordinal !== null && !baseBy.has(ordinal)) baseBy.set(ordinal, el);
   }
+  // The parser's later copies of a reconstructed element: the stored markup
+  // reopens them, so only their children are content.
+  const rebuilt = new Set<Element>();
+  for (const root of [baseRoot, live]) {
+    const first = new Set<number>();
+    for (const el of Array.from(
+      root.querySelectorAll(`[${SOURCE_STAMP_ATTR}]`),
+    )) {
+      const ordinal = stampOf(el);
+      if (ordinal === null || !located.reconstructed.has(ordinal)) continue;
+      if (first.has(ordinal)) rebuilt.add(el);
+      else first.add(ordinal);
+    }
+  }
   const scratch = inert.createElement("div").style;
 
   const kids = (node: ParentNode): Kid[] => {
@@ -508,7 +554,7 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const push = (child: Node) => {
       if (child.nodeType === 1) {
         const el = child as Element;
-        if (el.matches(TRANSPARENT)) {
+        if (el.matches(TRANSPARENT) || rebuilt.has(el)) {
           el.childNodes.forEach(push);
           return;
         }
@@ -559,6 +605,7 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const { node, range } = located.elements[ordinal];
     const nodes = parseFragment(
       stored.slice(range.openStart, range.closeEnd),
+      PARSE_OPTIONS,
     ).childNodes;
     const only = nodes[0];
     const trusted =
@@ -566,7 +613,7 @@ function sourceMerge(input: MergeRenderedEditsInput) {
       isElement(only) &&
       only.tagName === node.tagName &&
       textOf(only) === textOf(node) &&
-      elementCount(only) === elementCount(node);
+      elementCount(only, 0) === elementCount(node, range.openStart);
     trustMemo.set(ordinal, trusted);
     return trusted;
   };
@@ -827,7 +874,11 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     }
     const first = !seen.has(ordinal);
     seen.add(ordinal);
-    if (isOpaque(kid) || sameKid(kid, base)) return sourceOf(ordinal);
+    // A second live copy of one stored element (a split that cloned it) gets
+    // its own tag; copying the stored slice again would duplicate what the
+    // slice holds beyond the live children, such as svg and comments.
+    if (isOpaque(kid) || (first && sameKid(kid, base)))
+      return sourceOf(ordinal);
     const range = ranges[ordinal];
     const trusted = isTrusted(ordinal);
     const sameTag = kid.tagName === base.tagName;
@@ -836,9 +887,13 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         ? stored.slice(range.openStart, range.openEnd)
         : mergedOpenTag(ordinal, base, kid, tag, trusted && sameTag);
     if (VOID_TAGS.has(tag)) return open;
+    // An implied end stays implied: closing an unclosed `<b>` explicitly
+    // would stop the parser reopening it in the paragraphs after it.
     const close =
-      trusted && sameTag && range.closeStart !== null
-        ? stored.slice(range.closeStart, range.closeEnd)
+      trusted && sameTag
+        ? range.closeStart === null
+          ? ""
+          : stored.slice(range.closeStart, range.closeEnd)
         : `</${tag}>`;
     const node = located.elements[ordinal].node;
     const ok = kids(kid);
@@ -865,82 +920,61 @@ function sourceMerge(input: MergeRenderedEditsInput) {
 
 // --------------------------------------------------------------- guard ---
 
-interface ArtifactPattern {
-  name: string;
-  pattern: RegExp;
-  /** Also refused from agents and old clients by the actions. */
-  server: boolean;
-}
+/** Matches `attr` inside a start tag, so typed text that names it is not a marker. */
+const inStartTag = (attr: string, flags = "g") =>
+  new RegExp(`<[^>]*\\s${attr}`, flags);
 
 /**
- * Markers the renderer or the editor puts into the live DOM. A save that adds
- * one serialized rendered markup; the growth check lets content that already
- * carries them (older flattened decks) keep saving.
+ * Markers only the renderer or the editor puts into slide HTML: the scoped
+ * stylesheet's selectors, source stamps and editor attributes. A write that
+ * adds one stored rendered markup; the growth check lets content that already
+ * carries them (older flattened decks) keep saving. Author-writable styling,
+ * such as a logo filter or a hidden element, is not a marker: a copy of stored
+ * content legitimately carries it.
  */
-const RENDER_ARTIFACTS: ArtifactPattern[] = [
+const RENDER_ARTIFACTS: Array<{ name: string; pattern: RegExp }> = [
   {
     name: "data-slide-content-scope",
-    pattern: /data-slide-content-scope/g,
-    server: true,
+    pattern: new RegExp(
+      `\\[data-slide-content-scope\\s*=|${inStartTag("data-slide-content-scope\\s*=").source}`,
+      "g",
+    ),
   },
-  { name: SOURCE_STAMP_ATTR, pattern: /\sdata-src-i\s*=/g, server: true },
-  { name: "data-builder-id", pattern: /\sdata-builder-id\s*=/g, server: true },
-  {
-    name: "data-editing-block",
-    pattern: /\sdata-editing-block\b/g,
-    server: true,
-  },
+  { name: SOURCE_STAMP_ATTR, pattern: inStartTag("data-src-i\\s*=") },
+  { name: "data-builder-id", pattern: inStartTag("data-builder-id\\s*=") },
+  { name: "data-editing-block", pattern: inStartTag("data-editing-block\\b") },
   {
     name: "data-slide-text-block",
-    pattern: /\sdata-slide-text-block\b/g,
-    server: true,
+    pattern: inStartTag("data-slide-text-block\\b"),
   },
-  { name: "contenteditable", pattern: /\scontenteditable\s*=/gi, server: true },
+  {
+    name: "contenteditable",
+    pattern: inStartTag("contenteditable\\s*=", "gi"),
+  },
   {
     name: "ProseMirror",
-    pattern: /\bclass\s*=\s*["'][^"']*\bProseMirror\b/g,
-    server: true,
+    pattern: inStartTag("class\\s*=\\s*[\"'][^\"']*\\bProseMirror\\b"),
   },
   {
     name: "slide-rich-editor",
-    pattern: /\bclass\s*=\s*["'][^"']*\bslide-rich-editor/g,
-    server: true,
+    pattern: inStartTag("class\\s*=\\s*[\"'][^\"']*\\bslide-rich-editor"),
   },
   {
     name: "data-fmd-autofit-content",
-    pattern: /\sdata-fmd-autofit-content\b/g,
-    server: true,
-  },
-  {
-    name: "logo-filter",
-    pattern: /filter\s*:\s*brightness\(0\)\s*invert\(1\)/gi,
-    server: false,
-  },
-  {
-    // A preserved layout gap is hidden on purpose.
-    name: "visibility:hidden",
-    pattern:
-      /<(?![^>]*data-slide-layout-preserved)[^>]*visibility\s*:\s*hidden/gi,
-    server: false,
+    pattern: inStartTag("data-fmd-autofit-content\\b"),
   },
 ];
 
 /**
  * Names of the render/editor markers `next` has more of than `prev`. The
- * server checks only markers no author writes on purpose; an agent may
- * legitimately author a logo filter or a hidden element.
+ * client checks its own saves and the actions check agent and old-client
+ * writes with the same list.
  */
-export function renderArtifactGrowth(
-  prev: string,
-  next: string,
-  scope: "client" | "server" = "client",
-): string[] {
+export function renderArtifactGrowth(prev: string, next: string): string[] {
   const count = (html: string, pattern: RegExp) =>
     html.match(pattern)?.length ?? 0;
   return RENDER_ARTIFACTS.filter(
-    ({ pattern, server }) =>
-      (scope === "client" || server) &&
-      count(next, pattern) > count(prev, pattern),
+    ({ pattern }) => count(next, pattern) > count(prev, pattern),
   ).map(({ name }) => name);
 }
 
