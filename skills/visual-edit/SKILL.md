@@ -486,19 +486,17 @@ bridge URLs are localhost. Never run `pnpm action` from `templates/design`.
 
 ## Applying Visual Edits Back To Source
 
-With the Design tab closed, use highlighted hosted Design MCP tool
-`get-visual-edit-pending` with the visual-edit design ID. It returns the
-handoff and revision. After verifying the source change,
-acknowledge that revision and pull again. If the MCP server is unavailable,
-recover the bridge handoff with:
+With Design closed, call hosted Design MCP's highlighted
+`get-visual-edit-pending` for the design ID; it returns the handoff and
+revision. Verify the applied source, acknowledge that revision, then pull again.
+If MCP is unavailable, read the local bridge:
 
 ```bash
 npx @agent-native/core@latest design pending --root . --design-id <design-id-from-visual-edit-url>
 ```
 
-Use the ID in the path segment after visual-edit in the Design URL. It prints
-only that design's source prompt; empty JSON means that design has no pending
-edits.
+Pass the ID after `visual-edit` in the Design URL; the CLI prints that
+design's prompt (`null` when empty).
 
 Canvas edits on a localhost screen do not write source as you make them. They
 accumulate as pending edits and the editor shows an **Apply design updates**
