@@ -335,6 +335,25 @@ export function toBaselineEntry(m: ScenarioMetrics): BaselineEntry {
 }
 
 /**
+ * The entry `--update` writes: a fresh measurement for a new key, and for an
+ * existing one the stricter of the two per field, so an update never loosens
+ * the ratchet. Loosening an entry is a deliberate edit, not a re-measure.
+ */
+export function ratchetBaselineEntry(
+  existing: BaselineEntry | undefined,
+  m: ScenarioMetrics,
+): BaselineEntry {
+  const next = toBaselineEntry(m);
+  if (!existing) return next;
+  if (STATUS_RANK[existing.status] < STATUS_RANK[next.status]) {
+    next.status = existing.status;
+  }
+  for (const f of PCT_FIELDS) next[f] = Math.min(existing[f], next[f]);
+  for (const f of COUNT_FIELDS) next[f] = Math.min(existing[f], next[f]);
+  return next;
+}
+
+/**
  * Regressions against the ratchet. `expected` lists keys that should have run
  * this time (within the run's filters and limits); a baselined key among them
  * that produced no result is a problem, because a harness that silently runs

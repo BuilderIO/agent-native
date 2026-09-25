@@ -40,6 +40,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoRenderArtifactsInNewSlide } from "./_render-artifacts.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -197,6 +198,9 @@ export default defineAction({
   ) => {
     const db = getDb();
     const now = new Date().toISOString();
+    rawSlides.forEach((s) =>
+      assertNoRenderArtifactsInNewSlide(s.content, s.id),
+    );
     const normalizedSlides = ensureUniqueSlideIds(
       rawSlides.map((s) => ({
         ...s,

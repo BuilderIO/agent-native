@@ -41,7 +41,7 @@ import {
   hardFailures,
   lineDiff,
   padRect,
-  toBaselineEntry,
+  ratchetBaselineEntry,
   type BaselineEntry,
   type PixelDiff,
   type ScenarioMetrics,
@@ -1272,6 +1272,18 @@ function selectTargets(c: CorpusCase, i: number, all: TextTarget[]) {
   return { limit, targets: filtered.slice(0, limit) };
 }
 
+/**
+ * Targets a slide should report on: the `--targets` indexes when given (so a
+ * filtered run still expects them), otherwise the first `limit` positions. A
+ * baselined target that no longer exists then reports as "did not run".
+ */
+function expectedTargets(limit: number): Set<string> {
+  const indexes = targetFilter
+    ? [...targetFilter].sort((a, b) => a - b).slice(0, limit)
+    : Array.from({ length: limit }, (_, t) => t);
+  return new Set(indexes.map((t) => `t${pad2(t)}`));
+}
+
 /** A result an earlier run left on disk, kept by --resume unless it errored. */
 function priorResult(
   dir: string,
@@ -1314,10 +1326,7 @@ function keepPriorSlide(
   if (prior.some((r) => !r)) return false;
   results.push(...(prior as ScenarioResult[]));
   slides.push(report);
-  envelope.set(
-    `${c.id}/s${pad2(i + 1)}`,
-    new Set(Array.from({ length: limit }, (_, t) => `t${pad2(t)}`)),
-  );
+  envelope.set(`${c.id}/s${pad2(i + 1)}`, expectedTargets(limit));
   return true;
 }
 
@@ -1409,9 +1418,7 @@ async function runCase(
         dir,
         expectStyles: (c.expectStyles ?? []).filter((e) => e.slide === i),
       };
-      const expected = new Set<string>();
-      envelope.set(`${c.id}/s${pad2(i + 1)}`, expected);
-      for (let t = 0; t < limit; t++) expected.add(`t${pad2(t)}`);
+      envelope.set(`${c.id}/s${pad2(i + 1)}`, expectedTargets(limit));
       for (const target of targets) {
         for (const scenario of scenarios) {
           const prior = priorResult(dir, target.index, scenario);
@@ -1668,7 +1675,15 @@ async function main() {
   );
 
   const baselineMissing = !existsSync(baselinePath);
-  if (update && results.length) {
+  const erroredSlides = slides.filter((s) => s.error);
+  if (update && erroredSlides.length) {
+    // An errored slide recorded no targets, so writing now would drop its
+    // coverage from the ratchet without anything noticing.
+    console.error(
+      `\n[edit-fidelity] baseline not updated: ${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ")}). Re-run them (--resume) first.`,
+    );
+    exitCode = 1;
+  } else if (update && results.length) {
     const next = { ...baseline };
     // A ratchet seeded from a failing run would accept the failure as the
     // ceiling, so only passing results are recorded unless asked.
@@ -1676,7 +1691,8 @@ async function main() {
       (r) => r.status !== "pass" && !acceptFailing,
     );
     for (const r of results) {
-      if (!refused.includes(r)) next[r.key] = toBaselineEntry(r.metrics!);
+      if (!refused.includes(r))
+        next[r.key] = ratchetBaselineEntry(baseline[r.key], r.metrics!);
     }
     if (refused.length) {
       console.log(
@@ -1727,7 +1743,7 @@ async function main() {
     console.error("[edit-fidelity] could not run: no scenario ran");
     return 2;
   }
-  if (slideErrors && !update) exitCode = Math.max(exitCode, 1);
+  if (slideErrors) exitCode = Math.max(exitCode, 1);
   if (browserLost) {
     console.error(
       `[edit-fidelity] could not finish: the browser closed; rerun with --resume ${runName}${opt("--out") ? ` --out ${outRoot}` : ""}`,

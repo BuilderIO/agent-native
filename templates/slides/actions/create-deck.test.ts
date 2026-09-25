@@ -165,6 +165,24 @@ beforeEach(() => {
   mockGetOrgId.mockReturnValue(null);
 });
 
+describe("create-deck — save boundary", () => {
+  it("refuses slides that carry rendered editor markup", async () => {
+    await expect(
+      action.run({
+        title: "T",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">Hi</p></div>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(insertedRow).toBeUndefined();
+  });
+});
+
 describe("create-deck — aspectRatio", () => {
   it("defaults omitted slides to an empty deck", async () => {
     await action.run({

@@ -46,10 +46,7 @@ import {
   nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
-import {
-  assertNoRenderArtifacts,
-  assertNoRenderArtifactsInNewSlide,
-} from "./_render-artifacts.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function shouldSnapshotDeckWrite(
@@ -240,38 +237,6 @@ export function stampChangedSlideRevisions(
       slide.layoutFitRevision = prior.layoutFitRevision;
     } else {
       delete slide.layoutFitRevision;
-    }
-  }
-}
-
-/**
- * The full-payload write's half of the save boundary: a stored slide is checked
- * against its stored predecessor, a slide new to the deck (or a new deck's) as
- * a new slide.
- */
-export function assertNoDeckRenderArtifacts(
-  previousData: string | null | undefined,
-  nextDeck: DeckPayload,
-): void {
-  const previousSlides = (
-    previousData
-      ? ((JSON.parse(previousData) as { slides?: unknown }).slides ?? [])
-      : []
-  ) as Array<Record<string, unknown>>;
-  const nextSlides = Array.isArray(nextDeck.slides)
-    ? (nextDeck.slides as Array<Record<string, unknown>>)
-    : [];
-  for (const slide of nextSlides) {
-    if (typeof slide.content !== "string") continue;
-    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
-    if (prior) {
-      assertNoRenderArtifacts(
-        typeof prior.content === "string" ? prior.content : "",
-        slide.content,
-        String(slide.id),
-      );
-    } else {
-      assertNoRenderArtifactsInNewSlide(slide.content, String(slide.id));
     }
   }
 }

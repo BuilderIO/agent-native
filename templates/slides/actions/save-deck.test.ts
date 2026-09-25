@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  assertNoDeckRenderArtifacts,
-  stampChangedSlideRevisions,
-} from "./save-deck";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts";
+import { stampChangedSlideRevisions } from "./save-deck";
 
 describe("stampChangedSlideRevisions", () => {
   it("preserves fit identity for non-render changes and invalidates render changes", () => {

@@ -254,6 +254,20 @@ describe("add-slide", () => {
     expect(updateFn).not.toHaveBeenCalled();
   });
 
+  it("refuses a new slide that carries rendered editor markup", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: '<div contenteditable="true">New</div>',
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
   it("forces a WebMCP version snapshot with its run context", async () => {
     deckData.generationContext = { targetSlideCount: 3 };
 

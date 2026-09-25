@@ -7,6 +7,7 @@ import {
   findBaselineProblems,
   hardFailures,
   lineDiff,
+  ratchetBaselineEntry,
   toBaselineEntry,
   type ScenarioMetrics,
 } from "./metrics.ts";
@@ -142,5 +143,42 @@ describe("baseline ratchet", () => {
         () => true,
       ),
     ).toEqual(["k: status pass -> no-edit"]);
+  });
+});
+
+describe("ratchetBaselineEntry", () => {
+  const measured = (over: Partial<ScenarioMetrics>): ScenarioMetrics => ({
+    status: "pass",
+    editingPct: 0,
+    afterPct: 0,
+    reloadPct: 0,
+    outsideEditingPct: 0,
+    outsideAfterPct: 0,
+    styleDeltasEditing: 0,
+    styleDeltasAfter: 0,
+    missingAfter: 0,
+    htmlDiffLines: 0,
+    hardFailures: 0,
+    violations: 0,
+    ...over,
+  });
+
+  it("never loosens an existing entry", () => {
+    const existing = ratchetBaselineEntry(
+      undefined,
+      measured({ afterPct: 0.2 }),
+    );
+    const next = ratchetBaselineEntry(
+      existing,
+      measured({ afterPct: 0.9, styleDeltasAfter: 3 }),
+    );
+    expect(next.afterPct).toBe(existing.afterPct);
+    expect(next.styleDeltasAfter).toBe(0);
+  });
+
+  it("tightens an existing entry when the run improved", () => {
+    const existing = ratchetBaselineEntry(undefined, measured({ afterPct: 2 }));
+    const next = ratchetBaselineEntry(existing, measured({ afterPct: 0 }));
+    expect(next.afterPct).toBeLessThan(existing.afterPct);
   });
 });
