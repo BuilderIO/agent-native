@@ -1,4 +1,4 @@
-import { createApp, type H3Event } from "h3";
+import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -41,6 +41,7 @@ import {
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 
 describe("mountApplicationStateRoutes", () => {
   it("registers the compose matcher before generic application state", () => {
@@ -79,6 +80,33 @@ describe("OAuth popup waiting route", () => {
       "unsafe-none",
     );
     expect(await response.text()).not.toContain("script");
+  });
+
+  it("stays reachable from the framework pages that open it", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/settings",
+      defineEventHandler(() => new Response("<!doctype html>")),
+    );
+
+    const opener = await app.fetch(new Request("http://example.test/settings"));
+    const popup = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    // A popup whose COOP differs from its opener's is moved to a new
+    // browsing-context group, unless the opener allows popups and the popup
+    // opts out with `unsafe-none`. A severed popup never reaches the provider
+    // and the opener reports it closed ("allow popups"). Changing either
+    // header alone reintroduces that; change them together.
+    const openerPolicy = opener.headers.get("cross-origin-opener-policy");
+    const popupPolicy = popup.headers.get("cross-origin-opener-policy");
+    expect(popupPolicy).toBe("unsafe-none");
+    expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
+      openerPolicy,
+    );
   });
 
   it("rejects writes", async () => {

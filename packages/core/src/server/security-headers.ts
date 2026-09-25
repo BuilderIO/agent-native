@@ -30,8 +30,12 @@
  *     Location and wake-lock stay disabled. The browser still gates actual
  *     camera/mic use behind a per-origin permission prompt, so `camera=*` only
  *     removes the policy-level block, not the user consent.
- *   - `Cross-Origin-Opener-Policy: same-origin` — isolates window.opener so
- *     a popup-window opener reference can't read or modify our document.
+ *   - `Cross-Origin-Opener-Policy: same-origin-allow-popups` — severs any
+ *     cross-origin page that opens ours, while keeping the handle to popups we
+ *     open ourselves. `same-origin` here severs the OAuth popup the moment it
+ *     loads the `unsafe-none` waiting page, so the client can never send it on
+ *     to the provider. Validated embed-session responses keep `same-origin`
+ *     alongside COEP.
  *   - `Cross-Origin-Embedder-Policy: require-corp` — emitted only for
  *     validated MCP embed-session page loads. COEP hosts such as Claude's MCP
  *     Apps proxy require framed cross-origin documents to opt in explicitly.
@@ -141,7 +145,11 @@ export function createSecurityHeadersMiddleware() {
       embedFrameRequest ? "same-origin" : "strict-origin-when-cross-origin",
     );
     setResponseHeader(event, "Permissions-Policy", PERMISSIONS_POLICY);
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "same-origin");
+    setResponseHeader(
+      event,
+      "Cross-Origin-Opener-Policy",
+      embedFrameRequest ? "same-origin" : "same-origin-allow-popups",
+    );
     if (embedFrameRequest) {
       setResponseHeader(event, "Cross-Origin-Embedder-Policy", "require-corp");
     }
