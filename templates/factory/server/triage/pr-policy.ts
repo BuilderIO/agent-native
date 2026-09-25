@@ -506,6 +506,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       ) ||
       normalized.startsWith("packages/docs/app/components/markdownrenderer.") ||
       normalized.startsWith("templates/slides/app/lib/sanitize-slide-html.") ||
+      normalized.startsWith(
+        "templates/slides/app/components/deck/sliderenderer.",
+      ) ||
       normalized.startsWith("templates/design/shared/capture-sanitize.") ||
       normalized.startsWith(
         "templates/brain/server/lib/capture-sanitization.",

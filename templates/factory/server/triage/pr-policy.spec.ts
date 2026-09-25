@@ -925,6 +925,7 @@ describe("pull-request governance", () => {
       "templates/design/server/routes/api/qa-figma-import-assets/[assetId].get.ts",
       "packages/core/src/client/chat/markdown-renderer.tsx",
       "packages/docs/app/components/MarkdownRenderer.tsx",
+      "templates/slides/app/components/deck/SlideRenderer.tsx",
       ".claude/settings.json",
       "scripts/hooks/file-lease.mjs",
       "templates/forms/actions/delete-form.ts",
