@@ -37,7 +37,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(",
+      "const inboxSidebarUnreadCount = inboxMetadata?.labels.find(",
     );
     expect(source).not.toContain('getInboxCount("unread")');
     expect(source).not.toContain("labelThreadCounts");
@@ -82,7 +82,12 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
-    expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
+    expect(source).toContain(
+      "const inboxOverview = useInboxOverview(inboxAccountEmails);",
+    );
+    expect(source).toContain("const tabs = inboxMetadata?.tabs ?? [];");
+    expect(source).toContain("mergeOptimisticInboxTabCounts(");
+    expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
     expect(source).toContain(
       'tab.kind === "all" ? t("mail.views.all") : tab.name',
@@ -93,6 +98,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
     expect(source).toContain("unread: tab.unread");
+  });
+
+  it("does not reuse placeholder metadata from a previous account filter", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      "inboxOverview.data ?? (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data)",
+    );
   });
 
   it("keeps the route-selected tab while loading and uses the server fallback when loaded", () => {
@@ -323,7 +336,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSyncing = inboxThreads.data?.syncing === true;",
+      "const inboxSyncing = inboxMetadata?.syncing === true;",
     );
     expect(source).toContain("{inboxSyncing && (");
     expect(source).toContain('{t("mail.inbox.syncing")}');
