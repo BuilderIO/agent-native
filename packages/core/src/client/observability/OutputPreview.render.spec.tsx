@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OutputPreview } from "./OutputPreview.js";
 
+beforeEach(() => vi.stubGlobal("IntersectionObserver", undefined));
+
 describe("OutputPreview chart accessibility", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -64,7 +66,7 @@ describe("OutputPreview saved MCP Apps", () => {
     container.remove();
   });
 
-  it("keeps the saved answer alongside a full read-only MCP App", async () => {
+  it("renders a full read-only MCP App without duplicating answer text", async () => {
     await act(async () => {
       root.render(
         <OutputPreview
@@ -97,12 +99,10 @@ describe("OutputPreview saved MCP Apps", () => {
     expect(iframe?.getAttribute("sandbox")).toBe("");
     expect(iframe?.style.maxHeight).toBe("420px");
     await vi.waitFor(() => expect(iframe?.srcdoc).toContain("Saved design"));
-    expect(
-      container.querySelector('[data-preview-kind="text"]')?.textContent,
-    ).toBe("Fallback answer");
+    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
   });
 
-  it("shows an app thumbnail without mounting its iframe", () => {
+  it("does not invent a thumbnail from saved app markup", () => {
     act(() => {
       root.render(
         <OutputPreview
@@ -126,19 +126,16 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
-    expect(
-      container.querySelector('[data-preview-kind="app-thumbnail"]'),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-preview-kind]")).toBeNull();
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("prefers an app thumbnail over answer text in compact mode", () => {
+  it("does not use answer text as an app thumbnail", () => {
     act(() => {
       root.render(
         <OutputPreview
           answer="A saved answer"
           compact
-          inlineAppTitle="Design preview"
           previewLabel="Agent output"
           inlineApp={{
             serverId: "design",
@@ -157,31 +154,22 @@ describe("OutputPreview saved MCP Apps", () => {
       );
     });
 
-    expect(
-      container.querySelector('[data-preview-kind="app-thumbnail"]')
-        ?.textContent,
-    ).toBe("Design preview");
-    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
+    expect(container.querySelector("[data-preview-kind]")).toBeNull();
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("shows a descriptor-only app thumbnail over answer text", () => {
+  it("does not use a descriptor as a thumbnail", () => {
     act(() => {
       root.render(
         <OutputPreview
           answer="A saved answer"
           compact
-          inlineAppTitle="Slides deck"
           previewLabel="Agent output"
         />,
       );
     });
 
-    expect(
-      container.querySelector('[data-preview-kind="app-thumbnail"]')
-        ?.textContent,
-    ).toBe("Slides deck");
-    expect(container.querySelector('[data-preview-kind="text"]')).toBeNull();
+    expect(container.querySelector("[data-preview-kind]")).toBeNull();
     expect(container.querySelector("iframe")).toBeNull();
   });
 
@@ -235,7 +223,7 @@ describe("OutputPreview trusted Design frames", () => {
     container.remove();
   });
 
-  it("renders a bounded, lazy, no-referrer iframe for a real Design route", () => {
+  it("renders a bounded, lazy, no-referrer iframe for a real Design route", async () => {
     const origin = "https://design.agent-native.com";
     act(() => {
       root.render(
@@ -251,6 +239,13 @@ describe("OutputPreview trusted Design frames", () => {
       );
     });
 
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-preview-kind="design-iframe-thumbnail"] iframe',
+        ),
+      ).not.toBeNull(),
+    );
     const preview = container.querySelector(
       '[data-preview-kind="design-iframe-thumbnail"]',
     );
@@ -260,12 +255,13 @@ describe("OutputPreview trusted Design frames", () => {
     );
     expect(iframe?.getAttribute("loading")).toBe("lazy");
     expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-forms allow-scripts");
     expect(iframe?.className).toContain("h-[600%]");
     expect(iframe?.className).toContain("w-[600%]");
     expect(preview?.className).toContain("overflow-hidden");
   });
 
-  it("renders the evidenced Design artifact path as its real thumbnail", () => {
+  it("renders the evidenced Design artifact path as its real thumbnail", async () => {
     act(() => {
       root.render(
         <OutputPreview
@@ -277,15 +273,23 @@ describe("OutputPreview trusted Design frames", () => {
       );
     });
 
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-preview-kind="design-iframe-thumbnail"] iframe',
+        ),
+      ).not.toBeNull(),
+    );
     const iframe = container.querySelector(
       '[data-preview-kind="design-iframe-thumbnail"] iframe',
     );
     expect(iframe?.getAttribute("src")).toBe(
       `${window.location.origin}/present/design-17?reviewEmbed=1`,
     );
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-forms allow-scripts");
   });
 
-  it("shows real design text instead of a fabricated thumbnail when no route exists", () => {
+  it("renders no thumbnail when there is no real Design artifact", () => {
     act(() => {
       root.render(
         <OutputPreview
@@ -302,12 +306,7 @@ describe("OutputPreview trusted Design frames", () => {
     });
 
     expect(container.querySelector("iframe")).toBeNull();
-    const preview = container.querySelector(
-      '[data-preview-kind="design-thumbnail"]',
-    );
-    expect(preview?.textContent).toContain("A real design title");
-    expect(preview?.textContent).toContain("A real design summary");
-    expect(preview?.querySelectorAll("span")).toHaveLength(1);
+    expect(container.querySelector("[data-preview-kind]")).toBeNull();
   });
 
   it("never frames an untrusted Design route", () => {

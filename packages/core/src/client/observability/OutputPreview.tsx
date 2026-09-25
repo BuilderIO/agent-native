@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
@@ -39,6 +40,124 @@ const REBINDING_DNS_SUFFIXES = [
   "lvh.me",
   "vcap.me",
 ];
+const MAX_ACTIVE_COMPACT_FRAMES = 6;
+let activeCompactFrames = 0;
+const compactFrameQueue: Array<() => void> = [];
+
+function reserveCompactFrame(onReserve: () => void): () => void {
+  let active = false;
+  let released = false;
+  const grant = () => {
+    if (released) return;
+    active = true;
+    activeCompactFrames += 1;
+    onReserve();
+  };
+
+  if (activeCompactFrames < MAX_ACTIVE_COMPACT_FRAMES) grant();
+  else compactFrameQueue.push(grant);
+
+  return () => {
+    if (released) return;
+    released = true;
+    if (!active) return;
+    active = false;
+    activeCompactFrames -= 1;
+    while (
+      activeCompactFrames < MAX_ACTIVE_COMPACT_FRAMES &&
+      compactFrameQueue.length > 0
+    ) {
+      compactFrameQueue.shift()?.();
+    }
+  };
+}
+
+function ReviewPreviewFrame({
+  url,
+  previewLabel,
+  compact,
+  kind,
+}: {
+  url: string;
+  previewLabel: string;
+  compact: boolean;
+  kind: "artifact" | "design";
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const releaseRef = useRef<(() => void) | null>(null);
+  const [mounted, setMounted] = useState(!compact);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!compact) return;
+    const container = containerRef.current;
+    if (!container) return;
+    if (typeof IntersectionObserver === "undefined") {
+      releaseRef.current = reserveCompactFrame(() => setMounted(true));
+      return () => {
+        releaseRef.current?.();
+        releaseRef.current = null;
+      };
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !releaseRef.current) {
+          releaseRef.current = reserveCompactFrame(() => setMounted(true));
+        } else if (!entry?.isIntersecting && releaseRef.current) {
+          releaseRef.current();
+          releaseRef.current = null;
+          setMounted(false);
+          setLoaded(false);
+        }
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      releaseRef.current?.();
+      releaseRef.current = null;
+    };
+  }, [compact]);
+
+  useEffect(() => {
+    setLoaded(false);
+  }, [url]);
+
+  const dataKind = compact ? `${kind}-iframe-thumbnail` : `${kind}-iframe`;
+  return (
+    <div
+      ref={containerRef}
+      aria-label={previewLabel}
+      className={
+        compact
+          ? "relative size-full overflow-hidden bg-background"
+          : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+      }
+      data-preview-kind={dataKind}
+      role="img"
+    >
+      {!loaded && <div className="absolute inset-0 animate-pulse bg-muted" />}
+      {mounted && (
+        <iframe
+          aria-hidden="true"
+          className={
+            compact
+              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+              : "absolute inset-0 size-full border-0"
+          }
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          referrerPolicy="no-referrer"
+          sandbox="allow-forms allow-scripts"
+          src={url}
+          tabIndex={-1}
+          title={previewLabel}
+        />
+      )}
+    </div>
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -389,98 +508,79 @@ export function OutputPreview({
   answer,
   previewLabel,
   inlineApp,
-  inlineAppTitle,
   compact = false,
   maxAppHeight,
   designPreviewPath,
+  artifactPreviewUrl,
+  artifactPreviewIsImage = false,
+  artifactOnly = false,
 }: {
   answer: string;
   previewLabel: string;
   inlineApp?: AgentMcpAppPayload;
-  inlineAppTitle?: string;
   compact?: boolean;
   maxAppHeight?: number;
   designPreviewPath?: string;
+  artifactPreviewUrl?: string;
+  artifactPreviewIsImage?: boolean;
+  artifactOnly?: boolean;
 }) {
   const preview = parseOutputPreview(answer);
+  if (artifactPreviewUrl && artifactPreviewIsImage) {
+    return (
+      <img
+        src={artifactPreviewUrl}
+        alt={previewLabel}
+        className={
+          compact
+            ? "size-full object-cover"
+            : "max-h-[min(70dvh,45rem)] max-w-full object-contain"
+        }
+        data-preview-kind={
+          compact ? "artifact-image-thumbnail" : "artifact-image"
+        }
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  if (artifactPreviewUrl) {
+    return (
+      <ReviewPreviewFrame
+        url={artifactPreviewUrl}
+        previewLabel={previewLabel}
+        compact={compact}
+        kind="artifact"
+      />
+    );
+  }
   const designPreviewUrl =
     safeDesignArtifactPreviewUrl(designPreviewPath) ??
     (preview.kind === "design" ? preview.previewUrl : undefined);
 
   if (designPreviewUrl) {
     return (
-      <div
-        aria-label={
-          preview.kind === "design"
-            ? (preview.title ?? previewLabel)
-            : previewLabel
-        }
-        className={
-          compact
-            ? "relative size-full overflow-hidden bg-background"
-            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
-        }
-        data-preview-kind={
-          compact ? "design-iframe-thumbnail" : "design-iframe"
-        }
-        role="img"
-      >
-        <iframe
-          aria-hidden="true"
-          className={
-            compact
-              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
-              : "absolute inset-0 size-full border-0"
-          }
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          src={designPreviewUrl}
-          tabIndex={-1}
-          title={
-            preview.kind === "design"
-              ? (preview.title ?? previewLabel)
-              : previewLabel
-          }
-        />
-      </div>
+      <ReviewPreviewFrame
+        url={designPreviewUrl}
+        previewLabel={previewLabel}
+        compact={compact}
+        kind="design"
+      />
     );
   }
 
   if (inlineApp && !compact) {
     return (
-      <div className="min-w-0 space-y-4">
-        {answer.trim() && preview.kind === "text" && (
-          <OutputPreview answer={answer} previewLabel={previewLabel} />
-        )}
-        <McpAppRenderer
-          app={inlineApp}
-          readOnly
-          className="min-w-0"
-          maxHeight={maxAppHeight}
-        />
-      </div>
+      <McpAppRenderer
+        app={inlineApp}
+        readOnly
+        className="min-w-0"
+        maxHeight={maxAppHeight}
+      />
     );
   }
 
   const contentClassName = "text-sm text-foreground";
-
-  if (compact && (inlineApp || inlineAppTitle)) {
-    return (
-      <div
-        aria-label={previewLabel}
-        className="flex size-full min-w-0 items-end p-2"
-        data-preview-kind="app-thumbnail"
-        role="img"
-      >
-        <span className="truncate text-[10px] font-medium text-foreground">
-          {inlineAppTitle ??
-            inlineApp?.tool?.title ??
-            inlineApp?.tool?.name ??
-            inlineApp?.toolName}
-        </span>
-      </div>
-    );
-  }
 
   if (preview.kind === "chart") {
     const maxValue = Math.max(...preview.data.map((point) => point.value), 1);
@@ -647,6 +747,7 @@ export function OutputPreview({
   }
 
   if (preview.kind === "design") {
+    if (artifactOnly && !preview.imageUrl) return null;
     if (compact && preview.imageUrl) {
       return (
         <img
@@ -660,22 +761,7 @@ export function OutputPreview({
       );
     }
     if (compact) {
-      return (
-        <div
-          aria-label={
-            [preview.title, preview.summary].filter(Boolean).join(": ") ||
-            previewLabel
-          }
-          className="size-full overflow-hidden p-2"
-          data-preview-kind="design-thumbnail"
-          role="img"
-        >
-          <span className="line-clamp-3 block text-left text-[10px] leading-3 text-muted-foreground">
-            {[preview.title, preview.summary].filter(Boolean).join(" — ") ||
-              previewLabel}
-          </span>
-        </div>
-      );
+      return null;
     }
     return (
       <div className={contentClassName} data-preview-kind="design">
@@ -710,6 +796,8 @@ export function OutputPreview({
       </div>
     );
   }
+
+  if (compact || (artifactOnly && preview.kind === "text")) return null;
 
   return (
     <p

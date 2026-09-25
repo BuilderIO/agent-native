@@ -2,11 +2,14 @@ import { z } from "zod";
 
 import { fail, defineAction } from "../../action.js";
 import { getOutputReviewSummarySource } from "../reviews.js";
-import { requireObservabilityOrgAdmin } from "./authorization.js";
+import {
+  requireObservabilityOrgAdmin,
+  requireObservabilityReviewRunScope,
+} from "./authorization.js";
 
 export default defineAction({
   description:
-    "Read bounded, org-scoped chat and redacted tool-span evidence for one output. Use only artifact IDs present in this evidence; never infer or invent IDs. Tool evidence is explicitly marked unavailable when capture was disabled.",
+    "Read a bounded, org-scoped full chat thread, attached artifact refs, and redacted successful tool-result evidence for one review row. Use only artifact IDs present in this evidence; never infer or invent IDs. Tool evidence is explicitly marked unavailable when absent.",
   schema: z.object({
     runId: z
       .string()
@@ -20,6 +23,7 @@ export default defineAction({
   parallelSafe: true,
   run: async (args, ctx) => {
     const { orgId } = await requireObservabilityOrgAdmin(ctx);
+    requireObservabilityReviewRunScope(args.runId);
     const result = await getOutputReviewSummarySource({
       runId: args.runId,
       orgId,

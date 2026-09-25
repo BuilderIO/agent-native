@@ -53,6 +53,7 @@ const {
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
+  getRecentReviewRunsForThreads,
   getHumanReviewSummaries,
   getFeedback,
   getInstructionUpdates,
@@ -206,8 +207,12 @@ describe("observability store: per-user isolation", () => {
       selectedRows = [
         {
           id: "thread-a",
+          owner_email: "alice@example.com",
           thread_data: '{"messages":[]}',
           title: "Alice's thread",
+          scope_type: "design",
+          scope_id: "design-a",
+          scope_label: "Design A",
         },
       ];
       const threads = await getOrgScopedReviewThreads("org-a", [
@@ -219,7 +224,7 @@ describe("observability store: per-user isolation", () => {
       );
       expect(queryCalls).toHaveLength(1);
       expect(queryCalls[0]!.sql).toMatch(
-        /SELECT id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+        /SELECT id, owner_email,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title, scope_type, scope_id, scope_label FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
       );
       expect(queryCalls[0]!.args).toEqual([
         1_000_000,
@@ -230,14 +235,26 @@ describe("observability store: per-user isolation", () => {
         "thread-b",
       ]);
       expect(threads.get("thread-a")).toEqual({
+        ownerEmail: "alice@example.com",
         threadData: '{"messages":[]}',
         title: "Alice's thread",
+        scopeType: "design",
+        scopeId: "design-a",
+        scopeLabel: "Design A",
       });
     });
 
     it("omits an oversized review thread while preserving its title", async () => {
       selectedRows = [
-        { id: "thread-a", thread_data: null, title: "Alice's thread" },
+        {
+          id: "thread-a",
+          owner_email: "alice@example.com",
+          thread_data: null,
+          title: "Alice's thread",
+          scope_type: null,
+          scope_id: null,
+          scope_label: null,
+        },
       ];
       const threads = await getOrgScopedReviewThreads("org-a", [
         { ownerEmail: "alice@example.com", threadId: "thread-a" },
@@ -247,9 +264,30 @@ describe("observability store: per-user isolation", () => {
         "CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END",
       );
       expect(threads.get("thread-a")).toEqual({
+        ownerEmail: "alice@example.com",
         threadData: null,
         title: "Alice's thread",
+        scopeType: null,
+        scopeId: null,
+        scopeLabel: null,
       });
+    });
+
+    it("loads recent review runs only through org-owned thread rows", async () => {
+      await getRecentReviewRunsForThreads({
+        orgId: "org-a",
+        threadIds: ["thread-a"],
+        sinceMs: 100,
+        perThreadLimit: 6,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
+      );
+      expect(call.sql).toContain("summary.org_id = ?");
+      expect(call.sql).toContain("name = 'agent_run:observability:human-review-summary'");
+      expect(call.sql).toContain("PARTITION BY summary.thread_id");
+      expect(call.args).toEqual(["org-a", 100, "thread-a", "org-a", 6]);
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {

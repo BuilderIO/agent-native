@@ -9,7 +9,9 @@ const mockGetOrgScopedThreadData = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedThreadTitles = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedReviewThreads = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummaries = vi.hoisted(() => vi.fn());
+const mockGetHumanReviewSummariesForThreads = vi.hoisted(() => vi.fn());
 const mockGetSuccessfulToolSpansForReview = vi.hoisted(() => vi.fn());
+const mockGetRecentReviewRunsForThreads = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
   MAX_REVIEW_TOOL_SPANS: 20,
@@ -21,13 +23,21 @@ vi.mock("./store.js", () => ({
     mockGetOrgScopedReviewThreads(...args),
   getHumanReviewSummaries: (...args: unknown[]) =>
     mockGetHumanReviewSummaries(...args),
+  getHumanReviewSummariesForThreads: (...args: unknown[]) =>
+    mockGetHumanReviewSummariesForThreads(...args),
   getSuccessfulToolSpansForReview: (...args: unknown[]) =>
     mockGetSuccessfulToolSpansForReview(...args),
+  getRecentReviewRunsForThreads: (...args: unknown[]) =>
+    mockGetRecentReviewRunsForThreads(...args),
   getTraceSummaries: (...args: unknown[]) => mockGetTraceSummaries(...args),
   getTraceSummary: (...args: unknown[]) => mockGetTraceSummary(...args),
   getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
   getInstructionUpdates: (...args: unknown[]) =>
     mockGetInstructionUpdates(...args),
+}));
+
+vi.mock("../user-profile/store.js", () => ({
+  getUserProfiles: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock("../server/org-admin.js", () => ({
@@ -41,6 +51,15 @@ import {
   getOutputReviewSummarySource,
   listOutputReviews,
 } from "./reviews.js";
+
+const scopedThread = (threadData: string, title: string | null = "A real thread") => ({
+  ownerEmail: "alice@example.com",
+  threadData,
+  title,
+  scopeType: null,
+  scopeId: null,
+  scopeLabel: null,
+});
 
 describe("listOutputReviews", () => {
   beforeEach(() => {
@@ -68,7 +87,7 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", threadData]]),
     );
     mockGetOrgScopedReviewThreads.mockResolvedValue(
-      new Map([["thread-1", { threadData, title: "A real thread" }]]),
+      new Map([["thread-1", scopedThread(threadData)]]),
     );
     mockGetTraceSummaries.mockResolvedValue([
       {
@@ -84,6 +103,8 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", "A real thread"]]),
     );
     mockGetHumanReviewSummaries.mockResolvedValue(new Map());
+    mockGetHumanReviewSummariesForThreads.mockResolvedValue(new Map());
+    mockGetRecentReviewRunsForThreads.mockResolvedValue([]);
     mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
     mockGetFeedback.mockResolvedValue([
       {
@@ -120,13 +141,13 @@ describe("listOutputReviews", () => {
       sinceMs: 0,
       limit: 40,
       orgId: "org-a",
-      runIds: ["run-1"],
+      threadIds: ["thread-1"],
     });
     expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
       sinceMs: 0,
       limit: 20,
       orgId: "org-a",
-      runIds: ["run-1"],
+      threadIds: ["thread-1"],
     });
   });
 
@@ -134,7 +155,7 @@ describe("listOutputReviews", () => {
     mockGetHumanReviewSummaries.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+            "run-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -194,6 +215,7 @@ describe("listOutputReviews", () => {
         ["alice", "bob", "carol"].map((owner, index) => [
           `thread-${index + 1}`,
           {
+            ownerEmail: `${owner}@example.com`,
             threadData: JSON.stringify({ messages: [] }),
             title: `${owner}'s thread`,
           },
@@ -234,7 +256,7 @@ describe("listOutputReviews", () => {
       },
     ]);
     mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(new Map());
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(new Map());
 
     await expect(
       listOutputReviews({ sinceMs: 0, limit: 10, orgId: "org-a" }),
@@ -246,7 +268,7 @@ describe("listOutputReviews", () => {
     mockGetHumanReviewSummaries.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+            "run-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -343,28 +365,24 @@ describe("listOutputReviews", () => {
       "org-a",
       20,
     );
-    expect(mockGetOrgScopedThreadData).toHaveBeenCalledWith(
-      "org-a",
-      "alice@example.com",
-      ["thread-1"],
-    );
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
+      { ownerEmail: "alice@example.com", threadId: "thread-1" },
+    ]);
   });
 
-  it("redacts prefixed secrets and sends only messages from the selected run", async () => {
+  it("redacts prefixed secrets across the bounded thread history", async () => {
     const standaloneJwt = ["eyJx", "e30", "signature"].join(".");
     mockGetTraceSummary.mockResolvedValueOnce({
       runId: "run-1",
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadTitles.mockResolvedValueOnce(
-      new Map([["thread-1", '{"AWS_SECRET_ACCESS_KEY":"title-secret"}']]),
-    );
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          JSON.stringify({
+          scopedThread(
+            JSON.stringify({
             messages: [
               {
                 message: {
@@ -389,7 +407,9 @@ describe("listOutputReviews", () => {
                 },
               })),
             ],
-          }),
+            }),
+            '{"AWS_SECRET_ACCESS_KEY":"title-secret"}',
+          ),
         ],
       ]),
     );
@@ -402,17 +422,13 @@ describe("listOutputReviews", () => {
     expect(source).toMatchObject({
       found: true,
       threadTitle: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]"}',
-      messages: [
-        {
-          role: "user",
-          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
-        },
-        {
-          role: "assistant",
-          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]","Authorization":"[REDACTED]","accessToken":"[REDACTED]","clientSecret":"[REDACTED]","Cookie":"[REDACTED]","Set-Cookie":"[REDACTED]"}',
-        },
-      ],
     });
+    expect(source.messages[0]).toEqual({
+      role: "user",
+      text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] https://[REDACTED]@example.test/review#[REDACTED]",
+    });
+    expect(source.messages).toHaveLength(40);
+    expect(source.messages.some((message) => message.text.startsWith("neighbor-"))).toBe(true);
     expect(JSON.stringify(source)).not.toContain("neighbor-secret");
     expect(JSON.stringify(source)).not.toContain("target-secret");
     expect(JSON.stringify(source)).not.toContain("json-secret");
@@ -450,8 +466,13 @@ describe("listOutputReviews", () => {
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
-      new Map([["thread-1", "x".repeat(1_000_001)]]),
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          scopedThread("x".repeat(1_000_001)),
+        ],
+      ]),
     );
 
     await expect(
@@ -491,6 +512,7 @@ describe("listOutputReviews", () => {
         [
           "thread-1",
           {
+            ownerEmail: "alice@example.com",
             threadData: JSON.stringify({
               messages: [
                 {
@@ -590,6 +612,10 @@ describe("listOutputReviews", () => {
                   role: "assistant",
                   content: [
                     {
+                      type: "text",
+                      text: "The chart is ready.",
+                    },
+                    {
                       type: "tool-call",
                       mcpApp: app,
                     },
@@ -679,6 +705,7 @@ describe("listOutputReviews", () => {
         [
           "thread-1",
           {
+            ownerEmail: "alice@example.com",
             threadData: JSON.stringify({
               messages: [
                 {
@@ -732,11 +759,11 @@ describe("listOutputReviews", () => {
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          JSON.stringify({
+          scopedThread(JSON.stringify({
             messages: [
               {
                 message: {
@@ -781,7 +808,7 @@ describe("listOutputReviews", () => {
                 },
               },
             ],
-          }),
+          })),
         ],
       ]),
     );
@@ -791,7 +818,7 @@ describe("listOutputReviews", () => {
         userEmail: "alice@example.com",
         orgId: "org-a",
       } as any),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       app: null,
       messages: [
         { role: "user", text: "First question" },
@@ -803,11 +830,9 @@ describe("listOutputReviews", () => {
     expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
       orgId: "org-a",
     });
-    expect(mockGetOrgScopedThreadData).toHaveBeenCalledWith(
-      "org-a",
-      "alice@example.com",
-      ["thread-1"],
-    );
+    expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
+      { ownerEmail: "alice@example.com", threadId: "thread-1" },
+    ]);
   });
 
   it("returns an empty detail for a run without a thread and hides inaccessible runs", async () => {
@@ -820,7 +845,7 @@ describe("listOutputReviews", () => {
         runId: "run-1",
         orgId: "org-a",
       }),
-    ).resolves.toEqual({ found: true, app: null, messages: [] });
+    ).resolves.toMatchObject({ found: true, app: null, messages: [] });
     expect(mockGetOrgScopedThreadData).not.toHaveBeenCalled();
 
     mockGetTraceSummary.mockResolvedValueOnce({
@@ -828,7 +853,7 @@ describe("listOutputReviews", () => {
       threadId: "private-thread",
       userId: "alice@example.com",
     });
-    mockGetOrgScopedThreadData.mockResolvedValueOnce(new Map());
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
     await expect(
       getObservabilityReviewDetail.run({ runId: "run-2" }, {
         userEmail: "alice@example.com",
