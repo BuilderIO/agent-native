@@ -486,7 +486,9 @@ export function InboxPage() {
     { enabled: view === "inbox" },
   );
   const inboxOverview = useInboxOverview(inboxAccountEmails);
-  const inboxMetadata = inboxOverview.data ?? inboxThreads.data;
+  const inboxMetadata =
+    inboxOverview.data ??
+    (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
   const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
   useEffect(() => {
     const priorityExtraPages = Math.max(

@@ -14,6 +14,7 @@ import {
   keepLatestInboxSnapshot,
   inboxThreadsRefetchInterval,
   isUnauthorizedError,
+  mergeOptimisticInboxTabCounts,
   markInboxThreadReadOptimistic,
   mergeInboxThreadPages,
   publishInboxOverview,
@@ -112,6 +113,35 @@ describe("shared inbox overview snapshots", () => {
     ).toEqual(
       inboxOverviewQueryKey(["other@example.com", "steve@example.com"]),
     );
+  });
+
+  it("applies optimistic count deltas to the shared active-tab snapshot", () => {
+    const tab = (id: string, total: number, unread: number) => ({
+      id,
+      kind: "label" as const,
+      name: id,
+      total,
+      unread,
+    });
+    const overviewTabs = [tab("important", 4, 3), tab("automated", 36, 8)];
+    const base = {
+      activeTabId: "important",
+      tabs: [tab("important", 2, 2), tab("automated", 36, 8)],
+    };
+    const projected = {
+      activeTabId: "important",
+      tabs: [tab("important", 1, 1), tab("automated", 36, 8)],
+    };
+
+    expect(
+      mergeOptimisticInboxTabCounts(overviewTabs, base, projected),
+    ).toEqual([tab("important", 3, 2), tab("automated", 36, 8)]);
+    expect(
+      mergeOptimisticInboxTabCounts(overviewTabs, base, {
+        ...projected,
+        activeTabId: "automated",
+      }),
+    ).toBe(overviewTabs);
   });
 });
 

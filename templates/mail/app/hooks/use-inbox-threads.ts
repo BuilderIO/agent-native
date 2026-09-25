@@ -30,6 +30,35 @@ export type InboxOverview = Pick<
   "tabs" | "syncing" | "accounts" | "labels"
 > & { clientSnapshotId: number };
 
+export function mergeOptimisticInboxTabCounts(
+  overviewTabs: ListInboxThreadsResult["tabs"],
+  base: Pick<ListInboxThreadsResult, "activeTabId" | "tabs"> | undefined,
+  projected: Pick<ListInboxThreadsResult, "activeTabId" | "tabs"> | undefined,
+) {
+  if (!base || !projected || base.activeTabId !== projected.activeTabId) {
+    return overviewTabs;
+  }
+  const baseTab = base.tabs.find((tab) => tab.id === base.activeTabId);
+  const projectedTab = projected.tabs.find(
+    (tab) => tab.id === projected.activeTabId,
+  );
+  if (!baseTab || !projectedTab) return overviewTabs;
+
+  const totalDelta = projectedTab.total - baseTab.total;
+  const unreadDelta = projectedTab.unread - baseTab.unread;
+  if (totalDelta === 0 && unreadDelta === 0) return overviewTabs;
+
+  return overviewTabs.map((tab) =>
+    tab.id === projectedTab.id
+      ? {
+          ...tab,
+          total: Math.max(0, tab.total + totalDelta),
+          unread: Math.max(0, tab.unread + unreadDelta),
+        }
+      : tab,
+  );
+}
+
 export function inboxOverviewQueryKey(accountEmails?: readonly string[]) {
   const accounts = accountEmails
     ? [...accountEmails].map((email) => email.toLowerCase()).sort()

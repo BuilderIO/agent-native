@@ -101,6 +101,7 @@ import {
 import {
   INBOX_PAGE_SIZE,
   invalidateInboxThreads,
+  mergeOptimisticInboxTabCounts,
   resolveInboxTabId,
   useInboxOverview,
   useInboxThreads,
@@ -563,14 +564,37 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
-  const inboxThreads = useInboxThreads({
+  const inboxThreadInput = {
     tab: resolvedInboxTab,
     accountEmails: inboxAccountEmails,
     limit: INBOX_PAGE_SIZE,
     offset: 0,
-  });
+  };
+  const inboxThreads = useInboxThreads(inboxThreadInput);
+  const inboxRawPage = queryClient.getQueryData<
+    NonNullable<typeof inboxThreads.data>
+  >(["action", "list-inbox-threads", inboxThreadInput]);
   const inboxOverview = useInboxOverview(inboxAccountEmails);
-  const inboxMetadata = inboxOverview.data ?? inboxThreads.data;
+  const inboxMetadata =
+    inboxOverview.data ??
+    (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
+  const inboxTabs = useMemo(() => {
+    const tabs = inboxMetadata?.tabs ?? [];
+    if (
+      !inboxOverview.data ||
+      inboxThreads.isPlaceholderData ||
+      inboxRawPage?.clientSnapshotId !== inboxThreads.data?.clientSnapshotId
+    ) {
+      return tabs;
+    }
+    return mergeOptimisticInboxTabCounts(tabs, inboxRawPage, inboxThreads.data);
+  }, [
+    inboxMetadata?.tabs,
+    inboxOverview.data,
+    inboxThreads.data,
+    inboxThreads.isPlaceholderData,
+    inboxRawPage,
+  ]);
   const activeInboxTabId = inboxThreads.isPlaceholderData
     ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
     : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
@@ -726,8 +750,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   // its counts comes from one account-scoped snapshot, shared across each
   // tab's separately cached row page.
   const dataTabs = useMemo<RenderedTab[]>(() => {
-    const tabs = inboxMetadata?.tabs ?? [];
-    return tabs.map((tab) => {
+    return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
       return {
         id: tab.id,
@@ -744,7 +767,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxMetadata?.tabs, activeInboxTabId, labels, view]);
+  }, [inboxTabs, activeInboxTabId, labels, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
