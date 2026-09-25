@@ -1493,6 +1493,7 @@ export default function AppSettings({
           <div className="settings-page-tabs">
             <SettingsSurfaceProvider surface="page">
               <SettingsTabsPage
+                redesign={false}
                 general={
                   <div className="w-full max-w-3xl space-y-8">
                     <SettingsGroup

@@ -1,35 +1,55 @@
-import { readFileSync } from "node:fs";
+// @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 
-function settingsTabsPageSource(): string {
-  return readFileSync(
-    new URL("./SettingsTabsPage.tsx", import.meta.url),
-    "utf8",
-  );
-}
+import { SettingsTabsPage } from "./SettingsTabsPage.js";
 
 describe("SettingsTabsPage group labels", () => {
-  it("renders the Mail automation group as Title Case", () => {
-    const source = settingsTabsPageSource();
+  it("labels today's nav groups in Title Case, including Mail's automation group", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const tab = (id: string, group: string) => ({
+      id,
+      label: id,
+      group,
+      content: React.createElement("div", null, id),
+    });
 
-    expect(source).toContain('automation: "Automation"');
-  });
+    act(() => {
+      root.render(
+        React.createElement(SettingsTabsPage, {
+          general: React.createElement("div", null, "General"),
+          labs: [],
+          extraTabs: [
+            tab("rules", "automation"),
+            tab("integrations", "integrations"),
+            tab("organization", "workspace"),
+            tab("agent", "agent"),
+          ],
+        }),
+      );
+    });
 
-  it("keeps every mapped group label Title Case, matching Personal/Integrations/Workspace/Agent", () => {
-    const source = settingsTabsPageSource();
-    const match = source.match(
-      /const tabGroupLabels: Record<string, string> = \{([\s\S]*?)\};/,
-    );
-    expect(match).not.toBeNull();
-
-    const labels = [...match![1].matchAll(/:\s*"([^"]+)"/g)].map(
-      ([, label]) => label,
-    );
-    expect(labels.length).toBeGreaterThan(0);
-
+    const labels = [
+      ...container.querySelectorAll<HTMLElement>("[data-settings-tab-group]"),
+    ].map((group) => group.firstElementChild?.firstElementChild?.textContent);
+    expect(labels).toEqual([
+      "Personal",
+      "Automation",
+      "Integrations",
+      "Workspace",
+      "Agent",
+    ]);
     for (const label of labels) {
-      expect(label[0]).toBe(label[0].toUpperCase());
+      expect(label?.[0]).toBe(label?.[0]?.toUpperCase());
     }
+
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
   });
 });

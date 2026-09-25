@@ -18,6 +18,7 @@ export {
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
+export * from "./shell/index.js";
 export {
   AccountSettingsCard,
   AccountSettingsForm,
