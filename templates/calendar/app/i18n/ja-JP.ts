@@ -250,6 +250,33 @@ export default {
     weekStartLabel: "週の開始日",
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
+    eventRules: "招待ルール",
+    eventRuleAccept: "自動承諾",
+    eventRuleDecline: "自動辞退",
+    eventRuleHide: "自動非表示",
+    eventRulePlaceholderAccept: "例: チームとの1対1の予定を承諾する",
+    eventRulePlaceholderDecline:
+      "例: ベンダーのデモや営業時間外の予定を辞退する",
+    eventRulePlaceholderHide: "例: 集中時間やリマインダーを非表示にする",
+    eventRulesSave: "ルールを保存",
+    eventRulesRecentActivity: "最近のアクティビティ",
+    eventRulesNoActivity: "まだアクティビティはありません",
+    eventRuleActivityAccepted: "承諾済み",
+    eventRuleActivityDeclined: "辞退済み",
+    eventRuleActivityHidden: "非表示",
+    eventRuleUndoDone: "操作を元に戻しました",
+    eventRuleUndoFailed: "操作を元に戻せませんでした",
+    eventRulesActive:
+      "ルールは接続済みアカウントのメインカレンダーで5分ごとに実行されます。",
+    eventRulesDisabled:
+      "常時稼働する Calendar worker で RUN_BACKGROUND_JOBS=1 を有効にしてください。",
+    eventRulesDeploymentDisabled:
+      "このデプロイではスケジュール自動化が無効です。",
+    eventRulesChecking: "自動化の状態を確認中…",
+    eventRulesConflict:
+      "承諾ルールと辞退ルールの両方に一致したため、招待をスキップしました。",
+    eventRulesUnregistered:
+      "このサーバーに Calendar 自動化が登録されていません。",
   },
   eventDialog: {
     eventUpdated: "イベントを更新しました",

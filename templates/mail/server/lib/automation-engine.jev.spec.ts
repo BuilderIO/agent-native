@@ -197,6 +197,47 @@ describe("Mail Jev automation routing", () => {
     ).toMatchObject({
       score: 0.9,
     });
+    const requestBody = mocks.requestJevThroughBuilder.mock.calls[0]?.[1] as {
+      state: { emails: Array<Record<string, unknown>> };
+    };
+    expect(requestBody.state.emails[0]).not.toHaveProperty("labels");
+  });
+
+  it("scores priority batches with a concurrency limit of three", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.requestJevThroughBuilder.mockImplementation(
+      async (_auth: unknown, body: { questions: Record<string, unknown> }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return {
+          answers: Object.fromEntries(
+            Object.keys(body.questions).map((question) => [
+              question,
+              { noul: 0.7 },
+            ]),
+          ),
+        };
+      },
+    );
+    const emails = Array.from({ length: 200 }, (_, index) => ({
+      ...email,
+      id: `email-${index}`,
+      threadId: `thread-${index}`,
+    }));
+
+    const result = await previewAutomationPriority(
+      emails,
+      "owner@example.com",
+      "Prioritize work messages.",
+      { builderAuth } as never,
+    );
+
+    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBe(3);
+    expect(result.scores.size).toBe(200);
   });
 
   it("does not use a deployment key as direct fallback", async () => {

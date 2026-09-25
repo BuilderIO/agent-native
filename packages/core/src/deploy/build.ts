@@ -3456,6 +3456,9 @@ export function copyInstalledExternalSsrPackages(
   const packagesToCopy = new Set<string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
+    // url-safety keeps this Node-only import opaque so browser builds do not
+    // bundle undici; the emitted server bundle still needs the package at runtime.
+    if (/(\"|')undici\1/.test(source)) packagesToCopy.add("undici");
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
         packagesToCopy.add(packageName);
@@ -3470,7 +3473,14 @@ export function copyInstalledExternalSsrPackages(
   const versions: Record<string, string> = {};
   for (const packageName of packagesToCopy) {
     const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
-    if (!packageDir) continue;
+    if (!packageDir) {
+      if (packageName === "undici") {
+        throw new Error(
+          "[deploy] The server bundle requires undici, but it is not installed.",
+        );
+      }
+      continue;
+    }
     const manifest = readPackageManifest(packageDir);
     if (typeof manifest?.version === "string") {
       versions[packageName] = manifest.version;

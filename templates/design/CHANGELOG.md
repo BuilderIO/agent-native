@@ -5,6 +5,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-25
 
+### Added
+
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
 ### Fixed
 
 - Cross-screen moves preserve Flex and Grid sizing through undo and redo.

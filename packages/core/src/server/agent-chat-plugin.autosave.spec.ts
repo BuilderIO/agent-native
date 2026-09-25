@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ActiveRun } from "../agent/run-manager.js";
 import type { AgentChatEvent, AgentChatScope } from "../agent/types.js";
 import {
+  runPostAgentRunComplete,
   runPostAgentTurnAutosave,
   runPreAgentTurnAutosave,
 } from "./agent-chat-plugin.js";
@@ -167,6 +168,52 @@ describe("post-agent-turn autosave", () => {
       expect(log).toHaveBeenCalledWith(
         "[agent-chat] post-agent-turn autosave failed:",
         error,
+      );
+    } finally {
+      unregister();
+      log.mockRestore();
+    }
+  });
+});
+
+describe("post-agent-run observer", () => {
+  it("runs for read-only turns and receives scope and run", async () => {
+    const observer = vi.fn();
+    const run = makeRun([
+      { type: "tool_done", tool: "bigquery", result: "rows", isError: false },
+    ]);
+
+    await runPostAgentRunComplete(observer, scope, run);
+
+    expect(observer).toHaveBeenCalledOnce();
+    expect(observer).toHaveBeenCalledWith(scope, run);
+  });
+
+  it("reports observer errors without rejecting the completed run", async () => {
+    const error = new Error("telemetry unavailable");
+    const captured = vi.fn();
+    const unregister = registerErrorCaptureProvider("observer-test", captured);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        runPostAgentRunComplete(
+          async () => {
+            throw error;
+          },
+          null,
+          makeRun([{ type: "text", text: "done" }]),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(captured).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          aiTraceId: "run-1",
+          tags: expect.objectContaining({
+            failureClass: "post-agent-run-observer",
+          }),
+        }),
       );
     } finally {
       unregister();

@@ -21,6 +21,7 @@ export {
   startSessionReplay,
   stopSessionReplay,
   trackAgentChatLifecycle,
+  trackAnonymousEvent,
   trackEvent,
   trackLifecycleEvent,
   trackSessionStatus,

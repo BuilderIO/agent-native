@@ -1,4 +1,7 @@
-import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetAppBasePath = vi.hoisted(() => vi.fn(() => ""));
@@ -104,7 +107,9 @@ describe("public form SSR", () => {
       '<meta property="og:description" content="Tell us what you need.">',
     );
     expect(html).toContain(
-      "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z-background-v1",
+      `/api/forms/og/customer-intake-123/og.png?v=${encodeURIComponent(
+        `2026-07-14T12:00:00.000Z-${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
+      )}`,
     );
   });
 

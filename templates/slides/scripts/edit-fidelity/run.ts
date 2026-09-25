@@ -478,7 +478,13 @@ async function enterEdit(
   ];
   for (const [name, gesture] of gestures) {
     await gesture();
-    if (await waitFor(editing, 900)) return name;
+    if (!(await waitFor(editing, 900))) continue;
+    // A double-click enters edit with its word selected, and typing would
+    // replace that word; every scenario edits at a caret.
+    if (name === "dblclick") {
+      await page.evaluate(() => window.getSelection()?.collapseToStart());
+    }
+    return name;
   }
   return null;
 }
@@ -903,9 +909,12 @@ async function runScenario(
           editorHeight: state.editorRect?.height ?? null,
           sourceHeight: state.sourceRect?.height ?? null,
           canvasChangedPct: changed.pct,
+          // Enter on an empty last bullet removes it, so the list shrinks:
+          // either direction is the slide reflowing live.
           reflowed:
-            (state.sourceRect?.height ?? 0) >
-            (prev.sourceRect?.height ?? 0) + 1,
+            Math.abs(
+              (state.sourceRect?.height ?? 0) - (prev.sourceRect?.height ?? 0),
+            ) > 1,
           visiblyChanged: changed.pct > tol,
         };
         enterSteps.push(step);
