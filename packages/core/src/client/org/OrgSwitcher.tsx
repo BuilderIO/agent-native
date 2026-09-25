@@ -54,7 +54,7 @@ export interface OrgSwitcherProps {
   className?: string;
   /** Hide entirely when the user only belongs to one org. Default: false. */
   hideWhenSingle?: boolean;
-  /** Keep the switcher's button height reserved while org state is loading. */
+  /** Keep the switcher's slot reserved when there is no organization to show. */
   reserveSpace?: boolean;
   /**
    * Icon-only trigger for collapsed sidebar rails. The popover — and with it
@@ -121,17 +121,29 @@ function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
   return <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />;
 }
 
-function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
+function OrgSwitcherLoadingPlaceholder({
+  className,
+  compact,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   return (
     <button
       type="button"
       disabled
       aria-label="Loading organization"
-      className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
+      className={`${compact ? COMPACT_SWITCHER_BUTTON_CLASS : SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
-      <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
-      <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+      {compact ? (
+        <span className="size-3.5 rounded-sm bg-muted-foreground/20" />
+      ) : (
+        <>
+          <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
+          <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+        </>
+      )}
     </button>
   );
 }
@@ -184,8 +196,8 @@ export function OrgSwitcher({
   };
 
   if (!org) {
-    return reserveSpace && isLoading ? (
-      <OrgSwitcherLoadingPlaceholder className={className} />
+    return isLoading ? (
+      <OrgSwitcherLoadingPlaceholder className={className} compact={compact} />
     ) : null;
   }
 
