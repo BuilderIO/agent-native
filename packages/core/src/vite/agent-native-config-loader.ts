@@ -3,13 +3,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY,
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
+  resolveEffectiveFirstRunOnboardingMode,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
+  type AgentNativeFirstRunOnboardingMode,
 } from "../config.js";
 
 /** The canonical filename comes first; the remaining names stay compatible. */
@@ -137,6 +140,40 @@ export async function loadResolvedAgentNativeConfig(
     ),
     context,
   );
+}
+
+/**
+ * Resolves the first-run onboarding mode to embed into a server bundle at
+ * build time (see `vite/client.ts`'s Nitro `replace` map and
+ * `deploy/build.ts`'s `resolveNitroBuildReplacements`). Deliberately narrower
+ * than `loadResolvedAgentNativeConfig`: every template that configures
+ * `onboarding.firstRun` today does so in its own `agent-native.json`
+ * (never a workspace config or `agent-native.config.ts`), and staying
+ * synchronous keeps this callable from Vite's eager, pre-config-hook plugin
+ * setup as well as from the deploy build. Any resolution failure (malformed
+ * JSON, invalid mode) returns "" — unknown — rather than guessing "off" and
+ * risking a build that silently stops onboarding for an enabled app.
+ */
+export function resolveFirstRunOnboardingBuildReplacement(
+  cwd: string,
+  env: Record<string, string | undefined> = process.env,
+): AgentNativeFirstRunOnboardingMode | "" {
+  try {
+    const mode = env.NODE_ENV === "development" ? "development" : "production";
+    const config = resolveAgentNativeConfig(
+      readAgentNativeJsonConfig(cwd),
+      createAgentNativeConfigContext("build", mode),
+    );
+    return resolveEffectiveFirstRunOnboardingMode(
+      env[FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY],
+      config.onboarding?.firstRun as
+        | AgentNativeFirstRunOnboardingMode
+        | undefined,
+    );
+    // coercion-ok: "" is a distinct "unknown" sentinel, not a guessed "off" — see the doc comment above.
+  } catch {
+    return "";
+  }
 }
 
 function findConfigPath(cwd: string): string | undefined {

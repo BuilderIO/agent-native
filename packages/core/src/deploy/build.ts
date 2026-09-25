@@ -86,6 +86,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  resolveFirstRunOnboardingBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -6208,6 +6209,14 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    // org/context.ts's eligibility-marker write must not read
+    // agent-native.json at runtime (not shipped into the deployed function),
+    // so embed the resolved mode here — see
+    // resolveFirstRunOnboardingBuildReplacement's own comment for why an
+    // unresolvable project embeds "" (unknown) instead of guessing "off".
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      resolveFirstRunOnboardingBuildReplacement(projectCwd, env),
+    ),
   };
 }
 
