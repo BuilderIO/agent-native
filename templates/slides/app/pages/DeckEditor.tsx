@@ -954,7 +954,7 @@ export default function DeckEditor() {
       ...generationContext,
       generationAttemptId: retryAttemptId,
     };
-    const restoreFailedRetry = () => {
+    const restoreFailedRetry = async () => {
       updateDeck(id, { generationContext });
       setSearchParams(new URLSearchParams(originalSearchParams));
       generationRunStartedRef.current = false;
@@ -962,6 +962,12 @@ export default function DeckEditor() {
       generationTerminalAttemptRef.current = null;
       generationSettlingAttemptRef.current = null;
       generationStartedAtRef.current = null;
+      try {
+        await flushDeckSave(id);
+        return { persisted: true };
+      } catch {
+        return { persisted: false };
+      }
     };
 
     try {
@@ -969,8 +975,8 @@ export default function DeckEditor() {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
       } catch {
-        updateDeck(id, { generationContext });
-        toast.error(t("editorSidebar.newSlideSaveFailed"));
+        await restoreFailedRetry();
+        toast.error(t("settings.saveFailed"));
         return;
       }
       generationRunStartedRef.current = true;
@@ -1000,16 +1006,21 @@ export default function DeckEditor() {
             generationAttemptId: retryAttemptId,
             generationOutputId: id,
             submitMessageId,
+            newTab: true,
             reuseEmptyTab: true,
             openSidebar: true,
           },
         );
       } catch {
-        restoreFailedRetry();
+        if (!(await restoreFailedRetry()).persisted) {
+          toast.error(t("settings.saveFailed"));
+        }
         return;
       }
       if (!submission.delivered) {
-        restoreFailedRetry();
+        if (!(await restoreFailedRetry()).persisted) {
+          toast.error(t("settings.saveFailed"));
+        }
         return;
       }
       trackEvent("generation_started", {
@@ -1029,7 +1040,7 @@ export default function DeckEditor() {
       try {
         await flushDeckSave(id);
       } catch {
-        toast.error(t("editorSidebar.newSlideSaveFailed"));
+        toast.error(t("settings.saveFailed"));
       }
     } finally {
       retryEmptyGenerationInFlightRef.current = false;

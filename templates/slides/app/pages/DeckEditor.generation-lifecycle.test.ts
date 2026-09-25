@@ -206,7 +206,7 @@ describe("new-deck generation signal wiring", () => {
 });
 
 describe("empty-deck generation retry", () => {
-  it("serializes retries, confirms delivery, and correlates the route submit", () => {
+  it("serializes retries, persists rollback, confirms delivery, and correlates the route submit", () => {
     const retryStart = deckEditorSource.indexOf(
       "const retryEmptyGeneration = useCallback(",
     );
@@ -216,7 +216,19 @@ describe("empty-deck generation retry", () => {
     expect(retryBody).toContain("retryEmptyGenerationInFlightRef.current");
     expect(retryBody).toContain("submitGenerationAttemptAndConfirm(");
     expect(retryBody).toContain("if (!submission.delivered)");
-    expect(retryBody).toContain("restoreFailedRetry();");
+    expect(retryBody).toContain("const restoreFailedRetry = async () => {");
+    const restoreStart = retryBody.indexOf(
+      "const restoreFailedRetry = async () => {",
+    );
+    const restoreEnd = retryBody.indexOf("\n    };", restoreStart);
+    expect(retryBody.slice(restoreStart, restoreEnd)).toContain(
+      "await flushDeckSave(id)",
+    );
+    expect(retryBody).toContain("return { persisted: false }");
+    expect(retryBody).toContain("if (!(await restoreFailedRetry()).persisted)");
+    expect(retryBody).toContain("newTab: true");
+    expect(retryBody).toContain("reuseEmptyTab: true");
+    expect(retryBody).toContain('toast.error(t("settings.saveFailed"))');
     expect(retryBody).toContain(
       'next.set("generationSubmitId", submitMessageId)',
     );

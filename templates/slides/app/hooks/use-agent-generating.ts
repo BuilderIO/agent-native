@@ -318,6 +318,7 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         MAX_GENERATING_MS,
       );
       activeSubmitRef.current = submitMessageId;
+      activeTabRef.current = null;
       const submission = sendToAgentChatAndConfirm(
         {
           message,
@@ -341,7 +342,8 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
           }
           return;
         }
-        activeTabRef.current = tabId;
+        const targetTabId = activeTabRef.current ?? tabId;
+        activeTabRef.current = targetTabId;
         if (
           generationAttemptId &&
           generationOutputId &&
@@ -349,14 +351,14 @@ export function useAgentGenerating(options?: { tabId: string | null }) {
         ) {
           startedGenerationAttempts.set(
             generationAttemptKey(generationAttemptId, generationOutputId),
-            tabId,
+            targetTabId,
           );
           window.dispatchEvent(
             new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
               detail: {
                 generationAttemptId,
                 outputId: generationOutputId,
-                tabId,
+                tabId: targetTabId,
               },
             }),
           );

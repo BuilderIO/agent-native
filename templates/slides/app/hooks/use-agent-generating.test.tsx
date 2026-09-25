@@ -204,10 +204,19 @@ describe("useAgentGenerating", () => {
   });
 
   it("tracks retry attempts only after local chat confirms delivery", async () => {
-    agentChatState.sendAndConfirm.mockResolvedValueOnce({
-      tabId: "retry-tab",
-      delivered: true,
-    });
+    agentChatState.sendAndConfirm.mockImplementationOnce(
+      (_message, { submitMessageId }) => {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatSubmitTarget", {
+            detail: { submitMessageId, tabId: "actual-retry-tab" },
+          }),
+        );
+        return Promise.resolve({
+          tabId: "requested-retry-tab",
+          delivered: true,
+        });
+      },
+    );
     const listener = vi.fn();
     window.addEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
     const { result } = renderHook(() => useAgentGenerating());
@@ -233,13 +242,13 @@ describe("useAgentGenerating", () => {
         detail: {
           generationAttemptId: "confirmed-attempt",
           outputId: "deck-1",
-          tabId: "retry-tab",
+          tabId: "actual-retry-tab",
         },
       }),
     );
     expect(
       getStartedGenerationAttemptTabId("confirmed-attempt", "deck-1"),
-    ).toBe("retry-tab");
+    ).toBe("actual-retry-tab");
     window.removeEventListener(SLIDES_GENERATION_STARTED_EVENT, listener);
   });
 
