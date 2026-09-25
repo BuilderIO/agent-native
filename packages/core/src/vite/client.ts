@@ -1158,6 +1158,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/visual-style-controls",
   "@agent-native/core/client/feature-flags",
   "@agent-native/core/feature-flags/registry",
+  "@agent-native/core/client/launchdarkly",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
@@ -1706,6 +1707,10 @@ function getCoreSourceAliases(
     "@agent-native/core/feature-flags/registry": path.join(
       coreSrc,
       "feature-flags/registry.ts",
+    ),
+    "@agent-native/core/client/launchdarkly": path.join(
+      coreSrc,
+      "client/launchdarkly/index.ts",
     ),
     "@agent-native/core/client/hooks": path.join(
       coreSrc,
