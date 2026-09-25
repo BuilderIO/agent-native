@@ -1396,3 +1396,12 @@ after updating two query-count assertions. The Windows aggregate guard runner
 still exits with `spawn EINVAL`; catalog and product-doc guards report the
 previously observed path/baseline errors on this host, so CI is needed for
 their final result.
+
+PR review identified an active-draft permission-loss trap. In a fresh
+collection-row fixture, a commenter typed an unsaved suggestion, then the
+owner downgraded both row and collection access to Viewer. The attempted
+suggestion save was denied; the editor kept the exact draft visible and offered
+Copy my unsaved text and Discard draft. Copy succeeded, Discard exited
+Suggesting, and the canonical body remained empty at revision 0. The fixture
+was returned to local Trash. This replay exercises the repaired failure path
+on the same Content row surface.

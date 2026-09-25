@@ -1756,6 +1756,8 @@ function PageEditorSessionBody({
     [documentId, canEdit, isSuggesting],
   );
   const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
+  const [suggestionDraftSaveFailed, setSuggestionDraftSaveFailed] =
+    useState(false);
   const [suggestionAmendmentConflict, setSuggestionAmendmentConflict] =
     useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
@@ -3865,6 +3867,7 @@ function PageEditorSessionBody({
       if (isSubmittingSuggestions) return null;
       const base = suggestionBaseRef.current;
       if (!base) return null;
+      setSuggestionDraftSaveFailed(false);
       if (base.existingSuggestion && suggestionDraft === base.initialContent) {
         if (!keepMode) {
           setIsSuggesting(false);
@@ -3979,6 +3982,7 @@ function PageEditorSessionBody({
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
           return null;
         }
+        setSuggestionDraftSaveFailed(true);
         toast.error(
           t(
             base.existingSuggestion
@@ -4318,17 +4322,6 @@ function PageEditorSessionBody({
     [],
   );
 
-  const permissionRevocationHandledRef = useRef(false);
-  useEffect(() => {
-    if (suggestionCapability.canContinue || !isSuggesting) {
-      permissionRevocationHandledRef.current = false;
-      return;
-    }
-    if (permissionRevocationHandledRef.current) return;
-    permissionRevocationHandledRef.current = true;
-    void flushSuggestionDraft();
-  }, [flushSuggestionDraft, isSuggesting, suggestionCapability.canContinue]);
-
   useEffect(() => {
     setLocallyCreatedSuggestions([]);
     setEditingSuggestionId(null);
@@ -4341,6 +4334,10 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     if (!isSuggesting) setPreserveInlineReviewSpace(false);
+  }, [isSuggesting]);
+
+  useEffect(() => {
+    if (!isSuggesting) setSuggestionDraftSaveFailed(false);
   }, [isSuggesting]);
 
   const discardConflictedSuggestionDraft = useCallback(() => {
@@ -5862,15 +5859,20 @@ function PageEditorSessionBody({
           ) : null}
 
           {isSuggesting &&
-          amendmentDraftIsDirty &&
-          suggestionAmendmentConflict ? (
+          (!suggestionCapability.canContinue ||
+            suggestionDraftSaveFailed ||
+            (amendmentDraftIsDirty && suggestionAmendmentConflict)) ? (
             <div
               className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
               role="alert"
               data-suggestion-amendment-conflict
             >
               <span className="me-auto">
-                {t("editor.suggestionAmendmentResolved")}
+                {t(
+                  suggestionCapability.canContinue && !suggestionDraftSaveFailed
+                    ? "editor.suggestionAmendmentResolved"
+                    : "editor.suggestionCreateFailed",
+                )}
               </span>
               <Button
                 type="button"
