@@ -695,6 +695,7 @@ function mountActionRoutesInternal(
             if (!ownerContext.anonymous) {
               userEmail = ownerContext.owner;
               userName = ownerContext.name;
+              authUserId = ownerContext.authUserId;
             }
           } catch (error) {
             if (

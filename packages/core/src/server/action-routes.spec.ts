@@ -3279,7 +3279,7 @@ describe("mountWebMcpActionRoutes", () => {
     expect(compatibilityManifest.instructions).not.toContain("hidden");
   });
 
-  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+  it("resolves browser tab and canonical auth identity for WebMCP actions", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     // The action itself reads the context — same helper
@@ -3287,6 +3287,7 @@ describe("mountWebMcpActionRoutes", () => {
     // to scope app state to the calling tab.
     const run = vi.fn(async () => ({
       browserTabId: getRequestRunContext()?.browserTabId,
+      authUserId: getRequestContext()?.authUserId,
     }));
     const nitroApp = {
       use: vi.fn((path: string, handler: any) =>
@@ -3294,13 +3295,24 @@ describe("mountWebMcpActionRoutes", () => {
       ),
     };
 
-    mountWebMcpActionRoutes(nitroApp, {
-      eligible: {
-        tool: { description: "Eligible", parameters: { type: "object" } },
-        run,
-        readOnly: true,
-      } as any,
-    });
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          readOnly: true,
+        } as any,
+      },
+      {
+        getOwnerContextFromEvent: async () => ({
+          owner: "owner@example.com",
+          name: "Owner",
+          anonymous: false,
+          authUserId: "canonical-auth-user-1",
+        }),
+      },
+    );
 
     const webMcpRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
@@ -3315,7 +3327,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+    ).resolves.toEqual({
+      browserTabId: "tab-abc123",
+      authUserId: "canonical-auth-user-1",
+    });
 
     await expect(
       mcpToolRoute?.handler({
@@ -3323,7 +3338,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+    ).resolves.toEqual({
+      browserTabId: "tab-abc123",
+      authUserId: "canonical-auth-user-1",
+    });
 
     // No header sent (CLI/external-agent callers that predate tab scoping):
     // no id is fabricated, it just stays undefined.
@@ -3333,7 +3351,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: {},
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: undefined });
+    ).resolves.toEqual({
+      browserTabId: undefined,
+      authUserId: "canonical-auth-user-1",
+    });
   });
 
   it("serves only explicitly public read-only actions to anonymous pages", async () => {

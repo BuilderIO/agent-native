@@ -94,7 +94,7 @@ describe("generation outcome cleanup", () => {
 
   it("cleans up a submitted attempt on page exit before the run becomes active", () => {
     const pageHideStart = deckEditorSource.indexOf(
-      "const handlePageHide = () => {",
+      "const handlePageHide = (event: PageTransitionEvent) => {",
     );
     const pageHideEnd = deckEditorSource.indexOf(
       'window.addEventListener("pagehide", handlePageHide);',
@@ -108,6 +108,41 @@ describe("generation outcome cleanup", () => {
       "clearStartedGenerationAttempt(generationAttemptId, id);",
     );
     expect(pageHideBody).toContain("generationRunStartedRef.current = false;");
+  });
+
+  it("ignores a bfcache restore instead of treating it as a permanent exit", () => {
+    const pageHideStart = deckEditorSource.indexOf(
+      "const handlePageHide = (event: PageTransitionEvent) => {",
+    );
+    const guardReturn = deckEditorSource.indexOf("return;", pageHideStart);
+    const guardBody = deckEditorSource.slice(pageHideStart, guardReturn);
+
+    expect(pageHideStart).toBeGreaterThanOrEqual(0);
+    expect(guardBody).toContain("event.persisted");
+  });
+
+  it("marks a started-but-not-submitted attempt terminal with a distinct exit reason", () => {
+    const pageHideStart = deckEditorSource.indexOf(
+      "const handlePageHide = (event: PageTransitionEvent) => {",
+    );
+    const pageHideEnd = deckEditorSource.indexOf(
+      'window.addEventListener("pagehide", handlePageHide);',
+      pageHideStart,
+    );
+    const pageHideBody = deckEditorSource.slice(pageHideStart, pageHideEnd);
+
+    const submitStartedIndex = pageHideBody.indexOf(
+      "const submitStarted = generationRunStartedRef.current;",
+    );
+    const terminalMarkIndex = pageHideBody.indexOf(
+      "generationTerminalAttemptRef.current = generationAttemptId;",
+      submitStartedIndex,
+    );
+
+    expect(submitStartedIndex).toBeGreaterThanOrEqual(0);
+    expect(terminalMarkIndex).toBeGreaterThan(submitStartedIndex);
+    expect(pageHideBody).toContain('"page_exit_before_submit"');
+    expect(pageHideBody).toContain("!submitStarted");
   });
 });
 
