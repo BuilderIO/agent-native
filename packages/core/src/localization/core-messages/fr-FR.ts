@@ -500,6 +500,8 @@ const messages: AgentChatTranslation = {
     "Décrivez la compétence que vous souhaitez créer...",
   "composer.documentTooLarge":
     "« {{name}} » fait {{size}} MB. {{label}} sont limités à {{maxSize}} MB afin de respecter la taille maximale des messages. Réduisez la taille du fichier ou divisez-le en plusieurs parties.",
+  "composer.requestTooLarge":
+    "Ce message et ses pièces jointes sont trop volumineux pour être envoyés. Supprimez une pièce jointe ou raccourcissez le message.",
   "composer.file": "fichier",
   "composer.imageModel": "Modèle d'image",
   "composer.imagePreview": "Aperçu de l'image",

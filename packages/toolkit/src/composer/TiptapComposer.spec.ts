@@ -943,6 +943,19 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("formats fractional document attachment limits", () => {
+    const file = new File([new Uint8Array(2.6 * 1024 * 1024)], "large.pdf", {
+      type: "application/pdf",
+    });
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [{ type: "document", name: file.name, contentType: file.type, file }],
+        { maxBytes: 2.5 * 1024 * 1024 },
+      ),
+    ).toContain("PDFs are capped at 2.5 MB");
+  });
+
   it("allows hosts to use a larger multipart document cap", () => {
     const file = new File(
       [new Uint8Array(4 * 1024 * 1024 + 1)],
