@@ -26,6 +26,7 @@ const messages = {
     team: "团队",
   },
   settings: {
+    agentObservability: "代理可观测性",
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
     labs: "实验室",

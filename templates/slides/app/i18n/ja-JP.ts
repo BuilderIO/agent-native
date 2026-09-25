@@ -26,6 +26,7 @@ const messages = {
     team: "チーム",
   },
   settings: {
+    agentObservability: "エージェントの可観測性",
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
     labs: "Labs",
