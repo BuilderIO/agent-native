@@ -1386,3 +1386,13 @@ WebMCP approval gate rejected execution with `approval_required`; no broad
 Trash purge was attempted. The three disposable local test accounts remain in
 the local development database. The earlier Work fixtures described above also
 remain unverified in Trash.
+
+After merging the newer `origin/main` into this task branch, a fresh local
+collection row again showed Suggest edits in its preview, accepted an empty-body
+insertion through the Comments card, and displayed the accepted body. That
+two-item smoke fixture was returned to Trash. Seven focused Content suites
+passed (168 tests), as did Content typechecking and the focused adapter rerun
+after updating two query-count assertions. The Windows aggregate guard runner
+still exits with `spawn EINVAL`; catalog and product-doc guards report the
+previously observed path/baseline errors on this host, so CI is needed for
+their final result.
