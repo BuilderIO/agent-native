@@ -5859,7 +5859,7 @@ function PageEditorSessionBody({
           ) : null}
 
           {isSuggesting &&
-          (!suggestionCapability.canContinue ||
+          (!suggestionCapability.canStart ||
             suggestionDraftSaveFailed ||
             (amendmentDraftIsDirty && suggestionAmendmentConflict)) ? (
             <div
@@ -5869,7 +5869,7 @@ function PageEditorSessionBody({
             >
               <span className="me-auto">
                 {t(
-                  suggestionCapability.canContinue && !suggestionDraftSaveFailed
+                  suggestionCapability.canStart && !suggestionDraftSaveFailed
                     ? "editor.suggestionAmendmentResolved"
                     : "editor.suggestionCreateFailed",
                 )}

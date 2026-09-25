@@ -17,7 +17,10 @@ import {
   isSoftDeletedDatabaseDocument,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
-import { resolveDocumentAccess } from "./_document-access.js";
+import {
+  accessibleDocumentIds,
+  resolveDocumentAccess,
+} from "./_document-access.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -139,18 +142,18 @@ export default defineAction({
     const ordinaryMemberships = memberships.filter(
       (membership) => membership.systemRole === null,
     );
-    const accessiblePrimaryMemberships = [];
-    for (const membership of memberships) {
-      if (
+    const accessibleDatabases = await accessibleDocumentIds(
+      memberships.map((membership) => membership.databaseDocumentId),
+    );
+    accessibleDatabases.add(doc.id);
+    const accessiblePrimaryMemberships = memberships.filter(
+      (membership) =>
         membership.primaryId &&
         (membership.systemRole === null
-          ? await resolveDocumentAccess(membership.databaseDocumentId)
+          ? accessibleDatabases.has(membership.databaseDocumentId)
           : ordinaryMemberships.length === 0 &&
-            membership.systemRole === "files")
-      ) {
-        accessiblePrimaryMemberships.push(membership);
-      }
-    }
+            membership.systemRole === "files"),
+    );
     const selectedDatabaseId =
       args.databaseId ?? accessiblePrimaryMemberships[0]?.databaseId;
     const database = await getDatabaseByDocumentId(doc.id);
@@ -162,13 +165,13 @@ export default defineAction({
     const propertyDatabase = selectedDatabaseId
       ? await getDatabaseById(selectedDatabaseId)
       : await resolvePropertyDatabaseForDocument(doc);
-    const propertyDatabaseAccess = propertyDatabase
-      ? await resolveDocumentAccess(propertyDatabase.documentId)
-      : null;
+    const hasPropertyDatabaseAccess = Boolean(
+      propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
+    );
     if (
       args.databaseId &&
       (!propertyDatabase ||
-        (!propertyDatabaseAccess && access.role === "owner") ||
+        (!hasPropertyDatabaseAccess && access.role === "owner") ||
         (propertyDatabase.documentId !== doc.id && !databaseMembership))
     ) {
       throw Object.assign(new Error("Database context not found"), {
@@ -204,7 +207,7 @@ export default defineAction({
       {
         // A share authorizes the exact page and its membership-local fields,
         // not the private database document that owns those definitions.
-        requireDatabaseAccess: propertyDatabaseAccess !== null,
+        requireDatabaseAccess: hasPropertyDatabaseAccess,
       },
     );
     const source = serializeDocumentSource(doc);
@@ -271,7 +274,7 @@ export default defineAction({
         params: { documentId: doc.id },
       }),
       parentId:
-        databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
+        databaseMembership && !hasPropertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
       revision,
@@ -296,7 +299,7 @@ export default defineAction({
         ? serializeDatabase(database, doc.description)
         : undefined,
       databaseMembership: databaseMembership
-        ? propertyDatabaseAccess
+        ? hasPropertyDatabaseAccess
           ? serializeDatabaseMembership(databaseMembership)
           : {
               databaseId: null,
@@ -329,14 +332,14 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: propertyDatabaseAccess
+      properties: hasPropertyDatabaseAccess
         ? properties
         : properties.map((property) => ({
             ...property,
             definition: { ...property.definition, databaseId: null },
           })),
       contextPath:
-        databaseMembership && !propertyDatabaseAccess
+        databaseMembership && !hasPropertyDatabaseAccess
           ? []
           : await getDocumentContextPath(doc, {
               databaseId: args.databaseId,

@@ -16,7 +16,7 @@ import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
-import { resolveDocumentAccess } from "./_document-access.js";
+import { accessibleDocumentIds } from "./_document-access.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
   DOCUMENT_DISCOVERY_MAX_LIMIT,
@@ -313,20 +313,12 @@ export default defineAction({
         databaseByDocumentId.set(database.documentId, database);
       }
 
-      const databaseAccess = new Map(
-        await Promise.all(
-          [
-            ...new Set(
-              databaseMemberships.map((row) => row.database.documentId),
-            ),
-          ].map(
-            async (id) =>
-              [id, Boolean(await resolveDocumentAccess(id))] as const,
-          ),
-        ),
+      const accessibleDatabases = await accessibleDocumentIds(
+        databaseMemberships.map((row) => row.database.documentId),
+        authorizedOrgIds,
       );
-      for (const [id, accessible] of databaseAccess) {
-        if (accessible) accessibleDatabaseDocumentIds.add(id);
+      for (const id of accessibleDatabases) {
+        accessibleDatabaseDocumentIds.add(id);
       }
       const documentsWithOrdinaryMembership = new Set(
         databaseMemberships
@@ -336,7 +328,7 @@ export default defineAction({
       const eligibleMembership = (row: (typeof databaseMemberships)[number]) =>
         row.primaryId !== null &&
         (row.database.systemRole === null
-          ? databaseAccess.get(row.database.documentId) === true
+          ? accessibleDatabases.has(row.database.documentId)
           : row.database.systemRole === "files" &&
             !documentsWithOrdinaryMembership.has(row.item.documentId));
       for (const row of databaseMemberships) {
@@ -353,7 +345,7 @@ export default defineAction({
             !(
               selected.primaryId &&
               (selected.database.systemRole === null
-                ? databaseAccess.get(selected.database.documentId)
+                ? accessibleDatabases.has(selected.database.documentId)
                 : selected.database.systemRole === "files" &&
                   !documentsWithOrdinaryMembership.has(
                     selected.item.documentId,

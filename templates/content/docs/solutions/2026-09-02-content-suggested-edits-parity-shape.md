@@ -1415,3 +1415,11 @@ accessible eligible membership consistently when a Page also belongs to a
 metadata-only collection. Database regressions verify row-only action denial,
 eligibility after a collection share, and stable context-free selection. Nine
 focused Content suites pass (183 tests), along with Content typechecking.
+
+Follow-up review found that direct Page reads and the document list resolved
+collection access once per membership. They now use one access-scoped batch
+query for the distinct collection Pages. It also found a draft-recovery gap
+when the primary Blocks field vanished during Suggesting; the existing
+Copy/Discard banner now covers any unavailable suggestion body target. Ten
+focused suites pass (300 tests), including the editor layout suite, and Content
+typechecking passes.
