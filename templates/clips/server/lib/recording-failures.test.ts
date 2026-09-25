@@ -39,6 +39,25 @@ describe("recording failure analytics", () => {
     expect(normalizeRecordingPlatform("Chrome")).toBe("unknown");
   });
 
+  it("tracks normalized stage and status for an HTML chunk error", () => {
+    trackRecordingFailure({
+      recordingId: "rec_1",
+      platform: "web",
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+      httpStatus: 502,
+    });
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        failure_code: "chunk_html_error",
+        failure_stage: "chunk_upload",
+        http_status: 502,
+      }),
+    );
+  });
+
   it("records cancellation separately from recording failures", () => {
     trackRecordingFailure({
       recordingId: "rec_1",

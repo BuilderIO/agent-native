@@ -7,13 +7,14 @@ export type RecordingFailureCode =
   | "media_verification_failed"
   | "finalize_failed"
   | "upload_failed"
+  | "multipart_start_failed"
+  | "chunk_html_error"
   | "upload_aborted"
   | "upload_interrupted"
   | "upload_timed_out"
   | "loom_import_failed"
   | "user_cancelled"
-  | "unknown"
-  | "legacy_unknown";
+  | "unknown";
 
 const recordingFailureCodes = new Set<RecordingFailureCode>([
   "storage_setup_required",
@@ -22,13 +23,14 @@ const recordingFailureCodes = new Set<RecordingFailureCode>([
   "media_verification_failed",
   "finalize_failed",
   "upload_failed",
+  "multipart_start_failed",
+  "chunk_html_error",
   "upload_aborted",
   "upload_interrupted",
   "upload_timed_out",
   "loom_import_failed",
   "user_cancelled",
   "unknown",
-  "legacy_unknown",
 ]);
 
 export function normalizeRecordingFailureCode(
@@ -69,6 +71,8 @@ export function trackRecordingFailure(params: {
   uploadAttemptId?: string | null;
   platform: unknown;
   failureCode: RecordingFailureCode;
+  failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
+  httpStatus?: number;
 }): void {
   try {
     track(
@@ -86,6 +90,10 @@ export function trackRecordingFailure(params: {
           : {}),
         recording_platform: normalizeRecordingPlatform(params.platform),
         failure_code: params.failureCode,
+        ...(params.failureStage ? { failure_stage: params.failureStage } : {}),
+        ...(Number.isInteger(params.httpStatus)
+          ? { http_status: params.httpStatus }
+          : {}),
       },
     );
   } catch {

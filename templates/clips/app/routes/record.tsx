@@ -507,6 +507,35 @@ function isUploadSizeError(error: string): boolean {
   );
 }
 
+function uploadAbortMetadata(error: unknown): Record<string, unknown> {
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const failureCode =
+    details.failureCode === "chunk_html_error" ||
+    details.failureCode === "multipart_start_failed"
+      ? details.failureCode
+      : "upload_failed";
+  const failureStage =
+    details.failureStage === "chunk_upload" ||
+    details.failureStage === "reset_chunks" ||
+    details.failureStage === "multipart_start"
+      ? details.failureStage
+      : undefined;
+  const httpStatus =
+    Number.isInteger(details.status) &&
+    Number(details.status) >= 100 &&
+    Number(details.status) <= 599
+      ? Number(details.status)
+      : undefined;
+  return {
+    failureCode,
+    ...(failureStage ? { failureStage } : {}),
+    ...(httpStatus ? { httpStatus } : {}),
+  };
+}
+
 function uploadTooLargeMessage(size: number, detail?: string): string {
   return `Video is too large to upload (${
     detail ?? formatMb(size)
@@ -1434,8 +1463,8 @@ export default function RecordRoute() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                reason: "user_cancelled",
-                failureCode: "user_cancelled",
+                reason: "unknown",
+                failureCode: "unknown",
               }),
             }).catch(() => {});
           } else {
@@ -2381,7 +2410,7 @@ export default function RecordRoute() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             reason: message,
-            failureCode: "upload_failed",
+            ...uploadAbortMetadata(err),
             ...engine.getUploadAbortFence(),
           }),
         }).catch(() => {});
@@ -2432,7 +2461,7 @@ export default function RecordRoute() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             reason: message,
-            failureCode: "upload_failed",
+            ...uploadAbortMetadata(err),
             ...engine.getUploadAbortFence(),
           }),
         }).catch(() => {});

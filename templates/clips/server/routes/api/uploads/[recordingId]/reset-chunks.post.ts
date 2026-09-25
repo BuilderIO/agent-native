@@ -48,6 +48,7 @@ import {
 import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -60,6 +61,7 @@ import {
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
+import { S3MultipartStartError } from "../../../../lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
 import {
   renewUploadLease,
@@ -224,6 +226,7 @@ export async function handleResetRecordingChunks(
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -506,6 +509,42 @@ export async function handleResetRecordingChunks(
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
+            if (err instanceof S3MultipartStartError) {
+              const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failed = await db
+                .update(schema.recordings)
+                .set({
+                  status: "failed",
+                  failureCode: "multipart_start_failed",
+                  failureReason,
+                  updatedAt: new Date().toISOString(),
+                })
+                .where(
+                  and(
+                    eq(schema.recordings.id, recordingId),
+                    ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    eq(schema.recordings.status, existing.status),
+                  ),
+                )
+                .returning({ id: schema.recordings.id });
+              if (failed.length === 1) {
+                trackRecordingFailure({
+                  recordingId,
+                  uploadAttemptId: existingAttemptId,
+                  platform: existing.recordingPlatform,
+                  failureCode: "multipart_start_failed",
+                  failureStage: "multipart_start",
+                  httpStatus: err.status,
+                });
+              }
+              setResponseStatus(event, 502);
+              return {
+                error: failureReason,
+                failureCode: "multipart_start_failed",
+                failureStage: "multipart_start",
+                httpStatus: err.status,
+              };
+            }
             setResponseStatus(event, 502);
             return {
               error: `Could not restart recording upload: ${

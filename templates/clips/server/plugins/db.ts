@@ -1257,7 +1257,7 @@ export const migrations = runMigrations(
       sql: `
         ALTER TABLE recordings ADD COLUMN IF NOT EXISTS failure_code TEXT;
         ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recording_platform TEXT;
-        UPDATE recordings SET failure_code = 'legacy_unknown', recording_platform = COALESCE(recording_platform, 'unknown') WHERE status = 'failed' AND failure_code IS NULL
+        UPDATE recordings SET failure_code = 'unknown', recording_platform = COALESCE(recording_platform, 'unknown') WHERE status = 'failed' AND failure_code IS NULL
       `,
     },
   ],

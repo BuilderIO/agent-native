@@ -1209,8 +1209,50 @@ async function resetBrowserRecordingBackupUpload(
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(
-      `Upload retry setup failed (${res.status}): ${body.slice(0, 200)}`,
+    const htmlResponse =
+      res.headers.get("content-type")?.includes("text/html") === true ||
+      /^\s*(?:<!doctype html|<html\b)/i.test(body);
+    let details: Record<string, unknown> = {};
+    try {
+      details = JSON.parse(body) as Record<string, unknown>;
+    } catch {
+      // coercion-ok: preserve the HTTP failure when optional error details are malformed.
+      // Reset errors remain HTTP failures when the body is not JSON.
+    }
+    const failureCode =
+      details.failureCode === "multipart_start_failed"
+        ? "multipart_start_failed"
+        : htmlResponse
+          ? "chunk_html_error"
+          : "upload_failed";
+    throw Object.assign(
+      new Error(
+        htmlResponse
+          ? `Reset-chunks returned an HTML error response (${res.status}).`
+          : typeof details.error === "string"
+            ? details.error
+            : `Upload retry setup failed (${res.status}): ${body.slice(0, 200)}`,
+      ),
+      {
+        status: res.status,
+        failureCode,
+        failureStage:
+          details.failureStage === "multipart_start"
+            ? "multipart_start"
+            : "reset_chunks",
+      },
+    );
+  }
+  if (res.headers.get("content-type")?.includes("text/html")) {
+    throw Object.assign(
+      new Error(
+        `Reset-chunks returned an HTML error response (${res.status}).`,
+      ),
+      {
+        status: res.status,
+        failureCode: "chunk_html_error",
+        failureStage: "reset_chunks",
+      },
     );
   }
   const body = (await res.json().catch(() => null)) as {
@@ -1987,10 +2029,25 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
         // extra retention on top of the ~1MB Blob we just uploaded. Reading
         // and discarding is cheap (the body is usually tiny for a chunk ack)
         // and makes the memory footprint predictable.
+        let htmlResponse =
+          res.headers.get("content-type")?.includes("text/html") === true;
         try {
-          await res.text();
+          const body = await res.text();
+          htmlResponse ||= /^\s*(?:<!doctype html|<html\b)/i.test(body);
         } catch {
           // ignore — body drain is best-effort
+        }
+        if (htmlResponse) {
+          throw Object.assign(
+            new Error(
+              `Chunk upload returned an HTML error response (${res.status}).`,
+            ),
+            {
+              status: res.status,
+              failureCode: "chunk_html_error",
+              failureStage: "chunk_upload",
+            },
+          );
         }
         console.log(
           "[clips-recorder] chunk ok:",
@@ -2001,12 +2058,26 @@ async function uploadChunk(url: string, blob: Blob): Promise<void> {
         return;
       }
       const body = await res.text().catch(() => "");
-      lastError = new Error(`chunk ${res.status}: ${body.slice(0, 200)}`);
+      const htmlResponse =
+        res.headers.get("content-type")?.includes("text/html") === true ||
+        /^\s*(?:<!doctype html|<html\b)/i.test(body);
+      lastError = Object.assign(
+        new Error(
+          htmlResponse
+            ? `Chunk upload returned an HTML error response (${res.status}).`
+            : `chunk ${res.status}: ${body.slice(0, 200)}`,
+        ),
+        {
+          status: res.status,
+          failureCode: htmlResponse ? "chunk_html_error" : "upload_failed",
+          ...(htmlResponse ? { failureStage: "chunk_upload" } : {}),
+        },
+      );
       if (!isRetriableChunkStatus(res.status)) {
         console.error(
           "[clips-recorder] chunk failed:",
           res.status,
-          body.slice(0, 200),
+          htmlResponse ? "HTML error response" : body.slice(0, 200),
         );
         throw lastError;
       }
@@ -2035,6 +2106,8 @@ async function abortRecordingUpload(
   recordingId: string,
   reason: string,
   failureCode = "upload_failed",
+  failureStage?: string,
+  httpStatus?: number,
 ): Promise<void> {
   try {
     await fetch(
@@ -2043,12 +2116,32 @@ async function abortRecordingUpload(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ reason, failureCode }),
+        body: JSON.stringify({ reason, failureCode, failureStage, httpStatus }),
       },
     );
   } catch (err) {
     console.warn("[clips-recorder] abort upload failed:", err);
   }
+}
+
+function uploadFailureDiagnostics(error: unknown) {
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  return {
+    failureCode:
+      details.failureCode === "chunk_html_error" ||
+      details.failureCode === "multipart_start_failed"
+        ? details.failureCode
+        : "upload_failed",
+    ...(details.failureStage === "chunk_upload" ||
+    details.failureStage === "reset_chunks" ||
+    details.failureStage === "multipart_start"
+      ? { failureStage: details.failureStage }
+      : {}),
+    ...(Number.isInteger(details.status) ? { httpStatus: details.status } : {}),
+  };
 }
 
 async function interruptRecordingUpload(
@@ -3033,10 +3126,14 @@ async function tryStartRewindFullscreenRecording(
       );
     }
     if (!localOnly && id) {
+      const diagnostics = uploadFailureDiagnostics(err);
       await abortRecordingUpload(
         params.serverUrl,
         id,
         err instanceof Error ? err.message : String(err),
+        diagnostics.failureCode,
+        diagnostics.failureStage,
+        diagnostics.httpStatus,
       );
     }
     throw err;
@@ -3691,10 +3788,14 @@ async function startNativeFullscreenRecording(
     }
     streamCleanups.forEach((cleanup) => cleanup());
     if (!localOnly && id) {
+      const diagnostics = uploadFailureDiagnostics(err);
       await abortRecordingUpload(
         params.serverUrl,
         id,
         err instanceof Error ? err.message : String(err),
+        diagnostics.failureCode,
+        diagnostics.failureStage,
+        diagnostics.httpStatus,
       );
     }
     throw err;

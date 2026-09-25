@@ -220,6 +220,23 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  it("accepts only bounded stage and HTTP status diagnostics", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "chunk upload returned an HTML error response",
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+      httpStatus: 502,
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "chunk_html_error" }),
+      ]),
+    );
+  });
+
   it("does not let an older client abort durable media verification", async () => {
     mockSelectRows.rows = [
       {

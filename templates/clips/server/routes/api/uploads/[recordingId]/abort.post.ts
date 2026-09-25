@@ -62,14 +62,42 @@ export async function handleAbortRecordingUpload(
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
     failureCode?: unknown;
+    failureStage?: unknown;
+    httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
-  const failureCode = normalizeRecordingFailureCode(body?.failureCode);
-  const failureReason =
-    typeof body?.reason === "string" && body.reason.trim()
-      ? body.reason.trim().slice(0, 1000)
-      : failureCode;
+  const reasonText = typeof body?.reason === "string" ? body.reason : "";
+  const isHtmlFailure =
+    /returned an HTML error response/i.test(reasonText) ||
+    /^\s*(?:<!doctype html|<html\b)/i.test(reasonText);
+  const requestedFailureCode = normalizeRecordingFailureCode(body?.failureCode);
+  const failureCode =
+    requestedFailureCode === "upload_failed" && isHtmlFailure
+      ? "chunk_html_error"
+      : requestedFailureCode;
+  const failureStage =
+    body?.failureStage === "multipart_start" ||
+    body?.failureStage === "chunk_upload" ||
+    body?.failureStage === "reset_chunks"
+      ? body.failureStage
+      : isHtmlFailure
+        ? "chunk_upload"
+        : undefined;
+  const explicitHttpStatus =
+    Number.isInteger(body?.httpStatus) &&
+    Number(body?.httpStatus) >= 100 &&
+    Number(body?.httpStatus) <= 599
+      ? Number(body?.httpStatus)
+      : undefined;
+  const htmlStatus = isHtmlFailure
+    ? reasonText.match(/\b([45]\d{2})\b/)?.[1]
+    : undefined;
+  const httpStatus =
+    explicitHttpStatus ?? (htmlStatus ? Number(htmlStatus) : undefined);
+  const failureReason = reasonText.trim()
+    ? reasonText.trim().slice(0, 1000)
+    : failureCode;
   const requestedAttemptId =
     typeof body?.attemptId === "string" &&
     body.attemptId.length > 0 &&
@@ -92,6 +120,7 @@ export async function handleAbortRecordingUpload(
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
         failureReason: schema.recordings.failureReason,
+        failureCode: schema.recordings.failureCode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
       })
@@ -239,12 +268,16 @@ export async function handleAbortRecordingUpload(
       };
     }
 
-    trackRecordingFailure({
-      recordingId,
-      uploadAttemptId: aborted[0]?.uploadAttemptId,
-      platform: aborted[0]?.recordingPlatform,
-      failureCode,
-    });
+    if (existing.status !== "failed" || existing.failureCode !== failureCode) {
+      trackRecordingFailure({
+        recordingId,
+        uploadAttemptId: aborted[0]?.uploadAttemptId,
+        platform: aborted[0]?.recordingPlatform,
+        failureCode,
+        failureStage,
+        httpStatus,
+      });
+    }
     const abortedGenerationId =
       typeof aborted[0]?.uploadGenerationId === "string"
         ? aborted[0].uploadGenerationId
