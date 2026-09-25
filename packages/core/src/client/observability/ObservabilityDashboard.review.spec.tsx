@@ -219,6 +219,19 @@ describe("ObservabilityDashboard human review", () => {
           inlineAppTitle: "render",
         },
         {
+          runId: "run-no-preview",
+          threadId: "thread-no-preview",
+          ask: "",
+          answer: "-",
+          threadTitle: "Thread title while preview is missing",
+          summary: null,
+          hasInlineApp: false,
+          model: "test-model",
+          createdAt: Date.now() - 2,
+          feedback: [],
+          instructionUpdate: null,
+        },
+        {
           runId: "run-no-thread",
           threadId: null,
           ask: "Background task output",
@@ -494,10 +507,17 @@ describe("ObservabilityDashboard human review", () => {
     expect(reviewTab).toBeTruthy();
     await act(async () => reviewTab?.click());
 
-    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(2);
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(3);
     expect(
       container.querySelector('[data-review-run-id="run-no-thread"]'),
     ).toBeNull();
+    const noPreviewRow = container.querySelector<HTMLButtonElement>(
+      '[data-review-run-id="run-no-preview"]',
+    );
+    expect(noPreviewRow?.textContent).toContain(
+      "Thread title while preview is missing",
+    );
+    expect(noPreviewRow?.querySelector("[data-preview-kind]")).toBeNull();
     expect(
       container.querySelector('[data-preview-kind="app-thumbnail"]'),
     ).not.toBeNull();

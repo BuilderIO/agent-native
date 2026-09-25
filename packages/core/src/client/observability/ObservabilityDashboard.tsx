@@ -1087,6 +1087,16 @@ function ReviewTab({ days }: { days: number }) {
       <div className="divide-y divide-border">
         {visibleReviews.map((review) => {
           const expanded = selectedRunId === review.runId;
+          const answer = review.answer.trim();
+          const hasPreview =
+            (answer !== "" && !/^[-–—]+$/.test(answer)) ||
+            review.hasInlineApp ||
+            Boolean(review.inlineAppTitle) ||
+            Boolean(
+              review.summary?.artifacts.some(
+                (artifact) => artifact.appId === "design" && artifact.path,
+              ),
+            );
           const triggerId = `review-trigger-${encodeURIComponent(review.runId)}`;
           const detailId = `review-details-${encodeURIComponent(review.runId)}`;
 
@@ -1107,19 +1117,21 @@ function ReviewTab({ days }: { days: number }) {
                 }}
                 className="group flex w-full min-w-0 items-center gap-3 py-3 text-left first:pt-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
-                  <OutputPreview
-                    answer={review.answer}
-                    designPreviewPath={
-                      review.summary?.artifacts.find(
-                        (artifact) => artifact.appId === "design",
-                      )?.path
-                    }
-                    inlineAppTitle={review.inlineAppTitle}
-                    previewLabel={t("observability.reviewPreview")}
-                    compact
-                  />
-                </span>
+                {hasPreview && (
+                  <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
+                    <OutputPreview
+                      answer={review.answer}
+                      designPreviewPath={
+                        review.summary?.artifacts.find(
+                          (artifact) => artifact.appId === "design",
+                        )?.path
+                      }
+                      inlineAppTitle={review.inlineAppTitle}
+                      previewLabel={t("observability.reviewPreview")}
+                      compact
+                    />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="line-clamp-2 break-words text-sm font-medium text-foreground">
                     {review.summary?.ask || review.threadTitle}
