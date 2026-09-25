@@ -964,11 +964,14 @@ export function UsageSection({
     appId: appId ?? undefined,
   });
   const data = query.data;
+  const canViewBuilderCreditUsage = Boolean(
+    !appId && data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+  );
   const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",
     {},
     {
-      enabled: !appId && data?.builderCreditUsageEnabled === true,
+      enabled: canViewBuilderCreditUsage,
     },
   );
   const billing = data?.billing ?? {
@@ -1086,14 +1089,10 @@ export function UsageSection({
         </div>
       ) : null}
       {!data && query.isLoading ? <UsageLoadingState /> : null}
-      {!appId &&
-      data?.builderCreditUsageEnabled &&
-      builderCreditUsageQuery.isLoading ? (
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isLoading ? (
         <BuilderCreditUsageSkeleton />
       ) : null}
-      {!appId &&
-      data?.builderCreditUsageEnabled &&
-      builderCreditUsageQuery.isError ? (
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isError ? (
         <section
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card p-4"
           role="alert"
@@ -1121,9 +1120,7 @@ export function UsageSection({
           </Button>
         </section>
       ) : null}
-      {!appId &&
-      data?.builderCreditUsageEnabled &&
-      builderCreditUsageQuery.data ? (
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.data ? (
         <BuilderCreditUsagePanel usage={builderCreditUsageQuery.data} />
       ) : null}
       {data ? (

@@ -4,6 +4,8 @@ import { defineAction } from "../../action.js";
 import { BUILDER_CREDIT_USAGE_REPORTING_FLAG } from "../../feature-flags/registry.js";
 import { isFeatureFlagEnabled } from "../../feature-flags/store.js";
 import { getBuilderCreditUsage } from "../../server/fusion-app.js";
+import { ForbiddenError } from "../../sharing/access.js";
+import { canViewWorkspaceUsage } from "../metrics-store.js";
 
 export default defineAction({
   description:
@@ -16,6 +18,17 @@ export default defineAction({
       BUILDER_CREDIT_USAGE_REPORTING_FLAG,
       { userEmail: ctx.userEmail, orgId: ctx.orgId },
     );
-    return enabled ? getBuilderCreditUsage() : null;
+    if (!enabled) return null;
+    if (
+      !(await canViewWorkspaceUsage({
+        ownerEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+      }))
+    ) {
+      throw new ForbiddenError(
+        "Only organization owners and admins can view workspace credit usage.",
+      );
+    }
+    return getBuilderCreditUsage();
   },
 });

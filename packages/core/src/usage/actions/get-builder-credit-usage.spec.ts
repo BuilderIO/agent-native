@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { isFeatureFlagEnabledMock, getBuilderCreditUsageMock } = vi.hoisted(
-  () => ({
-    isFeatureFlagEnabledMock: vi.fn(),
-    getBuilderCreditUsageMock: vi.fn(),
-  }),
-);
+const {
+  isFeatureFlagEnabledMock,
+  getBuilderCreditUsageMock,
+  canViewWorkspaceUsageMock,
+} = vi.hoisted(() => ({
+  isFeatureFlagEnabledMock: vi.fn(),
+  getBuilderCreditUsageMock: vi.fn(),
+  canViewWorkspaceUsageMock: vi.fn(),
+}));
 
 vi.mock("../../action.js", () => ({
   defineAction: (definition: unknown) => definition,
@@ -19,11 +22,16 @@ vi.mock("../../server/fusion-app.js", () => ({
   getBuilderCreditUsage: getBuilderCreditUsageMock,
 }));
 
+vi.mock("../metrics-store.js", () => ({
+  canViewWorkspaceUsage: canViewWorkspaceUsageMock,
+}));
+
 import getBuilderCreditUsage from "./get-builder-credit-usage.js";
 
 describe("get-builder-credit-usage action", () => {
   beforeEach(() => {
     isFeatureFlagEnabledMock.mockResolvedValue(false);
+    canViewWorkspaceUsageMock.mockResolvedValue(true);
     getBuilderCreditUsageMock.mockResolvedValue({
       plan: "paid",
       balance: 50,
@@ -72,6 +80,27 @@ describe("get-builder-credit-usage action", () => {
       }),
       { userEmail: "owner@example.com", orgId: "org-1" },
     );
+    expect(canViewWorkspaceUsageMock).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
     expect(getBuilderCreditUsageMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose workspace credit usage to regular members", async () => {
+    isFeatureFlagEnabledMock.mockResolvedValue(true);
+    canViewWorkspaceUsageMock.mockResolvedValue(false);
+
+    await expect(
+      getBuilderCreditUsage.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "member@example.com",
+          orgId: "org-1",
+        },
+      ),
+    ).rejects.toThrow("Only organization owners and admins");
+    expect(getBuilderCreditUsageMock).not.toHaveBeenCalled();
   });
 });
