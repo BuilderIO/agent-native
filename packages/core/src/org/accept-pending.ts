@@ -110,12 +110,10 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   const accepted: AcceptPendingResult["accepted"] = [];
-  // No h3 event reaches this function — every caller is a Better Auth
-  // signup/SSO hook or identity-reconciliation path with no request object
-  // to register a `waitUntil` continuation with. Bound the wait instead of
-  // firing and forgetting: a pure fire-and-forget can be killed the instant
-  // the caller's response flushes, dropping `invite_accepted` telemetry
-  // silently (see feedback_lambda_fire_and_forget_pattern).
+  // Callers here are signup/SSO hooks with no request event to register a
+  // `waitUntil` with, and a serverless function can freeze as soon as the
+  // response flushes. A short bounded wait keeps `invite_accepted` from being
+  // dropped without adding more than one fixed delay to signup.
   const telemetryPromises: Promise<void>[] = [];
   for (const inv of rows) {
     if (inv.federated) {
