@@ -9,7 +9,6 @@
  * 3. Bundles everything with esbuild into the target format
  *
  * Supported presets:
- * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
  * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
  * - aws_amplify: Uses Nitro's .amplify-hosting deployment specification
  *
@@ -106,10 +105,7 @@ import {
 } from "./immutable-assets.js";
 import { writeNetlifyStaticHeaders } from "./netlify-static-headers.js";
 import {
-  discoverApiRoutes,
   discoverPlugins,
-  discoverActionFiles,
-  getMissingDefaultPlugins,
   DEFAULT_PLUGIN_REGISTRY,
   type DiscoveredRoute,
   type DiscoveredAction,
@@ -2892,423 +2888,6 @@ export function generateCloudflarePagesStaticShellFromManifest(
   return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
-function writeCloudflarePagesStaticShell({
-  serverDir,
-  distDir,
-  tmpDir,
-}: {
-  serverDir: string;
-  distDir: string;
-  tmpDir: string;
-}): void {
-  const serverEntry = path.join(serverDir, "index.js");
-  if (!fs.existsSync(serverEntry)) {
-    throw new Error(`React Router server build not found at ${serverEntry}`);
-  }
-
-  const outFile = path.join(distDir, "index.html");
-  const renderScript = path.join(tmpDir, "render-cloudflare-static-shell.mjs");
-  const basePath = normalizeConfiguredAppBasePath();
-  fs.writeFileSync(
-    renderScript,
-    `
-import fs from "node:fs";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-
-const cwd = ${JSON.stringify(cwd)};
-const serverEntry = ${JSON.stringify(serverEntry)};
-const outFile = ${JSON.stringify(outFile)};
-const basePath = ${JSON.stringify(basePath)};
-
-const requireFromApp = createRequire(cwd + "/package.json");
-const reactRouterEntry = requireFromApp.resolve("react-router");
-const { createRequestHandler } = await import(pathToFileURL(reactRouterEntry).href);
-const serverBuild = await import(pathToFileURL(serverEntry).href);
-const handler = createRequestHandler(serverBuild, "production");
-const pathname = basePath ? basePath + "/" : "/";
-const response = await handler(
-  new Request(new URL(pathname, "https://agent-native.local"), {
-    headers: { "X-React-Router-SPA-Mode": "yes" },
-  }),
-);
-const html = await response.text();
-
-if (!html || !html.includes("__reactRouterContext") || !html.includes("entry.client")) {
-  throw new Error("React Router did not render a usable Cloudflare Pages static shell");
-}
-
-fs.writeFileSync(outFile, html);
-process.exit(0);
-`,
-  );
-
-  try {
-    execFileSync(process.execPath, [renderScript], {
-      cwd,
-      env: {
-        ...process.env,
-        NODE_ENV: process.env.NODE_ENV || "production",
-        IS_RR_BUILD_REQUEST: "yes",
-      },
-      stdio: "inherit",
-    });
-    console.log("[deploy] Wrote Cloudflare Pages static app shell.");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[deploy] React Router static shell render failed; using manifest fallback. ${message}`,
-    );
-    fs.writeFileSync(
-      outFile,
-      generateCloudflarePagesStaticShellFromManifest(
-        findReactRouterManifest(distDir),
-        basePath,
-      ),
-    );
-    console.log("[deploy] Wrote Cloudflare Pages static app shell fallback.");
-  }
-}
-
-/**
- * Build for Cloudflare Pages.
- * Output structure:
- *   dist/
- *     _worker.js       (bundled worker entry)
- *     assets/           (static client assets)
- */
-async function buildCloudflarePages() {
-  generateActionRegistryForProject(cwd);
-
-  const buildDir = path.join(cwd, "build");
-  const clientDir = path.join(buildDir, "client");
-  const serverDir = path.join(buildDir, "server");
-  const distDir = path.join(cwd, "dist");
-
-  // Verify build output exists
-  if (!fs.existsSync(clientDir) || !fs.existsSync(serverDir)) {
-    console.error(
-      "Build output not found at build/client/ and build/server/. Run react-router build first.",
-    );
-    process.exit(1);
-  }
-
-  // Clean dist
-  if (fs.existsSync(distDir)) {
-    fs.rmSync(distDir, { recursive: true });
-  }
-  fs.mkdirSync(distDir, { recursive: true });
-
-  // Copy client assets to dist/
-  copyDir(clientDir, distDir);
-
-  const tmpDir = path.join(cwd, ".deploy-tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
-  writeCloudflarePagesStaticShell({ serverDir, distDir, tmpDir });
-
-  // Exclude _worker.js from being served as a public asset
-  fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
-
-  // Write package metadata inside _worker.js/ for the ES module worker that
-  // Wrangler compiles and uploads for Cloudflare Pages.
-  fs.mkdirSync(path.join(distDir, "_worker.js"), { recursive: true });
-  fs.writeFileSync(
-    path.join(distDir, "_worker.js", "package.json"),
-    JSON.stringify({ main: "index.js", type: "module" }),
-  );
-
-  // Create empty stub for native modules that wrangler's bundler needs to resolve
-  const stubsDir = path.join(distDir, "_worker.js", "stubs");
-  fs.mkdirSync(stubsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(stubsDir, "empty.js"),
-    "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
-  );
-
-  // Discover routes, plugins, actions, and the workspace core (if any).
-  const routes = await discoverApiRoutes(cwd);
-  const plugins = await discoverPlugins(cwd);
-  const actions = await discoverActionFiles(cwd);
-  const missingDefaults = await getMissingDefaultPlugins(cwd);
-  const workspaceCore = await getWorkspaceCoreExports(cwd);
-  const includeReactRouterSsr = false;
-
-  const workspaceSlotCount = workspaceCore
-    ? Object.keys(workspaceCore.plugins).length
-    : 0;
-  console.log(
-    `[deploy] ${routes.length} API routes, ${actions.length} actions, ${plugins.length} plugins (${plugins.filter((p) => isNodeOnlyPlugin(p)).length} skipped as Node-only), ${missingDefaults.length} auto-mounted defaults${workspaceCore ? `, workspace-core ${workspaceCore.packageName} (${workspaceSlotCount} plugin slots)` : ""}`,
-  );
-
-  // Generate the worker entry
-  const immutableAssetPaths = collectImmutableAssetPaths(clientDir);
-  const entrySource = generateWorkerEntry(
-    routes,
-    plugins,
-    missingDefaults,
-    actions,
-    workspaceCore,
-    immutableAssetPaths,
-    normalizeConfiguredAppBasePath(),
-    { includeReactRouterSsr },
-  );
-
-  // Create _worker.js output directory
-  const workerOutDir = path.join(distDir, "_worker.js");
-  fs.mkdirSync(workerOutDir, { recursive: true });
-
-  // Write the worker entry
-  const entryFile = path.join(workerOutDir, "index.js");
-
-  // Rewrite the server-build import to point at the copied files when this
-  // worker intentionally includes React Router SSR.
-  const adjustedEntry = includeReactRouterSsr
-    ? entrySource.replace(
-        `import * as serverBuild from "./server-build.js";`,
-        `import * as serverBuild from "./server/index.js";`,
-      )
-    : entrySource;
-
-  // Write a temp file for esbuild to bundle everything into a single worker entry.
-  // When React Router SSR is enabled, the server build is copied to tmp so
-  // esbuild can resolve it. Cloudflare Pages currently uses a static app shell
-  // instead so the worker stays under the platform bundle size limit.
-  // Name the entry "index.js" so esbuild outputs index.js in the outdir,
-  // matching the _worker.js/index.js entry point that Cloudflare Pages expects.
-  const tmpEntry = path.join(tmpDir, "index.js");
-  fs.writeFileSync(tmpEntry, adjustedEntry);
-
-  if (includeReactRouterSsr) {
-    copyDir(serverDir, path.join(tmpDir, "server"));
-  }
-
-  // Create a require shim so CJS require("fs") calls resolve via ESM imports.
-  // This is injected via esbuild --inject to replace its broken __require shim.
-  fs.writeFileSync(
-    path.join(tmpDir, "_require-shim.js"),
-    generateRequireShim(),
-  );
-
-  const nitroServerAssetsStub = path.join(
-    tmpDir,
-    "_nitro-server-assets-stub.js",
-  );
-  fs.writeFileSync(
-    nitroServerAssetsStub,
-    [
-      "const empty = async () => undefined;",
-      "export const assets = {",
-      "  getItem: empty,",
-      "  getItemRaw: empty,",
-      "  getKeys: async () => [],",
-      "  getMeta: async () => undefined,",
-      "  hasItem: async () => false,",
-      "};",
-      "export default assets;",
-      "",
-    ].join("\n"),
-  );
-
-  // Create stub modules for native/Node-only deps that can't run on Workers.
-  // These get resolved by esbuild instead of the real modules, avoiding bundling
-  // native code that would fail on the Workers runtime.
-  const stubDir = path.join(tmpDir, "node_modules");
-  for (const [mod, source] of Object.entries(CLOUDFLARE_WORKER_STUB_MODULES)) {
-    const modDir = path.join(stubDir, mod);
-    fs.mkdirSync(modDir, { recursive: true });
-    fs.writeFileSync(path.join(modDir, "index.js"), source);
-    fs.writeFileSync(
-      path.join(modDir, "package.json"),
-      JSON.stringify({ name: mod, main: "index.js", type: "module" }),
-    );
-  }
-  for (const [mod, source] of Object.entries(
-    CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
-  )) {
-    fs.writeFileSync(
-      path.join(stubDir, `${mod.replace(/\//g, "__")}.js`),
-      source,
-    );
-  }
-  const stubAliases = cloudflareWorkerStubAliasArgs(stubDir);
-  const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
-  fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
-  const nodeBuiltinStubAliases: string[] = [];
-  for (const [mod, source] of Object.entries(
-    CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
-  ).sort(([a], [b]) => b.length - a.length)) {
-    const stubFile = path.join(
-      nodeBuiltinStubDir,
-      `${mod.replace(/\W+/g, "_")}.js`,
-    );
-    fs.writeFileSync(stubFile, source);
-    nodeBuiltinStubAliases.push(
-      `--alias:${mod}=${stubFile}`,
-      `--alias:node:${mod}=${stubFile}`,
-    );
-  }
-
-  const esbuildBin = findEsbuild();
-
-  // Externalize node builtins (both bare and node: prefixed) — the require
-  // shim handles bare ones. Also alias every `node:*` specifier to its bare
-  // name so esbuild emits `import from "fs"` everywhere, never
-  // `import from "node:fs"`. CF Pages Functions (wrangler 3.x, nodejs_compat
-  // v1) rejects the `node:` prefix in chunks with:
-  //   No such module "node:fs" imported from chunks/...
-  // The alias is the authoritative fix; the post-build strip stays as belt
-  // & suspenders in case esbuild emits a node: string via some other path.
-  const builtinNames = getNodeBuiltinNames();
-  // Only externalize bare names. node:* externals would otherwise pin
-  // the prefix in output; instead we alias node:* → bare so anything that
-  // resolves past alias land as bare externals.
-  const nodeBuiltinStubs = new Set(
-    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
-  );
-  const nodeExternals = builtinNames
-    .filter((n) => !nodeBuiltinStubs.has(n))
-    .sort((a, b) => b.length - a.length)
-    .map((n) => `--external:${n}`);
-  const nodeAliases = builtinNames
-    .filter((n) => !nodeBuiltinStubs.has(n))
-    .sort((a, b) => b.length - a.length)
-    .map((n) => `--alias:node:${n}=${n}`);
-
-  // Hard externalize large client-only / node-only libraries so they don't
-  // bloat the edge worker. These are never executed in the CF Pages runtime
-  // — mermaid/excalidraw render in the browser, pdf-parse and @google/genai
-  // run from node-only action scripts. Without this, slides' bundle hits
-  // the 25 MiB Pages Functions limit.
-  //
-  // @anthropic-ai/tokenizer (tiktoken .wasm) and @resvg/resvg-js (native
-  // .node binding) can't be bundled by esbuild at all — no loader for those
-  // files. Both import sites degrade gracefully when the runtime import
-  // fails: context-xray token counts fall back to char/4 estimates and the
-  // OG image route falls back to SVG.
-  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
-    (p) =>
-      !Object.prototype.hasOwnProperty.call(CLOUDFLARE_WORKER_STUB_MODULES, p),
-  ).map((p) => `--external:${p}`);
-
-  execFileSync(
-    esbuildBin,
-    [
-      tmpEntry,
-      "--bundle",
-      "--format=esm",
-      "--target=es2022",
-      // browser platform for npm resolution; node builtins externalized separately
-      "--platform=browser",
-      "--minify",
-      // Single-file bundle (no --splitting). CF Pages Functions' deploy
-      // validator fails to load chunked _worker.js/ bundles even when the
-      // chunks contain only bare node-builtin imports (wrangler 3.101.0
-      // + nodejs_compat v2). Matches main's working config.
-      `--outdir=${workerOutDir}`,
-      "--conditions=workerd,worker,import",
-      // The ssr-handler imports a virtual module that only exists at dev time
-      "--external:virtual:react-router/server-build",
-      `--alias:#nitro/virtual/server-assets=${nitroServerAssetsStub}`,
-      // Banner: override the __require shim that esbuild generates for CJS modules.
-      // This provides a real require() backed by ESM imports of node builtins.
-      // Without this, CF Workers rejects the bundle because esbuild's default
-      // __require shim throws "Dynamic require of X is not supported".
-      `--banner:js=${generateRequireShim()}`,
-      // Externalize node: builtins — CF Workers runtime provides them
-      ...nodeExternals,
-      ...heavyClientExternals,
-      ...stubAliases,
-      ...nodeBuiltinStubAliases,
-      // Rewrite node:* -> bare names so chunks never contain node: imports
-      ...nodeAliases,
-    ],
-    { stdio: "inherit", cwd },
-  );
-
-  // Clean up tmp
-  fs.rmSync(tmpDir, { recursive: true });
-
-  // Rewrite the external virtual import to a local stub.
-  // esbuild externalizes "virtual:react-router/server-build" (used by ssr-handler),
-  // but wrangler re-bundles and chokes on it. Replace the import with a no-op stub.
-  const virtualStub = path.join(workerOutDir, "chunks", "_virtual-stub.js");
-  fs.mkdirSync(path.dirname(virtualStub), { recursive: true });
-  fs.writeFileSync(virtualStub, "export default {};\n");
-
-  // Post-build patches — apply to ALL .js files in the worker output directory
-  // (entry + chunks) since code can land in any chunk after splitting.
-  const allJsFiles = getAllJsFiles(workerOutDir);
-  for (const jsFile of allJsFiles) {
-    let code = fs.readFileSync(jsFile, "utf-8");
-
-    // Strip "node:" prefix from all imports/requires. Cloudflare Pages
-    // Functions runs under nodejs_compat v1, which exposes builtins as
-    // bare names ("fs") and rejects "node:fs" at worker init:
-    //   No such module "node:fs" imported from chunks/...
-    // (Workers-on-the-edge use v2 and require the prefix; Pages lags.)
-    // Preserve the original quote char (single vs double) when rewriting —
-    // esbuild's minifier sometimes places `import('node:buffer')` inside a
-    // double-quoted string literal; swapping to double quotes breaks the
-    // outer literal and produces `Unexpected identifier 'buffer'`.
-    code = code.replace(
-      /\bfrom(\s*)(["'])node:([^"']+)\2/g,
-      (_, ws, q, mod) => `from${ws}${q}${mod}${q}`,
-    );
-    code = code.replace(
-      /\bimport(\s*)(["'])node:([^"']+)\2/g,
-      (_, ws, q, mod) => `import${ws}${q}${mod}${q}`,
-    );
-    // Strip `node:` prefix from any string literal that names a node
-    // builtin. Covers dynamic imports, require(), getBuiltinModule(),
-    // and minified wrappers like `Ut("node:fs")` that Nitro/h3 emit.
-    // Pages' loader scans chunks for `"node:*"` literals and fails with
-    // 'No such module "node:fs"' whether or not the string is reached
-    // at runtime. Scoping to known builtins avoids touching user data.
-    // Sorted longest-first so `fs/promises` matches before `fs`.
-    const builtinsPattern = [...NODE_BUILTINS]
-      .sort((a, b) => b.length - a.length)
-      .join("|");
-    const builtinRe = new RegExp(`(["'])node:(${builtinsPattern})\\1`, "g");
-    code = code.replace(
-      builtinRe,
-      (_, q: string, mod: string) => `${q}${mod}${q}`,
-    );
-
-    // Rewrite virtual:react-router/server-build imports to the local stub.
-    // The generated entry handles SSR directly; this import is dead code from ssr-handler.
-    const relStub = path
-      .relative(path.dirname(jsFile), virtualStub)
-      .replace(/\\/g, "/");
-    code = code.replace(
-      /["']virtual:react-router\/server-build["']/g,
-      `"./${relStub}"`,
-    );
-
-    // Patch createRequire(import.meta.url) — import.meta.url is undefined in CF Workers.
-    // Matches both `from "module"` and `from "node:module"` — with the node:
-    // prefix preserved (for nodejs_compat_v2), the latter is what esbuild now emits.
-    code = code.replace(
-      /\bimport\s*\{\s*createRequire\s+as\s+([\w$]+)\s*\}\s*from\s*["'](?:node:)?module["']\s*;/g,
-      "var $1 = function() { return typeof require !== 'undefined' ? require : function(m) { throw new Error('require not supported: ' + m); }; };",
-    );
-
-    // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
-    code = shimCloudflarePagesModuleTimers(code);
-
-    assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
-
-    fs.writeFileSync(jsFile, code);
-  }
-
-  // Report size
-  const entrySize = fs.statSync(entryFile).size;
-  const totalSize = getDirSize(workerOutDir);
-  const chunkCount = allJsFiles.length - 1; // exclude entry
-  console.log(
-    `[deploy] Cloudflare Pages output written to dist/ (entry: ${(entrySize / 1024).toFixed(0)}KB, ${chunkCount} chunks, total: ${(totalSize / 1024 / 1024).toFixed(1)}MB)`,
-  );
-}
-
 const NODE_BUILTINS = [
   "assert",
   "async_hooks",
@@ -3362,46 +2941,6 @@ export function getNodeBuiltinNames(): string[] {
   return NODE_BUILTINS;
 }
 
-/**
- * Generate a require() shim that bridges CJS require("fs") calls to ESM imports.
- * Injected via esbuild --inject so CJS deps work on Workers runtime.
- */
-function generateRequireShim(): string {
-  // Shim Node builtins that Cloudflare Pages can import, and return lazy
-  // unavailable proxies for builtins that Pages Functions reject at upload
-  // time (child_process, fs, net, etc.). This lets optional Node-only code stay
-  // present in the shared bundle without making worker initialization fail.
-  const stubbed = new Set(
-    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
-  );
-  const shimmed = NODE_BUILTINS.filter((name) => !stubbed.has(name));
-
-  // Bare module names — CF Pages Functions runs under nodejs_compat v1,
-  // which rejects "node:fs" and only accepts "fs". The post-build pass in
-  // buildCloudflarePages() also strips any `node:` prefix that esbuild or
-  // dependencies emit elsewhere.
-  const imports = shimmed
-    .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
-    .join("");
-  // Only bare-name keys. Pages' Functions loader appears to scan chunks
-  // for "node:*" string literals and pre-resolves them as module specs —
-  // so keeping "node:fs" as an object key caused deploy to fail with
-  // 'No such module "node:fs"' even though nothing imported it. The
-  // post-build strip turns every runtime `require("node:fs")` into
-  // `require("fs")` so bare keys are sufficient.
-  const entries = shimmed
-    .map((m) => `"${m}":__${m.replace("/", "_")}`)
-    .join(",");
-  const stubEntries = Array.from(stubbed)
-    .sort()
-    .map((m) => `"${m}":__unavailable("${m}")`)
-    .join(",");
-  const allEntries = [entries, stubEntries].filter(Boolean).join(",");
-
-  const messageChannelPolyfill = `if(typeof MessageChannel==="undefined"){globalThis.MessageChannel=class{constructor(){const a={onmessage:null},b={onmessage:null};a.postMessage=d=>{if(b.onmessage)setTimeout(()=>b.onmessage({data:d}),0)};b.postMessage=d=>{if(a.onmessage)setTimeout(()=>a.onmessage({data:d}),0)};this.port1=a;this.port2=b}}}`;
-  return `${imports}\n${messageChannelPolyfill}\nconst __unavailable=(m)=>new Proxy({}, { get(_target, prop) { return (..._args) => { throw new Error(m + "." + String(prop) + " is unavailable in Cloudflare Pages workers"); }; } });\nconst __mods={${allEntries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
-}
-
 function findEsbuild(): string {
   // Try to resolve esbuild's binary via Node module resolution
   // This works regardless of hoisting or .bin symlink creation
@@ -3440,21 +2979,6 @@ function findWorkspaceRoot(dir: string): string | null {
     current = path.dirname(current);
   }
   return null;
-}
-
-/** Recursively collect all .js files in a directory. */
-function getAllJsFiles(dir: string): string[] {
-  const results: string[] = [];
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...getAllJsFiles(fullPath));
-    } else if (entry.name.endsWith(".js")) {
-      results.push(fullPath);
-    }
-  }
-  return results;
 }
 
 function getDirSize(dir: string): number {
@@ -6872,18 +6396,24 @@ export default bundle;
   console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 }
 
+export function assertCloudflarePagesPresetRemoved(targetPreset: string): void {
+  if (
+    targetPreset === "cloudflare_pages" ||
+    targetPreset === "cloudflare-pages"
+  ) {
+    console.error(
+      `[deploy] Unsupported preset "${targetPreset}". Cloudflare Pages was removed. Use cloudflare_module for Cloudflare Workers.`,
+    );
+    process.exit(1);
+  }
+}
+
 async function main() {
   console.log(`[deploy] Building for ${preset}...`);
+  assertCloudflarePagesPresetRemoved(preset);
   await resolveDeployFrameworkRoutePrefix();
 
   switch (preset) {
-    case "cloudflare_pages":
-    case "cloudflare-pages":
-      // Cloudflare Workers require a single-file bundle that wrangler can deploy.
-      // Nitro's native presets produce split chunks that wrangler can't upload
-      // as multi-module Workers. Use the custom esbuild-based bundler.
-      await buildCloudflarePages();
-      break;
     case "cloudflare_module":
     case "cloudflare-module":
       await buildWithNitro();

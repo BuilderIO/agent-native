@@ -568,11 +568,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "応答を再生成",
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
+  "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
+  "message.revertToBeginning": "最初に戻す",
   "message.sentAt": "{{time}} に送信",
   "contextMeter.ariaLabel":
     "コンテキスト {{percent}}%、合計 {{totalTokens}}{{breakdown}}。コンテキスト X-Ray を開きます。",
