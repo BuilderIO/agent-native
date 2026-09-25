@@ -171,6 +171,18 @@ describe("useShareButtonController", () => {
     expect(onShareSuccess).toHaveBeenCalledOnce();
   });
 
+  it("does not report an update to an existing share as a first share", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.setInviteEmail("member@example.test"));
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    const mutation = mocks.share.mutate.mock.calls[0]?.[1];
+    act(() => mutation?.onSuccess?.({ updated: true }));
+
+    expect(onShareSuccess).not.toHaveBeenCalled();
+  });
+
   it("reports a private plan becoming shared to its host", async () => {
     const onShareSuccess = vi.fn();
     const result = await render({ ...options, onShareSuccess });
@@ -183,6 +195,23 @@ describe("useShareButtonController", () => {
     });
 
     expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("ignores stale visibility success and requires an authoritative shared result", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    act(() => result.handleVisibility("org"));
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      staleMutation?.onSuccess?.({ visibility: "org" });
+      latestMutation?.onSuccess?.({ visibility: "private" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).not.toHaveBeenCalled();
   });
 
   it("restores the exact cache snapshot when visibility fails", async () => {

@@ -214,15 +214,18 @@ export function useShareButtonController(
           } as never,
           {
             onSuccess: (result: unknown) => {
-              if (visibility === "private" && next !== "private") {
-                options.onShareSuccess?.();
-              }
+              const resultVisibility =
+                typeof result === "object" &&
+                result !== null &&
+                "visibility" in result &&
+                (result as { visibility?: unknown }).visibility;
               if (visibilityGuard.isLatest(requestId)) {
-                const resultVisibility =
-                  typeof result === "object" &&
-                  result !== null &&
-                  "visibility" in result &&
-                  (result as { visibility?: unknown }).visibility;
+                if (
+                  visibility === "private" &&
+                  (resultVisibility === "org" || resultVisibility === "public")
+                ) {
+                  options.onShareSuccess?.();
+                }
                 optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
                   queryClient,
                   shareQueryKey,
@@ -451,8 +454,17 @@ export function useShareButtonController(
         ...(message ? { message } : {}),
       } as never,
       {
-        onSuccess: () => {
-          options.onShareSuccess?.();
+        onSuccess: (result: unknown) => {
+          if (
+            !(
+              typeof result === "object" &&
+              result !== null &&
+              "updated" in result &&
+              (result as { updated?: unknown }).updated === true
+            )
+          ) {
+            options.onShareSuccess?.();
+          }
           void sharesQuery.refetch().then(() => {
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),

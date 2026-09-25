@@ -130,6 +130,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackAnonymousEvent,
   trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,

@@ -826,6 +826,36 @@ describe("browser analytics pageviews", () => {
     expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
   });
 
+  it("sends explicitly anonymous events without resolved user identity", async () => {
+    installBrowser("https://app.agent-native.com/plans");
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackAnonymousEvent } =
+      await freshAnalytics();
+    setTrackingIdentity({
+      email: "private@example.test",
+      userId: "auth-user-1",
+      authUserId: "canonical-auth-user-1",
+    });
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      authSessionRefresh: false,
+      errorCapture: false,
+    });
+
+    trackAnonymousEvent("plan_invite_suggestion_shown", {
+      trigger: "first_share",
+    });
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((entry) => entry.event === "plan_invite_suggestion_shown");
+    expect(event?.properties).toEqual({ trigger: "first_share" });
+    expect(event?.userId).toBeUndefined();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+  });
+
   it("tracks replay attempts without email, URL, or replay content", async () => {
     installBrowser("https://app.agent-native.com/private?token=private-url", {
       email: "private@example.test",

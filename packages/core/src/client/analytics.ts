@@ -2363,6 +2363,15 @@ export function trackEvent(
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
 }
 
+/** Sends explicitly anonymous product events without resolving user identity. */
+export function trackAnonymousEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (typeof window === "undefined" || isSyntheticBrowserTraffic()) return;
+  sendAgentNativeAnalytics(name, properties);
+}
+
 export function trackLifecycleEvent(
   name: AgentNativeLifecycleEventName,
   params?: Record<string, unknown>,

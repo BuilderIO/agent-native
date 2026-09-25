@@ -5,7 +5,11 @@ import {
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track, trackEvent } from "@agent-native/core/client/analytics";
+import {
+  track,
+  trackAnonymousEvent,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -194,6 +198,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -5047,6 +5052,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     localShareUrl={planShareUrl}
                     hostedPlanId={bundle.plan.hostedPlanId}
                     hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                    firstShare={planShareSucceeded}
                     onShareSuccess={() => setPlanShareSucceeded(true)}
                     onOpenChange={(open) => {
                       if (open) closeInlineComment();
@@ -5553,13 +5559,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                {!localPlanMode && session?.userId && (
-                  <PlanInviteSuggestion
-                    key={session.userId}
-                    userId={session.userId}
-                    firstShare={planShareSucceeded}
-                  />
-                )}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -6166,6 +6165,7 @@ function PlanShareControl({
   localShareUrl,
   hostedPlanId,
   hostedPlanUrl,
+  firstShare = false,
   onShareSuccess,
   onOpenChange,
 }: {
@@ -6175,6 +6175,7 @@ function PlanShareControl({
   localShareUrl?: string;
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
+  firstShare?: boolean;
   onShareSuccess?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -6290,7 +6291,7 @@ function PlanShareControl({
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
     if (!managedShareUrl) return null;
-    return (
+    const shareButton = (
       <ShareButton
         resourceType="plan"
         resourceId={managedShareResourceId}
@@ -6313,6 +6314,17 @@ function PlanShareControl({
         onOpenChange={onOpenChange}
         onShareSuccess={onShareSuccess}
       />
+    );
+    return session?.userId ? (
+      <PlanInviteSuggestion
+        key={session.userId}
+        userId={session.userId}
+        firstShare={firstShare}
+      >
+        {shareButton}
+      </PlanInviteSuggestion>
+    ) : (
+      shareButton
     );
   }
 
@@ -6448,11 +6460,13 @@ function PlanShareControl({
 function PlanInviteSuggestion({
   userId,
   firstShare,
+  children,
 }: {
   userId: string;
   firstShare: boolean;
+  children: ReactNode;
 }) {
-  const { org, isOwner, isLoading } = useOrgRole();
+  const { org, isOwner, canInviteMembers, isLoading } = useOrgRole();
   const email = org?.email ?? "";
   const emailParts = email.trim().toLowerCase().split("@");
   const domain = emailParts[emailParts.length - 1] ?? "";
@@ -6462,7 +6476,8 @@ function PlanInviteSuggestion({
     domain.length > 0 &&
     !isFreeEmailProvider(domain);
 
-  if (isLoading) return null;
+  if (isLoading) return <div className="inline-flex">{children}</div>;
+  if (!canInviteMembers) return <div className="inline-flex">{children}</div>;
 
   if (canOfferDomainJoin) {
     return (
@@ -6471,7 +6486,9 @@ function PlanInviteSuggestion({
         email={email}
         domain={domain}
         firstShare={firstShare}
-      />
+      >
+        {children}
+      </PlanDomainInviteSuggestion>
     );
   }
 
@@ -6480,7 +6497,9 @@ function PlanInviteSuggestion({
       userId={userId}
       firstShare={firstShare}
       domain={null}
-    />
+    >
+      {children}
+    </PlanInviteSuggestionCard>
   );
 }
 
@@ -6489,11 +6508,13 @@ function PlanDomainInviteSuggestion({
   email,
   domain,
   firstShare,
+  children,
 }: {
   userId: string;
   email: string;
   domain: string;
   firstShare: boolean;
+  children: ReactNode;
 }) {
   const membersQuery = useOrgMembers(0, domain);
   const hasCoworker = hasSameDomainCoworker(
@@ -6506,7 +6527,9 @@ function PlanDomainInviteSuggestion({
       userId={userId}
       firstShare={firstShare && !membersQuery.isLoading}
       domain={hasCoworker ? domain : null}
-    />
+    >
+      {children}
+    </PlanInviteSuggestionCard>
   );
 }
 
@@ -6514,10 +6537,12 @@ function PlanInviteSuggestionCard({
   userId,
   firstShare,
   domain,
+  children,
 }: {
   userId: string;
   firstShare: boolean;
   domain: string | null;
+  children: ReactNode;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -6529,6 +6554,7 @@ function PlanInviteSuggestionCard({
       : null;
   const storageKey = `plan.invite-suggestion.shown.v1.${userId}`;
   const shownRef = useRef(false);
+  const actionCloseRef = useRef(false);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -6549,13 +6575,12 @@ function PlanInviteSuggestionCard({
       // The in-memory ref still prevents repeat displays for this visit.
     }
     setVisible(true);
-    void trackEvent("plan_invite_suggestion_shown", { trigger: reason });
+    trackAnonymousEvent("plan_invite_suggestion_shown", { trigger: reason });
   }, [reason, storageKey]);
 
-  if (!visible || !reason) return null;
-
   const trackAction = (event: string, action?: string) => {
-    void trackEvent(event, {
+    if (!reason) return;
+    trackAnonymousEvent(event, {
       trigger: reason,
       ...(action ? { action } : {}),
     });
@@ -6563,6 +6588,8 @@ function PlanInviteSuggestionCard({
 
   const inviteTeammates = () => {
     trackAction("plan_invite_suggestion_clicked", "invite_teammates");
+    trackAction("plan_invite_suggestion_accepted", "invite_teammates");
+    actionCloseRef.current = true;
     setVisible(false);
     navigate("/settings#team");
   };
@@ -6573,6 +6600,7 @@ function PlanInviteSuggestionCard({
     setOrgDomain.mutate(domain, {
       onSuccess: () => {
         trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
+        actionCloseRef.current = true;
         setVisible(false);
       },
       onError: () =>
@@ -6581,38 +6609,69 @@ function PlanInviteSuggestionCard({
   };
 
   return (
-    <div className="pointer-events-auto absolute right-0 top-full mt-2 flex max-w-[min(360px,calc(100vw-1.5rem))] flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-lg">
-      <p className="px-1 text-xs text-muted-foreground">
-        {t("plansPage.share.teammateSuggestion.message")}
-      </p>
-      <Button type="button" size="sm" variant="ghost" onClick={inviteTeammates}>
-        {t("plansPage.share.teammateSuggestion.invite")}
-      </Button>
-      {domain && (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={enableDomainJoin}
-          disabled={setOrgDomain.isPending}
+    <Popover
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open && visible) {
+          if (!actionCloseRef.current) {
+            trackAction("plan_invite_suggestion_dismissed");
+          }
+          actionCloseRef.current = false;
+        }
+        setVisible(open);
+      }}
+    >
+      <PopoverAnchor asChild>
+        <div className="inline-flex">{children}</div>
+      </PopoverAnchor>
+      {visible && (
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={8}
+          className="flex w-[min(360px,calc(100vw-1.5rem))] flex-wrap items-center gap-2"
         >
-          {t("plansPage.share.teammateSuggestion.enableDomain", { domain })}
-        </Button>
+          <p className="px-1 text-xs text-muted-foreground">
+            {t("plansPage.share.teammateSuggestion.message")}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={inviteTeammates}
+          >
+            {t("plansPage.share.teammateSuggestion.invite")}
+          </Button>
+          {domain && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={enableDomainJoin}
+              disabled={setOrgDomain.isPending}
+            >
+              {t("plansPage.share.teammateSuggestion.enableDomain", {
+                domain,
+              })}
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label={t("plansPage.share.teammateSuggestion.dismiss")}
+            onClick={() => {
+              actionCloseRef.current = true;
+              trackAction("plan_invite_suggestion_dismissed");
+              setVisible(false);
+            }}
+          >
+            <IconX className="size-4" />
+          </Button>
+        </PopoverContent>
       )}
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="size-7"
-        aria-label={t("plansPage.share.teammateSuggestion.dismiss")}
-        onClick={() => {
-          trackAction("plan_invite_suggestion_dismissed");
-          setVisible(false);
-        }}
-      >
-        <IconX className="size-4" />
-      </Button>
-    </div>
+    </Popover>
   );
 }
 
