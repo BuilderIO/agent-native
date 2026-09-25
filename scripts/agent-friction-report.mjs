@@ -76,7 +76,7 @@ const SHIPPING_CHURN_RE =
 
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`^(?!.*\b(?:didn['’]?t|did not|hasn['’]?t|has not|never)\b[^.!?\n]{0,100}\b(?:stop\w*|work\w*|continu\w*|ignore|bypass)\b)`,
+    String.raw`^(?!.*\b(?:didn['’]?t|did not|hasn['’]?t|has not|not|never)\b[^.!?\n]{0,100}\b(?:stop\w*|work\w*|continu\w*|ignore|bypass)\b)`,
     String.raw`.*(?:\bleases?\b[^.!?\n]{0,160}\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*)\b|\b(?:stop\w*|give up|gave up|no work|nothing was done|block\w*|ignore|bypass)\b[^.!?\n]{0,160}\bleases?\b)`,
   ].join(""),
   "i",
@@ -612,6 +612,7 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "The PR lease coordinates durable watchers."],
   [false, "The lease failed, but this task continued in the foreground."],
   [false, "The lease failure did not stop this task from working."],
+  [false, "The lease is not blocking work."],
   [false, "A file lock prevented the build from running."],
 ];
 
