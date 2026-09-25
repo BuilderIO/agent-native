@@ -3408,6 +3408,22 @@ export type EsbuildCommand = {
   args: string[];
 };
 
+export function resolveEsbuildShimCommand(
+  bin: string,
+  platform: NodeJS.Platform = process.platform,
+  commandProcessor = process.env.ComSpec || "cmd.exe",
+): EsbuildCommand | null {
+  if (!fs.existsSync(bin)) return null;
+  if (platform !== "win32") return { executable: bin, args: [] };
+
+  const commandShim = `${bin}.cmd`;
+  if (!fs.existsSync(commandShim)) return null;
+  return {
+    executable: commandProcessor,
+    args: ["/d", "/s", "/c", "call", commandShim],
+  };
+}
+
 export function resolveEsbuildCommand(
   platform: NodeJS.Platform = process.platform,
 ): EsbuildCommand {
@@ -3426,9 +3442,8 @@ export function resolveEsbuildCommand(
 
   // Fallback: check local and workspace .bin
   const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  if (fs.existsSync(localBin)) {
-    return { executable: localBin, args: [] };
-  }
+  const localCommand = resolveEsbuildShimCommand(localBin, platform);
+  if (localCommand) return localCommand;
 
   const workspaceRoot = findWorkspaceRoot(cwd);
   if (workspaceRoot) {
@@ -3436,12 +3451,16 @@ export function resolveEsbuildCommand(
       workspaceRoot,
       "node_modules/.bin/esbuild",
     );
-    if (fs.existsSync(workspaceBin)) {
-      return { executable: workspaceBin, args: [] };
-    }
+    const workspaceCommand = resolveEsbuildShimCommand(workspaceBin, platform);
+    if (workspaceCommand) return workspaceCommand;
   }
 
-  return { executable: "esbuild", args: [] };
+  return platform === "win32"
+    ? {
+        executable: process.env.ComSpec || "cmd.exe",
+        args: ["/d", "/s", "/c", "call", "esbuild.cmd"],
+      }
+    : { executable: "esbuild", args: [] };
 }
 
 function findWorkspaceRoot(dir: string): string | null {

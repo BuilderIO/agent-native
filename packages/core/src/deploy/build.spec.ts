@@ -49,6 +49,7 @@ import {
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   resolveEsbuildCommand,
+  resolveEsbuildShimCommand,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -5055,6 +5056,41 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
     expect(command.args).toEqual([]);
   });
+
+  it("runs Windows .bin fallbacks through the command processor", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "esbuild-shim-"));
+    const bin = path.join(root, "node_modules", ".bin", "esbuild");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(bin, "#!/bin/sh\n");
+    fs.writeFileSync(`${bin}.cmd`, "@echo off\r\n");
+
+    try {
+      expect(
+        resolveEsbuildShimCommand(bin, "win32", "C:\\Windows\\cmd.exe"),
+      ).toEqual({
+        executable: "C:\\Windows\\cmd.exe",
+        args: ["/d", "/s", "/c", "call", `${bin}.cmd`],
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(process.platform === "win32")(
+    "launches the installed Windows esbuild shim",
+    () => {
+      const bin = path.resolve(process.cwd(), "node_modules/.bin/esbuild");
+      const command = resolveEsbuildShimCommand(bin, "win32");
+
+      expect(command).not.toBeNull();
+      const version = execFileSync(
+        command!.executable,
+        [...command!.args, "--version"],
+        { encoding: "utf8" },
+      ).trim();
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    },
+  );
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
