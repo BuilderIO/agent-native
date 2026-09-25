@@ -220,7 +220,17 @@ describe("applyOperation — patch-slide", () => {
     ["inset-block-end", "0", "1px"],
     ["inset-inline-start", "0", "1px"],
     ["inset-inline-end", "0", "1px"],
+    ["border", "1px solid black", "4px solid black"],
+    ["border-width", "1px", "4px"],
+    ["border-left", "1px solid black", "4px solid black"],
+    ["border-block-start-width", "1px", "4px"],
     ["font", "16px Arial", "20px Arial"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["text-wrap-mode", "wrap", "nowrap"],
+    ["text-wrap-style", "auto", "pretty"],
+    ["line-break", "auto", "loose"],
+    ["hyphens", "none", "manual"],
+    ["word-spacing", "0", "4px"],
     ["float", "none", "left"],
     ["clear", "none", "both"],
     ["inline-size", "100px", "200px"],
@@ -353,6 +363,9 @@ describe("applyOperation — patch-slide", () => {
 
   it.each([
     ["font", "16px Arial", "20px Arial"],
+    ["border-width", "1px", "4px"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["line-break", "auto", "loose"],
     ["translate", "none", "10px"],
     ["rotate", "0deg", "45deg"],
     ["scale", "1", "2"],
@@ -1712,9 +1725,21 @@ describe("run() — asynchronous layout fit metadata", () => {
     );
   });
 
+  it("formats surrounding HTML without changing preformatted blocks", async () => {
+    const pre = '<pre class="code">  alpha\n    beta   \ngamma  </pre>';
+    const source = `<div class="fmd-slide"><p>Before</p>${pre}<p>After</p></div>`;
+
+    const formatted = await formatSlideHtml(source);
+
+    expect(formatted).not.toBe(source);
+    expect(formatted).toContain(pre);
+  });
+
   it("accepts formatted styleOnly batch CSS after formatter spacing changes", async () => {
+    const pre = "<pre>  alpha\n    beta   \ngamma  </pre>";
     const source =
-      "<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style>";
+      `<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style>` +
+      `<div class="fmd-slide">${pre}</div>`;
     const formattedSource = await formatSlideHtml(source);
     const nextContent = formattedSource.replace(
       /background:\s*red/,
@@ -1765,6 +1790,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toBe(
       nextContent,
     );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(pre);
   });
 
   it("returns pending hashes for every content-changed slide", async () => {

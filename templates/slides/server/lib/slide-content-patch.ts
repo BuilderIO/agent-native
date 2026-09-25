@@ -116,11 +116,13 @@ export async function formatSlideHtml(content: string): Promise<string> {
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
     ]);
-    return await format(content, {
+    const protectedContent = protectPreformattedBlocks(content);
+    const formatted = await format(protectedContent.content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
+    return protectedContent.restore(formatted);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
@@ -135,6 +137,94 @@ export async function formatSlideHtml(content: string): Promise<string> {
     }
     throw new Error(`Unable to format slide HTML: ${message}`);
   }
+}
+
+function protectPreformattedBlocks(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const blocks = findPreformattedBlocks(content);
+  if (blocks.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-preformatted-block";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = blocks.map((block, index) => ({
+    ...block,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const block of replacements) {
+    protectedContent +=
+      content.slice(cursor, block.start) +
+      `<pre data-slides-preformatted="${block.marker}"></pre>`;
+    cursor = block.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const block of replacements) {
+        const placeholder = `<pre data-slides-preformatted="${block.marker}"></pre>`;
+        if (!restored.includes(placeholder)) {
+          throw new Error("Unable to restore preformatted slide content");
+        }
+        restored = restored.replace(
+          placeholder,
+          content.slice(block.start, block.end),
+        );
+      }
+      return restored;
+    },
+  };
+}
+
+function findPreformattedBlocks(
+  html: string,
+): Array<{ start: number; end: number }> {
+  const blocks: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) break;
+
+    if (!closing && tagName === "pre") {
+      const close = findMatchingCloseTag(html, tagName, tagEnd + 1);
+      if (close) {
+        blocks.push({ start: tagStart, end: close.end });
+        cursor = close.end;
+        continue;
+      }
+    }
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      cursor = rawClose === -1 ? html.length : rawClose + tagName.length + 3;
+    } else {
+      cursor = tagEnd + 1;
+    }
+  }
+
+  return blocks;
 }
 
 function applyEdit(
