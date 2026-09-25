@@ -13,7 +13,7 @@ Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
 CI and no new feedback. When invoked by `/ship`, honor its inherited
 `ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
-foreground-only; do not create or resume a durable watcher.
+foreground-only; do not create or resume a durable watcher or use PR leases.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -54,18 +54,8 @@ If a PR is already merged under inherited `ship_mode=merge-authorized`,
 continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
-1. Run one foreground tick immediately and continue here until this mode's
-   endpoint. Never create or resume a watcher, and never acquire or renew a
-   lease. For migration only, find an existing heartbeat whose full name and
-   prompt identify this PR; read its full definition and `ship_mode`, and let
-   any separate target task finish before updating it. Pause it by resending the
-   full definition with `status=PAUSED`; if this invocation is `ready-only`,
-   also downgrade its persisted `ship_mode` to `ready-only`, even if the legacy
-   run was merge-authorized. Verify the full result. If none exists, do nothing.
-   If identity, authorization, or pause is uncertain, keep doing local/read-only
-   work and avoid PR writes until the legacy run is inactive. A scheduled run
-   must reread its persisted `ship_mode` immediately before merging and leave
-   the PR open unless it is still `merge-authorized`.
+1. Run one foreground tick immediately and continue until this mode's endpoint.
+   Do not create or mutate automations for this workflow.
 2. Before each PR write, reread the live state. Push normally (never force).
    On a non-fast-forward rejection, fetch and verify the remote PR head. If it
    does not already contain the local commits, confirm the tree is clean and
@@ -92,7 +82,7 @@ minutes of quiet.
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
 - **Keep the foreground loop moving.** Do not end `/ship` because CI, review, or
   a background command is pending. Use short interruptible waits and check
-  again in this task. No heartbeat or lease is needed for this loop.
+  again in this task.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
@@ -444,5 +434,4 @@ disposition.
 
 ## Final state
 
-Verify the PR's final state. This workflow creates no automation; its only
-automation operation is pausing a verified legacy heartbeat during migration.
+Verify the PR's final state.
