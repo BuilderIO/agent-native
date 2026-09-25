@@ -1,12 +1,37 @@
 import { fail } from "@agent-native/core/action";
 import { parseHTML } from "linkedom/worker";
+import postcss from "postcss";
+
+function parseSlideHtml(content: string): Element {
+  const { document } = parseHTML("<html><body></body></html>");
+  const container = document.createElement("div");
+  container.innerHTML = content;
+  return container;
+}
 
 function styleInvariant(content: string): string {
-  return content
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const container = parseSlideHtml(content);
+  const serialize = (node: Node): unknown => {
+    if (node.nodeType !== 1) {
+      return [node.nodeType, node.nodeName, node.nodeValue];
+    }
+
+    const element = node as Element;
+    const attributes = Array.from(element.attributes)
+      .filter((attribute) => attribute.name.toLowerCase() !== "style")
+      .map(
+        (attribute) => [attribute.name.toLowerCase(), attribute.value] as const,
+      )
+      .sort(([left], [right]) => left.localeCompare(right));
+    const children =
+      element.localName.toLowerCase() === "style"
+        ? []
+        : Array.from(element.childNodes, serialize);
+
+    return ["element", element.localName.toLowerCase(), attributes, children];
+  };
+
+  return JSON.stringify(Array.from(container.childNodes, serialize));
 }
 
 const protectedStyleProperties = new Set([
@@ -55,7 +80,11 @@ const protectedStyleProperties = new Set([
   "left",
   "inset",
   "inset-block",
+  "inset-block-start",
+  "inset-block-end",
   "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
   "display",
   "visibility",
   "content",
@@ -79,17 +108,29 @@ const protectedStyleProperties = new Set([
   "flex-basis",
   "order",
   "grid",
+  "grid-template",
+  "grid-template-areas",
   "grid-auto-flow",
+  "grid-auto-columns",
+  "grid-auto-rows",
   "grid-template-columns",
   "grid-template-rows",
+  "grid-area",
   "grid-column",
+  "grid-column-start",
+  "grid-column-end",
   "grid-row",
+  "grid-row-start",
+  "grid-row-end",
   "align-items",
   "align-content",
   "align-self",
   "justify-content",
   "justify-items",
   "justify-self",
+  "place-content",
+  "place-items",
+  "place-self",
   "transform",
   "clip",
   "clip-path",
@@ -101,53 +142,59 @@ const protectedStyleProperties = new Set([
 ]);
 
 function protectedStyleInvariant(content: string): string {
-  const styleBlocks = Array.from(
-    content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-    (match) => match[1] ?? "",
-  );
-  const ruleSignatures: string[] = [];
-  for (const stylesheet of styleBlocks) {
-    const source = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
-    for (const rule of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      const declarations = protectedCssDeclarations(rule[2]);
-      if (declarations.length > 0) {
-        ruleSignatures.push(
-          `rule:${rule[1].replace(/\s+/g, " ").trim()}{${declarations.join(";")}}`,
-        );
-      }
-    }
+  const container = parseSlideHtml(content);
+  const signatures: string[] = [];
+  for (const styleElement of container.querySelectorAll("style")) {
+    appendProtectedCssSignatures(
+      styleElement.textContent ?? "",
+      "stylesheet",
+      signatures,
+    );
   }
-  const inlineSignatures: string[] = [];
-  const { document } = parseHTML(`<body>${content}</body>`);
+
   let elementIndex = 0;
-  for (const element of document.querySelectorAll("*")) {
-    if (element.localName.toLowerCase() === "style") continue;
+  for (const element of container.querySelectorAll("*")) {
     const style = element.getAttribute("style");
     if (style !== null) {
-      const declarations = protectedCssDeclarations(style);
-      if (declarations.length > 0) {
-        inlineSignatures.push(
-          `inline:${elementIndex}{${declarations.join(";")}}`,
-        );
-      }
+      appendProtectedCssSignatures(style, `inline:${elementIndex}`, signatures);
     }
     elementIndex += 1;
   }
-  return [...ruleSignatures.sort(), ...inlineSignatures].join("|");
+  return JSON.stringify(signatures);
 }
 
-function protectedCssDeclarations(style: string): string[] {
-  const declarations: string[] = [];
-  const source = style.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const match of source.matchAll(
-    /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;{}]+)/g,
-  )) {
-    const property = match[1].toLowerCase();
-    if (protectedStyleProperties.has(property) || property.startsWith("--")) {
-      declarations.push(`${property}:${match[2].replace(/\s+/g, " ").trim()}`);
+function appendProtectedCssSignatures(
+  css: string,
+  source: string,
+  signatures: string[],
+): void {
+  const root = postcss.parse(css);
+  root.walkDecls((declaration) => {
+    const property = declaration.prop.startsWith("--")
+      ? declaration.prop
+      : declaration.prop.toLowerCase();
+    if (!protectedStyleProperties.has(property) && !property.startsWith("--")) {
+      return;
     }
-  }
-  return declarations.sort();
+
+    const context = [source];
+    let parent = declaration.parent;
+    while (parent && parent.type !== "root") {
+      if (parent.type === "rule") context.unshift(`rule:${parent.selector}`);
+      if (parent.type === "atrule") {
+        context.unshift(`at:${parent.name}:${parent.params}`);
+      }
+      parent = parent.parent;
+    }
+    signatures.push(
+      JSON.stringify([
+        ...context,
+        property,
+        declaration.value,
+        declaration.important,
+      ]),
+    );
+  });
 }
 
 // A rejection the model cannot act on costs the whole turn here, not one

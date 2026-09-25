@@ -215,8 +215,16 @@ describe("applyOperation — patch-slide", () => {
     ["flex-flow", "row", "column"],
     ["grid-auto-flow", "row", "column"],
     ["all", "initial", "unset"],
+    ["inset-block-start", "0", "1px"],
+    ["inset-block-end", "0", "1px"],
+    ["inset-inline-start", "0", "1px"],
+    ["inset-inline-end", "0", "1px"],
+    ["grid-area", "title", "body"],
+    ["grid-template-areas", `\"title body\"`, `\"body title\"`],
+    ["place-items", "start", "center"],
+    ["place-self", "start", "center"],
   ])("rejects styleOnly edits that change %s", (property, before, after) => {
-    const source = `<div class="fmd-slide" style="${property}:${before}"><p>Keep this</p></div>`;
+    const source = `<div class="fmd-slide" style='${property}:${before}'><p>Keep this</p></div>`;
     const deck = { slides: [{ id: "s1", content: source }] };
 
     expect(() =>
@@ -224,12 +232,79 @@ describe("applyOperation — patch-slide", () => {
         op: "patch-slide",
         slideId: "s1",
         fields: {
-          content: `<div class="fmd-slide" style="${property}:${after}"><p>Keep this</p></div>`,
+          content: `<div class="fmd-slide" style='${property}:${after}'><p>Keep this</p></div>`,
         },
         baseContentHash: hashSlideContent(source),
         styleOnly: true,
       }),
     ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    [
+      "reorders conflicting inline declarations",
+      '<div class="fmd-slide" style="padding:10px;padding-left:20px"></div>',
+      '<div class="fmd-slide" style="padding-left:20px;padding:10px"></div>',
+    ],
+    [
+      "reorders conflicting stylesheet declarations",
+      '<style>.fmd-slide{padding:10px;padding-left:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding-left:20px;padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "reorders duplicate stylesheet rules",
+      '<style>.fmd-slide{padding:10px}.fmd-slide{padding:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding:20px}.fmd-slide{padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a media condition",
+      '<style>@media (min-width: 600px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+      '<style>@media (min-width: 800px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a supports condition",
+      '<style>@supports (display: grid){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+      '<style>@supports (display: flex){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+    ],
+  ])("rejects styleOnly CSS that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    [
+      "changes preformatted whitespace",
+      "<pre>Keep  this</pre>",
+      "<pre>Keep this</pre>",
+    ],
+    [
+      "removes literal style text",
+      '<pre>Visible style="color:red"</pre>',
+      "<pre>Visible</pre>",
+    ],
+  ])("rejects styleOnly edits that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/preserve text, markup, element order, and layout structure/);
     expect(deck.slides[0].content).toBe(source);
   });
 
