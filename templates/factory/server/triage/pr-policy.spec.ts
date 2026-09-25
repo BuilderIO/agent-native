@@ -399,6 +399,8 @@ describe("pull-request governance", () => {
       "User-supplied SVG onload event uses eval(document.cookie).",
       "User-controlled SVG onload handler performs a fetch of document.cookie to an attacker-controlled endpoint.",
       "Attacker-controlled SVG onload event posts document.cookie to an external endpoint.",
+      "User-controlled SVG onload handler stores document.cookie at an attacker endpoint.",
+      "Attacker-controlled SVG onload event mutates the parent document.",
       "Unsanitized markup is passed to innerHTML.",
       "Unescaped markup reaches dangerouslySetInnerHTML.",
       "User-controlled HTML is safely rendered into the DOM but is not properly escaped.",
@@ -757,6 +759,8 @@ describe("pull-request governance", () => {
       "User-supplied SVG onload event uses eval(document.cookie).",
       "User-controlled SVG onload handler performs a fetch of document.cookie to an attacker-controlled endpoint.",
       "Attacker-controlled SVG onload event posts document.cookie to an external endpoint.",
+      "User-controlled SVG onload handler stores document.cookie at an attacker endpoint.",
+      "Attacker-controlled SVG onload event mutates the parent document.",
       "Unsanitized markup is passed to innerHTML.",
       "Unescaped markup reaches dangerouslySetInnerHTML.",
     ]) {
