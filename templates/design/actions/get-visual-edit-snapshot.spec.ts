@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => {
       html: "snapshots.html",
       blobHandle: "snapshots.blobHandle",
       updatedAt: "snapshots.updatedAt",
+      captureRevision: "snapshots.captureRevision",
       publishedRevision: "snapshots.publishedRevision",
     },
     assertAccess: vi.fn(),
@@ -108,7 +109,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 vi.mock("../server/source-workspace.js", () => ({
-  withDesignSourceMutationTransaction: vi.fn(
+  withDesignSourceReadTransaction: vi.fn(
     (
       _designId: string,
       callback: (tx: { select: typeof mocks.select }) => unknown,
@@ -146,6 +147,7 @@ describe("get visual-edit fallback snapshot", () => {
       html: "",
       blobHandle: JSON.stringify(mocks.blob),
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: 4n,
       publishedRevision: 3n,
     };
     mocks.query.limit.mockResolvedValue([result]);
@@ -160,6 +162,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: "<html><body>Shared</body></html>",
       updatedAt: result.updatedAt,
+      captureRevision: "4",
       publishedRevision: "3",
       unchanged: false,
     });
@@ -183,10 +186,7 @@ describe("get visual-edit fallback snapshot", () => {
   });
 
   it("returns an empty fallback without reading stored snapshots when collaboration is off", async () => {
-    mocks.assertAccess.mockResolvedValueOnce({
-      role: "viewer",
-      resource: { ...mocks.design, liveCollaborationEnabled: false },
-    });
+    mocks.design.liveCollaborationEnabled = false;
 
     await expect(
       getSnapshotAction.run(
@@ -198,11 +198,12 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: null,
+      captureRevision: "0",
       publishedRevision: null,
       unchanged: false,
     });
-    expect(mocks.getDb).not.toHaveBeenCalled();
     expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
+    mocks.design.liveCollaborationEnabled = true;
   });
 
   it("refuses a stale or non-Localhost screen before returning a saved fallback", async () => {
@@ -237,6 +238,7 @@ describe("get visual-edit fallback snapshot", () => {
   it("omits the HTML body when the viewer already has the latest snapshot", async () => {
     const unchangedRow = {
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: 4n,
       publishedRevision: 3n,
     };
     Object.defineProperties(unchangedRow, {
@@ -269,6 +271,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "4",
       publishedRevision: "3",
       unchanged: true,
     });
@@ -277,6 +280,7 @@ describe("get visual-edit fallback snapshot", () => {
       html: "snapshots.html",
       blobHandle: "snapshots.blobHandle",
       updatedAt: "snapshots.updatedAt",
+      captureRevision: "snapshots.captureRevision",
       publishedRevision: "snapshots.publishedRevision",
     });
     expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
@@ -286,6 +290,7 @@ describe("get visual-edit fallback snapshot", () => {
     mocks.query.limit.mockResolvedValue([
       {
         updatedAt: "2026-09-24T00:00:00.000Z",
+        captureRevision: 4n,
         publishedRevision: 3n,
       },
     ]);
@@ -304,6 +309,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "4",
       publishedRevision: "3",
       unchanged: true,
     });
@@ -316,6 +322,7 @@ describe("get visual-edit fallback snapshot", () => {
         html: "<html><body>New revision</body></html>",
         blobHandle: null,
         updatedAt: "2026-09-24T00:00:00.000Z",
+        captureRevision: 5n,
         publishedRevision: 4n,
       },
     ]);
@@ -335,6 +342,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: "<html><body>New revision</body></html>",
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "5",
       publishedRevision: "4",
       unchanged: false,
     });
@@ -346,6 +354,7 @@ describe("get visual-edit fallback snapshot", () => {
         html: "<html><body>Legacy</body></html>",
         blobHandle: null,
         updatedAt: "2026-09-24T00:00:00.000Z",
+        captureRevision: 3n,
         publishedRevision: 2n,
       },
     ]);
@@ -360,6 +369,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: "<html><body>Legacy</body></html>",
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "3",
       publishedRevision: "2",
       unchanged: false,
     });
@@ -369,13 +379,18 @@ describe("get visual-edit fallback snapshot", () => {
   it("keeps a retired snapshot empty while returning its published revision", async () => {
     mocks.query.limit
       .mockResolvedValueOnce([
-        { updatedAt: "2026-09-24T00:00:00.000Z", publishedRevision: 5n },
+        {
+          updatedAt: "2026-09-24T00:00:00.000Z",
+          captureRevision: 6n,
+          publishedRevision: 5n,
+        },
       ])
       .mockResolvedValueOnce([
         {
           html: "",
           blobHandle: null,
           updatedAt: "2026-09-24T00:00:00.000Z",
+          captureRevision: 6n,
           publishedRevision: 5n,
         },
       ]);
@@ -390,6 +405,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: null,
+      captureRevision: "6",
       publishedRevision: "5",
       unchanged: false,
     });
@@ -409,6 +425,7 @@ describe("get visual-edit fallback snapshot", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: null,
+      captureRevision: "0",
       publishedRevision: null,
       unchanged: false,
     });

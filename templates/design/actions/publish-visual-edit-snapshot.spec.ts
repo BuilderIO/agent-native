@@ -173,6 +173,8 @@ describe("publish visual-edit fallback snapshot", () => {
       userEmail: "owner@example.test",
       authCapability: "capability:visual-edit:design:design_localhost",
     });
+    mocks.getRequestUserEmail.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.putPrivateBlob.mockReset();
     mocks.putPrivateBlob.mockResolvedValue(mocks.blob);
     mocks.deleteVisualEditSnapshotBlobs.mockReset();

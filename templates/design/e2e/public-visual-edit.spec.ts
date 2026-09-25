@@ -1034,6 +1034,51 @@ test.describe.serial("public visual edit", () => {
     );
   });
 
+  test("signed-out live canvas sharing requires sign-in and returns to the canvas", async ({
+    browser,
+  }) => {
+    await expectReturnUrl(
+      browser,
+      `/visual-edit/${collaborationDesignId}?editorView=overview`,
+      (page) =>
+        page.getByRole("link", {
+          name: "Sign up to share a live canvas",
+        }),
+      appReturnPath(`/visual-edit/${collaborationDesignId}?intent=share`),
+    );
+  });
+
+  test("live collaboration can be enabled from Share by a signed-in editor", async ({
+    browser,
+    page,
+  }) => {
+    await setLiveCollaboration(browser, collaborationDesignId, false);
+    try {
+      await page.goto(
+        appUrl(`/visual-edit/${collaborationDesignId}?editorView=overview`),
+        { waitUntil: "domcontentloaded" },
+      );
+      await expect(page.locator("[data-design-editor]")).toBeVisible();
+      await page
+        .getByRole("button", { name: /^share(?: \\(.+\\))?$/i })
+        .first()
+        .click();
+      await page.getByRole("tab", { name: "Live collaboration" }).click();
+
+      const collaborationToggle = page.getByRole("switch", {
+        name: "Live collaboration",
+      });
+      await expect(collaborationToggle).toHaveAttribute(
+        "aria-checked",
+        "false",
+      );
+      await collaborationToggle.click();
+      await expect(collaborationToggle).toHaveAttribute("aria-checked", "true");
+    } finally {
+      await setLiveCollaboration(browser, collaborationDesignId, false);
+    }
+  });
+
   test("shares an inert live snapshot and hands guest edits back to the owner", async ({
     browser,
     page,

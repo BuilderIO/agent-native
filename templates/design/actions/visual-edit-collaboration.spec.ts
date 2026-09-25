@@ -14,13 +14,32 @@ const mocks = vi.hoisted(() => {
   designSelect.where.mockReturnValue(designSelect);
   designSelect.for.mockReturnValue(designSelect);
   designSelect.limit.mockResolvedValue([{ id: "design-one" }]);
-  const snapshotDelete = { where: vi.fn(), returning: vi.fn() };
-  snapshotDelete.where.mockReturnValue(snapshotDelete);
-  snapshotDelete.returning.mockResolvedValue([]);
+  const snapshotSelect = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+  };
+  snapshotSelect.from.mockReturnValue(snapshotSelect);
+  snapshotSelect.where.mockReturnValue(snapshotSelect);
+  snapshotSelect.for.mockResolvedValue([]);
+  const snapshotUpdate = {
+    set: vi.fn(),
+    where: vi.fn(),
+  };
+  snapshotUpdate.set.mockReturnValue(snapshotUpdate);
+  snapshotUpdate.where.mockReturnValue(snapshotUpdate);
+  const snapshots = {
+    designId: "snapshots.designId",
+    blobHandle: "snapshots.blobHandle",
+    captureRevision: "snapshots.captureRevision",
+  };
   const tx = {
-    select: vi.fn(() => designSelect),
-    update: vi.fn(() => update),
-    delete: vi.fn(() => snapshotDelete),
+    select: vi.fn((selection?: Record<string, unknown>) =>
+      selection?.blobHandle === snapshots.blobHandle
+        ? snapshotSelect
+        : designSelect,
+    ),
+    update: vi.fn((table) => (table === snapshots ? snapshotUpdate : update)),
   };
   return {
     designs: {
@@ -28,10 +47,7 @@ const mocks = vi.hoisted(() => {
       liveCollaborationEnabled: "designs.enabled",
       updatedAt: "designs.updatedAt",
     },
-    snapshots: {
-      designId: "snapshots.designId",
-      blobHandle: "snapshots.blobHandle",
-    },
+    snapshots,
     design: { liveCollaborationEnabled: false },
     assertAccess: vi.fn(),
     currentAccess: vi.fn(() => ({
@@ -48,7 +64,8 @@ const mocks = vi.hoisted(() => {
     tx,
     update,
     designSelect,
-    snapshotDelete,
+    snapshotSelect,
+    snapshotUpdate,
   };
 });
 
@@ -67,6 +84,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((left, right) => ({ left, right })),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings: [...strings],
+    values,
+  }),
 }));
 vi.mock("../server/db/index.js", () => ({
   schema: {
@@ -105,8 +126,10 @@ describe("visual-edit collaboration preference", () => {
     mocks.deleteBlobs.mockClear();
     mocks.update.set.mockClear();
     mocks.update.where.mockClear();
-    mocks.tx.delete.mockClear();
-    mocks.snapshotDelete.returning.mockResolvedValue([]);
+    mocks.snapshotSelect.for.mockReset().mockResolvedValue([]);
+    mocks.snapshotUpdate.set.mockClear();
+    mocks.snapshotUpdate.where.mockClear();
+    mocks.tx.update.mockClear();
   });
 
   it("gets the persisted preference with viewer access", async () => {
@@ -145,7 +168,6 @@ describe("visual-edit collaboration preference", () => {
       expect.objectContaining({ liveCollaborationEnabled: true }),
     );
     expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalled();
-    expect(mocks.tx.delete).not.toHaveBeenCalled();
     expect(getCollaborationAction).toMatchObject({ requiresAuth: false });
 
     mocks.getRequestUserEmail.mockReturnValueOnce(undefined);
@@ -157,8 +179,8 @@ describe("visual-edit collaboration preference", () => {
     ).rejects.toMatchObject({ errorCode: "visual_edit_account_required" });
   });
 
-  it("deletes snapshot rows and queues blob cleanup when collaboration is disabled", async () => {
-    mocks.snapshotDelete.returning.mockResolvedValue([
+  it("invalidates snapshot rows and queues blob cleanup when collaboration is disabled", async () => {
+    mocks.snapshotSelect.for.mockResolvedValue([
       { blobHandle: "snapshot-blob" },
       { blobHandle: null },
     ]);
@@ -175,6 +197,14 @@ describe("visual-edit collaboration preference", () => {
       null,
     ]);
     expect(mocks.deleteBlobs).toHaveBeenCalledWith(["snapshot-blob", null]);
+    expect(mocks.snapshotUpdate.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        html: "",
+        blobHandle: null,
+        captureRevision: expect.anything(),
+        publishedRevision: 0n,
+      }),
+    );
   });
 
   it("retries queued blob cleanup when collaboration is disabled without current snapshots", async () => {
@@ -185,6 +215,7 @@ describe("visual-edit collaboration preference", () => {
       ),
     ).resolves.toEqual({ designId: "design-one", enabled: false });
 
+    expect(mocks.snapshotSelect.for).toHaveBeenCalledTimes(1);
     expect(mocks.queueCleanup).toHaveBeenCalledWith(mocks.tx, []);
     expect(mocks.deleteBlobs).toHaveBeenCalledWith([]);
   });

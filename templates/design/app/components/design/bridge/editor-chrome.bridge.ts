@@ -2017,6 +2017,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: {
             ...snapshot,
             requestId,
+            documentId: runtimeDocumentId,
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2034,6 +2035,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           type: "agent-native:runtime-layer-snapshot-unchanged",
           payload: {
             requestId,
+            documentId: snapshot.documentId,
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
@@ -2073,6 +2075,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       {
         type: "agent-native:runtime-layer-snapshot-reservation-request",
         requestId: runtimeLayerSnapshotReservationRequestId,
+        documentId: runtimeDocumentId,
       },
       "*",
     );
@@ -28088,7 +28091,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-      if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+      if (
+        e.data.documentId !== runtimeDocumentId ||
+        e.data.requestId !== runtimeLayerSnapshotReservationRequestId
+      ) {
+        return;
+      }
       runtimeLayerSnapshotReservationInFlight = false;
       if (runtimeLayerSnapshotReservationDirty) {
         runtimeLayerSnapshotReservationDirty = false;

@@ -4309,6 +4309,7 @@ function DesignEditor() {
             setLiveCollaborationOverride(null);
           }
         } catch {
+          // coercion-ok: the mutation is committed; a later query reconciles this visible value.
           // Keep the successful mutation value visible until a later query confirms it.
         }
       } catch (error) {
@@ -21635,12 +21636,14 @@ function DesignEditor() {
         label: "Send to agent" /* i18n-ignore share tab label */,
         content: shareSendToTab,
       },
-      ...(hasLocalhostScreens && isSignedIn && canEditDesign
+      ...(hasLocalhostScreens &&
+      sessionResolved &&
+      (!isSignedIn || canEditDesign)
         ? [
             {
               value: "live-collaboration",
               label: t("designEditor.liveCollaboration.title"),
-              content: (
+              content: isSignedIn ? (
                 <div className="flex items-center justify-between gap-4 py-1">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-foreground">
@@ -21667,6 +21670,14 @@ function DesignEditor() {
                       {t("designEditor.liveCollaboration.description")}
                     </TooltipContent>
                   </Tooltip>
+                </div>
+              ) : (
+                <div className="flex justify-end py-1">
+                  <Button asChild size="sm">
+                    <a href={signInToShareHref}>
+                      {t("designEditor.signUpToShareLiveCanvas")}
+                    </a>
+                  </Button>
                 </div>
               ),
             },

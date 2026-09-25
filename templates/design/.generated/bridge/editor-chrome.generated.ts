@@ -2205,6 +2205,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             payload: {
               ...snapshot,
               requestId,
+              documentId: runtimeDocumentId,
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2219,6 +2220,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             type: "agent-native:runtime-layer-snapshot-unchanged",
             payload: {
               requestId,
+              documentId: snapshot.documentId,
               ...reservationToken ? { reservationToken } : {}
             }
           },
@@ -2256,7 +2258,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
-          requestId: runtimeLayerSnapshotReservationRequestId
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -19869,7 +19872,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;

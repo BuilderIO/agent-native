@@ -7,7 +7,7 @@ import { z } from "zod";
 import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { parseVisualEditSnapshotBlobHandle } from "../server/lib/visual-edit-snapshot-blobs.js";
-import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import { withDesignSourceReadTransaction } from "../server/source-workspace.js";
 import { assertLocalhostScreenMetadata } from "./publish-visual-edit-snapshot.js";
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
@@ -39,22 +39,10 @@ export default defineAction({
   http: { method: "GET" },
   maxResultChars: 1_052_000,
   run: async ({ designId, fileId, knownUpdatedAt, knownPublishedRevision }) => {
-    const access = await assertAccess("design", designId, "viewer");
-    const design = access.resource as typeof schema.designs.$inferSelect;
-    if (design.liveCollaborationEnabled !== true) {
-      return {
-        designId,
-        fileId,
-        html: null,
-        updatedAt: null,
-        publishedRevision: null,
-        unchanged: false,
-      };
-    }
-
+    await assertAccess("design", designId, "viewer");
     const table = schema.designVisualEditSnapshots;
     const where = and(eq(table.designId, designId), eq(table.fileId, fileId));
-    const snapshot = await withDesignSourceMutationTransaction(
+    const snapshot = await withDesignSourceReadTransaction(
       designId,
       async (tx) => {
         const [currentDesign] = await tx
@@ -65,7 +53,24 @@ export default defineAction({
           .from(schema.designs)
           .where(eq(schema.designs.id, designId))
           .limit(1);
-        if (currentDesign?.liveCollaborationEnabled !== true) return null;
+        if (!currentDesign) {
+          return {
+            kind: "disabled" as const,
+            captureRevision: "0",
+          };
+        }
+
+        if (currentDesign.liveCollaborationEnabled !== true) {
+          const [row] = await tx
+            .select({ captureRevision: table.captureRevision })
+            .from(table)
+            .where(where)
+            .limit(1);
+          return {
+            kind: "disabled" as const,
+            captureRevision: row?.captureRevision.toString() ?? "0",
+          };
+        }
 
         const [file] = await tx
           .select({
@@ -97,14 +102,22 @@ export default defineAction({
             html: table.html,
             blobHandle: table.blobHandle,
             updatedAt: table.updatedAt,
+            captureRevision: table.captureRevision,
             publishedRevision: table.publishedRevision,
           })
           .from(table)
           .where(where)
           .limit(1);
-        if (!row) return { kind: "empty" as const, publishedRevision: null };
+        if (!row) {
+          return {
+            kind: "empty" as const,
+            captureRevision: "0",
+            publishedRevision: null,
+          };
+        }
 
         const publishedRevision = row.publishedRevision.toString();
+        const captureRevision = row.captureRevision.toString();
         const unchanged =
           knownPublishedRevision != null
             ? publishedRevision === knownPublishedRevision
@@ -113,17 +126,24 @@ export default defineAction({
           return {
             kind: "unchanged" as const,
             updatedAt: row.updatedAt,
+            captureRevision,
             publishedRevision,
           };
         }
         if (!row.blobHandle && !row.html) {
-          return { kind: "empty" as const, publishedRevision };
+          return {
+            kind: "empty" as const,
+            captureRevision,
+            publishedRevision:
+              row.publishedRevision === 0n ? null : publishedRevision,
+          };
         }
         return {
           kind: "snapshot" as const,
           html: row.html,
           blobHandle: row.blobHandle,
           updatedAt: row.updatedAt,
+          captureRevision,
           publishedRevision,
         };
       },
@@ -135,16 +155,29 @@ export default defineAction({
       html: null,
       updatedAt: null,
       publishedRevision: null,
+      captureRevision:
+        snapshot?.kind === "disabled" ? snapshot.captureRevision : null,
       unchanged: false,
     };
-    if (!snapshot) return empty;
+    if (!snapshot || snapshot.kind === "disabled") {
+      return {
+        ...empty,
+        captureRevision:
+          snapshot?.kind === "disabled" ? snapshot.captureRevision : null,
+      };
+    }
     if (snapshot.kind === "empty") {
-      return { ...empty, publishedRevision: snapshot.publishedRevision };
+      return {
+        ...empty,
+        captureRevision: snapshot.captureRevision,
+        publishedRevision: snapshot.publishedRevision,
+      };
     }
     if (snapshot.kind === "unchanged") {
       return {
         ...empty,
         updatedAt: snapshot.updatedAt,
+        captureRevision: snapshot.captureRevision,
         publishedRevision: snapshot.publishedRevision,
         unchanged: true,
       };
@@ -164,8 +197,8 @@ export default defineAction({
       throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");
     }
 
-    // Keep remote blob I/O outside the lock, then reject opt-out or replacement races.
-    const stillCurrent = await withDesignSourceMutationTransaction(
+    // Keep remote blob I/O outside the shared read lock, then reject opt-out or replacement races.
+    const stillCurrent = await withDesignSourceReadTransaction(
       designId,
       async (tx) => {
         const [currentDesign] = await tx
@@ -175,33 +208,41 @@ export default defineAction({
           .from(schema.designs)
           .where(eq(schema.designs.id, designId))
           .limit(1);
-        if (currentDesign?.liveCollaborationEnabled !== true) return false;
         const [current] = await tx
           .select({
             html: table.html,
             blobHandle: table.blobHandle,
             updatedAt: table.updatedAt,
+            captureRevision: table.captureRevision,
             publishedRevision: table.publishedRevision,
           })
           .from(table)
           .where(where)
           .limit(1);
-        return Boolean(
-          current &&
-          current.html === snapshot.html &&
-          current.blobHandle === snapshot.blobHandle &&
-          current.updatedAt === snapshot.updatedAt &&
-          current.publishedRevision.toString() === snapshot.publishedRevision,
-        );
+        return {
+          matches: Boolean(
+            currentDesign?.liveCollaborationEnabled === true &&
+            current &&
+            current.html === snapshot.html &&
+            current.blobHandle === snapshot.blobHandle &&
+            current.updatedAt === snapshot.updatedAt &&
+            current.captureRevision.toString() === snapshot.captureRevision &&
+            current.publishedRevision.toString() === snapshot.publishedRevision,
+          ),
+          captureRevision: current?.captureRevision.toString() ?? "0",
+        };
       },
     );
-    if (!stillCurrent) return empty;
+    if (!stillCurrent.matches) {
+      return { ...empty, captureRevision: stillCurrent.captureRevision };
+    }
 
     return {
       designId,
       fileId,
       html,
       updatedAt: snapshot.updatedAt,
+      captureRevision: snapshot.captureRevision,
       publishedRevision: snapshot.publishedRevision,
       unchanged: false,
     };

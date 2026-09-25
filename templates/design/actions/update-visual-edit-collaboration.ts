@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
@@ -50,13 +50,23 @@ export default defineAction({
           .where(eq(schema.designs.id, designId));
 
         if (enabled) return [];
+        const table = schema.designVisualEditSnapshots;
         const rows = await tx
-          .delete(schema.designVisualEditSnapshots)
-          .where(eq(schema.designVisualEditSnapshots.designId, designId))
-          .returning({
-            blobHandle: schema.designVisualEditSnapshots.blobHandle,
-          });
+          .select({ blobHandle: table.blobHandle })
+          .from(table)
+          .where(eq(table.designId, designId))
+          .for("update");
         const handles = rows.map((row) => row.blobHandle);
+        await tx
+          .update(table)
+          .set({
+            html: "",
+            blobHandle: null,
+            captureRevision: sql`${table.captureRevision} + 1`,
+            publishedRevision: 0n,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(table.designId, designId));
         await queueVisualEditSnapshotBlobCleanupInTransaction(tx, handles);
         return handles;
       },

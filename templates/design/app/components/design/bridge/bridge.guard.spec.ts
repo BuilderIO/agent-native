@@ -7066,6 +7066,7 @@ function collectBridgeMessages(
           {
             type: "grant-runtime-layer-snapshot-reservation",
             requestId: event.data.requestId,
+            documentId: event.data.documentId,
             reservationToken: `test-reservation-${event.data.requestId}`,
           },
           "*",
@@ -9214,12 +9215,38 @@ it(
             "agent-native:runtime-layer-snapshot-reservation-request",
         ),
       );
-      await page.evaluate((requestId) => {
+      expect(firstRequest.documentId).toEqual(expect.any(String));
+      await page.evaluate((request) => {
         window.postMessage(
-          { type: "grant-runtime-layer-snapshot-reservation", requestId },
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: request.requestId,
+            documentId: "retired-document",
+            reservationToken: "stale-document-reservation",
+          },
           "*",
         );
-      }, firstRequest.requestId);
+      }, firstRequest);
+      await page.waitForTimeout(50);
+      const staleReservationSnapshots = await page.evaluate(() =>
+        ((window as any).__bridgeMessages ?? []).filter(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot" &&
+            message.payload?.reservationToken === "stale-document-reservation",
+        ),
+      );
+      expect(staleReservationSnapshots).toHaveLength(0);
+
+      await page.evaluate((request) => {
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: request.requestId,
+            documentId: request.documentId,
+          },
+          "*",
+        );
+      }, firstRequest);
       await page.waitForFunction(
         (requestId) =>
           ((window as any).__bridgeMessages ?? []).some(
@@ -9259,15 +9286,19 @@ it(
         firstRequest.requestId + 1,
       ]);
 
-      await page.evaluate((requestId) => {
-        window.postMessage(
-          {
-            type: "grant-runtime-layer-snapshot-reservation",
-            requestId,
-          },
-          "*",
-        );
-      }, requestIds[1]);
+      await page.evaluate(
+        ({ requestId, documentId }) => {
+          window.postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId,
+              documentId,
+            },
+            "*",
+          );
+        },
+        { requestId: requestIds[1], documentId: firstRequest.documentId },
+      );
       await page.waitForFunction(
         (requestId) =>
           ((window as any).__bridgeMessages ?? []).some(
@@ -9281,16 +9312,20 @@ it(
         { timeout: 5_000 },
       );
 
-      await page.evaluate((requestId) => {
-        window.postMessage(
-          {
-            type: "grant-runtime-layer-snapshot-reservation",
-            requestId,
-            reservationToken: "late-capture-one",
-          },
-          "*",
-        );
-      }, requestIds[0]);
+      await page.evaluate(
+        ({ requestId, documentId }) => {
+          window.postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId,
+              documentId,
+              reservationToken: "late-capture-one",
+            },
+            "*",
+          );
+        },
+        { requestId: requestIds[0], documentId: firstRequest.documentId },
+      );
       await page.waitForTimeout(50);
       const lateReservationSnapshots = await page.evaluate(() =>
         ((window as any).__bridgeMessages ?? []).filter(
@@ -9301,16 +9336,20 @@ it(
       );
       expect(lateReservationSnapshots).toHaveLength(0);
 
-      await page.evaluate((requestId) => {
-        window.postMessage(
-          {
-            type: "grant-runtime-layer-snapshot-reservation",
-            requestId,
-            reservationToken: "capture-two",
-          },
-          "*",
-        );
-      }, requestIds[1]);
+      await page.evaluate(
+        ({ requestId, documentId }) => {
+          window.postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId,
+              documentId,
+              reservationToken: "capture-two",
+            },
+            "*",
+          );
+        },
+        { requestId: requestIds[1], documentId: firstRequest.documentId },
+      );
       await page.waitForFunction(
         (requestId) =>
           ((window as any).__bridgeMessages ?? []).some(

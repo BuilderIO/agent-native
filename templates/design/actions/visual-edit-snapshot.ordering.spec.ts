@@ -1,3 +1,4 @@
+// guard:allow-unscoped — raw SQL resets the isolated in-memory PGlite fixture.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
@@ -51,6 +52,25 @@ vi.mock("../server/source-workspace.js", () => ({
     const result = await localDb.getDb().transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agent-native:design-source:${designId}`}, 0::bigint))`,
+      );
+      return callback(tx);
+    });
+    if (localDb.afterFirstSourceMutationTransaction) {
+      const afterTransaction = localDb.afterFirstSourceMutationTransaction;
+      localDb.afterFirstSourceMutationTransaction = null;
+      await afterTransaction();
+    }
+    return result;
+  },
+  withDesignSourceReadTransaction: async <T>(
+    designId: string,
+    callback: (tx: unknown) => Promise<T>,
+  ) => {
+    localDb.sourceMutationCalls.push(designId);
+    const { sql } = await import("drizzle-orm");
+    const result = await localDb.getDb().transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`agent-native:design-source:${designId}`}, 0::bigint))`,
       );
       return callback(tx);
     });
@@ -258,7 +278,7 @@ describe("visual-edit snapshot reservation ordering", () => {
         ["design-one"],
       );
       await localDb.pglite?.query(
-        "DELETE FROM design_visual_edit_snapshots WHERE design_id = $1",
+        "UPDATE design_visual_edit_snapshots SET html = '', blob_handle = NULL, capture_revision = capture_revision + 1, published_revision = 0 WHERE design_id = $1",
         ["design-one"],
       );
     };
@@ -329,6 +349,7 @@ describe("visual-edit snapshot reservation ordering", () => {
       fileId: "screen-one",
       html: null,
       updatedAt: null,
+      captureRevision: "2",
       publishedRevision: null,
       unchanged: false,
     });
@@ -336,7 +357,13 @@ describe("visual-edit snapshot reservation ordering", () => {
       "SELECT * FROM design_visual_edit_snapshots WHERE design_id = $1",
       ["design-one"],
     )) ?? { rows: [] };
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      html: "",
+      blob_handle: null,
+      capture_revision: 2,
+      published_revision: 0,
+    });
     expect(localDb.deletePrivateBlob).toHaveBeenCalledWith(blob);
   });
 
@@ -386,7 +413,81 @@ describe("visual-edit snapshot reservation ordering", () => {
       "SELECT * FROM design_visual_edit_snapshots WHERE design_id = $1",
       ["design-one"],
     )) ?? { rows: [] };
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      html: "",
+      blob_handle: null,
+      capture_revision: 2,
+      published_revision: 0,
+    });
+  });
+
+  it("rejects a pre-opt-out upload after collaboration is re-enabled", async () => {
+    const staleBlob = {
+      id: "pre-opt-out-blob",
+      provider: "test-private-provider",
+      opaque: true as const,
+      encrypted: true,
+    };
+    let releaseUpload!: () => void;
+    let signalUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      signalUploadStarted = resolve;
+    });
+    const upload = new Promise<typeof staleBlob>((resolve) => {
+      releaseUpload = () => resolve(staleBlob);
+    });
+    localDb.putPrivateBlob.mockImplementationOnce(() => {
+      signalUploadStarted();
+      return upload;
+    });
+
+    const staleReservation = await reserveSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    const stalePublish = publishSnapshotAction.run(
+      {
+        ...staleReservation,
+        html: "<html><body>Before opt-out</body></html>",
+      },
+      context(),
+    );
+    await uploadStarted;
+
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: false },
+      context(),
+    );
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: true },
+      context(),
+    );
+    const currentReservation = await reserveSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    expect(currentReservation.reservationToken).toBe("3");
+
+    releaseUpload();
+    await expect(stalePublish).resolves.toEqual({
+      designId: "design-one",
+      fileId: "screen-one",
+      published: false,
+    });
+    expect(localDb.deletePrivateBlob).toHaveBeenCalledWith(staleBlob);
+    const { rows } = (await localDb.pglite?.query(
+      "SELECT html, blob_handle, capture_revision, published_revision FROM design_visual_edit_snapshots WHERE design_id = $1 AND file_id = $2",
+      ["design-one", "screen-one"],
+    )) ?? { rows: [] };
+    expect(rows).toEqual([
+      {
+        html: "",
+        blob_handle: null,
+        capture_revision: 3,
+        published_revision: 0,
+      },
+    ]);
   });
 
   it("assigns distinct increasing tokens when owner tabs reserve concurrently", async () => {

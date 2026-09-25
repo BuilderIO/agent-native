@@ -81,6 +81,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: '<!doctype html><html><head><script>top.alert("unsafe-snapshot")</script></head><body><main onclick="unsafe()"><a href="javascript:unsafe()">Shared screen</a><img src="http://localhost:5173/private.png"></main></body></html>',
         updatedAt: "2026-09-24T00:00:00.000Z",
+        captureRevision: "5",
         publishedRevision: "4",
       },
     });
@@ -154,6 +155,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         fileId: "screen-account",
         html: null,
         updatedAt: null,
+        captureRevision: "0",
         publishedRevision: null,
       },
     });
@@ -193,6 +195,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       fileId: string;
       html: string | null;
       updatedAt: string | null;
+      captureRevision: string | null;
       publishedRevision: string | null;
       unchanged: boolean;
     } = {
@@ -200,6 +203,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       fileId: "screen-account",
       html: "<html><body>Old snapshot</body></html>",
       updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "5",
       publishedRevision: "4",
       unchanged: false,
     };
@@ -233,7 +237,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       ...data,
       html: null,
       updatedAt: null,
+      captureRevision: "6",
       publishedRevision: null,
+      unchanged: false,
     };
     await act(async () => root.render(renderSnapshotCanvas()));
 
@@ -245,6 +251,67 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).not.toBeNull();
     expect(container.innerHTML).not.toContain("Old snapshot");
     expect(container.innerHTML).not.toContain("localhost:5173");
+
+    data = {
+      ...data,
+      html: "<html><body>Old snapshot</body></html>",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "5",
+      publishedRevision: "4",
+      unchanged: false,
+    };
+    await act(async () => root.render(renderSnapshotCanvas()));
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(container.innerHTML).not.toContain("Old snapshot");
+  });
+
+  it("resets the capture revision when the selected screen changes", async () => {
+    let data = {
+      designId: "design-one",
+      fileId: "screen-one",
+      html: "<html><body>First screen</body></html>",
+      updatedAt: "2026-09-24T00:00:00.000Z",
+      captureRevision: "6",
+      publishedRevision: "6",
+      unchanged: false,
+    };
+    useActionQueryMock.mockImplementation(() => ({ data }));
+
+    const renderCanvas = (fileId: string) => (
+      <DesignCanvas
+        content={`http://localhost:5173/${fileId}`}
+        contentKey={fileId}
+        screenId={fileId}
+        designId="design-one"
+        sourceType="localhost"
+        snapshotOnly
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => root.render(renderCanvas("screen-one")));
+    expect(container.innerHTML).toContain("First screen");
+
+    data = {
+      ...data,
+      fileId: "screen-two",
+      html: "<html><body>Second screen</body></html>",
+      captureRevision: "2",
+      publishedRevision: "2",
+    };
+    await act(async () => root.render(renderCanvas("screen-two")));
+
+    expect(container.innerHTML).toContain("Second screen");
+    expect(container.innerHTML).not.toContain("First screen");
   });
 
   it("polls shared snapshots only while focused and refetches on activation", async () => {

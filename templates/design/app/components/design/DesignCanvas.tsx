@@ -1541,6 +1541,7 @@ type VisualEditSharedSnapshot = {
   fileId: string;
   html: string | null;
   updatedAt: string | null;
+  captureRevision: string;
   publishedRevision: string;
 };
 
@@ -1562,6 +1563,7 @@ function SharedSnapshotPoller({
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string | null;
     publishedRevision: string | null;
     unchanged: boolean;
   }>(
@@ -1573,6 +1575,7 @@ function SharedSnapshotPoller({
     },
   );
   const wasActiveRef = useRef(active);
+  const latestCaptureRevisionRef = useRef({ designId, fileId, revision: 0n });
 
   useEffect(() => {
     if (active && !wasActiveRef.current) void refetch();
@@ -1580,23 +1583,29 @@ function SharedSnapshotPoller({
   }, [active, refetch]);
 
   useEffect(() => {
-    if (
-      !data ||
-      data.unchanged ||
-      data.designId !== designId ||
-      data.fileId !== fileId
-    ) {
+    if (!data || data.designId !== designId || data.fileId !== fileId) {
       return;
     }
+    if (
+      latestCaptureRevisionRef.current.designId !== designId ||
+      latestCaptureRevisionRef.current.fileId !== fileId
+    ) {
+      latestCaptureRevisionRef.current = { designId, fileId, revision: 0n };
+    }
+    const captureRevision = BigInt(data.captureRevision ?? "0");
+    if (captureRevision < latestCaptureRevisionRef.current.revision) return;
+    latestCaptureRevisionRef.current.revision = captureRevision;
     if (!data.publishedRevision) {
       onSnapshot(null);
       return;
     }
+    if (data.unchanged) return;
     onSnapshot({
       designId,
       fileId,
       html: data.html,
       updatedAt: data.updatedAt,
+      captureRevision: data.captureRevision ?? "0",
       publishedRevision: data.publishedRevision,
     });
   }, [data, designId, fileId, onSnapshot]);
@@ -2286,7 +2295,7 @@ export function DesignCanvas({
   renderedContentRef.current = renderedContent;
   const pendingRuntimeLayerSnapshotReservationsRef = useRef(
     new Map<
-      number,
+      string,
       {
         promise: Promise<{ reservationToken: string } | { error: unknown }>;
         timeout: number;
@@ -2460,6 +2469,7 @@ export function DesignCanvas({
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string;
     publishedRevision: string;
   } | null>(null);
   const matchingSharedSnapshot =
@@ -4271,18 +4281,21 @@ export function DesignCanvas({
         e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
       ) {
         const requestId = e.data.payload?.requestId;
+        const documentId = e.data.payload?.documentId;
         if (
           Number.isSafeInteger(requestId) &&
+          typeof documentId === "string" &&
           typeof e.data.payload?.reservationToken === "string"
         ) {
+          const reservationKey = `${documentId}:${requestId as number}`;
           const pending =
             pendingRuntimeLayerSnapshotReservationsRef.current.get(
-              requestId as number,
+              reservationKey,
             );
           if (pending) {
             window.clearTimeout(pending.timeout);
             pendingRuntimeLayerSnapshotReservationsRef.current.delete(
-              requestId as number,
+              reservationKey,
             );
           }
         }
@@ -4294,17 +4307,30 @@ export function DesignCanvas({
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
         const requestId = e.data.requestId as number;
+        const documentId =
+          typeof e.data.documentId === "string" ? e.data.documentId : "";
+        if (!documentId) {
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+          });
+          return;
+        }
+        const reservationKey = `${documentId}:${requestId}`;
         const grantSnapshot = (reservationToken?: string) =>
           postOneShotBridgeMessage({
             type: "grant-runtime-layer-snapshot-reservation",
             requestId,
+            documentId,
             ...(reservationToken ? { reservationToken } : {}),
           });
         if (
           sourceType === "localhost" &&
           !snapshotOnly &&
           onReserveVisualEditSnapshot &&
-          !pendingRuntimeLayerSnapshotReservationsRef.current.has(requestId)
+          !pendingRuntimeLayerSnapshotReservationsRef.current.has(
+            reservationKey,
+          )
         ) {
           const promise = Promise.resolve()
             .then(() => onReserveVisualEditSnapshot(screenId))
@@ -4314,24 +4340,28 @@ export function DesignCanvas({
             );
           const timeout = window.setTimeout(() => {
             const current =
-              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
             if (current?.promise === promise) {
               pendingRuntimeLayerSnapshotReservationsRef.current.delete(
-                requestId,
+                reservationKey,
               );
             }
           }, 15_000);
-          pendingRuntimeLayerSnapshotReservationsRef.current.set(requestId, {
-            promise,
-            timeout,
-          });
+          pendingRuntimeLayerSnapshotReservationsRef.current.set(
+            reservationKey,
+            { promise, timeout },
+          );
           void promise.then((result) => {
             const pending =
-              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
             if (pending?.promise !== promise) return;
             window.clearTimeout(pending.timeout);
             pendingRuntimeLayerSnapshotReservationsRef.current.delete(
-              requestId,
+              reservationKey,
             );
             if (!("reservationToken" in result)) {
               console.warn(
@@ -4402,10 +4432,21 @@ export function DesignCanvas({
             const queueOnce = (message: Record<string, unknown>) => {
               const alreadyQueued = pendingOneShotMessagesRef.current.some(
                 (queued) =>
-                  (queued as { type?: unknown; requestId?: unknown } | null)
-                    ?.type === message.type &&
-                  (queued as { requestId?: unknown } | null)?.requestId ===
-                    message.requestId,
+                  (
+                    queued as {
+                      type?: unknown;
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.type === message.type &&
+                  (
+                    queued as {
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.requestId === message.requestId &&
+                  (queued as { documentId?: unknown } | null)?.documentId ===
+                    message.documentId,
               );
               if (!alreadyQueued) {
                 pendingOneShotMessagesRef.current.push(message);
@@ -4492,13 +4533,20 @@ export function DesignCanvas({
             ? (payload.requestId as number)
             : undefined;
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
-          if (reservationToken && requestId !== undefined) {
+          if (
+            reservationToken &&
+            requestId !== undefined &&
+            snapshot.documentId
+          ) {
+            const reservationKey = `${snapshot.documentId}:${requestId}`;
             const pending =
-              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
             if (pending) {
               window.clearTimeout(pending.timeout);
               pendingRuntimeLayerSnapshotReservationsRef.current.delete(
-                requestId,
+                reservationKey,
               );
             }
           }
@@ -7909,7 +7957,7 @@ export function DesignCanvas({
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
           onLoad={(event) => {
-            markPreviewFrameReady();
+            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },

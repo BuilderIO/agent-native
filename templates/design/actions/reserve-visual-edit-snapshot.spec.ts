@@ -126,6 +126,8 @@ describe("reserve visual-edit fallback snapshot", () => {
       userEmail: "owner@example.test",
       authCapability: "capability:visual-edit:design:design_localhost",
     });
+    mocks.getRequestUserEmail.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit
