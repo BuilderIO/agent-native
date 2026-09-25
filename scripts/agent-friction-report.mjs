@@ -74,14 +74,14 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
-const BABYSIT_LEASE_CONTINUATION_EXCLUSION = String.raw`(?![^.!?\n]{0,100}(?:;|\b(?:but|yet|although|however)\b)[^.!?\n]{0,80}\b(?:continued|could continue|kept working)\b)`;
+const BABYSIT_LEASE_CONTINUATION_EXCLUSION = String.raw`(?![^.!?\n]{0,100}(?:;|\b(?:but|yet|although|however)\b)[^.!?\n]{0,80}\b(?:continued|could continue|kept working|kept going)\b)`;
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
     String.raw`\bleases?\b[^.!?;\n]{0,60}\b(?:blocked|stopped)\b(?![^.!?;\n]{0,35}\b(?:but|yet|although|however)\b)[^.!?;\n]{0,35}\b(?:work|task|session|thread|agent)\b${BABYSIT_LEASE_CONTINUATION_EXCLUSION}`,
     String.raw`(?<!\bno\s)\bleases?\b(?![^.!?;\n]{0,40}\b(?:not|never)\b)[^.!?;\n]{0,60}\bprevented\b(?:[^.!?;\n]{0,18}\b(?:work|task|session|thread|agent)\b|[^.!?;\n]{0,45}\b(?:us|me|the agent|the task|the session|the thread)\b[^.!?;\n]{0,25}\bfrom\s+(?:continuing|working|doing)\b)${BABYSIT_LEASE_CONTINUATION_EXCLUSION}`,
-    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,35}\b(?:stopped(?:\s+working)?|was blocked|got blocked|couldn['’]?t continue|could not continue|was unable to continue|didn['’]?t continue|did not continue)\b[^.!?;\n]{0,35}\b(?:because(?:\s+of)?|due to|after)\b[^.!?;\n]{0,55}\bleases?\b`,
-    String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:fail(?:ed|ure)?|expired|was(?:n['’]?t| not) renewed|couldn['’]?t renew|could not renew|couldn['’]?t get|could not get)\b[^.!?;\n]{0,30}\b(?:so|therefore|then|meant|caused)\b[^.!?;\n]{0,30}\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,25}\b(?:stopped|couldn['’]?t continue|could not continue|didn['’]?t continue|did not continue|was unable to continue)\b(?![^.!?;\n]{0,60}\b(?:because|due to|since)\b)`,
-    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?;\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?;\n]{0,50}\bleases?\b[^.!?;\n]{0,40}\b(?:so|then|and then|therefore)\b[^.!?;\n]{0,30}\b(?:just\s+)?stop\w*\b`,
+    String.raw`\b(?:work|task|session|thread|agent)\b(?![^.!?;\n]{0,35}\b(?:not|never|didn['’]?t|did not|wasn['’]?t|was not|isn['’]?t|is not)\b[^.!?;\n]{0,20}\bstop\w*\b)[^.!?;\n]{0,35}\b(?:stopped(?:\s+working)?|was blocked|got blocked|couldn['’]?t continue|could not continue|was unable to continue|didn['’]?t continue|did not continue)\b[^.!?;\n]{0,35}\b(?:because(?:\s+of)?|due to|after)\b[^.!?;\n]{0,55}\bleases?\b${BABYSIT_LEASE_CONTINUATION_EXCLUSION}`,
+    String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:fail(?:ed|ure)?|expired|was(?:n['’]?t| not) renewed|couldn['’]?t renew|could not renew|couldn['’]?t get|could not get)\b[^.!?;\n]{0,30}\b(?:so|therefore|then|meant|caused)\b[^.!?;\n]{0,30}\b(?:work|task|session|thread|agent)\b(?![^.!?;\n]{0,25}\b(?:not|never|didn['’]?t|did not|wasn['’]?t|was not)\b[^.!?;\n]{0,15}\bstop\w*\b)[^.!?;\n]{0,25}\b(?:stopped|couldn['’]?t continue|could not continue|didn['’]?t continue|did not continue|was unable to continue)\b(?![^.!?;\n]{0,60}\b(?:because|due to|since)\b)${BABYSIT_LEASE_CONTINUATION_EXCLUSION}`,
+    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?;\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?;\n]{0,50}\bleases?\b[^.!?;\n]{0,40}\b(?:so|then|and then|therefore)\b(?![^.!?;\n]{0,30}\b(?:not|never|no)\b)[^.!?;\n]{0,30}\b(?:just\s+)?stop\w*\b${BABYSIT_LEASE_CONTINUATION_EXCLUSION}`,
     String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
     String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:shouldn['’]?t|should not|wouldn['’]?t|would not|couldn['’]?t|could not)\s+block\b[^.!?;\n]{0,30}\b(?:work|task)\b[^.!?;\n]{0,25}\bbut\s+it\s+did\b`,
   ].join("|"),
@@ -649,6 +649,17 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "The lease blocked work; the task continued in the foreground."],
   [false, "No lease prevented work from continuing."],
   [false, "The lease never prevented the task from continuing."],
+  [
+    false,
+    "The lease prevented the task from continuing, but it did not; the task kept going in the foreground.",
+  ],
+  [
+    false,
+    "Work stopped after the lease expired, but the task continued in the foreground.",
+  ],
+  [false, "Codex could not renew the lease, so it did not stop."],
+  [false, "Work was not stopped because the lease expired."],
+  [false, "The task never stopped after the lease expired."],
   [false, "No work was stopped by the lease."],
   [false, "Don't ignore the lease; continue working."],
   [false, "The lease prevents duplicate watchers so work can continue."],

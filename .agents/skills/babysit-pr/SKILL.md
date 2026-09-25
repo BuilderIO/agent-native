@@ -55,16 +55,18 @@ continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
 1. Run one foreground tick immediately and continue here until this mode's
-   endpoint. Do not create or resume a heartbeat, acquire a lease, or update a
-   scheduled task while the PR is open. At a terminal PR state, pause a legacy
-   heartbeat only after rereading its full persisted definition and confirming
-   it is a heartbeat for this exact `/babysit-pr <number>` (its name and prompt
-   identify the same PR), and its `targetThreadId` matches this task. A thread
-   match alone is insufficient. Update that same definition with only `status`
-   changed to `PAUSED`, preserving every other field, then reread it and verify
-   the id, kind, name, prompt, target, status, and unchanged fields. If any step
-   cannot be verified, leave it alone and report the problem. Never act on a PR
-   or branch match alone. A lease has no role in foreground PR work.
+   endpoint. Never create or resume a heartbeat or acquire a lease. Do not
+   modify scheduled tasks while PR work is active. At any endpoint that ends
+   this invocation, including standalone's 30-minute green stop and the
+   `ready-only` endpoint while the PR is open, pause a pre-existing heartbeat
+   only after rereading its full persisted definition and confirming it is a
+   heartbeat for this exact `/babysit-pr <number>` (its name and prompt identify
+   the same PR), and its `targetThreadId` matches this task. A thread match alone
+   is insufficient. Update that same definition with only `status` changed to
+   `PAUSED`, preserving every other field, then reread it and verify the id,
+   kind, name, prompt, target, status, and unchanged fields. If any step cannot
+   be verified, leave it alone and report the problem. Never act on a PR or
+   branch match alone. A lease has no role in foreground PR work.
 2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
 3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
@@ -435,8 +437,7 @@ disposition.
 
 ## Cleanup
 
-No watcher or lease is created by this workflow. At a terminal PR state, pause
-a pre-existing heartbeat only if its name and prompt identify this exact PR's
-`/babysit-pr <number>` run and its `targetThreadId` matches this task. Follow the
-full-definition read/update/verify rule in Setup; leave other automations
+No watcher or lease is created by this workflow. At any endpoint that ends this
+invocation, use the ownership-verified heartbeat cleanup from Setup, including
+when standalone or `ready-only` leaves the PR open. Leave other automations
 untouched. Verify the PR's final state.
