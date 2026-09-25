@@ -649,8 +649,10 @@ const NEGATED_HTML_EVENT_HANDLER_LOCATION_PATTERN = new RegExp(
   String.raw`\bno\s+(?:${HTML_TAINT_SOURCE_PATTERN}\s+)?${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_LOCATION_ACTION_PATTERN}(?=\s*(?:to\s+(?:an?\s+)?(?:attacker|external|remote|untrusted)(?:[- ]controlled)?\s+(?:page|url|site|domain|origin))?(?:[,.;!?]|\b(?:and|but|however|while)\b|$))`,
   "i",
 );
-const SAFE_HTML_HANDLER_REMOVAL_PATTERN =
-  /\b(?:on[a-z]+\s+(?:handler|attribute)|event[- ]handler)\b.{0,80}\b(?:removed|stripped|sanitized|sanitised|set\s+to\s+(?:null|undefined))\b.{0,40}\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b/i;
+const SAFE_HTML_HANDLER_REMOVAL_PATTERN = new RegExp(
+  String.raw`\b(?:${HTML_TAINT_SOURCE_PATTERN}\s+)?${HTML_EVENT_HANDLER_REFERENCE_PATTERN}\b.{0,160}?\b(?:removed|stripped|sanitized|sanitised|set\s+to\s+(?:null|undefined))\b.{0,40}?\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b`,
+  "i",
+);
 const NON_FINDING_PATTERN =
   /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:or|and)\s+)*(?:(?:api[- ]keys?|tokens?|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+)?(?:security\s+(?:issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies))|issues?|findings?|concerns?|risks?|vulnerabilit(?:y|ies)|exploits?)\b(?:\s+(?:were|was|are|is))?\s+(?:found|identified|reported|present)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|api[- ]keys?|tokens?|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss|xss|cross-site scripting|csrf|cross-site request forgery|csp|content[- ]security[- ]policy|(?:html\s+)?sanitiz(?:e|ers?|ations?|ed|ing))\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
@@ -720,6 +722,49 @@ export function hasActiveCredibleSafetyFinding(
       });
       if (safetyTerms.length === 0) return false;
 
+      const safeHandlerRemovals = Array.from(
+        sentence.matchAll(
+          new RegExp(SAFE_HTML_HANDLER_REMOVAL_PATTERN.source, "gi"),
+        ),
+      ).filter((match) => {
+        const handlerReference = new RegExp(
+          HTML_EVENT_HANDLER_REFERENCE_PATTERN,
+          "i",
+        ).exec(match[0]);
+        const removal =
+          /\b(?:removed|stripped|sanitized|sanitised|set\s+to\s+(?:null|undefined))\b/i.exec(
+            match[0],
+          );
+        if (!handlerReference || !removal) return false;
+
+        const betweenHandlerAndRemoval = match[0].slice(
+          (handlerReference.index ?? 0) + handlerReference[0].length,
+          removal.index,
+        );
+        const removalIsTiedToHandler =
+          /^\s*(?:(?:is|was|has\s+been)\s+)?$/i.test(
+            betweenHandlerAndRemoval,
+          ) ||
+          /\b(?:(?:the|this|that|same)\s+)?(?:event[- ]?)?handler(?:\s+itself)?\s+(?:(?:is|was|has\s+been)\s+)?$/i.test(
+            betweenHandlerAndRemoval,
+          );
+        const afterRemoval = match[0].slice(removal.index + removal[0].length);
+        return (
+          removalIsTiedToHandler &&
+          !/\b(?:another|other|separate|different|second|additional)\b/i.test(
+            betweenHandlerAndRemoval,
+          ) &&
+          !/\b(?:not|never|isn't|wasn't|aren't|weren't|doesn't|don't|didn't|hasn't|haven't|cannot|can't|without|no longer)\b.{0,40}$/i.test(
+            match[0].slice(0, removal.index),
+          ) &&
+          !/\bfail(?:s|ed)?\s+to(?:\s+be)?\b.{0,30}$/i.test(
+            match[0].slice(0, removal.index),
+          ) &&
+          !/\bafter\s+(?:insertion|rendering|execution)\b.{0,40}\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b/i.test(
+            afterRemoval,
+          )
+        );
+      });
       const nonFindings = [
         ...sentence.matchAll(new RegExp(NON_FINDING_PATTERN.source, "gi")),
         ...sentence.matchAll(new RegExp(NEGATED_FINDING_PATTERN.source, "gi")),
@@ -729,9 +774,7 @@ export function hasActiveCredibleSafetyFinding(
         ...sentence.matchAll(
           new RegExp(NEGATED_HTML_EVENT_HANDLER_LOCATION_PATTERN.source, "gi"),
         ),
-        ...sentence.matchAll(
-          new RegExp(SAFE_HTML_HANDLER_REMOVAL_PATTERN.source, "gi"),
-        ),
+        ...safeHandlerRemovals,
       ];
       return safetyTerms.some((safetyTerm) => {
         const index = safetyTerm.index ?? 0;
@@ -750,6 +793,7 @@ export function hasActiveCredibleSafetyFinding(
           return (
             coversTerm &&
             (/^\b(?:no|none|zero)\b/i.test(match[0]) ||
+              safeHandlerRemovals.includes(match) ||
               coveredTerms.length === 1 ||
               (compound !== null &&
                 coveredTerms.every((term) => {
