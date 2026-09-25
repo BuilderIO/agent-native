@@ -225,7 +225,7 @@ describe("ObservabilityDashboard human review", () => {
           answer: "-",
           threadTitle: "Thread title while preview is missing",
           summary: null,
-          hasInlineApp: false,
+          hasInlineApp: true,
           model: "test-model",
           createdAt: Date.now() - 2,
           feedback: [],
