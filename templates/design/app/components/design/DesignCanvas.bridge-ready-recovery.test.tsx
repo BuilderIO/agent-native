@@ -284,10 +284,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       requestId: "move-1:source",
       transactionId: "move-1",
       selector: "#source",
-      waitForInsertTransaction: false,
-      rollbackScreenId: "screen-target",
-      rollbackSelector: "#inserted",
-      rollbackSourceId: "inserted-id",
+      waitForInsertTransaction: true,
       cancelRequested: true,
     });
     expect(

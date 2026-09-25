@@ -56,17 +56,19 @@ export function scheduleCrossScreenRollbackTimeout(
   return () => window.clearTimeout(timeout);
 }
 
-export function crossScreenTargetUnmountDeleteCancellation(
+export function crossScreenSourceDeleteCancellation(
   request: (RuntimeStructureDeleteRequest & { screenId: string }) | null,
   transactionId: string,
 ): (RuntimeStructureDeleteRequest & { screenId: string }) | null {
   if (
     !request ||
     request.transactionId !== transactionId ||
-    request.waitForInsertTransaction !== false ||
-    !request.rollbackScreenId ||
-    !request.rollbackSelector
+    !request.rollbackScreenId
   ) {
+    return null;
+  }
+  if (request.cancelRequested) return request;
+  if (request.waitForInsertTransaction !== true && !request.rollbackSelector) {
     return null;
   }
   return { ...request, cancelRequested: true };
@@ -78,7 +80,9 @@ export function crossScreenRollbackIsComplete(
 ): boolean {
   return (
     result.applied ||
-    (request.idempotent === true && result.reason === "target-unresolved")
+    (request.idempotent === true &&
+      (result.reason === "target-unresolved" ||
+        result.reason === "target-canvas-unmounted"))
   );
 }
 

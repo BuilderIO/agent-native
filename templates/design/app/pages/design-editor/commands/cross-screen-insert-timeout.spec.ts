@@ -6,7 +6,7 @@ import {
   CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS,
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
-  crossScreenTargetUnmountDeleteCancellation,
+  crossScreenSourceDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -103,7 +103,7 @@ describe("crossScreenRollbackDisposition", () => {
   });
 });
 
-describe("cross-screen target unmount after insert acknowledgement", () => {
+describe("cross-screen destination failure recovery", () => {
   it("restores the source and keeps an idempotent destination rollback for bridge recovery", () => {
     const sourceDeleteAfterInsertAck = {
       requestId: "move-1:source",
@@ -116,7 +116,7 @@ describe("cross-screen target unmount after insert acknowledgement", () => {
       rollbackSourceId: "inserted-id",
     };
 
-    const cancellation = crossScreenTargetUnmountDeleteCancellation(
+    const cancellation = crossScreenSourceDeleteCancellation(
       sourceDeleteAfterInsertAck,
       "move-1",
     );
@@ -125,17 +125,20 @@ describe("cross-screen target unmount after insert acknowledgement", () => {
       cancelRequested: true,
     });
     expect(
-      crossScreenTargetUnmountDeleteCancellation(
-        sourceDeleteAfterInsertAck,
-        "move-1",
-      ),
+      crossScreenSourceDeleteCancellation(sourceDeleteAfterInsertAck, "move-1"),
     ).toEqual(cancellation);
+    const sourceDeleteBeforeInsertAck = {
+      ...sourceDeleteAfterInsertAck,
+      waitForInsertTransaction: true,
+      rollbackSelector: undefined,
+      rollbackSourceId: undefined,
+    };
     expect(
-      crossScreenTargetUnmountDeleteCancellation(
-        { ...sourceDeleteAfterInsertAck, waitForInsertTransaction: true },
+      crossScreenSourceDeleteCancellation(
+        sourceDeleteBeforeInsertAck,
         "move-1",
       ),
-    ).toBeNull();
+    ).toEqual({ ...sourceDeleteBeforeInsertAck, cancelRequested: true });
 
     const rollback = {
       requestId: "move-1:target-unmount-rollback",
@@ -152,6 +155,12 @@ describe("cross-screen target unmount after insert acknowledgement", () => {
       crossScreenRollbackIsComplete(rollback!, {
         applied: false,
         reason: "target-unresolved",
+      }),
+    ).toBe(true);
+    expect(
+      crossScreenRollbackIsComplete(rollback!, {
+        applied: false,
+        reason: "target-canvas-unmounted",
       }),
     ).toBe(true);
     expect(

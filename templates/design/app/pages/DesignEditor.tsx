@@ -676,7 +676,7 @@ import { runCrossScreenElementDrop } from "./design-editor/commands/cross-screen
 import {
   crossScreenRollbackIsComplete,
   crossScreenRollbackDisposition,
-  crossScreenTargetUnmountDeleteCancellation,
+  crossScreenSourceDeleteCancellation,
   scheduleCrossScreenDeleteTimeout,
   scheduleCrossScreenInsertTimeout,
   scheduleCrossScreenRollbackTimeout,
@@ -17233,7 +17233,7 @@ function DesignEditor() {
         reason === "target-document-replaced";
       const targetUnavailableCancellation =
         targetDocumentUnavailable && transactionId
-          ? crossScreenTargetUnmountDeleteCancellation(
+          ? crossScreenSourceDeleteCancellation(
               sourceDeleteRequest,
               transactionId,
             )
@@ -17598,6 +17598,35 @@ function DesignEditor() {
         destinationHasPendingInsert: hasPendingInsert,
         destinationScreenExists,
       });
+      const pendingSourceDelete =
+        transactionId &&
+        runtimeStructureDeleteRequest?.transactionId === transactionId &&
+        !runtimeStructureDeleteRequest.cancelRequested
+          ? runtimeStructureDeleteRequest
+          : null;
+      const pendingSourceCancellation =
+        transactionId && pendingSourceDelete
+          ? crossScreenSourceDeleteCancellation(
+              pendingSourceDelete,
+              transactionId,
+            )
+          : null;
+      if (disposition === "discard" && pendingSourceCancellation) {
+        setRuntimeStructureInsertRequest((current) =>
+          current?.transactionId === transactionId ? null : current,
+        );
+        setRuntimeStructureRollbackRequest(null);
+        setRuntimeStructureDeleteRequest((current) =>
+          current?.transactionId === transactionId
+            ? {
+                ...pendingSourceCancellation,
+                rollbackSelector: undefined,
+                rollbackSourceId: undefined,
+              }
+            : current,
+        );
+        return;
+      }
       if (disposition === "retain-recovery") {
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
           duration: 4000,
@@ -17630,11 +17659,13 @@ function DesignEditor() {
       runtimeStructureRollbackRequest,
       runtimeStructurePendingTransactionRef,
       setRuntimeStructureDeleteRequest,
+      setRuntimeStructureInsertRequest,
       setRuntimeStructureRollbackRequest,
       boardFileId,
       overviewScreens,
       pendingLiveNonStyleEditsRef,
       pendingLiveNonStyleUndoStackRef,
+      runtimeStructureDeleteRequest,
       t,
     ],
   );
