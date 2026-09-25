@@ -71,14 +71,20 @@ ls .claude/worktrees/ 2>/dev/null
 gh pr list --head "$(git branch --show-current)" --state open
 ```
 
-Run `corepack pnpm ship:push` for any nonignored changes before moving to the
-next branch. Do not leave local work behind during branch rotation.
+When branch rotation is explicitly authorized, publish one complete snapshot
+with `corepack pnpm ship:push -m "<specific change>"` before moving branches.
+Do not publish a separate checkpoint for each delegate or intermediate edit.
+Do not leave local work behind during branch rotation.
 
 ## Before you ship
 
 Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
 and `gh pr list --head <branch>` for the current PR. If the work you were
 about to do just landed, continue from the latest branch snapshot.
+
+Do not rebase or merge `origin/main` just to clear behind status or restart
+checks. Rebase or merge it only when GitHub reports an actual conflict; for a
+shared branch, prefer a normal merge.
 
 ## Reading a Codex peer's intent
 

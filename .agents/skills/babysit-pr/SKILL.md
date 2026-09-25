@@ -26,17 +26,23 @@ is the branch snapshot. At the first tick, record dirty paths and unpushed
 commits; publish the requested initial work only after verifying that every
 candidate belongs to this PR's requested fix. If unrelated or incomplete
 concurrent work is present, preserve it for its owner and wait. On later ticks,
-inspect the tree before every push. Run `corepack pnpm ship:push` only when the
-current branch contains an actionable change required by failing CI, PR
-feedback, a real merge conflict, or an explicit user request. A clean tree,
-`origin/main` drift, queued checks, or a timer tick is not a reason to commit
-or push. Never publish unrelated concurrent work, and never revert, stash, or
-overwrite it.
+inspect the tree before every push. Publish only a complete, coherent set of
+currently known fixes for failing CI, PR feedback, a real merge conflict, or
+an explicit user request. Batch multiple feedback items and delegate changes
+into one update; do not create a commit for each finding, checkpoint, or timer
+tick. Every new head reruns affected checks and resets the soak. Use
+`corepack pnpm ship:push -m` with a subject naming the actual fix (for example,
+`fix: deduplicate chat start checkpoints`); the helper rejects an omitted or
+generic subject. A clean tree, `origin/main` drift, queued checks, or a timer
+tick is not a reason to commit or push. Never publish unrelated concurrent
+work, and never revert, stash, or overwrite it.
 
-When an actionable fix is actively changing, publish one coherent snapshot
-once it is ready, then push it to the existing PR so CI and review agents can
-work in parallel. The final clean-tree and merge-soak gates still apply before
-merging, except when the user explicitly invokes `/ship-now`.
+When an actionable fix is changing, collect all known related CI and review
+findings, validate the combined fix, then publish one coherent snapshot to the
+existing PR. Do not push incremental snapshots just to start CI early; the
+latest head needs a stable run before merge. The final clean-tree and
+merge-soak gates still apply before merging, except when the user explicitly
+invokes `/ship-now`.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
@@ -61,9 +67,12 @@ an unexpected merge without rotating.
    does not already contain the local commits, confirm the tree is clean and
    those commits belong to this PR, merge the refreshed `origin/<branch>` into
    the current branch, resolve and test, then recheck the live head before
-   pushing. Never retry the same stale push, rebase, or force-push. Guard PR
-   merges with `--match-head-commit <live_head_oid>`; a stale-head rejection is
-   a retry signal, not a reason to stop the requested work.
+   pushing. Never retry the same stale push, rebase, or force-push. Never
+   update from `origin/main` unless GitHub reports a confirmed `CONFLICTING`
+   PR; then use a normal merge, never a rebase. A behind count or pending
+   checks are not conflicts. Guard PR merges with
+   `--match-head-commit <live_head_oid>`; a stale-head rejection is a retry
+   signal, not a reason to stop the requested work.
 3. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
 4. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
@@ -79,11 +88,11 @@ minutes of quiet.
 
 ### Loop discipline — read this, it is the part people get wrong
 
-- **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
+- **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, or feedback within the last few minutes). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). Tight cadence is for observing status, not for publishing more often. Coordinate concurrent edits with the owning task; delegates do not publish.
 - **Keep the foreground loop moving.** Do not end `/ship` because CI, review, or
   a background command is pending. Use short interruptible waits and check
   again in this task.
-- **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
+- **Do not publish an incomplete snapshot to avoid slow local validation.** Use the narrowest meaningful local check when full validation is slow or contaminated, record exact results, and let the current head's CI finish. If CI or review identifies a fix, batch the currently known actionable items and publish one complete update.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
   to detect actionable changes, but publish only the fixes allowed by the
@@ -122,7 +131,7 @@ else
 fi
 ```
 
-After the status check, run `corepack pnpm ship:push` only when the dirty or
+After the status check, run `corepack pnpm ship:push -m` with a subject naming the actual fix, and only when the dirty or
 unpushed work is the intentional fix for a concrete CI failure, PR feedback,
 merge conflict, or explicit user request. If the tree is clean and already
 pushed, do nothing. If it is clean with unpushed commits, push them directly
@@ -177,8 +186,9 @@ can change within minutes, so re-check before every actionable push.
    preserve it and wait for its owner instead of stashing, restoring, or
    forcing the merge. Do not merge `origin/main` again while the PR is
    `MERGEABLE` or `UNKNOWN`, or while checks are merely pending; a conflict-free
-   PR does not need another main merge. Only rebase if the user explicitly asks
-   for a linear history.
+   PR does not need another main sync. Rebase or merge from main only to
+   resolve a confirmed conflict. Because this branch is shared, prefer a
+   normal merge; never rebase if it would rewrite peer commits.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff
@@ -236,7 +246,7 @@ in the recap rather than treating it as no findings.
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
-   - Run `corepack pnpm ship:push` to publish the complete fix snapshot
+   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the applicable clock described above
 
@@ -244,7 +254,7 @@ in the recap rather than treating it as no findings.
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
-   - Run `corepack pnpm ship:push` to publish the complete fix snapshot
+   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
    - Reset the applicable clock described above
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
