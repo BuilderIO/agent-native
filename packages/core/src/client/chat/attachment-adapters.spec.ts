@@ -4,6 +4,7 @@ import {
   BinaryDocumentAttachmentAdapter,
   DownscalingImageAttachmentAdapter,
   estimateAttachmentBodyBytes,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   isTextLikeFile,
   MAX_ESTIMATED_BODY_BYTES,
@@ -109,7 +110,8 @@ describe("attachment body size estimation", () => {
       "mail body",
       "data:application/pdf;base64,abc",
     ]);
-    expect(estimateAttachmentBodyBytes(['"\\\né'])).toBe(10);
+    expect(estimateAttachmentBodyBytes(['"\\\né'])).toBeCloseTo(11.5);
+    expect(measureJsonStringBytes(['"\\\né'])).toBe(10);
   });
 
   it("keeps a largest-size PDF below budget with a short continuation prompt", () => {
@@ -118,7 +120,7 @@ describe("attachment body size estimation", () => {
     const prompt = "Create a Content page from this PDF.";
 
     expect(
-      estimateAttachmentBodyBytes([dataUrl, prompt, prompt, prompt]),
+      measureJsonStringBytes([dataUrl, prompt, prompt, prompt]),
     ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
   });
 
@@ -127,11 +129,11 @@ describe("attachment body size estimation", () => {
     const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
     const prompt = "x".repeat(60 * 1024);
 
-    expect(estimateAttachmentBodyBytes([dataUrl, prompt, prompt])).toBeLessThan(
+    expect(measureJsonStringBytes([dataUrl, prompt, prompt])).toBeLessThan(
       MAX_ESTIMATED_BODY_BYTES,
     );
     expect(
-      estimateAttachmentBodyBytes([dataUrl, prompt, prompt, prompt]),
+      measureJsonStringBytes([dataUrl, prompt, prompt, prompt]),
     ).toBeGreaterThan(MAX_ESTIMATED_BODY_BYTES);
   });
 });

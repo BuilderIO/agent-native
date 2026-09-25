@@ -111,7 +111,7 @@ import {
   transcodeImageToDataURL,
   createAgentImageAttachments,
   serializeQueuedAttachments,
-  estimateAttachmentBodyBytes,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
@@ -5962,8 +5962,7 @@ const AssistantChatInner = forwardRef<
             ...promptPayloadStrings,
           ];
           if (
-            estimateAttachmentBodyBytes(allPayloadStrings) >
-            MAX_ESTIMATED_BODY_BYTES
+            measureJsonStringBytes(allPayloadStrings) > MAX_ESTIMATED_BODY_BYTES
           ) {
             // Re-compress image attachments more aggressively.
             const recompressed: typeof allAttachments = [];
@@ -6008,7 +6007,7 @@ const AssistantChatInner = forwardRef<
               ...promptPayloadStrings,
             ];
             if (
-              estimateAttachmentBodyBytes(recompressedPayloadStrings) >
+              measureJsonStringBytes(recompressedPayloadStrings) >
               MAX_ESTIMATED_BODY_BYTES
             ) {
               setComposerError(t("agentChat.composer.requestTooLarge"));

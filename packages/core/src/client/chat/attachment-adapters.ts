@@ -174,18 +174,18 @@ export async function getImageFileDataURL(file: File): Promise<string> {
   }
 }
 
-/**
- * Estimate the serialized byte cost of attachment payload strings (base64 or
- * text, accounting for UTF-8 encoding and JSON string escaping overhead).
- */
-export function estimateAttachmentBodyBytes(values: string[]): number {
+/** Measure the exact JSON-encoded byte cost of payload strings. */
+export function measureJsonStringBytes(values: string[]): number {
   const encodedBytes = new TextEncoder();
-  // JSON.stringify includes quotes and escaping; don't add another estimate
-  // on top of the exact encoded byte count.
   return values.reduce(
     (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
     0,
   );
+}
+
+/** Conservatively estimate attachment bytes when other request fields are unknown. */
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  return measureJsonStringBytes(values) * 1.15;
 }
 
 export type QueuedAttachment = CompleteAttachment & {
