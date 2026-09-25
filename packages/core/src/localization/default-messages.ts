@@ -35,6 +35,9 @@ const messages = {
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
   },
+  routeTitles: {
+    agentObservability: "Agent observability navigation",
+  },
   onboarding: {
     back: "Back",
     chooseRole: "Choose your role",

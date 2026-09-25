@@ -9,9 +9,10 @@ const mockGetOrgScopedThreadData = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedThreadTitles = vi.hoisted(() => vi.fn());
 const mockGetOrgScopedReviewThreads = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummaries = vi.hoisted(() => vi.fn());
-const mockGetTraceSpansForRun = vi.hoisted(() => vi.fn());
+const mockGetSuccessfulToolSpansForReview = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
+  MAX_REVIEW_TOOL_SPANS: 20,
   getOrgScopedThreadData: (...args: unknown[]) =>
     mockGetOrgScopedThreadData(...args),
   getOrgScopedThreadTitles: (...args: unknown[]) =>
@@ -20,7 +21,8 @@ vi.mock("./store.js", () => ({
     mockGetOrgScopedReviewThreads(...args),
   getHumanReviewSummaries: (...args: unknown[]) =>
     mockGetHumanReviewSummaries(...args),
-  getTraceSpansForRun: (...args: unknown[]) => mockGetTraceSpansForRun(...args),
+  getSuccessfulToolSpansForReview: (...args: unknown[]) =>
+    mockGetSuccessfulToolSpansForReview(...args),
   getTraceSummaries: (...args: unknown[]) => mockGetTraceSummaries(...args),
   getTraceSummary: (...args: unknown[]) => mockGetTraceSummary(...args),
   getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
@@ -82,7 +84,7 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", "A real thread"]]),
     );
     mockGetHumanReviewSummaries.mockResolvedValue(new Map());
-    mockGetTraceSpansForRun.mockResolvedValue([]);
+    mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
     mockGetFeedback.mockResolvedValue([
       {
         id: "feedback-1",
@@ -272,11 +274,9 @@ describe("listOutputReviews", () => {
       threadId: "thread-1",
       userId: "alice@example.com",
     });
-    mockGetTraceSpansForRun.mockResolvedValueOnce([
+    mockGetSuccessfulToolSpansForReview.mockResolvedValueOnce([
       {
-        spanType: "tool_call",
         name: "create_design",
-        status: "success",
         metadata: {
           input: {
             designId: "design-42",
@@ -292,12 +292,6 @@ describe("listOutputReviews", () => {
           output:
             '{"designId":"design-json-43","title":"Published design","path":"https://storage.example.test/design?X-Amz-Signature=fake-presigned-signature","route":"data:text/plain,inline%20secret"}',
         },
-      },
-      {
-        spanType: "tool_call",
-        name: "create_design",
-        status: "error",
-        metadata: { output: { designId: "failed-design" } },
       },
     ]);
 
@@ -344,9 +338,11 @@ describe("listOutputReviews", () => {
     expect(JSON.stringify(source)).not.toContain("fake-bearer-field");
     expect(JSON.stringify(source)).not.toContain("fake-cookie-query");
     expect(JSON.stringify(source)).not.toContain("fake-session-query");
-    expect(mockGetTraceSpansForRun).toHaveBeenCalledWith("run-1", {
-      orgId: "org-a",
-    });
+    expect(mockGetSuccessfulToolSpansForReview).toHaveBeenCalledWith(
+      "run-1",
+      "org-a",
+      20,
+    );
     expect(mockGetOrgScopedThreadData).toHaveBeenCalledWith(
       "org-a",
       "alice@example.com",
@@ -474,11 +470,9 @@ describe("listOutputReviews", () => {
       },
     });
     mockGetTraceSummary.mockResolvedValueOnce({ runId: "run-1" });
-    mockGetTraceSpansForRun.mockResolvedValueOnce([
+    mockGetSuccessfulToolSpansForReview.mockResolvedValueOnce([
       {
-        spanType: "tool_call",
         name: "create_design",
-        status: "success",
         metadata: { input },
       },
     ]);

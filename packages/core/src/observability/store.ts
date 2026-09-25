@@ -127,6 +127,10 @@ const USER_SCOPED_TABLES = [
   "agent_instruction_updates",
 ] as const;
 
+const MAX_REVIEW_THREAD_BYTES = 1_000_000;
+export const MAX_REVIEW_TOOL_SPANS = 20;
+const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
+
 /**
  * Append an `AND user_id = ?` clause when a userId filter is requested.
  * Returns the fully-bound WHERE clause + args ready to splice into the
@@ -630,6 +634,39 @@ export async function getTraceSpansForRun(
   return (rows as any[]).map(rowToTraceSpan);
 }
 
+export async function getSuccessfulToolSpansForReview(
+  runId: string,
+  orgId: string,
+  limit: number,
+): Promise<Array<{ name: string; metadata: Record<string, unknown> | null }>> {
+  const boundedLimit = Math.min(
+    Math.max(Math.trunc(limit), 0),
+    MAX_REVIEW_TOOL_SPANS,
+  );
+  if (!orgId || boundedLimit === 0) return [];
+  await ensureObservabilityTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT name,
+      CASE WHEN OCTET_LENGTH(metadata) <= ? THEN metadata ELSE NULL END AS metadata
+      FROM agent_trace_spans
+      WHERE run_id = ? AND org_id = ?
+        AND span_type = 'tool_call' AND status = 'success'
+      ORDER BY created_at ASC
+      LIMIT ?`,
+    args: [MAX_REVIEW_TOOL_METADATA_BYTES, runId, orgId, boundedLimit],
+  });
+  return (rows as Array<Record<string, unknown>>).map((row) => {
+    const metadata = safeJsonParse<unknown>(row.metadata, null);
+    return {
+      name: String(row.name),
+      metadata:
+        metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? (metadata as Record<string, unknown>)
+          : null,
+    };
+  });
+}
+
 export async function getTraceSummaries(opts: {
   sinceMs?: number;
   limit?: number;
@@ -652,6 +689,7 @@ export async function getTraceSummaries(opts: {
     ? `AND run_id NOT IN (
         SELECT run_id FROM agent_trace_spans
         WHERE span_type = 'agent_run' AND name = ?
+          ${opts.orgId ? "AND org_id = ?" : opts.userId ? "AND user_id = ?" : ""}
       )`
     : "";
   const reviewContext = opts.requireReviewContext
@@ -680,7 +718,12 @@ export async function getTraceSummaries(opts: {
       LIMIT ?`,
     args: [
       ...args,
-      ...(opts.excludeSpanName ? [opts.excludeSpanName] : []),
+      ...(opts.excludeSpanName
+        ? [
+            opts.excludeSpanName,
+            ...(opts.orgId ? [opts.orgId] : opts.userId ? [opts.userId] : []),
+          ]
+        : []),
       limit,
     ],
   });
@@ -767,11 +810,14 @@ export async function getOrgScopedReviewThreads(
   if (!orgId || keys.length === 0) return new Map();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_data, title FROM chat_threads
+    sql: `SELECT id,
+      CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END AS thread_data,
+      title FROM chat_threads
       WHERE org_id = ? AND (${keys
         .map(() => "(LOWER(owner_email) = LOWER(?) AND id = ?)")
         .join(" OR ")})`,
     args: [
+      MAX_REVIEW_THREAD_BYTES,
       orgId,
       ...keys.flatMap(({ ownerEmail, threadId }) => [ownerEmail, threadId]),
     ],

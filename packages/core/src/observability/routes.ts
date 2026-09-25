@@ -231,36 +231,41 @@ export function createObservabilityHandler() {
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
       const org = await getOrgContext(event);
+      const runId = body.runId ? String(body.runId) : null;
+      let threadId = body.threadId ? String(body.threadId) : null;
+      let model: string | undefined;
+      let orgId = org.orgId;
+      if (runId) {
+        const summary = await getTraceSummary(runId, {
+          userId: owner,
+          ...(org.orgId ? { orgId: org.orgId } : {}),
+        });
+        if (!summary || (threadId && threadId !== summary.threadId)) {
+          setResponseStatus(event, 404);
+          return { error: "Trace not found" };
+        }
+        threadId = summary.threadId;
+        model = summary.model || undefined;
+        orgId = summary.orgId ?? org.orgId;
+      }
       const inserted = await insertFeedback({
         id,
-        runId: body.runId ? String(body.runId) : null,
-        threadId: body.threadId ? String(body.threadId) : null,
+        runId,
+        threadId,
         messageSeq:
           typeof body.messageSeq === "number" ? body.messageSeq : null,
         feedbackType,
         value,
         idempotencyKey,
         userId: owner,
-        orgId: org.orgId,
+        orgId,
         source: "chat",
         createdAt: Date.now(),
       });
       if (!inserted) return { id };
       {
-        const runId = body.runId ? String(body.runId) : null;
-        const threadId = body.threadId ? String(body.threadId) : null;
         const isThumb =
           feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
-        let model: string | undefined;
-        if (runId) {
-          try {
-            const summary = await getTraceSummary(runId, { userId: owner });
-            model = summary?.model || undefined;
-          } catch {
-            // Feedback persistence is authoritative; analytics enrichment is
-            // best-effort and must never make the submission fail.
-          }
-        }
 
         // Every submission is reported, including `category` and `text`, which
         // previously emitted nothing at all. Only thumbs carry `sentiment` —
@@ -310,10 +315,10 @@ export function createObservabilityHandler() {
         });
       }
       // Fire-and-forget: recompute satisfaction score for the thread.
-      if (body.threadId) {
+      if (threadId) {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
-            computeSatisfactionScore(String(body.threadId), {
+            computeSatisfactionScore(threadId!, {
               userId: owner,
             }).catch(() => {}),
           )

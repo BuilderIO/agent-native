@@ -99,7 +99,13 @@ describe("observability routes", () => {
     mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "admin" });
     mockGetObservabilityOverview.mockResolvedValue({ runs: 0 });
     mockGetTraceSummaries.mockResolvedValue([]);
-    mockGetTraceSummary.mockResolvedValue(null);
+    mockGetTraceSummary.mockResolvedValue({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+      orgId: "org-a",
+      model: "gpt-5.6-terra",
+    });
     mockInsertFeedback.mockResolvedValue(true);
   });
 
@@ -235,7 +241,6 @@ describe("observability routes", () => {
         feedbackType,
         value: "must not be tracked",
       });
-      mockGetTraceSummary.mockResolvedValue({ model: "gpt-5.6-terra" });
       const handler = createObservabilityHandler() as any;
 
       await expect(handler(createEvent("/feedback", "POST"))).resolves.toEqual({
@@ -244,6 +249,7 @@ describe("observability routes", () => {
 
       expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
         userId: "alice@example.com",
+        orgId: "org-a",
       });
       expect(mockInsertFeedback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -278,6 +284,43 @@ describe("observability routes", () => {
       expect(trackedProperties).not.toHaveProperty("content");
     },
   );
+
+  it("rejects feedback for a run outside the active org before insertion", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-from-org-b",
+      runId: "run-from-org-b",
+      feedbackType: "thumbs_down",
+      value: "wrong answer",
+    });
+    mockGetTraceSummary.mockResolvedValueOnce(null);
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({ error: "Trace not found" });
+
+    expect(event._status).toBe(404);
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("run-from-org-b", {
+      userId: "alice@example.com",
+      orgId: "org-a",
+    });
+    expect(mockInsertFeedback).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("rejects a thread that does not match the owned run", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-from-another-run",
+      runId: "run-1",
+      feedbackType: "thumbs_up",
+    });
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({ error: "Trace not found" });
+
+    expect(event._status).toBe(404);
+    expect(mockInsertFeedback).not.toHaveBeenCalled();
+  });
 
   it("reports a category follow-up without counting it as a second sentiment", async () => {
     mockReadBody.mockResolvedValue({

@@ -6,7 +6,8 @@ import {
   getOrgScopedReviewThreads,
   getFeedback,
   getInstructionUpdates,
-  getTraceSpansForRun,
+  getSuccessfulToolSpansForReview,
+  MAX_REVIEW_TOOL_SPANS,
   getTraceSummary,
   getTraceSummaries,
 } from "./store.js";
@@ -348,7 +349,6 @@ export async function listOutputReviews(opts: {
 const MAX_SOURCE_MESSAGES = 40;
 const MAX_SOURCE_TEXT = 500;
 const MAX_THREAD_DATA_CHARS = 1_000_000;
-const MAX_TOOL_SPANS = 20;
 const MAX_EVIDENCE_TEXT = 600;
 const MAX_EVIDENCE_NODES_PER_SPAN = 80;
 const MAX_EVIDENCE_CHARS_PER_SPAN = 2_400;
@@ -550,12 +550,11 @@ export async function getOutputReviewSummarySource(opts: {
         }));
     }
   }
-  const spans = await getTraceSpansForRun(opts.runId, { orgId: opts.orgId });
-  const toolSpans = spans
-    .filter(
-      (span) => span.spanType === "tool_call" && span.status === "success",
-    )
-    .slice(0, MAX_TOOL_SPANS);
+  const toolSpans = await getSuccessfulToolSpansForReview(
+    opts.runId,
+    opts.orgId,
+    MAX_REVIEW_TOOL_SPANS,
+  );
   const toolEvidence = toolSpans.flatMap((span) => {
     const metadata = record(span.metadata);
     const inputBudget = {

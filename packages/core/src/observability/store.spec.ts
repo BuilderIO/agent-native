@@ -48,6 +48,8 @@ const {
   getTraceSummary,
   getLatestTraceSummaryForThread,
   getTraceSpansForRun,
+  getSuccessfulToolSpansForReview,
+  MAX_REVIEW_TOOL_SPANS,
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
@@ -165,10 +167,14 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql.indexOf("review_summary")).toBeLessThan(
         call.sql.indexOf("LIMIT ?"),
       );
+      expect(call.sql).toMatch(
+        /FROM agent_trace_spans\s+WHERE span_type = 'agent_run' AND name = \?\s+AND org_id = \?/,
+      );
       expect(call.args).toEqual([
         1000,
         "org-a",
         "agent_run:observability:human-review-summary",
+        "org-a",
         20,
       ]);
     });
@@ -213,9 +219,10 @@ describe("observability store: per-user isolation", () => {
       );
       expect(queryCalls).toHaveLength(1);
       expect(queryCalls[0]!.sql).toMatch(
-        /SELECT id, thread_data, title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+        /SELECT id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
       );
       expect(queryCalls[0]!.args).toEqual([
+        1_000_000,
         "org-a",
         "alice@example.com",
         "thread-a",
@@ -226,6 +233,53 @@ describe("observability store: per-user isolation", () => {
         threadData: '{"messages":[]}',
         title: "Alice's thread",
       });
+    });
+
+    it("omits an oversized review thread while preserving its title", async () => {
+      selectedRows = [
+        { id: "thread-a", thread_data: null, title: "Alice's thread" },
+      ];
+      const threads = await getOrgScopedReviewThreads("org-a", [
+        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+      ]);
+
+      expect(lastSelect().sql).toContain(
+        "CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END",
+      );
+      expect(threads.get("thread-a")).toEqual({
+        threadData: null,
+        title: "Alice's thread",
+      });
+    });
+
+    it("bounds successful tool span and metadata reads in SQL", async () => {
+      selectedRows = [
+        {
+          name: "create_design",
+          metadata: '{"input":{"designId":"design-a"}}',
+        },
+      ];
+      await expect(
+        getSuccessfulToolSpansForReview("run-a", "org-a", 999),
+      ).resolves.toEqual([
+        {
+          name: "create_design",
+          metadata: { input: { designId: "design-a" } },
+        },
+      ]);
+
+      const call = lastSelect();
+      expect(call.sql).toMatch(/CASE WHEN OCTET_LENGTH\(metadata\) <= \?/);
+      expect(call.sql).toMatch(
+        /WHERE run_id = \? AND org_id = \?\s+AND span_type = 'tool_call' AND status = 'success'\s+ORDER BY created_at ASC\s+LIMIT \?/,
+      );
+      expect(call.sql).not.toContain("SELECT *");
+      expect(call.args).toEqual([
+        100_000,
+        "run-a",
+        "org-a",
+        MAX_REVIEW_TOOL_SPANS,
+      ]);
     });
 
     it("reads persisted summaries for the active org and requested runs only", async () => {
