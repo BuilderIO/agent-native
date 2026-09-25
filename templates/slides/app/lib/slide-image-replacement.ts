@@ -103,11 +103,20 @@ export function takeSlideImageUploadProvenance(
   slideId: string,
   content: string,
 ): SlideImageUploadProvenance | null {
+  const provenance =
+    pendingSlideImageUploads.get(slideId)?.get(content) ?? null;
+  discardSlideImageUploadProvenance(slideId, content);
+  return provenance;
+}
+
+/** Drops a snapshot no render will take: its upload failed, was cancelled, or is done. */
+export function discardSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+): void {
   const contentSnapshots = pendingSlideImageUploads.get(slideId);
-  const provenance = contentSnapshots?.get(content) ?? null;
   if (contentSnapshots?.delete(content)) pendingSlideImageUploadCount -= 1;
   if (contentSnapshots?.size === 0) pendingSlideImageUploads.delete(slideId);
-  return provenance;
 }
 
 /** Snapshot the edited source node when an image upload operation begins. */

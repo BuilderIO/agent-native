@@ -800,17 +800,38 @@ describe("upload provenance registry", () => {
     ).toBeNull();
   });
 
-  it("keeps only a slide's latest snapshots", () => {
-    for (let index = 0; index < 10; index += 1) {
+  it("keeps only the latest snapshots", () => {
+    for (let index = 0; index < 40; index += 1) {
       registerSlideImageUploadProvenance(
-        "slide-many",
+        `slide-many-${index % 2}`,
         `<p>${index}</p>`,
         provenance(String(index)),
       );
     }
-    expect(takeSlideImageUploadProvenance("slide-many", "<p>0</p>")).toBeNull();
-    expect(takeSlideImageUploadProvenance("slide-many", "<p>9</p>")).toEqual(
-      provenance("9"),
+    expect(
+      takeSlideImageUploadProvenance("slide-many-0", "<p>0</p>"),
+    ).toBeNull();
+    expect(takeSlideImageUploadProvenance("slide-many-1", "<p>39</p>")).toEqual(
+      provenance("39"),
+    );
+  });
+
+  it("frees a discarded snapshot's place for later uploads", () => {
+    const contents = Array.from(
+      { length: 16 },
+      (_, index) => `<p>${index}</p>`,
+    );
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-a", content, provenance("a"));
+    }
+    for (const content of contents) {
+      discardSlideImageUploadProvenance("slide-a", content);
+    }
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-b", content, provenance("b"));
+    }
+    expect(takeSlideImageUploadProvenance("slide-b", "<p>0</p>")).toEqual(
+      provenance("b"),
     );
   });
 });

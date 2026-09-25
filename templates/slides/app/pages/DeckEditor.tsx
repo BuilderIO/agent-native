@@ -163,6 +163,7 @@ import {
   applyOptimisticImagePreview,
   captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
@@ -1685,8 +1686,11 @@ export default function DeckEditor() {
         ),
         initialPreview,
       ]);
+      // The preview's render takes this snapshot long before the upload ends;
+      // however the upload ends, one still untaken is stale.
+      let registeredPreviewContent: string | null = null;
       if (previewProvenance) {
-        const previewContent = pendingImagePreviewsRef.current
+        registeredPreviewContent = pendingImagePreviewsRef.current
           .filter((preview) => preview.slideId === targetSlideId)
           .reduce(
             (content, preview) => applyOptimisticImagePreview(content, preview),
@@ -1694,7 +1698,7 @@ export default function DeckEditor() {
           );
         registerSlideImageUploadProvenance(
           targetSlideId,
-          previewContent,
+          registeredPreviewContent,
           previewProvenance,
         );
       }
@@ -1756,14 +1760,15 @@ export default function DeckEditor() {
           return;
         }
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
-        if (uploadProvenance) {
-          registerSlideImageUploadProvenance(
-            targetSlideId,
-            updatedContent,
-            uploadProvenance,
-          );
-        }
         if (updatedContent !== targetContent) {
+          // Only a write renders, so only a write's snapshot is ever taken.
+          if (uploadProvenance) {
+            registerSlideImageUploadProvenance(
+              targetSlideId,
+              updatedContent,
+              uploadProvenance,
+            );
+          }
           updateSlideContent(targetSlide.id, updatedContent);
         }
         trackEvent("media_added", {
@@ -1781,6 +1786,13 @@ export default function DeckEditor() {
               ? error.message
               : t("deckEditor.imageUploadError"),
         });
+      } finally {
+        if (registeredPreviewContent !== null) {
+          discardSlideImageUploadProvenance(
+            targetSlideId,
+            registeredPreviewContent,
+          );
+        }
       }
     },
     [
