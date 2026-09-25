@@ -637,9 +637,9 @@ export async function recordProposalCreation(
   actorKind: string,
   requestHash: string,
   suggestionIds: string[],
-): Promise<void> {
+): Promise<boolean> {
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestion_proposal_creations (idempotency_key,proposal_id,author_email,actor_kind,request_hash,suggestion_ids_json) VALUES (?,?,?,?,?,?)",
+    sql: "INSERT INTO agent_review_suggestion_proposal_creations (idempotency_key,proposal_id,author_email,actor_kind,request_hash,suggestion_ids_json) VALUES (?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING",
     args: [
       key,
       proposalId,
@@ -649,6 +649,17 @@ export async function recordProposalCreation(
       encode(suggestionIds),
     ],
   });
+  const receipt = await getProposalCreation(client, key);
+  if (!receipt)
+    throw new Error("Proposal creation receipt disappeared after insertion");
+  return (
+    receipt.proposalId === proposalId &&
+    receipt.requestHash === requestHash &&
+    receipt.authorEmail === authorEmail &&
+    receipt.actorKind === actorKind &&
+    receipt.suggestionIds.length === suggestionIds.length &&
+    receipt.suggestionIds.every((id, index) => id === suggestionIds[index])
+  );
 }
 
 export async function getProposalDecision(

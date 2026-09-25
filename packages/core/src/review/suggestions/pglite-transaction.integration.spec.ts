@@ -33,6 +33,8 @@ import {
   getSuggestion,
   insertSuggestion,
   listSuggestions,
+  getProposalCreation,
+  recordProposalCreation,
 } from "./store.js";
 
 const resources = pgTable("pglite_review_resources", {
@@ -453,6 +455,24 @@ describe.sequential("suggestion actions on native PGlite transactions", () => {
       { userEmail: ownerEmail },
     );
     expect(created.suggestions).toHaveLength(2);
+    const originalReceipt = await getProposalCreation(getDbExec(), key);
+    expect(originalReceipt?.suggestionIds).toEqual(
+      created.suggestions.map((suggestion) => suggestion.id),
+    );
+    expect(
+      await recordProposalCreation(
+        getDbExec(),
+        key,
+        created.proposal.id,
+        ownerEmail,
+        "human",
+        originalReceipt!.requestHash,
+        ["competing-suggestion"],
+      ),
+    ).toBe(false);
+    expect(
+      (await getProposalCreation(getDbExec(), key))?.suggestionIds,
+    ).toEqual(originalReceipt?.suggestionIds);
     expect(
       created.suggestions.every(
         (suggestion) => suggestion.proposalId === created.proposal.id,

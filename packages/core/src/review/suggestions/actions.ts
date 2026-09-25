@@ -745,137 +745,163 @@ export const createResourceSuggestionProposal = defineAction({
       throw new Error(
         "Proposal creation requires an atomic database transaction",
       );
-    const result = await db.transaction(async (tx) => {
-      const prior = await getProposalCreation(tx, args.idempotencyKey);
-      if (prior) {
-        if (
-          prior.requestHash !== requestHash ||
-          prior.authorEmail !== authorEmail ||
-          prior.actorKind !== actorKind
-        ) {
-          fail(
-            "Idempotency key was already used for a different proposal creation",
-            { statusCode: 409, errorCode: "idempotency_conflict" },
-          );
-        }
-        const proposal = await getSuggestionProposal(tx, prior.proposalId);
-        if (!proposal)
-          throw new Error(
-            "Proposal creation receipt references a missing proposal",
-          );
-        const suggestions = await Promise.all(
-          prior.suggestionIds.map(async (id) => {
-            const suggestion = await getSuggestion(id, tx);
-            if (!suggestion)
-              throw new Error(
-                "Proposal creation receipt references a missing suggestion",
-              );
-            return suggestion;
-          }),
-        );
-        return {
-          proposal,
-          suggestions,
-          comments: [] as Awaited<
-            ReturnType<typeof insertReviewCommentWithClient>
-          >[],
-        };
-      }
-      const proposal = args.proposalId
-        ? await getSuggestionProposal(tx, args.proposalId)
-        : await insertSuggestionProposal(tx, {
-            resourceType: args.resourceType,
-            resourceId: args.resourceId,
-            adapterKind: args.adapterKind,
-            summary: args.summary,
-            authorEmail,
-            actorKind,
-          });
-      if (!proposal)
-        fail("Proposal not found", { statusCode: 404, errorCode: "not_found" });
+    const replay = async (
+      tx: DbExec,
+      prior: NonNullable<Awaited<ReturnType<typeof getProposalCreation>>>,
+    ) => {
       if (
-        proposal.resourceType !== args.resourceType ||
-        proposal.resourceId !== args.resourceId ||
-        proposal.adapterKind !== args.adapterKind ||
-        proposal.authorEmail !== authorEmail ||
-        proposal.actorKind !== actorKind ||
-        proposal.summary !== args.summary
+        prior.requestHash !== requestHash ||
+        prior.authorEmail !== authorEmail ||
+        prior.actorKind !== actorKind
       ) {
-        fail("Proposal does not match this request", {
-          statusCode: 409,
-          errorCode: "suggestion_conflict",
-        });
-      }
-      const comments: Awaited<
-        ReturnType<typeof insertReviewCommentWithClient>
-      >[] = [];
-      const suggestions: ResourceSuggestion[] = [];
-      for (const item of args.suggestions) {
-        const operations =
-          (await adapter.validateProposal({
-            resourceType: args.resourceType,
-            resourceId: args.resourceId,
-            baseRevision: args.baseRevision,
-            operations: item.operations,
-            metadata: item.metadata,
-            ctx: { ...(ctx as any), suggestionAccess: access, transaction: tx },
-          })) ?? item.operations;
-        const created = await insertSuggestion(
+        fail(
+          "Idempotency key was already used for a different proposal creation",
           {
-            proposalId: proposal.id,
-            proposalSummary: proposal.summary,
-            resourceType: args.resourceType,
-            resourceId: args.resourceId,
-            adapterKind: adapter.kind,
-            adapterVersion: adapter.version,
-            threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
-            authorEmail,
-            actorKind,
-            baseRevision: args.baseRevision,
-            status: "pending",
-            summary: item.summary,
-            ownerEmail: access.ownerEmail ?? null,
-            orgId: access.orgId ?? null,
-            visibility: access.visibility ?? "private",
-            metadata: item.metadata ?? null,
-            operations,
+            statusCode: 409,
+            errorCode: "idempotency_conflict",
           },
-          tx,
         );
-        suggestions.push(created);
-        comments.push(
-          await insertReviewCommentWithClient(
-            {
-              resourceType: created.resourceType,
-              resourceId: created.resourceId,
-              threadId: created.threadId,
-              targetId: created.id,
-              kind: "correction",
-              anchor: created.operations.map((part) => part.anchor ?? null),
-              body: created.summary,
+      }
+      const proposal = await getSuggestionProposal(tx, prior.proposalId);
+      if (!proposal)
+        throw new Error(
+          "Proposal creation receipt references a missing proposal",
+        );
+      const suggestions = await Promise.all(
+        prior.suggestionIds.map(async (id) => {
+          const suggestion = await getSuggestion(id, tx);
+          if (!suggestion)
+            throw new Error(
+              "Proposal creation receipt references a missing suggestion",
+            );
+          return suggestion;
+        }),
+      );
+      return {
+        proposal,
+        suggestions,
+        comments: [] as Awaited<
+          ReturnType<typeof insertReviewCommentWithClient>
+        >[],
+      };
+    };
+    const concurrentCreation = new Error("Concurrent proposal creation won");
+    const result = await db
+      .transaction(async (tx) => {
+        const prior = await getProposalCreation(tx, args.idempotencyKey);
+        if (prior) return replay(tx, prior);
+        const proposal = args.proposalId
+          ? await getSuggestionProposal(tx, args.proposalId)
+          : await insertSuggestionProposal(tx, {
+              resourceType: args.resourceType,
+              resourceId: args.resourceId,
+              adapterKind: args.adapterKind,
+              summary: args.summary,
               authorEmail,
-              createdBy: actorKind,
-              resolutionTarget: "human",
-              ownerEmail: created.ownerEmail,
-              orgId: created.orgId,
-              visibility: created.visibility,
-              metadata: { suggestionId: created.id, proposalId: proposal.id },
+              actorKind,
+            });
+        if (!proposal)
+          fail("Proposal not found", {
+            statusCode: 404,
+            errorCode: "not_found",
+          });
+        if (
+          proposal.resourceType !== args.resourceType ||
+          proposal.resourceId !== args.resourceId ||
+          proposal.adapterKind !== args.adapterKind ||
+          proposal.authorEmail !== authorEmail ||
+          proposal.actorKind !== actorKind ||
+          proposal.summary !== args.summary
+        ) {
+          fail("Proposal does not match this request", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
+        const comments: Awaited<
+          ReturnType<typeof insertReviewCommentWithClient>
+        >[] = [];
+        const suggestions: ResourceSuggestion[] = [];
+        for (const item of args.suggestions) {
+          const operations =
+            (await adapter.validateProposal({
+              resourceType: args.resourceType,
+              resourceId: args.resourceId,
+              baseRevision: args.baseRevision,
+              operations: item.operations,
+              metadata: item.metadata,
+              ctx: {
+                ...(ctx as any),
+                suggestionAccess: access,
+                transaction: tx,
+              },
+            })) ?? item.operations;
+          const created = await insertSuggestion(
+            {
+              proposalId: proposal.id,
+              proposalSummary: proposal.summary,
+              resourceType: args.resourceType,
+              resourceId: args.resourceId,
+              adapterKind: adapter.kind,
+              adapterVersion: adapter.version,
+              threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
+              authorEmail,
+              actorKind,
+              baseRevision: args.baseRevision,
+              status: "pending",
+              summary: item.summary,
+              ownerEmail: access.ownerEmail ?? null,
+              orgId: access.orgId ?? null,
+              visibility: access.visibility ?? "private",
+              metadata: item.metadata ?? null,
+              operations,
             },
             tx,
-          ),
+          );
+          suggestions.push(created);
+          comments.push(
+            await insertReviewCommentWithClient(
+              {
+                resourceType: created.resourceType,
+                resourceId: created.resourceId,
+                threadId: created.threadId,
+                targetId: created.id,
+                kind: "correction",
+                anchor: created.operations.map((part) => part.anchor ?? null),
+                body: created.summary,
+                authorEmail,
+                createdBy: actorKind,
+                resolutionTarget: "human",
+                ownerEmail: created.ownerEmail,
+                orgId: created.orgId,
+                visibility: created.visibility,
+                metadata: { suggestionId: created.id, proposalId: proposal.id },
+              },
+              tx,
+            ),
+          );
+        }
+        const recorded = await recordProposalCreation(
+          tx,
+          args.idempotencyKey,
+          proposal.id,
+          authorEmail,
+          actorKind,
+          requestHash,
+          suggestions.map((suggestion) => suggestion.id),
         );
-      }
-      await recordProposalCreation(
-        tx,
-        args.idempotencyKey,
-        proposal.id,
-        authorEmail,
-        actorKind,
-        requestHash,
-        suggestions.map((suggestion) => suggestion.id),
-      );
-      return { proposal, suggestions, comments };
-    });
+        if (!recorded) throw concurrentCreation;
+        return { proposal, suggestions, comments };
+      })
+      .catch(async (error) => {
+        if (error !== concurrentCreation) throw error;
+        return db.transaction!(async (tx) => {
+          const prior = await getProposalCreation(tx, args.idempotencyKey);
+          if (!prior)
+            throw new Error("Concurrent proposal creation receipt is missing");
+          return replay(tx, prior);
+        });
+      });
     for (const comment of result.comments) await notifyReviewComment(comment);
     return { proposal: result.proposal, suggestions: result.suggestions };
   },
