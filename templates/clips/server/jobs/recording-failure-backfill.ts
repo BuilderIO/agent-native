@@ -16,12 +16,24 @@ let running = false;
 export const LEGACY_FAILURE_CODE_CASE = `CASE
   WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'
   WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'
+  WHEN failure_reason ILIKE 'Recording exceeds the % MB size limit. Please record a shorter clip.' THEN 'recording_too_large'
+  WHEN failure_reason ILIKE 'Recording is too large to process after automatic compression.%' THEN 'recording_too_large'
+  WHEN failure_reason ILIKE 'Recording is too large to upload (%mb%, limit is %mb) after automatic compression. Try a shorter recording.' THEN 'recording_too_large'
   WHEN failure_reason LIKE 'Video storage could not start an upload: S3 CreateMultipartUpload failed%' THEN 'multipart_start_failed'
   WHEN failure_reason LIKE 'Video storage is not connected yet%' THEN 'storage_setup_required'
   WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'
+  WHEN failure_reason ~* '^chunk [45][0-9][0-9]:[[:space:]]*<!doctype html' THEN 'chunk_html_error'
   WHEN failure_reason ILIKE 'Couldn''t prepare the recording for re-upload (reset-chunks %). <!DOCTYPE html>%' THEN 'chunk_html_error'
+  WHEN failure_reason ILIKE 'Reset-chunks returned an HTML error response (%' THEN 'chunk_html_error'
   ELSE 'unknown'
 END`;
+
+const NEEDS_FAILURE_CODE_BACKFILL = `(failure_code IS NULL OR (
+  failure_code = 'unknown' AND (
+    recording_platform IS NULL
+    OR failure_code IS DISTINCT FROM (${LEGACY_FAILURE_CODE_CASE})
+  )
+))`;
 
 export async function runRecordingFailureBackfillOnce(): Promise<void> {
   const exec = getDbExec();
@@ -58,11 +70,11 @@ export async function runRecordingFailureBackfillOnce(): Promise<void> {
           SELECT id FROM recordings
           WHERE ($1::TEXT IS NULL OR id > $1::TEXT)
             AND status = 'failed'
-            AND (failure_code IS NULL OR failure_code = 'unknown')
+            AND ${NEEDS_FAILURE_CODE_BACKFILL}
             ORDER BY id LIMIT $2
           )
           AND status = 'failed'
-          AND (failure_code IS NULL OR failure_code = 'unknown')
+          AND ${NEEDS_FAILURE_CODE_BACKFILL}
         RETURNING id`,
       args: [cursorId, BATCH_SIZE],
     });
@@ -78,10 +90,10 @@ export async function runRecordingFailureBackfillOnce(): Promise<void> {
       });
     }
     const remaining = await exec.execute({
-      sql: `SELECT id FROM recordings
-        WHERE ($1::TEXT IS NULL OR id > $1::TEXT)
-          AND status = 'failed'
-          AND (failure_code IS NULL OR failure_code = 'unknown')
+      sql: `SELECT $1::TEXT IS NOT NULL AND id <= $1::TEXT AS behind_cursor
+        FROM recordings
+        WHERE status = 'failed'
+          AND ${NEEDS_FAILURE_CODE_BACKFILL}
         ORDER BY id LIMIT 1`,
       args: [nextCursor],
     });
@@ -91,6 +103,12 @@ export async function runRecordingFailureBackfillOnce(): Promise<void> {
           SET completed_at = $1, expires_at = $2
           WHERE lease_key = $3 AND holder = $4`,
         args: [new Date().toISOString(), Date.now(), LEASE_KEY, holder],
+      });
+    } else if (remaining.rows[0]?.behind_cursor === true) {
+      await exec.execute({
+        sql: `UPDATE clips_backfill_leases SET cursor_id = NULL
+          WHERE lease_key = $1 AND holder = $2`,
+        args: [LEASE_KEY, holder],
       });
     }
   } finally {

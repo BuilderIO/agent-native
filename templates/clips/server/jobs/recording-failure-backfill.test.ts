@@ -93,6 +93,37 @@ describe("recording failure backfill", () => {
         "Couldn't prepare the recording for re-upload (reset-chunks 2). <!DOCTYPE html><html>",
         "chunk_html_error",
       ],
+      [
+        "11",
+        "Recording exceeds the 2048 MB size limit. Please record a shorter clip.",
+        "recording_too_large",
+      ],
+      [
+        "12",
+        "Recording is too large to process after automatic compression. Please update the app and try again, or record a shorter clip.",
+        "recording_too_large",
+      ],
+      [
+        "13",
+        "Recording is too large to upload (2048.0mb, limit is 2048.0mb) after automatic compression. Try a shorter recording.",
+        "recording_too_large",
+      ],
+      ["14", "chunk 502: <!DOCTYPE html><html>", "chunk_html_error"],
+      [
+        "15",
+        "Recording is too large to process after automatic compression. Please record a shorter clip.",
+        "recording_too_large",
+      ],
+      [
+        "16",
+        "Chunk 502 upload failed: <!DOCTYPE html><html>",
+        "chunk_html_error",
+      ],
+      [
+        "17",
+        "Reset-chunks returned an HTML error response (502): <!DOCTYPE html><html>",
+        "chunk_html_error",
+      ],
     ] as const;
     for (const [id, failureReason] of cases) {
       await client.query(
@@ -142,5 +173,49 @@ describe("recording failure backfill", () => {
       { id: "01", failure_code: "unknown" },
       { id: "02", failure_code: null },
     ]);
+  });
+
+  it("restarts from the beginning for a newly failed row below the cursor", async () => {
+    await client.query(
+      `INSERT INTO recordings (id, status, failure_reason) VALUES ('0001', 'uploading', 'Recording cancelled by user')`,
+    );
+    await client.query(`
+      INSERT INTO recordings (id, status, failure_reason)
+      SELECT lpad(id::text, 4, '0'), 'failed', 'Unclassified old error'
+      FROM generate_series(2, 252) AS id
+    `);
+
+    await runRecordingFailureBackfillOnce();
+    const firstPass = await client.query(
+      `SELECT cursor_id, completed_at FROM clips_backfill_leases WHERE lease_key = 'recording-failure-codes'`,
+    );
+    expect(firstPass.rows[0]).toEqual({
+      cursor_id: "0251",
+      completed_at: null,
+    });
+
+    await client.query(
+      `UPDATE recordings SET status = 'failed' WHERE id = '0001'`,
+    );
+    await runRecordingFailureBackfillOnce();
+
+    const restartedPass = await client.query(
+      `SELECT cursor_id, completed_at FROM clips_backfill_leases WHERE lease_key = 'recording-failure-codes'`,
+    );
+    expect(restartedPass.rows[0]).toEqual({
+      cursor_id: null,
+      completed_at: null,
+    });
+
+    await runRecordingFailureBackfillOnce();
+
+    const completed = await client.query(
+      `SELECT completed_at FROM clips_backfill_leases WHERE lease_key = 'recording-failure-codes'`,
+    );
+    expect(completed.rows[0]?.completed_at).toEqual(expect.any(String));
+    const lowerId = await client.query(
+      `SELECT failure_code FROM recordings WHERE id = '0001'`,
+    );
+    expect(lowerId.rows[0]?.failure_code).toBe("user_cancelled");
   });
 });

@@ -451,6 +451,31 @@ describe("RecorderEngine streaming connection recovery", () => {
     });
   });
 
+  it("classifies and sanitizes HTML chunk errors", async () => {
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.mocked(uploadChunkRequest).mockResolvedValueOnce(
+      new Response("<!doctype html><html>private proxy response</html>", {
+        status: 400,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    const engine = makeEngine();
+    const internals = engine as unknown as {
+      uploadChunk: (blob: Blob, index: number) => Promise<unknown>;
+    };
+    const error = await internals
+      .uploadChunk(new Blob(["source"]), 0)
+      .catch((error: unknown) => error as Error & Record<string, unknown>);
+
+    expect(error).toMatchObject({
+      status: 400,
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+    });
+    expect((error as Error).message).toContain("HTML error response (400)");
+    expect((error as Error).message).not.toContain("private proxy response");
+  });
+
   it("keeps permanent streaming failures terminal", async () => {
     const engine = makeEngine();
     const resetUploadedChunks = vi.fn(async () => "streaming" as const);

@@ -18,7 +18,11 @@ import { eq } from "drizzle-orm";
 import { createError } from "h3";
 
 import { getDb, schema } from "../server/db/index.js";
-import { trackRecordingFailure } from "../server/lib/recording-failures.js";
+import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+  type RecordingFailureCode,
+} from "../server/lib/recording-failures.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -27,7 +31,6 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
-import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
@@ -39,18 +42,61 @@ import { validateRecordingScope } from "./lib/recording-scope.js";
 import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
 
 export function classifyInitialUploadFailure(error: unknown): {
-  failureCode: "storage_setup_required" | "multipart_start_failed";
-  failureStage?: "multipart_start";
+  failureCode: RecordingFailureCode;
+  failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
 } {
-  if (error instanceof S3MultipartStartError) {
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof details.message === "string"
+        ? details.message
+        : typeof error === "string"
+          ? error
+          : "";
+  const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
+    message,
+  )?.[1];
+  const status =
+    (Number.isInteger(details.status) && Number(details.status)) ||
+    (Number.isInteger(details.statusCode) && Number(details.statusCode)) ||
+    (messageStatus ? Number(messageStatus) : undefined);
+  const httpStatus =
+    status && status >= 100 && status <= 599 ? status : undefined;
+  const failureStage =
+    details.failureStage === "multipart_start" ||
+    details.failureStage === "chunk_upload" ||
+    details.failureStage === "reset_chunks"
+      ? details.failureStage
+      : "multipart_start";
+  const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  const storageSetupRequired =
+    failureCode === "storage_setup_required" ||
+    details.errorCode === "builder_oauth_reauthorization_required" ||
+    httpStatus === 401 ||
+    httpStatus === 403 ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+      message,
+    );
+
+  if (storageSetupRequired) {
     return {
-      failureCode: "multipart_start_failed",
-      failureStage: "multipart_start",
-      httpStatus: error.status,
+      failureCode: "storage_setup_required",
+      failureStage,
+      ...(httpStatus ? { httpStatus } : {}),
     };
   }
-  return { failureCode: "storage_setup_required" };
+
+  return {
+    failureCode:
+      failureCode === "unknown" ? "multipart_start_failed" : failureCode,
+    failureStage,
+    ...(httpStatus ? { httpStatus } : {}),
+  };
 }
 
 export default defineAction({

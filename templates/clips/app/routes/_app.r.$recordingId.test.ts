@@ -8,6 +8,17 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("fences manual finalize retries to the loaded upload identity", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "uploadAttemptId: recording?.uploadAttemptId ?? null",
+    );
+    expect(route).toContain(
+      "uploadGenerationId: recording?.uploadGenerationId ?? null",
+    );
+  });
+
   it("prefers public-share timestamps over legacy owner timestamps", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 

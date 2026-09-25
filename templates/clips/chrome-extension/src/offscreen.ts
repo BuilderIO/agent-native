@@ -1056,11 +1056,7 @@ export async function abortServerUpload(
       signal: controller?.signal,
     });
     if (!response.ok) {
-      console.warn(
-        "[clips-offscreen] abort upload returned",
-        response.status,
-        await response.text().catch(() => ""),
-      );
+      console.warn("[clips-offscreen] abort upload returned", response.status);
     }
   } catch (err) {
     console.warn("[clips-offscreen] abort upload failed", err);

@@ -19,6 +19,7 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
 import {
+  classifyUploadResponseError,
   chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
@@ -1150,6 +1151,7 @@ export default function RecordRoute() {
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
+  const cancelledStartSessionRef = useRef<number | null>(null);
   const restartInFlightRef = useRef<Promise<void> | null>(null);
 
   // Elapsed-time display now ticks inside RecordingToolbar itself (via
@@ -1309,7 +1311,7 @@ export default function RecordRoute() {
             const fraction = total ? (index + 1) / total : null;
             setUploadProgress(fraction);
             const recordingId = pendingRef.current?.id;
-            if (!recordingId) return;
+            if (!recordingId || fraction === 1) return;
             // Only expose a percentage here — this state is agent-visible, and
             // chunk/byte counts are an internal transport detail, not
             // something to surface to the user.
@@ -1459,14 +1461,18 @@ export default function RecordRoute() {
         }
         // Cancelled mid-POST: pendingRef is still null, so trash directly.
         if (isStale()) {
+          const userCancelled = cancelledStartSessionRef.current === session;
+          if (userCancelled) cancelledStartSessionRef.current = null;
           await liveTranscription.stopAndWait().catch(() => "");
           if (intake) {
             fetch(`${appBasePath()}${info.abortUrl}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                reason: "unknown",
-                failureCode: "unknown",
+                reason: userCancelled
+                  ? "Recording cancelled by user"
+                  : "unknown",
+                failureCode: userCancelled ? "user_cancelled" : "unknown",
               }),
             }).catch(() => {});
           } else {
@@ -1476,7 +1482,9 @@ export default function RecordRoute() {
               body: JSON.stringify({ id: info.id }),
             }).catch(() => {});
           }
-          await engine.cancel("unknown").catch(() => {});
+          await engine
+            .cancel(userCancelled ? "user_cancelled" : "unknown")
+            .catch(() => {});
           return;
         }
         const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl!}`;
@@ -1864,16 +1872,32 @@ export default function RecordRoute() {
               return;
             }
 
-            if (!chunkRes.ok) {
-              const text = await chunkRes.text().catch(() => "");
-              const error = new Error(
-                t("recordRoute.uploadFailedAtChunk", {
-                  chunk: index + 1,
-                  total: totalChunks,
-                  message: text || chunkRes.statusText,
-                }),
+            const text = await chunkRes.text();
+            const responseError = classifyUploadResponseError({
+              contentType: chunkRes.headers.get("content-type"),
+              body: text,
+              status: chunkRes.status,
+              stage: "chunk_upload",
+            });
+            if (!chunkRes.ok || responseError.isHtml) {
+              const error = Object.assign(
+                new Error(
+                  t("recordRoute.uploadFailedAtChunk", {
+                    chunk: index + 1,
+                    total: totalChunks,
+                    message:
+                      responseError.responseText ||
+                      (responseError.isHtml
+                        ? `HTML error response (${chunkRes.status})`
+                        : chunkRes.statusText),
+                  }),
+                ),
+                {
+                  status: responseError.status,
+                  failureCode: responseError.failureCode,
+                  failureStage: responseError.failureStage,
+                },
               );
-              (error as Error & { status?: number }).status = chunkRes.status;
               if (!uploadError) {
                 uploadError = error;
                 chunkAbort.abort(uploadError);
@@ -1935,16 +1959,35 @@ export default function RecordRoute() {
           }
         }
 
-        if (chunkRes && !chunkRes.ok) {
-          const text = await chunkRes.text().catch(() => "");
-          const error = new Error(
-            t("recordRoute.uploadFailedAtChunk", {
-              chunk: index + 1,
-              total: totalChunks,
-              message: text || chunkRes.statusText,
-            }),
+        const finalChunkText = chunkRes ? await chunkRes.text() : "";
+        const finalChunkError = chunkRes
+          ? classifyUploadResponseError({
+              contentType: chunkRes.headers.get("content-type"),
+              body: finalChunkText,
+              status: chunkRes.status,
+              stage: "chunk_upload",
+            })
+          : null;
+        if (chunkRes && (!chunkRes.ok || finalChunkError?.isHtml)) {
+          const responseError = finalChunkError!;
+          const error = Object.assign(
+            new Error(
+              t("recordRoute.uploadFailedAtChunk", {
+                chunk: index + 1,
+                total: totalChunks,
+                message:
+                  responseError.responseText ||
+                  (responseError.isHtml
+                    ? `HTML error response (${chunkRes.status})`
+                    : chunkRes.statusText),
+              }),
+            ),
+            {
+              status: responseError.status,
+              failureCode: responseError.failureCode,
+              failureStage: responseError.failureStage,
+            },
           );
-          (error as Error & { status?: number }).status = chunkRes.status;
           if (
             createdId &&
             chunkRes.status !== 413 &&
@@ -1966,12 +2009,15 @@ export default function RecordRoute() {
           }
         }
 
-        if (chunkRes?.ok) {
-          finalChunk.result =
-            ((await chunkRes.json().catch(() => null)) as Record<
+        if (chunkRes?.ok && !finalChunkError?.isHtml) {
+          try {
+            finalChunk.result = JSON.parse(finalChunkText) as Record<
               string,
               unknown
-            > | null) ?? null;
+            >;
+          } catch {
+            finalChunk.result = null;
+          }
         }
 
         setUiState("complete");
@@ -2036,7 +2082,7 @@ export default function RecordRoute() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 reason: message,
-                failureCode: "upload_failed",
+                ...uploadAbortMetadata(err),
               }),
             },
           ).catch(() => {});
@@ -2502,6 +2548,7 @@ export default function RecordRoute() {
   const doCancel = useCallback(async () => {
     // Invalidate any in-flight startFlow().
     dismissUploadToast();
+    cancelledStartSessionRef.current = startSessionRef.current;
     startSessionRef.current += 1;
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
@@ -2514,6 +2561,7 @@ export default function RecordRoute() {
     fileUploadRecordingIdRef.current = null;
     fileUploadAbortUrlRef.current = null;
     const engine = engineRef.current;
+    const pendingUploadFence = engine?.getUploadAbortFence() ?? {};
     const pendingId = pendingRef.current?.id;
     const pendingAbortUrl = pendingRef.current?.abortUrl;
     engineRef.current = null;
@@ -2548,6 +2596,7 @@ export default function RecordRoute() {
           body: JSON.stringify({
             reason: "Recording cancelled by user",
             failureCode: "user_cancelled",
+            ...pendingUploadFence,
           }),
         }).catch(() => {});
       } else {

@@ -15,6 +15,7 @@
 
 import {
   compareAndSetAppState,
+  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -37,6 +38,7 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
+import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
 import {
   deleteRecordingChunks,
@@ -754,7 +756,13 @@ export async function handleRecordingChunk(
       debugLog("[chunk] isFinal — invoking finalize", { recordingId });
       try {
         const result = await finalizeRecording.run(
-          buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
+          buildFinalizeArgs(
+            recordingId,
+            mimeType,
+            query,
+            attemptId,
+            uploadGenerationId,
+          ),
         );
         debugLog("[chunk] finalize ok", {
           recordingId,
@@ -815,7 +823,12 @@ export async function handleRecordingChunk(
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             ),
           );
-        if (committed?.status === "ready" && committed.videoUrl) {
+        if (
+          committed?.status === "ready" &&
+          committed.videoUrl &&
+          (committed.uploadAttemptId ?? null) === attemptId &&
+          (committed.uploadGenerationId ?? null) === uploadGenerationId
+        ) {
           console.warn(
             "[clips] finalize reported an error after committing a ready recording; returning committed success.",
             {
@@ -839,12 +852,18 @@ export async function handleRecordingChunk(
               recordingId,
               status: "ready",
               progress: 100,
+              pendingMediaVerification: false,
+              uploadAttemptId: attemptId,
+              uploadGenerationId,
+              failureReason: null,
+              failureCode: null,
               videoUrl: committed.videoUrl,
               videoSizeBytes: committed.videoSizeBytes,
               sourceSizeBytes,
               durationMs: committed.durationMs,
               finishedAt: new Date().toISOString(),
             });
+            await deleteAppState(mediaVerificationStateKey(recordingId));
           } catch (stateErr) {
             console.warn("[clips] committed-ready state repair failed:", {
               recordingId,
@@ -968,6 +987,7 @@ function buildFinalizeArgs(
   recordingId: string,
   mimeType: string,
   query: Record<string, unknown>,
+  uploadAttemptId: string | null,
   uploadGenerationId: string | null,
 ) {
   const queryBoolean = (value: unknown): boolean | undefined => {
@@ -985,6 +1005,7 @@ function buildFinalizeArgs(
     hasCamera: queryBoolean(query.hasCamera),
     locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
+    uploadAttemptId,
     ...(uploadGenerationId ? { uploadGenerationId } : {}),
   };
 }
@@ -1369,7 +1390,13 @@ async function handleResumableChunk(
   }
   try {
     const result = await finalizeRecording.run(
-      buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
+      buildFinalizeArgs(
+        recordingId,
+        mimeType,
+        query,
+        attemptId,
+        uploadGenerationId,
+      ),
     );
     if ((result as any)?.status === "failed") {
       const failure = finalizeResultFailure(result);
@@ -1443,16 +1470,23 @@ async function handleResumableChunk(
         recordingId,
         status: "ready",
         progress: 100,
+        pendingMediaVerification: false,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
+        failureReason: null,
+        failureCode: null,
         videoUrl: committed.videoUrl,
         videoSizeBytes: committed.videoSizeBytes,
         sourceSizeBytes,
         durationMs: committed.durationMs,
         finishedAt: new Date().toISOString(),
-      }).catch((stateErr) =>
-        console.warn(
-          `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
-          stateErr,
-        ),
+      });
+      await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
+        (stateErr) =>
+          console.warn(
+            `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
+            stateErr,
+          ),
       );
       return {
         ok: true,

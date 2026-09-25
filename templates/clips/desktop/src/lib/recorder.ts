@@ -54,6 +54,7 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
+import { classifyUploadResponseError } from "../../../shared/recording-core";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -1155,10 +1156,16 @@ async function postBackupChunk(
     signal,
   });
   const body = await res.text().catch(() => "");
+  const responseError = classifyUploadResponseError({
+    contentType: res.headers.get("content-type"),
+    body,
+    status: res.status,
+    stage: "chunk_upload",
+  });
   if (!res.ok) {
     const details = (() => {
       try {
-        return JSON.parse(body) as {
+        return JSON.parse(responseError.responseText ?? "") as {
           restartRequired?: unknown;
           recoveryEnabled?: unknown;
         };
@@ -1174,8 +1181,29 @@ async function postBackupChunk(
           : undefined,
       );
     }
-    throw new Error(
-      `Upload retry failed (${res.status}): ${body.slice(0, 200)}`,
+    throw Object.assign(
+      new Error(
+        responseError.isHtml
+          ? `Chunk upload returned an HTML error response (${res.status}).`
+          : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+      ),
+      {
+        status: responseError.status,
+        failureCode: responseError.failureCode,
+        failureStage: responseError.failureStage,
+      },
+    );
+  }
+  if (responseError.isHtml) {
+    throw Object.assign(
+      new Error(
+        `Chunk upload returned an HTML error response (${res.status}).`,
+      ),
+      {
+        status: responseError.status,
+        failureCode: responseError.failureCode,
+        failureStage: responseError.failureStage,
+      },
     );
   }
   return parseFinalizeReceipt(body);
@@ -1209,12 +1237,18 @@ async function resetBrowserRecordingBackupUpload(
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    const htmlResponse =
-      res.headers.get("content-type")?.includes("text/html") === true ||
-      /^\s*(?:<!doctype html|<html\b)/i.test(body);
+    const responseError = classifyUploadResponseError({
+      contentType: res.headers.get("content-type"),
+      body,
+      status: res.status,
+      stage: "reset_chunks",
+    });
     let details: Record<string, unknown> = {};
     try {
-      details = JSON.parse(body) as Record<string, unknown>;
+      details = JSON.parse(responseError.responseText ?? "") as Record<
+        string,
+        unknown
+      >;
     } catch {
       // coercion-ok: preserve the HTTP failure when optional error details are malformed.
       // Reset errors remain HTTP failures when the body is not JSON.
@@ -1222,22 +1256,23 @@ async function resetBrowserRecordingBackupUpload(
     const failureCode =
       details.failureCode === "multipart_start_failed"
         ? "multipart_start_failed"
-        : htmlResponse
+        : responseError.isHtml
           ? "chunk_html_error"
           : "upload_failed";
     throw Object.assign(
       new Error(
-        htmlResponse
+        responseError.isHtml
           ? `Reset-chunks returned an HTML error response (${res.status}).`
           : typeof details.error === "string"
             ? details.error
-            : `Upload retry setup failed (${res.status}): ${body.slice(0, 200)}`,
+            : `Upload retry setup failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
       ),
       {
         status: res.status,
         failureCode,
-        failureStage:
-          details.failureStage === "multipart_start"
+        failureStage: responseError.isHtml
+          ? "reset_chunks"
+          : details.failureStage === "multipart_start"
             ? "multipart_start"
             : "reset_chunks",
       },
@@ -1692,6 +1727,7 @@ export async function retryBrowserRecordingBackup(input: {
       input.authToken,
       activeAttemptId,
       activeUploadGenerationId,
+      uploadFailureDiagnostics(err),
     );
     throw err;
   }
@@ -2152,6 +2188,7 @@ async function interruptRecordingUpload(
   authToken?: string,
   attemptId?: string,
   uploadGenerationId?: string,
+  diagnostics?: ReturnType<typeof uploadFailureDiagnostics>,
 ): Promise<void> {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
@@ -2164,6 +2201,9 @@ async function interruptRecordingUpload(
           credentials: "include",
           body: JSON.stringify({
             detail,
+            ...(diagnostics?.failureCode === "chunk_html_error"
+              ? diagnostics
+              : {}),
             ...(attemptId ? { attemptId } : {}),
             ...(uploadGenerationId ? { uploadGenerationId } : {}),
           }),
@@ -2176,10 +2216,7 @@ async function interruptRecordingUpload(
         });
         return;
       }
-      const body = await res.text().catch(() => "");
-      lastError = new Error(
-        `Upload interruption failed (${res.status}): ${body.slice(0, 200)}`,
-      );
+      lastError = new Error(`Upload interruption failed (${res.status}).`);
       if (!isRetriableChunkStatus(res.status)) break;
     } catch (err) {
       lastError = err;
@@ -3347,6 +3384,9 @@ async function tryStartRewindFullscreenRecording(
               id,
               err instanceof Error ? err.message : String(err),
               params.authToken,
+              undefined,
+              undefined,
+              uploadFailureDiagnostics(err),
             );
             throw err;
           }
@@ -4145,6 +4185,9 @@ async function startNativeFullscreenRecording(
               id,
               err instanceof Error ? err.message : String(err),
               params.authToken,
+              undefined,
+              undefined,
+              uploadFailureDiagnostics(err),
             );
             throw err;
           }
@@ -5759,6 +5802,9 @@ async function startRecordingInner(
             id,
             failed.message,
             params.authToken,
+            undefined,
+            undefined,
+            uploadFailureDiagnostics(failed),
           );
         } finally {
           await clearRecordingState();
@@ -5827,14 +5873,29 @@ async function startRecordingInner(
                 signal: AbortSignal.timeout(FINALIZE_UPLOAD_TIMEOUT_MS),
               });
               const bodyText = await finalRes.text().catch(() => "");
+              const responseError = classifyUploadResponseError({
+                contentType: finalRes.headers.get("content-type"),
+                body: bodyText,
+                status: finalRes.status,
+                stage: "chunk_upload",
+              });
               console.log(
                 "[clips-recorder] finalize response:",
                 finalRes.status,
-                bodyText.slice(0, 500),
+                responseError.isHtml ? "HTML error response" : "received",
               );
-              if (!finalRes.ok) {
-                throw new Error(
-                  `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
+              if (!finalRes.ok || responseError.isHtml) {
+                throw Object.assign(
+                  new Error(
+                    responseError.isHtml
+                      ? `Chunk upload returned an HTML error response (${finalRes.status}).`
+                      : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+                  ),
+                  {
+                    status: responseError.status,
+                    failureCode: responseError.failureCode,
+                    failureStage: responseError.failureStage,
+                  },
                 );
               }
               const receipt = parseFinalizeReceipt(bodyText);
@@ -5870,6 +5931,9 @@ async function startRecordingInner(
                 id,
                 error.message,
                 params.authToken,
+                undefined,
+                undefined,
+                uploadFailureDiagnostics(error),
               );
               throw error;
             }

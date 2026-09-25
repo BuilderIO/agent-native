@@ -423,8 +423,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       expect.arrayContaining([
         expect.objectContaining({
           failureCode: "chunk_html_error",
-          failureReason:
-            "Couldn't prepare the recording for re-upload (reset-chunks 2). <!DOCTYPE html><html>",
+          failureReason: "Upload returned an HTML error response.",
         }),
       ]),
     );
@@ -440,6 +439,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(JSON.stringify(mockTrack.mock.calls[0]?.[1])).not.toContain(
       "<!DOCTYPE html>",
     );
+    expect(JSON.stringify(mockUpdateSets)).not.toContain("<!DOCTYPE html>");
   });
 
   it("does not let an older client abort durable media verification", async () => {
@@ -622,6 +622,137 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockGetResumableSession).toHaveBeenCalledWith(
       "rec-1",
       "generation-1",
+    );
+  });
+
+  it("retries cancellation when finalization wins the state publication CAS", async () => {
+    const uploading = {
+      id: "rec-1",
+      status: "uploading",
+      videoUrl: null,
+      failureReason: null,
+      failureCode: null,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const processing = { ...uploading, status: "processing" };
+    mockSelectRows.rows = [uploading];
+    mockReadBody.mockResolvedValue({
+      reason: "Network request failed",
+      failureCode: "upload_failed",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    const uploadState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const finalizedUploadState = {
+      recordingId: "rec-1",
+      status: "processing",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const uploadStates = [uploadState, finalizedUploadState];
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-media-verification-rec-1"
+        ? null
+        : uploadStates.shift(),
+    );
+    mockCompareAndSetManyAppState.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [processing];
+      return false;
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({
+        key: "recording-upload-rec-1",
+        expectedValue: uploadState,
+        nextValue: expect.objectContaining({ status: "failed" }),
+      }),
+    ]);
+    expect(mockCompareAndSetManyAppState).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({
+        key: "recording-upload-rec-1",
+        expectedValue: expect.objectContaining({ status: "processing" }),
+        nextValue: expect.objectContaining({ status: "failed" }),
+      }),
+    ]);
+    expect(mockEqCalls).toContainEqual(["recordings.status", "processing"]);
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadAttemptId",
+      "attempt-1",
+    ]);
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadGenerationId",
+      "generation-1",
+    ]);
+    expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+      "generation-1",
+    );
+  });
+
+  it("aborts the SQL retry after reset leaves the previous app state published", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-2",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Recording cancelled by user",
+      failureCode: "user_cancelled",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-2",
+    });
+    const previousGenerationState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-media-verification-rec-1"
+        ? null
+        : previousGenerationState,
+    );
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        key: "recording-upload-rec-1",
+        expectedValue: previousGenerationState,
+        nextValue: expect.objectContaining({
+          status: "failed",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-2",
+        }),
+      }),
+    ]);
+    expect(mockDeleteRecordingChunks).toHaveBeenCalledWith(
+      "owner@example.com",
+      "rec-1",
+      "generation-2",
     );
   });
 

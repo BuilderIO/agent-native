@@ -6,6 +6,7 @@ const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_UPLOA
 const mockAppState = vi.hoisted(() => new Map<string, Record<string, any>>());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
@@ -68,6 +69,7 @@ vi.mock("@agent-native/core/application-state", () => ({
     mockCompareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
 }));
 
 vi.mock("@agent-native/core/feature-flags", () => ({
@@ -179,6 +181,7 @@ vi.mock("../../../../lib/video-storage.js", () => ({
 import handler from "./chunk.post";
 
 const UPLOAD_KEY = "recording-upload-rec-1";
+const VERIFICATION_KEY = "recording-media-verification-rec-1";
 const CHUNK_PREFIX = "recording-chunks-rec-1-";
 
 function chunkKeys(): string[] {
@@ -268,6 +271,9 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         mockAppState.set(key, value);
       },
     );
+    mockDeleteAppState.mockImplementation(async (key: string) => {
+      mockAppState.delete(key);
+    });
     mockSumRecordingChunkBytes.mockImplementation(
       async (_ownerEmail: string, recordingId: string) => {
         let sum = 0;
@@ -591,6 +597,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       hasCamera: false,
       locallyTranscoded: undefined,
       mimeType: "video/webm",
+      uploadAttemptId: null,
     });
     // The empty sentinel must not be persisted as a zero-byte chunk.
     expect(chunkKeys().sort()).toEqual([
@@ -1051,6 +1058,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       consoleError.mockRestore();
     }
 
+    expect(mockFinalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      }),
+    );
     expect(mockEqCalls).toContainEqual(["recordings.status", "processing"]);
     expect(mockEqCalls).toContainEqual([
       "recordings.uploadAttemptId",
@@ -1152,6 +1165,15 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       bytesReceived: 10,
     });
     mockFinalizeRun.mockImplementationOnce(async () => {
+      mockAppState.set(UPLOAD_KEY, {
+        recordingId: "rec-1",
+        status: "processing",
+        pendingMediaVerification: true,
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+        bytesReceived: 10,
+      });
+      mockAppState.set(VERIFICATION_KEY, { status: "pending" });
       mockSelectRows.rows = [
         {
           id: "rec-1",
@@ -1203,8 +1225,61 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         status: "ready",
         bytesReceived: 10,
         sourceSizeBytes: 10,
+        pendingMediaVerification: false,
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+        failureReason: null,
+        failureCode: null,
       }),
     );
+    expect(mockAppState.has(VERIFICATION_KEY)).toBe(false);
+  });
+
+  it("does not recover a ready result from a newer upload generation", async () => {
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "ready",
+          uploadAttemptId: "attempt-new",
+          uploadGenerationId: "generation-new",
+          videoUrl: "https://cdn.example/new-generation.webm",
+          videoSizeBytes: 10,
+          durationMs: 1_234,
+          width: 1280,
+          height: 720,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ];
+      mockUpdateRows.current = [];
+      throw new Error("response connection closed");
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).rejects.toThrow(
+        "response connection closed",
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(mockWriteAppState).not.toHaveBeenCalledWith(
+      UPLOAD_KEY,
+      expect.objectContaining({ status: "ready" }),
+    );
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("rejects a chunk above the per-chunk byte cap before any owner or db work", async () => {
@@ -1870,6 +1945,15 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     });
     mockRelayChunk.mockResolvedValue({ ok: true, status: 200 });
     mockFinalizeRun.mockImplementationOnce(async () => {
+      mockAppState.set(UPLOAD_KEY, {
+        recordingId: "rec-1",
+        status: "processing",
+        pendingMediaVerification: true,
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+        bytesReceived: 105,
+      });
+      mockAppState.set(VERIFICATION_KEY, { status: "pending" });
       mockSelectRows.rows = [
         {
           id: "rec-1",
@@ -1925,7 +2009,13 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({
         status: "ready",
         sourceSizeBytes: 105,
+        pendingMediaVerification: false,
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+        failureReason: null,
+        failureCode: null,
       }),
     );
+    expect(mockAppState.has(VERIFICATION_KEY)).toBe(false);
   });
 });

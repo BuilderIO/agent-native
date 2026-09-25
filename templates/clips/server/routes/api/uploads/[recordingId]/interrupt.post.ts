@@ -14,6 +14,7 @@ import {
 } from "@agent-native/core/application-state";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { classifyUploadResponseError } from "@shared/recording-core.js";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -29,7 +30,10 @@ import {
   retryableUploadInterruptionReason,
 } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
-import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
+import {
+  normalizeRecordingFailureCode,
+  trackRecordingFailure,
+} from "../../../../lib/recording-failures.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -55,6 +59,9 @@ export default defineEventHandler(async (event: H3Event) => {
   }
   const body = (await readBody(event).catch(() => null)) as {
     detail?: unknown;
+    failureCode?: unknown;
+    failureStage?: unknown;
+    httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
   } | null;
@@ -64,10 +71,40 @@ export default defineEventHandler(async (event: H3Event) => {
     body.attemptId.length <= 128
       ? body.attemptId
       : null;
-  const interruptionDetail =
+  const rawInterruptionDetail =
     typeof body?.detail === "string" && body.detail.trim()
       ? body.detail.trim().slice(0, 1000)
       : null;
+  const interruptionResponse = classifyUploadResponseError({
+    contentType: null,
+    body: rawInterruptionDetail ?? "",
+    status: 0,
+    stage: "chunk_upload",
+  });
+  const containsHtml =
+    interruptionResponse.isHtml ||
+    /(?:<!doctype\s+html\b|<html\b)/i.test(rawInterruptionDetail ?? "");
+  const interruptionDetail = containsHtml
+    ? "Upload returned an HTML error response."
+    : rawInterruptionDetail;
+  const requestedFailureCode = normalizeRecordingFailureCode(body?.failureCode);
+  const failureCode =
+    containsHtml || requestedFailureCode === "chunk_html_error"
+      ? "chunk_html_error"
+      : "upload_interrupted";
+  const failureStage =
+    body?.failureStage === "chunk_upload" ||
+    body?.failureStage === "reset_chunks"
+      ? body.failureStage
+      : containsHtml
+        ? "chunk_upload"
+        : undefined;
+  const httpStatus =
+    Number.isInteger(body?.httpStatus) &&
+    Number(body?.httpStatus) >= 100 &&
+    Number(body?.httpStatus) <= 599
+      ? Number(body?.httpStatus)
+      : undefined;
   const uploadGenerationId =
     typeof body?.uploadGenerationId === "string" &&
     body.uploadGenerationId.length > 0 &&
@@ -139,7 +176,7 @@ export default defineEventHandler(async (event: H3Event) => {
         .update(schema.recordings)
         .set({
           status: "failed",
-          failureCode: "upload_interrupted",
+          failureCode,
           failureReason,
           updatedAt: interruptedAt,
         })
@@ -171,7 +208,9 @@ export default defineEventHandler(async (event: H3Event) => {
         userId: ownerEmail,
         uploadAttemptId: interrupted[0]?.uploadAttemptId,
         platform: interrupted[0]?.recordingPlatform,
-        failureCode: "upload_interrupted",
+        failureCode,
+        failureStage,
+        httpStatus,
       });
     }
 
