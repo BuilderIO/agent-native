@@ -5123,6 +5123,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
+    var activeCrossScreenComputedSize;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -11394,6 +11395,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
+    function computedSizeInPixels(value) {
+      var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(value);
+      if (!match) return void 0;
+      var size = Number(match[1]);
+      return Number.isFinite(size) ? size : void 0;
+    }
     function eventEpochMilliseconds(ev) {
       if (ev?.isTrusted === false) {
         return performance.timeOrigin + performance.now();
@@ -11408,6 +11415,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -11418,6 +11426,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "start") {
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
+        var computed = el ? window.getComputedStyle(el) : null;
+        var width = computed ? computedSizeInPixels(computed.width) : void 0;
+        var height = computed ? computedSizeInPixels(computed.height) : void 0;
+        activeCrossScreenComputedSize = width !== void 0 || height !== void 0 ? { width, height } : void 0;
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -11457,6 +11469,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          sourceComputedSize: activeCrossScreenComputedSize,
           // Explicit sibling flag, not just \`styleSnapshot === null\` — the
           // host must not have to infer capture-failed from a value shape
           // that could change; see collectPortableStyleSnapshot's doc.
@@ -11478,6 +11491,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
       }
     }

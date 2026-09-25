@@ -6414,6 +6414,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var activeCrossScreenSourceHtml: string | undefined = undefined;
+  var activeCrossScreenComputedSize:
+    | { width?: number; height?: number }
+    | undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
     sourceId: string;
@@ -15547,6 +15550,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function computedSizeInPixels(value: string): number | undefined {
+    var match = /^\s*(\d+(?:\.\d+)?)px\s*$/i.exec(value);
+    if (!match) return undefined;
+    var size = Number(match[1]);
+    return Number.isFinite(size) ? size : undefined;
+  }
+
   // Chromium reports Event.timeStamp relative to the document time origin,
   // while synthetic and older events can carry an epoch timestamp. Normalize
   // both forms before sending a source timestamp to the host document.
@@ -15596,6 +15606,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // does not silently lose Ignore Auto Layout.
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
       (window.parent as Window).postMessage(
         { type: "agent-native:cross-screen-drag", phase: "cancel" },
@@ -15609,6 +15620,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
       activeCrossScreenSourceHtml = el?.outerHTML;
+      var computed = el ? window.getComputedStyle(el) : null;
+      var width = computed ? computedSizeInPixels(computed.width) : undefined;
+      var height = computed ? computedSizeInPixels(computed.height) : undefined;
+      activeCrossScreenComputedSize =
+        width !== undefined || height !== undefined
+          ? { width, height }
+          : undefined;
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -15662,6 +15680,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           : undefined,
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
+        sourceComputedSize: activeCrossScreenComputedSize,
         // Explicit sibling flag, not just `styleSnapshot === null` — the
         // host must not have to infer capture-failed from a value shape
         // that could change; see collectPortableStyleSnapshot's doc.
@@ -15687,6 +15706,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       bridgeIgnoreAutoLayoutKeyPressed = false;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
+      activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
     }
   }
