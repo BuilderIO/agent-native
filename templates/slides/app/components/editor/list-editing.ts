@@ -32,6 +32,9 @@ const LIST_STYLE: Record<SlideListKind, string> = {
     "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:decimal;",
 };
 
+const ROW_TEXT_PROPERTY =
+  /^(color|font(-.+)?|letter-spacing|word-spacing|line-height|text-(transform|shadow|decoration(-.+)?))$/;
+
 function isListTag(element: Element): boolean {
   return element.tagName === "UL" || element.tagName === "OL";
 }
@@ -269,8 +272,25 @@ function toggleBulletRows(
     }
     return element;
   }
-  const lines = rows.flatMap(lineHtml);
-  rows[0].before(buildList(element.ownerDocument, kind, lines));
+  const list = createSlideList(element.ownerDocument, kind);
+  for (const row of rows) {
+    const [line] = lineHtml(row);
+    if (line === undefined) continue;
+    const item = element.ownerDocument.createElement("li");
+    item.innerHTML = line;
+    // The row's own text look is the item's; its flex layout is not.
+    for (let index = 0; index < row.style.length; index += 1) {
+      const name = row.style.item(index);
+      if (!ROW_TEXT_PROPERTY.test(name)) continue;
+      item.style.setProperty(
+        name,
+        row.style.getPropertyValue(name),
+        row.style.getPropertyPriority(name),
+      );
+    }
+    list.append(item);
+  }
+  rows[0].before(list);
   for (const row of rows) row.remove();
   return element;
 }

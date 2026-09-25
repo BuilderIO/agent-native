@@ -205,3 +205,20 @@ describe("toggleSlideList", () => {
     });
   });
 });
+
+describe("toggleSlideList text styles", () => {
+  it("keeps a styled row's text look on its numbered item, not its layout", () => {
+    const host = element(
+      '<div style="display: flex; gap: 12px; align-items: baseline; color: rgb(10, 20, 30); font-size: 24px; font-weight: 600; line-height: 1.4;"><span>•</span><span>Alpha</span></div><div style="display: flex; gap: 12px; color: rgb(10, 20, 30); font-size: 24px;"><span>•</span><span>Beta</span></div>',
+    );
+    toggleSlideList(host, "ordered");
+    const items = Array.from(host.querySelectorAll<HTMLElement>("ol > li"));
+    expect(items.map((item) => item.textContent)).toEqual(["Alpha", "Beta"]);
+    expect(items[0].getAttribute("style")).toBe(
+      "color: rgb(10, 20, 30); font-size: 24px; font-weight: 600; line-height: 1.4;",
+    );
+    expect(items[1].getAttribute("style")).toBe(
+      "color: rgb(10, 20, 30); font-size: 24px;",
+    );
+  });
+});
