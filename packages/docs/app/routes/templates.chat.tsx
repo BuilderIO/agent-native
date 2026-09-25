@@ -1,18 +1,15 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
-import { Link } from "react-router";
 
-import { BuilderImage } from "../components/builder-image";
-import { CustomizeTemplatePopover } from "../components/CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
+import { ChatLandingMock } from "../components/template-landing/ChatLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
-import { CodeBlock } from "../components/website-redesign/ds/code-block";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
 import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
 import { LogoMark } from "../components/website-redesign/ds/logo-mark";
@@ -48,34 +45,24 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "chat")!;
 
-// Reuses the generic template page's hero screenshot -- there's no dedicated
-// Chat asset yet. Keep this in sync with `templates.$slug.tsx` if a real
-// screenshot ever replaces it there (the generic page's copy no longer needs
-// its own entry once this dedicated page exists, so it was removed from
-// `genericHeroScreenshots`).
-const HERO_IMAGE_SRC =
-  "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865";
-
-// Literal shell command, not translated copy -- kept out of i18n so no
-// locale catalog can drift from the real CLI invocation.
-const INSTALL_COMMAND =
-  "npx @agent-native/core@latest create my-app --standalone --template chat";
-
 const USE_CASES = [
   {
     id: "internal-assistant",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
+    textLeft: true,
   },
   {
     id: "prototype-agent-workflow",
     titleKey: "useCase2Title",
     bodyKey: "useCase2Body",
+    textLeft: false,
   },
   {
     id: "interface-for-agent-work",
     titleKey: "useCase3Title",
     bodyKey: "useCase3Body",
+    textLeft: true,
   },
 ] as const;
 
@@ -127,10 +114,7 @@ export default function ChatTemplate() {
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero -- three actions instead of Slides' single CTA: a primary link
-          into the setup guide, a copyable scaffold command, and a secondary
-          link to the hosted demo. Stacked in a column so the code block
-          doesn't fight the buttons for a single row inside the hero grid. */}
+      {/* Hero */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={
@@ -147,70 +131,39 @@ export default function ChatTemplate() {
               <AppStatusBadge appId="chat" />
             </span>
           }
+          customizeTemplate={template}
           headingAction={
-            <div className="flex flex-col items-start gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  data-an-prefetch="viewport"
-                  to={docsHref}
-                  className="primary-button"
-                  style={{ gap: "4px" }}
-                  onClick={() =>
-                    trackEvent("build your app", {
-                      template: template.slug,
-                      location: "landing_page_hero",
-                    })
-                  }
-                >
-                  {t("templateLanding.chat.heroCta")}
-                  <IconArrowUpRight size={16} />
-                </Link>
-                <a
-                  href={firstPartyAppUrl(template.demoUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="secondary-button"
-                  onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-                    applyFirstTouchAttributionToLink(event.currentTarget);
-                    trackEvent("open hosted demo", {
-                      template: template.slug,
-                      location: "landing_page_hero",
-                    });
-                  }}
-                >
-                  {t("templateLanding.chat.heroSecondaryCta")}
-                </a>
-                {/* Rendered inline with the button row instead of via
-                    TemplateHero's `customizeTemplate` prop -- that prop places
-                    the popover as a flex-wrap sibling of the whole
-                    `headingAction` block, which here is a two-row stack
-                    (buttons + code block), so it would vertically center
-                    against the tall stack instead of sitting next to the
-                    buttons. */}
-                <CustomizeTemplatePopover template={template} />
-              </div>
-              <div className="w-full max-w-[420px]">
-                <CodeBlock code={INSTALL_COMMAND} language="bash" />
-              </div>
-            </div>
+            <a
+              href={firstPartyAppUrl(template.demoUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("open hosted demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.chat.heroSecondaryCta")}
+              <IconArrowUpRight size={16} />
+            </a>
           }
           description={<p>{t("templateLanding.chat.heroDescription")}</p>}
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <BuilderImage
-              src={HERO_IMAGE_SRC}
-              crossOrigin="anonymous"
-              alt={t("templateLanding.chat.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[640px] w-full object-cover object-top"
+            <ChatLandingMock
+              label={t("templateLanding.chat.s001")}
+              className="h-[360px] sm:h-[520px] lg:h-[640px]"
             />
           }
         />
       </div>
 
-      {/* What can you build with Chat? -- three use-case cards */}
+      {/* Three concrete starting workflows */}
       <PageSection>
         <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
@@ -222,14 +175,58 @@ export default function ChatTemplate() {
         </GridInner>
 
         <GridInner>
-          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-1">
-            {USE_CASES.map((useCase) => (
-              <ContentCard
-                key={useCase.id}
-                title={t(`templateLanding.chat.${useCase.titleKey}`)}
-                body={t(`templateLanding.chat.${useCase.bodyKey}`)}
-              />
-            ))}
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.chat.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.chat.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <ChatLandingMock
+                    variant={useCase.id}
+                    label={t(`templateLanding.chat.${useCase.titleKey}`)}
+                    sidebarCollapsed
+                    className="h-[320px] w-full max-w-[620px] lg:h-[380px] lg:max-w-none"
+                  />
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GridInner>
       </PageSection>
@@ -281,8 +278,7 @@ export default function ChatTemplate() {
         </GridInner>
       </PageSection>
 
-      {/* Final CTA -- repeats the primary "Build your app" link only, no
-          code block. */}
+      {/* Build CTA keeps the starter guide available after the live preview. */}
       <PageSection>
         <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
           <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
