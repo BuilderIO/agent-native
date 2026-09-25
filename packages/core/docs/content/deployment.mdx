@@ -127,7 +127,18 @@ contract stay the same.
   </a>
   <a class="deployment-target" href="/docs/netlify">
     <span class="deployment-target-mark">
-      <img src="/integration-logos/netlify.svg" alt="" />
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
     </span>
     <strong>Netlify</strong>
   </a>

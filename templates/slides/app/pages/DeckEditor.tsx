@@ -143,7 +143,6 @@ import {
   slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
-import { normalizeSlidePadding } from "@/lib/normalize-slide-padding";
 import {
   shouldBlockPendingDeckNavigation,
   usePendingDeckUnloadGuard,
@@ -3365,10 +3364,15 @@ export default function DeckEditor() {
                   safeUpdates.content,
                 );
               }
-              updateSlide(id, targetSlideId, safeUpdates, options);
-              return typeof safeUpdates.content === "string"
-                ? hashSlideContent(normalizeSlidePadding(safeUpdates.content))
-                : undefined;
+              const storedContent = updateSlide(
+                id,
+                targetSlideId,
+                safeUpdates,
+                options,
+              );
+              return storedContent === undefined
+                ? undefined
+                : hashSlideContent(storedContent);
             }}
             onInlineEditStart={(slideId) => {
               setInlineEditActive(true);

@@ -7,10 +7,13 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Analytics sidebar navigation and footer controls align consistently, with full-width dividers.
 - The Sessions list hides 0m recordings by default, with a filter to include them.
 
 ### Fixed
 
+- Dashboard emails now match the live dashboard's stacked area chart totals.
+- Editing a dashboard panel no longer brings back a panel you just deleted, and conflicting saves now show a clear error instead of a server error
 - Session recordings no longer cut off partway through when the daily recording budget runs low; new recordings wait for room instead.
 
 ## 2026-09-23

@@ -445,6 +445,43 @@ describe("add-slide", () => {
     expect(updateFn).not.toHaveBeenCalled();
   });
 
+  it("adds a legacy slide that stores contenteditable=false, and an exact duplicate", async () => {
+    const legacy =
+      '<div class="fmd-slide"><h2 contenteditable="false" data-builder-id="b-2">Kept</h2></div>';
+    deckData.slides = [{ id: "slide-1", content: legacy }];
+    await expect(
+      action.run(
+        { deckId: "deck-1", slideId: "slide-dup", content: legacy },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-legacy",
+          content:
+            '<div class="fmd-slide"><p contenteditable="false">x</p></div>',
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("refuses a new slide that carries rendered editor markup", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: '<div contenteditable="true">New</div>',
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
   it("forces a WebMCP version snapshot with its run context", async () => {
     deckData.generationContext = { targetSlideCount: 3 };
 

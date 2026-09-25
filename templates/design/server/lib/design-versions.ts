@@ -18,7 +18,7 @@ import {
 import { captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -49,6 +49,7 @@ export interface DesignVersionChatContext {
   runId?: string;
   turnId?: string;
   actionName?: string;
+  phase?: "start" | "end";
   surface?: "editor";
   /** Which editor-surface caller wrote this checkpoint. Only set alongside
    * `surface: "editor"` — see Throttle 1 below for why it matters. */
@@ -172,6 +173,15 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
+function designVersionIdForIdempotencyKey(
+  designId: string,
+  idempotencyKey: string,
+) {
+  return `design-version-${createHash("sha256")
+    .update(stableStringify({ designId, idempotencyKey }))
+    .digest("hex")}`;
+}
+
 function nextRevisionTimestamp(previous: string | null | undefined): string {
   const previousMs = previous ? Date.parse(previous) : Number.NaN;
   return new Date(
@@ -203,6 +213,9 @@ function parseChatContext(
     if (typeof candidate === "string" && candidate.trim()) {
       context[key] = candidate;
     }
+  }
+  if (value.phase === "start" || value.phase === "end") {
+    context.phase = value.phase;
   }
   if (value.surface === "editor") context.surface = "editor";
   if (value.caller === "frontend" || value.caller === "webmcp") {
@@ -414,7 +427,7 @@ function chatContextKey(
   if (!context || context.surface === "editor") return null;
   const scope = context.threadId ?? "";
   const turn = context.turnId ?? context.runId ?? "";
-  return turn ? `${scope}:${turn}` : null;
+  return turn ? `${scope}:${turn}:${context.phase ?? ""}` : null;
 }
 
 function actionChatContext(
@@ -621,6 +634,7 @@ async function captureDesignVersion(
     chatContext?: DesignVersionChatContext;
     deletionGeometry?: ComponentDeletionGeometry;
     preferStoredFileContent?: boolean;
+    idempotencyKey?: string;
   },
   access: DesignAccess,
   database?: DesignDatabase,
@@ -735,16 +749,18 @@ async function captureDesignVersion(
       };
     }
   }
-  const id = `design-version-${createHash("sha256")
-    .update(
-      stableStringify({
-        designId,
-        previousVersionId: latest?.id ?? "initial",
-        chatContextKey: chatContextKey(options.chatContext),
-        stateHash,
-      }),
-    )
-    .digest("hex")}`;
+  const id = options.idempotencyKey
+    ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
+    : `design-version-${createHash("sha256")
+        .update(
+          stableStringify({
+            designId,
+            previousVersionId: latest?.id ?? "initial",
+            chatContextKey: chatContextKey(options.chatContext),
+            stateHash,
+          }),
+        )
+        .digest("hex")}`;
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
@@ -874,6 +890,41 @@ export async function createDesignVersionSnapshot(
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
     return captureDesignVersion(designId, options, access);
+  });
+}
+
+export async function createDesignChatBeginningSnapshot(
+  designId: string,
+  run: { threadId: string; runId: string },
+) {
+  return withDesignVersionLock(designId, async () => {
+    const access = await assertAccess("design", designId, "editor");
+    const rows = await getDb()
+      .select({ id: schema.designVersions.id })
+      .from(schema.designVersions)
+      .where(
+        and(
+          eq(schema.designVersions.designId, designId),
+          eq(
+            schema.designVersions.id,
+            designVersionIdForIdempotencyKey(
+              designId,
+              `chat-start:${run.threadId}`,
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (rows.length) return null;
+    return captureDesignVersion(
+      designId,
+      {
+        label: "Before chat",
+        chatContext: { ...run, phase: "start" },
+        idempotencyKey: `chat-start:${run.threadId}`,
+      },
+      access,
+    );
   });
 }
 
@@ -1140,6 +1191,7 @@ export async function snapshotDesignBeforeAgentEditInVersionLock(
 export async function listDesignVersions(
   designId: string,
   limit: number,
+  threadId?: string,
 ): Promise<{
   designId: string;
   count: number;
@@ -1147,7 +1199,8 @@ export async function listDesignVersions(
   versions: DesignVersionListEntry[];
 }> {
   await assertAccess("design", designId, "viewer");
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select({
       id: schema.designVersions.id,
       label: schema.designVersions.label,
@@ -1163,11 +1216,46 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
+  const beginningRows = await db
+    .select({
+      id: schema.designVersions.id,
+      label: schema.designVersions.label,
+      createdAt: schema.designVersions.createdAt,
+      chatContext: schema.designVersions.chatContext,
+      fileCount: schema.designVersions.fileCount,
+    })
+    .from(schema.designVersions)
+    .where(
+      threadId
+        ? and(
+            eq(schema.designVersions.designId, designId),
+            eq(
+              schema.designVersions.id,
+              designVersionIdForIdempotencyKey(
+                designId,
+                `chat-start:${threadId}`,
+              ),
+            ),
+          )
+        : and(
+            eq(schema.designVersions.designId, designId),
+            like(schema.designVersions.chatContext, '%"phase":"start"%'),
+          ),
+    )
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      asc(schema.designVersions.createdAt),
+    )
+    .limit(threadId ? 1 : limit);
+  const rowsById = new Map(
+    [...rows, ...beginningRows].map((row) => [row.id, row]),
+  );
 
   const regular: DesignVersionListEntry[] = [];
   const chat = new Map<string, DesignVersionListEntry>();
+  const activeStartEntries: DesignVersionListEntry[] = [];
   let invalidCount = 0;
-  for (const row of rows) {
+  for (const row of rowsById.values()) {
     let chatContext: DesignVersionChatContext | undefined;
     try {
       chatContext = parseStoredChatContext(row.chatContext);
@@ -1195,19 +1283,47 @@ export async function listDesignVersions(
       regular.push(entry);
       continue;
     }
-    const previous = chat.get(key);
     if (
-      !previous ||
-      versionTime(entry.createdAt) < versionTime(previous.createdAt)
+      threadId &&
+      chatContext?.threadId === threadId &&
+      chatContext.phase === "start"
     ) {
-      chat.set(key, entry);
+      activeStartEntries.push(entry);
+      continue;
     }
+    const previous = chat.get(key);
+    const replacePrevious =
+      !previous ||
+      (chatContext?.phase === "end"
+        ? versionTime(entry.createdAt) > versionTime(previous.createdAt)
+        : versionTime(entry.createdAt) < versionTime(previous.createdAt));
+    if (replacePrevious) chat.set(key, entry);
   }
 
-  const versions = [...regular, ...chat.values()].sort(
+  const versions = [...regular, ...chat.values(), ...activeStartEntries].sort(
     (left, right) => versionTime(right.createdAt) - versionTime(left.createdAt),
   );
-  return { designId, count: versions.length, invalidCount, versions };
+  const limitedVersions = versions.slice(0, limit);
+  const activeStart = threadId
+    ? versions.find(
+        (version) =>
+          version.chatContext?.threadId === threadId &&
+          version.chatContext.phase === "start",
+      )
+    : undefined;
+  if (activeStart && !limitedVersions.includes(activeStart)) {
+    limitedVersions[limitedVersions.length - 1] = activeStart;
+    limitedVersions.sort(
+      (left, right) =>
+        versionTime(right.createdAt) - versionTime(left.createdAt),
+    );
+  }
+  return {
+    designId,
+    count: limitedVersions.length,
+    invalidCount,
+    versions: limitedVersions,
+  };
 }
 
 interface RestoreFile {

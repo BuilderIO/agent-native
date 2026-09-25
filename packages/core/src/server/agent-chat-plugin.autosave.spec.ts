@@ -5,6 +5,7 @@ import type { AgentChatEvent, AgentChatScope } from "../agent/types.js";
 import {
   runPostAgentRunComplete,
   runPostAgentTurnAutosave,
+  runPreAgentTurnAutosave,
 } from "./agent-chat-plugin.js";
 import { registerErrorCaptureProvider } from "./capture-error.js";
 
@@ -26,6 +27,42 @@ const scope: AgentChatScope = {
   id: "deck-1",
   label: "Launch",
 };
+
+describe("pre-agent-turn autosave", () => {
+  it("runs for a scoped turn before generation", async () => {
+    const autosave = vi.fn();
+    const run = { threadId: "thread-1", runId: "run-1" };
+
+    await runPreAgentTurnAutosave(autosave, scope, run);
+
+    expect(autosave).toHaveBeenCalledOnce();
+    expect(autosave).toHaveBeenCalledWith(scope, {
+      threadId: "thread-1",
+      runId: "run-1",
+    });
+  });
+
+  it("skips missing handlers or scope and contains callback failures", async () => {
+    const autosave = vi.fn(async () => {
+      throw new Error("snapshot unavailable");
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await runPreAgentTurnAutosave(autosave, null, makeRun([]));
+      await runPreAgentTurnAutosave(undefined, scope, makeRun([]));
+      await expect(
+        runPreAgentTurnAutosave(autosave, scope, makeRun([])),
+      ).resolves.toBeUndefined();
+      expect(autosave).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledWith(
+        "[agent-chat] pre-agent-turn autosave failed:",
+        expect.any(Error),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
 
 describe("post-agent-turn autosave", () => {
   it("runs only for an explicit successful side effect and passes scope and run", async () => {
