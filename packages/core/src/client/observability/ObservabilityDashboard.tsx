@@ -18,10 +18,10 @@ import {
   IconExternalLink,
   IconArrowLeft,
   IconLoader2,
-  IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
+import { Link, useInRouterContext, useLocation } from "react-router";
 
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
@@ -41,7 +41,9 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { cn } from "../utils.js";
+import { ObservabilityReviewSummaryButton } from "./ObservabilityReviewSummaryButton.js";
 import { OutputPreview } from "./OutputPreview.js";
 import {
   useObservabilityOverview,
@@ -49,7 +51,6 @@ import {
   useTraceDetail,
   useFeedbackList,
   useFeedbackStats,
-  useSatisfaction,
   useEvalStats,
   useExperiments,
   useExperimentDetail,
@@ -57,7 +58,7 @@ import {
   useOutputReviews,
   useOutputReviewDetail,
   useSaveInstructionUpdate,
-  useSubmitFeedback,
+  useSaveReviewFeedback,
   type TraceSummary,
   type Experiment,
 } from "./useObservability.js";
@@ -112,6 +113,61 @@ function reviewThreadHref(threadId: string): string {
     AGENT_SIDEBAR_QUERY_VALUE_OPEN,
   );
   return isBrowser ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
+}
+
+const REVIEW_ARTIFACT_APPS = {
+  design: { host: "design.agent-native.com", port: 8099 },
+  slides: { host: "slides.agent-native.com", port: 8086 },
+  analytics: { host: "analytics.agent-native.com", port: 8088 },
+} as const;
+
+function reviewArtifactPath(
+  appId: keyof typeof REVIEW_ARTIFACT_APPS,
+  artifactId: string,
+  path: string | undefined,
+): string | undefined {
+  if (!path) return undefined;
+  const valid = {
+    design:
+      path === `/design/${artifactId}` || path === `/present/${artifactId}`,
+    slides:
+      path === `/deck/${artifactId}` || path === `/deck/${artifactId}/present`,
+    analytics: ["dashboards", "analyses", "adhoc"].some(
+      (route) => path === `/${route}/${artifactId}`,
+    ),
+  }[appId];
+  return valid ? path : undefined;
+}
+
+export function resolveReviewArtifactHref(
+  appId: keyof typeof REVIEW_ARTIFACT_APPS,
+  artifactId: string,
+  path: string | undefined,
+  hostname = typeof window === "undefined"
+    ? undefined
+    : window.location.hostname,
+): string | undefined {
+  const safePath = reviewArtifactPath(appId, artifactId, path);
+  if (!safePath || !hostname) return undefined;
+
+  const currentHost = hostname.toLowerCase();
+  if (currentHost === "localhost" || currentHost === "127.0.0.1") {
+    return `http://${currentHost}:${REVIEW_ARTIFACT_APPS[appId].port}${safePath}`;
+  }
+
+  const isBeta = currentHost.startsWith("beta.");
+  const normalizedHost = isBeta
+    ? currentHost.slice("beta.".length)
+    : currentHost;
+  if (
+    !Object.values(REVIEW_ARTIFACT_APPS).some(
+      (app) => app.host === normalizedHost,
+    )
+  ) {
+    return undefined;
+  }
+
+  return `https://${isBeta ? "beta." : ""}${REVIEW_ARTIFACT_APPS[appId].host}${safePath}`;
 }
 
 const RANGES = [
@@ -857,8 +913,17 @@ function ExperimentDetailView({
 
 function ReviewTab({ days }: { days: number }) {
   const t = useT();
-  const { data: reviews, isLoading } = useOutputReviews(days);
-  const feedbackMutation = useSubmitFeedback();
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
+  const { data: reviews, isLoading } = useOutputReviews(
+    days,
+    100,
+    activeOrg?.orgId ?? undefined,
+  );
+  const feedbackMutation = useSaveReviewFeedback();
   const instructionMutation = useSaveInstructionUpdate();
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -876,27 +941,35 @@ function ReviewTab({ days }: { days: number }) {
     value: string;
     target: "agent" | "developer" | "skill";
   } | null>(null);
-  const selectedReview = reviews?.find(
+  const visibleReviews = reviews?.filter(
+    (review) =>
+      Boolean(review.threadId?.trim()) &&
+      Boolean(review.summary || review.threadTitle.trim()),
+  );
+  const selectedReview = visibleReviews?.find(
     (review) => review.runId === selectedRunId,
   );
   const reviewDetailQuery = useOutputReviewDetail(
     selectedReview?.runId ?? null,
   );
 
-  if (isLoading) return <LoadingState />;
-  if (!reviews || reviews.length === 0) {
+  if (orgLoading || isLoading) return <LoadingState />;
+  if (
+    orgError ||
+    !activeOrg?.orgId ||
+    !visibleReviews ||
+    visibleReviews.length === 0
+  ) {
     return <EmptyState message={t("observability.noReviews")} />;
   }
 
   const saveFeedback = (
     runId: string,
-    threadId: string | null,
     feedbackType: "thumbs_up" | "thumbs_down",
   ) => {
     feedbackMutation.mutate(
       {
         runId,
-        threadId: threadId ?? undefined,
         feedbackType,
       },
       {
@@ -908,13 +981,12 @@ function ReviewTab({ days }: { days: number }) {
     );
   };
 
-  const saveNote = (runId: string, threadId: string | null) => {
+  const saveNote = (runId: string) => {
     const note = feedbackNote?.runId === runId ? feedbackNote.value.trim() : "";
     if (!note) return;
     feedbackMutation.mutate(
       {
         runId,
-        threadId: threadId ?? undefined,
         feedbackType: "text",
         value: note,
       },
@@ -1013,8 +1085,18 @@ function ReviewTab({ days }: { days: number }) {
   return (
     <>
       <div className="divide-y divide-border">
-        {reviews.map((review) => {
+        {visibleReviews.map((review) => {
           const expanded = selectedRunId === review.runId;
+          const answer = review.answer.trim();
+          const hasPreview =
+            (answer !== "" && !/^[-–—]+$/.test(answer)) ||
+            review.hasInlineApp ||
+            Boolean(review.inlineAppTitle) ||
+            Boolean(
+              review.summary?.artifacts.some(
+                (artifact) => artifact.appId === "design" && artifact.path,
+              ),
+            );
           const triggerId = `review-trigger-${encodeURIComponent(review.runId)}`;
           const detailId = `review-details-${encodeURIComponent(review.runId)}`;
 
@@ -1035,17 +1117,24 @@ function ReviewTab({ days }: { days: number }) {
                 }}
                 className="group flex w-full min-w-0 items-center gap-3 py-3 text-left first:pt-0 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
-                  <OutputPreview
-                    answer={review.answer}
-                    inlineAppTitle={review.inlineAppTitle}
-                    previewLabel={t("observability.reviewPreview")}
-                    compact
-                  />
-                </span>
+                {hasPreview && (
+                  <span className="h-16 w-24 shrink-0 overflow-hidden rounded-md bg-muted/60 sm:h-20 sm:w-28">
+                    <OutputPreview
+                      answer={review.answer}
+                      designPreviewPath={
+                        review.summary?.artifacts.find(
+                          (artifact) => artifact.appId === "design",
+                        )?.path
+                      }
+                      inlineAppTitle={review.inlineAppTitle}
+                      previewLabel={t("observability.reviewPreview")}
+                      compact
+                    />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="line-clamp-2 break-words text-sm font-medium text-foreground">
-                    {review.ask || "-"}
+                    {review.summary?.ask || review.threadTitle}
                   </span>
                   <span className="mt-1 block truncate text-xs text-muted-foreground">
                     {review.model} · {timeAgo(review.createdAt)}
@@ -1074,9 +1163,68 @@ function ReviewTab({ days }: { days: number }) {
                       className="min-w-0 p-3 sm:p-4"
                       aria-label={t("observability.reviewPreview")}
                     >
+                      {selectedReview.summary && (
+                        <div
+                          data-review-summary
+                          className="mb-3 space-y-2 text-sm"
+                        >
+                          <p className="whitespace-pre-wrap break-words text-foreground">
+                            <span className="mr-1 font-medium">
+                              {t("observability.ask")}:
+                            </span>
+                            {selectedReview.summary.ask}
+                          </p>
+                          <p className="whitespace-pre-wrap break-words text-muted-foreground">
+                            <span className="mr-1 font-medium text-foreground">
+                              {t("observability.answer")}:
+                            </span>
+                            {selectedReview.summary.outcome}
+                          </p>
+                          {selectedReview.summary.artifacts.length > 0 && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                              {selectedReview.summary.artifacts.map(
+                                (artifact) => {
+                                  const href = resolveReviewArtifactHref(
+                                    artifact.appId,
+                                    artifact.artifactId,
+                                    artifact.path,
+                                  );
+                                  return (
+                                    <span
+                                      key={`${artifact.appId}-${artifact.artifactId}`}
+                                      className="text-xs text-muted-foreground"
+                                    >
+                                      {href ? (
+                                        <a
+                                          href={href}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-primary underline-offset-2 hover:underline"
+                                        >
+                                          {artifact.title}
+                                        </a>
+                                      ) : (
+                                        artifact.title
+                                      )}
+                                      <span className="ml-1">
+                                        {artifact.appId}
+                                      </span>
+                                    </span>
+                                  );
+                                },
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-auto rounded-md border border-border bg-background">
                         <OutputPreview
                           answer={selectedReview.answer}
+                          designPreviewPath={
+                            selectedReview.summary?.artifacts.find(
+                              (artifact) => artifact.appId === "design",
+                            )?.path
+                          }
                           inlineApp={reviewDetailQuery.data?.app ?? undefined}
                           maxAppHeight={420}
                           previewLabel={t("observability.reviewPreview")}
@@ -1160,6 +1308,11 @@ function ReviewTab({ days }: { days: number }) {
                     </section>
 
                     <div className="col-span-full flex shrink-0 items-center gap-1 border-t border-border px-3 py-2 sm:px-4">
+                      {!selectedReview.summary && (
+                        <ObservabilityReviewSummaryButton
+                          runId={selectedReview.runId}
+                        />
+                      )}
                       <div
                         role="group"
                         aria-label={t("observability.reviewFeedback")}
@@ -1174,11 +1327,7 @@ function ReviewTab({ days }: { days: number }) {
                           title={t("observability.thumbsUp")}
                           disabled={feedbackMutation.isPending}
                           onClick={() =>
-                            saveFeedback(
-                              selectedReview.runId,
-                              selectedReview.threadId,
-                              "thumbs_up",
-                            )
+                            saveFeedback(selectedReview.runId, "thumbs_up")
                           }
                           className={cn(
                             "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
@@ -1197,11 +1346,7 @@ function ReviewTab({ days }: { days: number }) {
                           title={t("observability.thumbsDown")}
                           disabled={feedbackMutation.isPending}
                           onClick={() =>
-                            saveFeedback(
-                              selectedReview.runId,
-                              selectedReview.threadId,
-                              "thumbs_down",
-                            )
+                            saveFeedback(selectedReview.runId, "thumbs_down")
                           }
                           className={cn(
                             "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
@@ -1276,12 +1421,7 @@ function ReviewTab({ days }: { days: number }) {
                           </label>
                           <button
                             type="button"
-                            onClick={() =>
-                              saveNote(
-                                selectedReview.runId,
-                                selectedReview.threadId,
-                              )
-                            }
+                            onClick={() => saveNote(selectedReview.runId)}
                             disabled={
                               !(feedbackNote?.runId === selectedReview.runId
                                 ? feedbackNote.value.trim()
@@ -1423,6 +1563,11 @@ function ReviewTab({ days }: { days: number }) {
             <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-4">
               <OutputPreview
                 answer={selectedReview.answer}
+                designPreviewPath={
+                  selectedReview.summary?.artifacts.find(
+                    (artifact) => artifact.appId === "design",
+                  )?.path
+                }
                 inlineApp={reviewDetailQuery.data?.app ?? undefined}
                 maxAppHeight={720}
                 previewLabel={t("observability.reviewPreview")}
@@ -1439,24 +1584,37 @@ function ReviewTab({ days }: { days: number }) {
 
 function FeedbackTab({ days }: { days: number }) {
   const t = useT();
-  const { data: stats, isLoading: statsLoading } = useFeedbackStats(days);
-  const { data: entries, isLoading: listLoading } = useFeedbackList(days);
-  const { data: satisfaction } = useSatisfaction(days);
-
-  const isLoading = statsLoading || listLoading;
+  const {
+    data: activeOrg,
+    isLoading: orgLoading,
+    isError: orgError,
+  } = useOrg();
+  const { data: stats, isLoading: statsLoading } = useFeedbackStats(
+    days,
+    activeOrg?.orgId,
+  );
+  const { data: entries, isLoading: listLoading } = useFeedbackList(
+    days,
+    100,
+    undefined,
+    activeOrg?.orgId,
+  );
+  if (orgError) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {t("agentChat.common.chunkLoadFailed")}
+      </p>
+    );
+  }
+  const isLoading = orgLoading || statsLoading || listLoading;
   if (isLoading) return <LoadingState />;
 
   const thumbsTotal = (stats?.thumbsUp ?? 0) + (stats?.thumbsDown ?? 0);
   const thumbsUpRate = thumbsTotal > 0 ? stats!.thumbsUp / thumbsTotal : 0;
-  const avgFrustration =
-    satisfaction && satisfaction.length > 0
-      ? satisfaction.reduce((sum, s) => sum + s.frustrationScore, 0) /
-        satisfaction.length
-      : 0;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <MetricCard
           label={t("observability.totalFeedback")}
           value={String(stats?.total ?? 0)}
@@ -1471,11 +1629,6 @@ function FeedbackTab({ days }: { days: number }) {
           label={t("observability.thumbsDown")}
           value={String(stats?.thumbsDown ?? 0)}
           icon={<IconThumbDown size={16} />}
-        />
-        <MetricCard
-          label={t("observability.frustration")}
-          value={avgFrustration.toFixed(2)}
-          icon={<IconAlertTriangle size={16} />}
         />
       </div>
 
@@ -1565,26 +1718,40 @@ function FeedbackTab({ days }: { days: number }) {
 // ─── Main Dashboard ─────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "overview", labelKey: "observability.overview", icon: IconActivity },
+  {
+    id: "overview",
+    routeSegment: "overview",
+    labelKey: "observability.overview",
+    icon: IconActivity,
+  },
+  {
+    id: "review",
+    routeSegment: "human-review",
+    labelKey: "observability.review",
+    icon: IconMessageReport,
+  },
   {
     id: "conversations",
+    routeSegment: "conversations",
     labelKey: "observability.conversations",
     icon: IconMessages,
   },
-  { id: "evals", labelKey: "observability.evals", icon: IconChartBar },
+  {
+    id: "evals",
+    routeSegment: "evals",
+    labelKey: "observability.evals",
+    icon: IconChartBar,
+  },
   {
     id: "experiments",
+    routeSegment: "experiments",
     labelKey: "observability.experiments",
     icon: IconAB2,
   },
   {
     id: "feedback",
+    routeSegment: "feedback",
     labelKey: "observability.feedback",
-    icon: IconMessageReport,
-  },
-  {
-    id: "review",
-    labelKey: "observability.review",
     icon: IconMessageReport,
   },
 ] as const;
@@ -1593,14 +1760,53 @@ type TabId = (typeof TABS)[number]["id"];
 
 export interface ObservabilityDashboardProps {
   className?: string;
+  routeBasePath?: string;
+  showHumanReview?: boolean;
 }
 
-export function ObservabilityDashboard({
+type ObservabilityDashboardContentProps = ObservabilityDashboardProps & {
+  routePathname?: string;
+};
+
+function RoutedObservabilityDashboard(props: ObservabilityDashboardProps) {
+  const location = useLocation();
+  return (
+    <ObservabilityDashboardContent
+      {...props}
+      routePathname={location.pathname}
+    />
+  );
+}
+
+export function ObservabilityDashboard(props: ObservabilityDashboardProps) {
+  const inRouterContext = useInRouterContext();
+  return inRouterContext && props.routeBasePath ? (
+    <RoutedObservabilityDashboard {...props} />
+  ) : (
+    <ObservabilityDashboardContent {...props} routeBasePath={undefined} />
+  );
+}
+
+function ObservabilityDashboardContent({
   className,
-}: ObservabilityDashboardProps) {
+  routeBasePath,
+  routePathname,
+  showHumanReview = false,
+}: ObservabilityDashboardContentProps) {
   const t = useT();
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [localTab, setLocalTab] = useState<TabId>("overview");
   const [days, setDays] = useState(7);
+  const visibleTabs = showHumanReview
+    ? TABS
+    : TABS.filter((tab) => tab.id !== "review");
+  const routeSegment =
+    routeBasePath && routePathname?.startsWith(`${routeBasePath}/`)
+      ? routePathname.slice(routeBasePath.length + 1).split("/")[0]
+      : undefined;
+  const activeTab = routeBasePath
+    ? (visibleTabs.find((tab) => tab.routeSegment === routeSegment)?.id ??
+      "overview")
+    : localTab;
   const docsHash: Record<TabId, string> = {
     overview: "dashboard",
     conversations: "conversations",
@@ -1613,26 +1819,48 @@ export function ObservabilityDashboard({
   return (
     <div className={cn("space-y-4", className)}>
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex gap-1 rounded-lg border border-border p-1 bg-muted/30">
-          {TABS.map((tab) => {
+        <nav
+          aria-label={t("routeTitles.agentObservability")}
+          className="flex gap-1 rounded-lg border border-border p-1 bg-muted/30"
+        >
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
+            const tabClassName = cn(
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium",
+              activeTab === tab.id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            );
+            const tabContent = (
+              <>
+                <Icon size={14} />
+                {t(tab.labelKey)}
+              </>
+            );
+            if (routeBasePath && tab.routeSegment) {
+              return (
+                <Link
+                  key={tab.id}
+                  to={`${routeBasePath}/${tab.routeSegment}`}
+                  aria-current={activeTab === tab.id ? "page" : undefined}
+                  className={tabClassName}
+                >
+                  {tabContent}
+                </Link>
+              );
+            }
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium",
-                  activeTab === tab.id
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+                aria-pressed={activeTab === tab.id}
+                onClick={() => setLocalTab(tab.id)}
+                className={tabClassName}
               >
-                <Icon size={14} />
-                {t(tab.labelKey)}
+                {tabContent}
               </button>
             );
           })}
-        </div>
+        </nav>
         <div className="flex items-center gap-3">
           <a
             href={docsUrl("observability", { hash: docsHash[activeTab] })}

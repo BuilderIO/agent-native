@@ -691,6 +691,7 @@ const messages = {
     saveUpdate: "अपडेट मसौदा सहेजें",
     draftSaved: "मसौदा सहेजा गया",
     noReviews: "अभी समीक्षा के लिए कोई एजेंट उत्तर नहीं है",
+    summarizeWithAgent: "एजेंट से सारांश बनाएं",
   },
   error: {
     genericTitle: "कुछ गलत हुआ",

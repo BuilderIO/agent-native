@@ -700,6 +700,7 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
   },
   error: {
     genericTitle: "Something went wrong",

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runPublishVisualEditPending } from "./publish-visual-edit-pending";
+import {
+  runPublishVisualEditPending,
+  shouldPublishVisualEditPending,
+} from "./publish-visual-edit-pending";
 
 function makeArgs(
   overrides: Partial<Parameters<typeof runPublishVisualEditPending>[0]> = {},
@@ -8,6 +11,7 @@ function makeArgs(
   return {
     activeScreenBridgeUrl: "http://127.0.0.1:7331",
     activeScreenPreviewToken: "preview-token",
+    activeScreenLiveEditCapability: "design-capability",
     callAction: vi.fn().mockResolvedValue(undefined),
     canPublishDurableHandoff: true,
     designId: "design-1",
@@ -32,6 +36,30 @@ function makeArgs(
 }
 
 describe("runPublishVisualEditPending", () => {
+  it("publishes local handoffs for public live-screen viewers without granting design edit access", () => {
+    expect(
+      shouldPublishVisualEditPending({
+        designId: "design-1",
+        canEditDesign: false,
+        canEditLiveScreen: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPublishVisualEditPending({
+        designId: "design-1",
+        canEditDesign: false,
+        canEditLiveScreen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPublishVisualEditPending({
+        designId: null,
+        canEditDesign: true,
+        canEditLiveScreen: false,
+      }),
+    ).toBe(false);
+  });
+
   it("skips the durable action and its error state for a viewer, but still posts to the local bridge", async () => {
     const args = makeArgs({ canPublishDurableHandoff: false });
 
@@ -44,8 +72,12 @@ describe("runPublishVisualEditPending", () => {
       "http://127.0.0.1:7331/live-edit-pending",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({
+          "x-agent-native-live-edit-capability": "design-capability",
+        }),
         body: JSON.stringify({
-          designId: "design-1",
+          designId: args.pending.designId,
+          revision: args.pending.revision,
           pending: args.pending.pending,
         }),
       }),
@@ -99,6 +131,14 @@ describe("runPublishVisualEditPending", () => {
     expect(args.fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("does not publish to the bridge without a design-scoped capability", async () => {
+    const args = makeArgs({ activeScreenLiveEditCapability: undefined });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("includes the design ID when clearing the bridge handoff", async () => {
     const args = makeArgs({
       canPublishDurableHandoff: false,
@@ -113,7 +153,11 @@ describe("runPublishVisualEditPending", () => {
     expect(args.fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:7331/live-edit-pending",
       expect.objectContaining({
-        body: JSON.stringify({ designId: "design-1", pending: null }),
+        body: JSON.stringify({
+          designId: "design-1",
+          revision: args.pending.revision,
+          pending: null,
+        }),
       }),
     );
   });

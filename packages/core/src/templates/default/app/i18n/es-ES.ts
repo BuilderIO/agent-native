@@ -722,6 +722,7 @@ const messages = {
     saveUpdate: "Guardar borrador",
     draftSaved: "Borrador guardado",
     noReviews: "Aún no hay respuestas del agente para revisar",
+    summarizeWithAgent: "Resumir con el agente",
   },
   error: {
     genericTitle: "Algo salió mal",

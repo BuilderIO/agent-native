@@ -4,7 +4,10 @@ import type {
 } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { captureError } from "../server/capture-error.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+} from "../server/request-context.js";
 import {
   MAX_AI_CONTENT_BYTES,
   MAX_AI_SPANS_PER_RUN,
@@ -567,6 +570,7 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
   const parentSpanId = spanId();
@@ -1751,6 +1755,7 @@ export async function instrumentAgentLoop(opts: {
         runId,
         threadId,
         userId,
+        orgId,
         totalSpans: spans.length,
         llmCalls: llmCallCount,
         toolCalls: toolCallCount,
@@ -1895,7 +1900,13 @@ async function writeTraceData(
   config: ObservabilityConfig,
 ): Promise<void> {
   const { insertTraceSpan, upsertTraceSummary } = await import("./store.js");
-  await Promise.all(spans.map((s) => insertTraceSpan(s).catch(() => {})));
+  await Promise.all(
+    spans.map((span) =>
+      insertTraceSpan({ ...span, orgId: summary.orgId ?? null }).catch(
+        () => {},
+      ),
+    ),
+  );
   await upsertTraceSummary(summary).catch(() => {});
 
   // Fire automated evals after trace data is persisted

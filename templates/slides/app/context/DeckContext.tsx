@@ -205,6 +205,8 @@ export interface Deck {
   previewSlide?: Slide;
   /** Import provenance; structural edits clear it before the next export. */
   sourceImport?: unknown;
+  /** Opaque lifecycle context for a deck created by the generation flow. */
+  generationContext?: Record<string, unknown> | null;
 }
 
 export interface SetDeckSlidesOptions {
