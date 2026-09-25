@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.38.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+
 ## 0.38.7
 
 ### Patch Changes
@@ -1006,18 +1019,5 @@
 - Updated dependencies [dab8787]
 - Updated dependencies [dab8787]
   - @agent-native/toolkit@0.13.9
-
-## 0.23.0
-
-### Minor Changes
-
-- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
-
-### Patch Changes
-
-- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
-- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
-- Updated dependencies [c41fd16]
-  - @agent-native/toolkit@0.13.8
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

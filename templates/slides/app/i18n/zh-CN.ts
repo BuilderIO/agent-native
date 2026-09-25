@@ -684,6 +684,7 @@ const messages = {
       "如果现在离开或刷新，可能会丢失尚未保存的更改。确定要退出吗？",
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
+    editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
   },
   designSystemSetup: {
     importedBrand: "导入的品牌",

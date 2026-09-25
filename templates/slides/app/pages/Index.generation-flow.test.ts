@@ -41,13 +41,16 @@ describe("new deck generation flow", () => {
   it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
     const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeLessThan(persistIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
     expect(flow).not.toContain("await askUserQuestion");
     expect(flow).toContain("prompt-specific question");
@@ -80,7 +83,7 @@ describe("new deck generation flow", () => {
   it("shows the destination-shaped loading surface before navigation", () => {
     const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
     const navigateIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
 
     expect(loadingIndex).toBeGreaterThan(-1);
@@ -90,7 +93,7 @@ describe("new deck generation flow", () => {
 
   it("marks generation intent before submitting the agent run", () => {
     const generatingRouteIndex = flow.indexOf(
-      "navigate(`/deck/${deck.id}?generating=1`",
+      "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
     const submitIndex = flow.indexOf(
       "agentSubmit(createDeckAgentMessage(prompt)",
@@ -98,6 +101,10 @@ describe("new deck generation flow", () => {
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
+    expect(flow).toContain(
+      "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
+    );
+    expect(flow).toContain("submitMessageId: generationSubmitMessageId");
   });
 
   it("carries hidden prompt context through generation retries", () => {

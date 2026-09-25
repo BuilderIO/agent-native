@@ -1919,6 +1919,7 @@ function PageProperties({
           <ColorInput
             label={t("editPanel.labels.background")}
             value={canvasBackground ?? canvasBackgroundFallback ?? ""}
+            supportedPaintTypes={["solid", "none"]}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}

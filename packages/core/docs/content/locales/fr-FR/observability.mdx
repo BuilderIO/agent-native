@@ -108,15 +108,26 @@ export default function ObservabilityPage() {
 
 Toutes les données sont limitées à l'utilisateur connecté ; il n'existe pas de vue d'administration multi-utilisateurs aujourd'hui.
 
-Le tableau de bord comporte 5 onglets :
+Le tableau de bord comporte 6 onglets :
 
-| Onglet             | Ce que cela montre                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| **Vue d'ensemble** | Mesures clés : exécutions, coût, latence, taux de réussite de l'outil, satisfaction, score d'évaluation |
-| **Conversations**  | Liste de traces avec exploration vers des étendues individuelles (agent_run, llm_call, tool_call)       |
-| **Évaluations**    | Scores d'évaluation automatisés par critères, tendances au fil du temps                                 |
-| **Expériences**    | Liste de tests A/B avec badges de statut, résultats des variantes avec intervalles de confiance         |
-| **Commentaires**   | Flux de pouces vers le haut/vers le bas, répartition par catégorie, scores de frustration               |
+| Onglet             | Ce que cela montre                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| **Vue d'ensemble** | Mesures clés : exécutions, coût, latence, taux de réussite de l'outil, satisfaction, score d'évaluation     |
+| **Conversations**  | Liste de traces avec exploration vers des étendues individuelles (agent_run, llm_call, tool_call)           |
+| **Évaluations**    | Scores d'évaluation automatisés par critères, tendances au fil du temps                                     |
+| **Expériences**    | Liste de tests A/B avec badges de statut, résultats des variantes avec intervalles de confiance             |
+| **Commentaires**   | Flux de pouces vers le haut/vers le bas, répartition par catégorie, scores de frustration                   |
+| **Revue humaine**  | Examiner la demande et la réponse, noter un retour et préparer un brouillon de mise à jour des instructions |
+
+### Détails des conversations {#conversations}
+
+L’onglet Conversations affiche les exécutions enregistrées. Sélectionnez-en une pour examiner ses étendues, puis développez une étendue pour voir les entrées, sorties, erreurs et métadonnées des outils qui ont été capturées. **Ouvrir la conversation complète** ouvre le fil de discussion associé.
+
+La capture des arguments et résultats des outils est désactivée par défaut. Activez `captureToolArgs` et `captureToolResults` dans la configuration `observability` pour les stocker. Les champs sensibles et les messages d’erreur des outils sont expurgés avant l’enregistrement.
+
+### Revue humaine {#review}
+
+L’onglet Revue humaine présente la demande et la réponse de chaque exécution, permet de noter un retour et d’enregistrer un brouillon de modification des instructions pour examen humain. L’enregistrement du brouillon ne modifie pas automatiquement les instructions.
 
 ## Commentaires des utilisateurs {#feedback}
 

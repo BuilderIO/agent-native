@@ -134,6 +134,7 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon } from "../icons/ContentIcon";
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
@@ -464,7 +465,7 @@ export function metadataUpdatesWithPendingTitle<
     title?: string;
     content?: string;
     description?: string;
-    icon?: string | null;
+    icon?: Document["icon"];
   },
 >(
   updates: T,
@@ -561,7 +562,7 @@ function adoptConfirmedSaveWatermarks({
   updates: {
     title?: string;
     content?: string;
-    icon?: string | null;
+    icon?: Document["icon"];
   };
   lastSavedTitleRef: MutableRefObject<FieldSaveWatermark>;
   lastSavedContentRef: MutableRefObject<ContentSaveWatermark>;
@@ -1189,7 +1190,7 @@ type DocumentUpdates = {
   title?: string;
   content?: string;
   description?: string;
-  icon?: string | null;
+  icon?: Document["icon"];
 };
 
 export function enqueueDocumentSave<T>(
@@ -1466,7 +1467,7 @@ export function documentEditorBreadcrumbItems(
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
-  const parents: { id: string; title: string; icon: string | null }[] = [];
+  const parents: { id: string; title: string; icon: Document["icon"] }[] = [];
   const seen = new Set<string>([document.id]);
   let parentId = document.parentId;
 
@@ -5511,7 +5512,7 @@ function PageEditorSessionBody({
     }
   }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
-    defaultIconKind === "database" && !isDatabasePage ? (
+    defaultIconKind === "database" ? (
       <IconDatabase className="size-12" aria-hidden="true" />
     ) : undefined;
   const exportTitle = isInitializedRef.current ? localTitle : document.title;
@@ -5870,67 +5871,61 @@ function PageEditorSessionBody({
                     host,
                   )}
                 >
-                  {document.icon || !isDatabasePage ? (
-                    <div className="mb-1">
-                      {documentCanonicalMutationsEnabled(
-                        editorCanEdit,
-                        isSuggesting,
-                      ) ? (
-                        <EmojiPicker
-                          icon={document.icon}
-                          defaultIcon={defaultIcon}
-                          defaultIconLabel={
-                            defaultIconKind === "database" ? "database" : "page"
-                          }
-                          onSelect={(emoji) => {
-                            if (
-                              !documentCanonicalMutationsEnabled(
-                                editorCanEdit,
-                                isSuggesting,
-                              )
+                  <div className="mb-1">
+                    {documentCanonicalMutationsEnabled(
+                      editorCanEdit,
+                      isSuggesting,
+                    ) ? (
+                      <EmojiPicker
+                        icon={document.icon}
+                        defaultIcon={defaultIcon}
+                        defaultIconLabel={
+                          defaultIconKind === "database" ? "database" : "page"
+                        }
+                        onSelect={async (icon) => {
+                          if (
+                            !documentCanonicalMutationsEnabled(
+                              editorCanEdit,
+                              isSuggesting,
                             )
-                              return;
-                            void (async () => {
-                              const updates = metadataUpdatesWithPendingTitle(
-                                { icon: emoji },
-                                localTitleRef.current,
-                                lastSavedTitleRef.current.title,
-                              );
-                              const saved =
-                                await persistDocumentUpdates(updates);
-                              // Icon-only save: never CAS-guarded server-side
-                              // (no content in this call), so this can't come
-                              // back as a conflict — narrow defensively anyway
-                              // since persistDocumentUpdates' return type is a
-                              // union.
-                              if (isDocumentUpdateConflict(saved)) return;
-                              adoptConfirmedSaveWatermarks({
-                                saved,
-                                savedAt:
-                                  saved?.updatedAt ?? new Date().toISOString(),
-                                title: localTitleRef.current,
-                                content: localContentRef.current,
-                                updates,
-                                lastSavedTitleRef,
-                                lastSavedContentRef,
-                              });
-                            })().catch(handleBackgroundSaveError);
-                          }}
-                        />
-                      ) : document.icon ? (
-                        <div className="p-1 -ml-1 text-5xl leading-none">
-                          {document.icon}
-                        </div>
-                      ) : defaultIconKind === "database" && !isDatabasePage ? (
-                        <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
-                          <IconDatabase
-                            className="size-12"
-                            aria-hidden="true"
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                          ) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
+                            );
+                          }
+                          const updates = metadataUpdatesWithPendingTitle(
+                            { icon },
+                            localTitleRef.current,
+                            lastSavedTitleRef.current.title,
+                          );
+                          const saved = await persistDocumentUpdates(updates);
+                          if (isDocumentUpdateConflict(saved)) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
+                            );
+                          }
+                          adoptConfirmedSaveWatermarks({
+                            saved,
+                            savedAt:
+                              saved?.updatedAt ?? new Date().toISOString(),
+                            title: localTitleRef.current,
+                            content: localContentRef.current,
+                            updates,
+                            lastSavedTitleRef,
+                            lastSavedContentRef,
+                          });
+                        }}
+                      />
+                    ) : document.icon ? (
+                      <div className="p-1 -ml-1">
+                        <ContentIcon value={document.icon} size={48} />
+                      </div>
+                    ) : defaultIconKind === "database" ? (
+                      <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                        <IconDatabase className="size-12" aria-hidden="true" />
+                      </div>
+                    ) : null}
+                  </div>
                   <textarea
                     ref={titleInputRef}
                     rows={1}

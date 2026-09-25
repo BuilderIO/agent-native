@@ -120,6 +120,7 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   // beta sign-in down fleet-wide. Manage these in Netlify only.
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
+  "LAUNCHDARKLY_SDK_KEY",
   "NEON_AUTH_BASE_URL",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
@@ -138,6 +139,7 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES = ["VITE_"];
 const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "DATABASE_URL",
   "FIGMA_ACCESS_TOKEN",
+  "LAUNCHDARKLY_SDK_KEY",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "SENDGRID_API_KEY",
@@ -146,19 +148,31 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "SENTRY_SERVER_DSN",
 ]);
 // Sentry build-time upload credentials are one org/project shared by every
-// hosted site, unlike SENTRY_DSN which can vary per site. Pulling them from
-// the invoking shell (rather than each template's committed .env) means the
+// hosted site, unlike SENTRY_DSN which can vary per site. LaunchDarkly's SDK
+// key is the same: one project shared fleet-wide. Pulling them from the
+// invoking shell (rather than each template's committed .env) means the
 // token is never written to disk in this repo.
 const FLEET_WIDE_ENV_KEYS = [
   "SENTRY_AUTH_TOKEN",
   "SENTRY_ORG",
   "SENTRY_PROJECT",
+  "LAUNCHDARKLY_SDK_KEY",
 ];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
   "AMPLITUDE_API_KEY",
   "DEMO_MODE",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GEMINI_API_KEY",
+  "GROQ_API_KEY",
+  "JEV_API_KEY",
+  "MISTRAL_API_KEY",
+  "COHERE_API_KEY",
   "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TYPESAFE_API_KEY",
+  "VOYAGE_API_KEY",
   "VITE_AMPLITUDE_API_KEY",
 ]);
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_PREFIXES = ["BUILDER_"];
@@ -227,9 +241,10 @@ Options:
                            GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
                            hosted Agent-Native analytics configuration unless an
                            env source overrides them.
-                           SENTRY_AUTH_TOKEN, SENTRY_ORG, and SENTRY_PROJECT are
-                           read from this shell's environment (not any template
-                           .env) since they're the same for every hosted site.
+                           SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT, and
+                           LAUNCHDARKLY_SDK_KEY are read from this shell's
+                           environment (not any template .env) since they're
+                           the same for every hosted site.
                            SENTRY_AUTH_TOKEN is always scoped to builds only.
   --help                  Show this help.
 
@@ -386,15 +401,12 @@ function findClosingDoubleQuote(value: string): number {
   return -1;
 }
 
+const FLEET_WIDE_ENV_KEY_SET = new Set(FLEET_WIDE_ENV_KEYS);
+
 function loadTemplateEnv(template: string, sources: string[]) {
   const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
   const sourcesByKey = new Map<string, string[]>();
-
-  for (const key of FLEET_WIDE_ENV_KEYS) {
-    const value = process.env[key];
-    if (value) values.set(key, value);
-  }
 
   for (const source of sources) {
     const filePath = path.join(REPO_ROOT, "templates", template, source);
@@ -403,9 +415,19 @@ function loadTemplateEnv(template: string, sources: string[]) {
     const relativePath = path.relative(REPO_ROOT, filePath);
     foundSources.push(relativePath);
     for (const [key, value] of parseEnvFile(filePath)) {
+      // Fleet-wide keys are shell-only (see FLEET_WIDE_ENV_KEYS below): a
+      // template file's value for one of them is never eligible, so it can't
+      // sync a stale or developer-local credential when the shell key is
+      // simply unset.
+      if (FLEET_WIDE_ENV_KEY_SET.has(key)) continue;
       values.set(key, value);
       sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);
     }
+  }
+
+  for (const key of FLEET_WIDE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) values.set(key, value);
   }
 
   return { foundSources, sourcesByKey, values };

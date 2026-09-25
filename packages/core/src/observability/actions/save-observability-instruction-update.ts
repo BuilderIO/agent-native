@@ -5,6 +5,7 @@ import { z } from "zod";
 import { fail, defineAction } from "../../action.js";
 import { getTraceSummary, insertInstructionUpdate } from "../store.js";
 import type { InstructionUpdate } from "../types.js";
+import { requireObservabilityOrgAdmin } from "./authorization.js";
 
 const schema = z.object({
   runId: z.string().trim().min(1).max(200),
@@ -19,22 +20,23 @@ export default defineAction({
     "Save a human-proposed instruction update for an agent output. The draft is explicit and never applied automatically.",
   schema,
   run: async (args, ctx) => {
-    const userId = ctx?.userEmail;
-    if (!userId)
-      fail("Sign in to save instruction updates.", { statusCode: 401 });
-    const summary = await getTraceSummary(args.runId, { userId });
+    const { userId, orgId } = await requireObservabilityOrgAdmin(ctx);
+    const summary = await getTraceSummary(args.runId, { orgId });
     if (!summary)
       fail("That agent output is no longer available.", { statusCode: 404 });
+    if (args.threadId && args.threadId !== summary.threadId)
+      fail("The thread does not match the selected run.", { statusCode: 404 });
     const now = Date.now();
     const update: InstructionUpdate = {
       id: `instruction-${randomUUID()}`,
       runId: args.runId,
-      threadId: args.threadId ?? summary.threadId,
+      threadId: summary.threadId,
       target: args.target,
       instruction: args.instruction,
       feedback: args.feedback ?? "",
       status: "draft",
       userId,
+      orgId,
       createdAt: now,
       updatedAt: now,
     };

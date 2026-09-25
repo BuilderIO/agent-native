@@ -25,6 +25,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -83,6 +84,7 @@ export interface TextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -124,6 +126,7 @@ export function runTextContentChange(
     originalValue?: string;
     originalHtml?: string;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";

@@ -1,3 +1,4 @@
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   CONTENT_SOURCE_ROOT,
@@ -427,7 +428,10 @@ export function sourceFileContent(document: Document, existingSource?: string) {
     title: document.title,
     content: document.content,
     description: document.description,
-    icon: document.icon,
+    icon:
+      typeof document.icon === "string"
+        ? document.icon
+        : serializeIconValue(parseIconValue(document.icon)),
     position: document.position,
     isFavorite: document.isFavorite,
     hideFromSearch: document.hideFromSearch,

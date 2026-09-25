@@ -12,6 +12,9 @@ const CONFLICT_BACKOFF_MS = 8;
 const designDataLocks = new Map<string, Promise<unknown>>();
 
 export type DesignDataRecord = Record<string, unknown>;
+export type DesignDataMutationTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 export interface DesignFileContentMutation {
   fileId: string;
@@ -119,7 +122,7 @@ function withDesignDataLock<T>(
   return next;
 }
 
-interface MutateDesignDataOptions {
+interface MutateDesignDataOptions<TTransactionResult = undefined> {
   designId: string;
   mutate: (
     current: DesignDataRecord,
@@ -143,6 +146,17 @@ interface MutateDesignDataOptions {
       files: readonly DesignFileContentSnapshot[];
     },
   ) => readonly DesignFileContentMutation[];
+  mutateInTransaction?: (
+    tx: DesignDataMutationTransaction,
+    current: DesignDataRecord,
+    next: DesignDataRecord,
+    context: { updatedAt: string },
+  ) => Promise<TTransactionResult>;
+  /** Runs after each commit, including attempts retried by the intent check. */
+  afterCommit?: (
+    transactionResult: TTransactionResult | undefined,
+  ) => Promise<void>;
+  lockSourceMutation?: boolean;
   maxAttempts?: number;
   now?: () => Date;
 }
@@ -162,14 +176,17 @@ interface MutateDesignDataOptions {
  * conditional UPDATE is re-evaluated after the row-lock wait; the confirmation
  * read detects a lost CAS and triggers a retry.
  */
-async function mutateDesignDataUnlocked({
+async function mutateDesignDataUnlocked<TTransactionResult>({
   designId,
   mutate,
   isApplied,
   mutateFiles,
+  mutateInTransaction,
+  afterCommit,
+  lockSourceMutation = false,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   now = () => new Date(),
-}: MutateDesignDataOptions): Promise<{
+}: MutateDesignDataOptions<TTransactionResult>): Promise<{
   data: DesignDataRecord;
   updatedAt: string;
   updatedFiles: Array<{
@@ -189,6 +206,7 @@ async function mutateDesignDataUnlocked({
       | {
           data: DesignDataRecord;
           updatedAt: string;
+          transactionResult: TTransactionResult | undefined;
           updatedFiles: Array<{
             id: string;
             content: string;
@@ -199,13 +217,15 @@ async function mutateDesignDataUnlocked({
 
     try {
       committed = await db.transaction(async (tx) => {
+        if (mutateFiles || lockSourceMutation) {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+          );
+        }
         if (mutateFiles) {
           // Keep the design-data CAS and HTML rewrites in one transaction.
           // ponytail: reuse the existing design-file lock; split by design only
           // if breakpoint edits become a measurable multi-tenant bottleneck.
-          await tx.execute(
-            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
-          );
           await lockDesignFilesTable(tx);
         }
 
@@ -340,7 +360,11 @@ async function mutateDesignDataUnlocked({
           }
         }
 
-        return { data: nextData, updatedAt, updatedFiles };
+        const transactionResult = mutateInTransaction
+          ? await mutateInTransaction(tx, currentData, nextData, { updatedAt })
+          : undefined;
+
+        return { data: nextData, updatedAt, transactionResult, updatedFiles };
       });
     } catch (error) {
       if (
@@ -352,6 +376,7 @@ async function mutateDesignDataUnlocked({
     }
 
     if (committed) {
+      await afterCommit?.(committed.transactionResult);
       const [persistedRow] = await db
         .select({ data: schema.designs.data })
         .from(schema.designs)
@@ -375,7 +400,9 @@ async function mutateDesignDataUnlocked({
   throw new DesignDataMutationConflictError(designId, maxAttempts);
 }
 
-export function mutateDesignData(options: MutateDesignDataOptions): Promise<{
+export function mutateDesignData<TTransactionResult = undefined>(
+  options: MutateDesignDataOptions<TTransactionResult>,
+): Promise<{
   data: DesignDataRecord;
   updatedAt: string;
   updatedFiles: Array<{

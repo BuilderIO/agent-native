@@ -17,6 +17,11 @@ export function isStandalonePublicPath(pathname: string): boolean {
   );
 }
 
+/** Recording share pages live in the app shell for authenticated viewers. */
+export function isRecordingSharePath(pathname: string): boolean {
+  return /^\/share\/[^/]+\/?$/.test(pathname);
+}
+
 /** Legacy recording links must bypass the app-wide session redirect first. */
 export function isLegacyRecordingPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, "") || "/";

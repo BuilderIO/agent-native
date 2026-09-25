@@ -1,4 +1,7 @@
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "@agent-native/core/server";
 
 import type {
   ImageProvider,
@@ -11,7 +14,7 @@ export class OpenAIProvider implements ImageProvider {
   name = "openai";
 
   isConfigured(): boolean {
-    return !!process.env.OPENAI_API_KEY;
+    return !!readDeployCredentialEnv("OPENAI_API_KEY");
   }
 
   async isConfiguredForRequest(): Promise<boolean> {

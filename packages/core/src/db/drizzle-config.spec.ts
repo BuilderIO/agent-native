@@ -19,14 +19,49 @@ describe("createDrizzleConfig", () => {
   });
 
   it("passes memory PGlite URLs through as memory data dirs", async () => {
-    vi.stubEnv("DATABASE_URL", "pglite:memory");
-
     const { createDrizzleConfig } = await import("./drizzle-config.js");
 
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
     expect(createDrizzleConfig()).toMatchObject({
       dialect: "postgresql",
       driver: "pglite",
       dbCredentials: { url: "memory://" },
+    });
+  });
+
+  it.each([
+    ["test", ""],
+    ["production", "true"],
+    ["production", "1"],
+  ])(
+    "uses test PGlite with NODE_ENV=%s and VITEST=%s",
+    async (nodeEnv, vitest) => {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      vi.stubEnv("VITEST", vitest);
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+
+      const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+      expect(createDrizzleConfig()).toMatchObject({
+        driver: "pglite",
+        dbCredentials: { url: "memory://" },
+      });
+    },
+  );
+
+  it("preserves the app URL ahead of PGlite outside test processes", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+
+    const { createDrizzleConfig } = await import("./drizzle-config.js");
+
+    expect(createDrizzleConfig()).toMatchObject({
+      dbCredentials: { url: "postgres://app.example/db" },
     });
   });
 

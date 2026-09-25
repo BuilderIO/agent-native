@@ -13,7 +13,15 @@ export type AiPriorityEmail = z.infer<typeof aiPriorityEmailSchema>;
 
 export const aiPriorityScoreSchema = z.object({
   emailId: z.string().min(1).max(256),
+  accountEmail: z.string().email().optional(),
   score: z.number().min(0).max(1),
   reason: z.string().max(500).optional(),
 });
 export type AiPriorityScore = z.infer<typeof aiPriorityScoreSchema>;
+
+export function aiPriorityEmailKey(
+  accountEmail: string | undefined,
+  emailId: string,
+): string {
+  return JSON.stringify([accountEmail ?? "", emailId]);
+}

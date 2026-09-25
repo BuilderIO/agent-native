@@ -694,6 +694,8 @@ const messages = {
       "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
     keepEditing: "계속 편집",
     leaveWithoutSaving: "저장하지 않고 나가기",
+    editorMarkupNotSaved:
+      "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",

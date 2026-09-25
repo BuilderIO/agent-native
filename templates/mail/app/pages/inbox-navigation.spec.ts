@@ -57,13 +57,14 @@ describe("Inbox navigation commands", () => {
     );
   });
 
-  it("selects the first label by default on a plain inbox route", () => {
+  it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
     expect(source).toContain("settingsLoading");
     expect(source).toContain("settingsError ||");
     expect(source).toContain("!settings ||");
     expect(source).toContain("resolveDefaultMailHref({");
+    expect(source).toContain("showAllTab: settings?.showAllTab");
     expect(source).toContain("navigate(defaultHref, { replace: true })");
     expect(source).toContain(
       "const combineInbox = settings?.combineInbox === true;",
@@ -104,11 +105,19 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain('{ enabled: view === "inbox" },');
   });
 
+  it("shows the row skeleton while the selected inbox tab loads", () => {
+    const source = inboxSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const isLoading = isInboxView ? inboxThreads.isLoading || inboxThreads.isPlaceholderData || inboxStillSyncingEmpty : emailsIsLoading;",
+    );
+  });
+
   it("navigates the inbox tab bar when an agent command sets `tab`", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
@@ -195,12 +204,13 @@ describe("Inbox navigation commands", () => {
     expect(navigateActionSource()).toContain('enum(["newest", "priority"])');
   });
 
-  it("filters the view-screen snapshot to the active Other partition", () => {
+  it("filters the view-screen snapshot using the resolved inbox tab", () => {
     const source = viewScreenSource();
 
     expect(source).toContain("activeInboxTab?: string");
     expect(source).toContain("activeAccounts?: string[]");
-    expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain('activeTab?.kind === "other"');
+    expect(source).toContain("resolveActiveTabId(activeInboxTab, inboxTabs)");
     expect(source).toContain("augmentSelfSentLabels");
     expect(source).toContain("selectedAccountSet");
     expect(source).toContain("accountEmails:");

@@ -39,6 +39,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoRenderArtifactsInNewSlide } from "./_render-artifacts.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -112,12 +113,13 @@ export default defineAction({
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "Establish a new deck's direction with the first one or two slides slide-by-slide, waiting for each result before continuing. " +
     "Continue using add-slide for every newly generated slide so each write preserves per-slide Creative Context provenance; never issue independent parallel writes to the same deck. " +
+    "For action-owned incremental generations created with slides: [], pass generationComplete=false on every intermediate add-slide call and true on the final call so the lifecycle cannot be left open. " +
     "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
     "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -168,6 +170,12 @@ export default defineAction({
       .describe(
         "New total slide target. Set only when the user explicitly asks for more slides after the persisted target.",
       ),
+    generationComplete: z
+      .boolean()
+      .optional()
+      .describe(
+        "Required for action-owned incremental generations: false for each intermediate slide and true only on the final slide so its lifecycle closes.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -211,6 +219,7 @@ export default defineAction({
       contextModeOverride,
       reuseLabels,
       targetSlideCountOverride,
+      generationComplete,
     },
     ctx,
   ) =>
@@ -244,6 +253,18 @@ export default defineAction({
         !Array.isArray(deck.generationContext)
           ? deck.generationContext
           : null;
+      if (
+        generationContext?.generationMode === "action" &&
+        generationComplete === undefined
+      ) {
+        throw new ActionContractError(
+          "Set generationComplete=false on intermediate slides and true on the final slide of an action-owned incremental generation.",
+          {
+            errorCode: "generation_completion_flag_required",
+            details: { deckId },
+          },
+        );
+      }
       const targetSlideCount =
         generationContext &&
         Number.isInteger(generationContext.targetSlideCount) &&
@@ -295,6 +316,27 @@ export default defineAction({
               deckId,
               currentSlideCount: slides.length,
               targetSlideCount,
+            },
+          },
+        );
+      }
+
+      const effectiveTargetSlideCount =
+        targetSlideCountOverride ?? targetSlideCount;
+      if (
+        generationComplete &&
+        effectiveTargetSlideCount !== null &&
+        slides.length + 1 < effectiveTargetSlideCount
+      ) {
+        throw new ActionContractError(
+          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides.`,
+          {
+            errorCode: "generation_completed_before_target_reached",
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              postWriteSlideCount: slides.length + 1,
+              targetSlideCount: effectiveTargetSlideCount,
             },
           },
         );
@@ -408,6 +450,11 @@ export default defineAction({
               slideElementProvenance,
             );
 
+      assertNoRenderArtifactsInNewSlide(
+        content,
+        newSlideId,
+        slides.map((s) => String(s.content ?? "")),
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newSlide: any = {
         id: newSlideId,
@@ -497,13 +544,25 @@ export default defineAction({
       });
 
       // Broadcast to any open editors so the new slide appears immediately.
-      // Include the new slideId + agent actor (backwards-compatible payload).
-      const agentChangeId = deckVersionChangeGroupFromAction(ctx);
-      await notifyClients(deckId, {
-        slideId: newSlideId,
-        actor: "agent",
-        ...(agentChangeId ? { agentChangeId } : {}),
-      });
+      // A broadcast failure must not turn the already-committed write into an
+      // action failure that callers may retry.
+      let notificationErrorType: string | undefined;
+      try {
+        const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+        await notifyClients(deckId, {
+          slideId: newSlideId,
+          actor: "agent",
+          ...(agentChangeId ? { agentChangeId } : {}),
+        });
+      } catch (error) {
+        notificationErrorType =
+          error instanceof Error && error.name ? error.name : "unknown_error";
+      }
+
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
 
       track(
         "deck_edited",
@@ -515,9 +574,51 @@ export default defineAction({
           slide_id: newSlideId,
           slide_count: slides.length,
           edit_mode: "add_slide",
+          ...(generationAttemptId
+            ? { generation_attempt_id: generationAttemptId }
+            : {}),
         },
         ctx,
       );
+      if (notificationErrorType) {
+        track(
+          "deck_change_notification_failed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            output_id: deckId,
+            output_type: "deck",
+            slide_id: newSlideId,
+            failure_stage: "client_notification",
+            error_type: notificationErrorType,
+            ...(generationAttemptId
+              ? { generation_attempt_id: generationAttemptId }
+              : {}),
+          },
+          ctx,
+        );
+      }
+      if (
+        generationComplete &&
+        generationAttemptId &&
+        generationContext?.generationMode === "action"
+      ) {
+        track(
+          "generation_completed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: deckId,
+            output_type: "deck",
+            slide_count: slides.length,
+            generation_mode: "incremental",
+            outcome: "completed",
+            source: "add_slide_action",
+          },
+          ctx,
+        );
+      }
 
       const base = {
         deckId,
@@ -531,6 +632,9 @@ export default defineAction({
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
         ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
+        ...(notificationErrorType
+          ? { notificationStatus: "failed", notificationErrorType }
+          : {}),
         layoutFit: {
           status: "pending" as const,
           slideId: newSlideId,

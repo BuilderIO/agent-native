@@ -14,6 +14,7 @@ import { readAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
+  readDeployCredentialEnv,
   resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -67,7 +68,9 @@ export async function resolveGoogleRealtimeCredentials(opts: {
   const fromSettings = stored?.trim();
   if (fromSettings) return fromSettings;
 
-  const envValue = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  const envValue = readDeployCredentialEnv(
+    "GOOGLE_APPLICATION_CREDENTIALS",
+  )?.trim();
   if (!envValue) return null;
   if (envValue.startsWith("{")) return envValue;
 

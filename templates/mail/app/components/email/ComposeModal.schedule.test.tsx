@@ -233,7 +233,7 @@ describe("ComposeModal scheduling", () => {
       "sm:h-[min(540px,_calc(100dvh_-_2rem))]",
     );
     expect(compose?.className).toContain(
-      "sm:w-[min(800px,_calc(100vw_-_var(--compose-right)_-_1rem))]",
+      "md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))]",
     );
     expect(compose?.className).toContain("sm:rounded-xl");
     expect(
