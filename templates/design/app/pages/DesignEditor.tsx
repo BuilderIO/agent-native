@@ -25577,6 +25577,7 @@ function DesignEditor() {
           bridgeUrl={screenBridgeUrl}
           connectionId={screenSnapshotOnly ? undefined : screen.connectionId}
           nativePreviewActive={screenIsActive}
+          sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
           onPreviewTokenChange={
             screenSnapshotOnly ? undefined : handleEffectivePreviewTokenChange

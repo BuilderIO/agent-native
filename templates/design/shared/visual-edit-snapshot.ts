@@ -1,4 +1,3 @@
-import { isBlockedExtensionUrl } from "@agent-native/core/extensions/url-safety";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import postcss from "postcss";
 
@@ -24,6 +23,16 @@ const INERT_SNAPSHOT_TAGS = new Set([
   "template",
   "track",
   "video",
+  "datalist",
+  "input",
+  "keygen",
+  "meter",
+  "optgroup",
+  "option",
+  "output",
+  "progress",
+  "select",
+  "textarea",
 ]);
 
 const NON_RESOURCE_URL_ATTRIBUTES = new Set([
@@ -84,46 +93,11 @@ const RESOURCE_FUNCTIONS = new Set([
   "-webkit-image-set",
 ]);
 
-function isNonPublicIpv6Literal(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host.includes(":")) return false;
-  const firstWord = host.slice(0, host.indexOf(":"));
-  if (!/^[23][\da-f]{3}$/.test(firstWord)) return true;
-  if (firstWord === "2002" || firstWord === "3fff") return true;
-  if (firstWord === "2001") {
-    const secondWord = host.split(":")[1] ?? "0";
-    const second = secondWord ? Number.parseInt(secondWord, 16) : 0;
-    return second <= 0x01ff || second === 0x0db8;
-  }
-  return false;
-}
-
 function isSafeSnapshotResourceUrl(value: string): boolean {
   const normalized = value.trim();
-  if (/^data:image\//i.test(normalized)) return true;
-  if (!/^(?:https?:)?\/\//i.test(normalized) || normalized.includes("\\")) {
-    return false;
-  }
-
-  if (!URL.canParse(normalized, "https://snapshot.invalid")) return false;
-  const url = new URL(normalized, "https://snapshot.invalid");
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local")
-  ) {
-    return false;
-  }
-  url.hostname = hostname;
-  if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    isBlockedExtensionUrl(url.href) ||
-    isNonPublicIpv6Literal(url.hostname)
-  ) {
-    return false;
-  }
-  return true;
+  // A remote viewer's browser resolves these URLs later, so publish-time DNS
+  // checks cannot prevent a hostname from rebinding to a private address.
+  return /^data:image\//i.test(normalized);
 }
 
 function isSafeCssResourceUrl(value: string): boolean {
@@ -383,11 +357,15 @@ function sanitizeCssUrls(value: string): string {
 function sanitizeNode(node: DefaultTreeAdapterTypes.ChildNode): boolean {
   if (!("tagName" in node)) return true;
 
-  if (INERT_SNAPSHOT_TAGS.has(node.tagName.toLowerCase())) return false;
+  const tagName = node.tagName.toLowerCase();
+  if (INERT_SNAPSHOT_TAGS.has(tagName)) return false;
 
   node.attrs = node.attrs.filter((attribute) => {
     const name = attribute.name.toLowerCase();
     const value = attribute.value.trim();
+    if (tagName === "button" && (name === "name" || name === "value")) {
+      return false;
+    }
     if (
       name.startsWith("on") ||
       name === "autofocus" ||

@@ -9,11 +9,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   assertDesignHtmlCreateIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designScreenSourceTypeFromData } from "../shared/source-mode.js";
 import { sanitizeVisualEditSnapshotHtml } from "../shared/visual-edit-snapshot.js";
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 
@@ -56,6 +57,12 @@ export function assertLocalhostScreenMetadata(
     );
   }
 
+  if (designScreenSourceTypeFromData(parsed, fileId) !== "localhost") {
+    fail("Only Localhost screens can publish a visual-edit snapshot.", {
+      errorCode: "visual_edit_snapshot_not_localhost",
+    });
+  }
+
   const screenMetadata = isRecord(parsed.screenMetadata)
     ? parsed.screenMetadata
     : {};
@@ -65,22 +72,6 @@ export function assertLocalhostScreenMetadata(
   const screen = isRecord(screenMetadata[fileId])
     ? screenMetadata[fileId]
     : localhostScreens[fileId];
-
-  const screenSourceType = isRecord(screen)
-    ? (normalizeDesignSourceType(screen.sourceType) ??
-      (typeof screen.bridgeUrl === "string" && screen.bridgeUrl
-        ? "localhost"
-        : null))
-    : null;
-  const designSourceType =
-    normalizeDesignSourceType(parsed.sourceType) ??
-    normalizeDesignSourceType(parsed.sourceMode);
-  if ((screenSourceType ?? designSourceType) !== "localhost") {
-    fail("Only Localhost screens can publish a visual-edit snapshot.", {
-      errorCode: "visual_edit_snapshot_not_localhost",
-    });
-  }
-
   const routeUrl =
     isRecord(screen) && typeof screen.url === "string"
       ? screen.url
@@ -223,50 +214,101 @@ export default defineAction({
     const now = new Date().toISOString();
     let committed: { previousBlobHandle: string | null } | null;
     try {
-      committed = await db.transaction(async (tx) => {
-        const table = schema.designVisualEditSnapshots;
-        const [current] = await tx
-          .select({
-            blobHandle: table.blobHandle,
-            captureRevision: table.captureRevision,
-            publishedRevision: table.publishedRevision,
-          })
-          .from(table)
-          .where(and(eq(table.designId, designId), eq(table.fileId, fileId)))
-          .for("update")
-          .limit(1);
-        if (
-          !current ||
-          current.captureRevision !== revision ||
-          current.publishedRevision >= revision
-        ) {
-          return null;
-        }
+      committed = await withDesignSourceMutationTransaction(
+        designId,
+        async (tx) => {
+          const [currentDesign] = await tx
+            .select({
+              data: schema.designs.data,
+              visibility: schema.designs.visibility,
+              ownerEmail: schema.designs.ownerEmail,
+              orgId: schema.designs.orgId,
+            })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId))
+            .limit(1);
+          const [currentFile] = await tx
+            .select({
+              content: schema.designFiles.content,
+              fileType: schema.designFiles.fileType,
+            })
+            .from(schema.designFiles)
+            .where(
+              and(
+                eq(schema.designFiles.id, fileId),
+                eq(schema.designFiles.designId, designId),
+              ),
+            )
+            .limit(1);
+          if (
+            !currentDesign ||
+            !currentFile ||
+            currentFile.fileType.toLowerCase() !== "html"
+          ) {
+            return null;
+          }
+          try {
+            assertLocalhostScreenMetadata(
+              currentDesign.data,
+              fileId,
+              currentFile.content,
+            );
+          } catch (error) {
+            if (
+              error &&
+              typeof error === "object" &&
+              "errorCode" in error &&
+              error.errorCode === "visual_edit_snapshot_not_localhost"
+            ) {
+              return null;
+            }
+            throw error;
+          }
 
-        const updated = await tx
-          .update(table)
-          .set({
-            blobHandle: JSON.stringify(blob),
-            html: "",
-            publishedRevision: revision,
-            updatedAt: now,
-            visibility: design.visibility,
-            ownerEmail: design.ownerEmail,
-            orgId: design.orgId,
-          })
-          .where(
-            and(
-              eq(table.designId, designId),
-              eq(table.fileId, fileId),
-              eq(table.captureRevision, revision),
-              sql`${table.publishedRevision} < ${revision}`,
-            ),
-          )
-          .returning({ blobHandle: table.blobHandle });
-        return updated.length
-          ? { previousBlobHandle: current.blobHandle }
-          : null;
-      });
+          const table = schema.designVisualEditSnapshots;
+          const [current] = await tx
+            .select({
+              blobHandle: table.blobHandle,
+              captureRevision: table.captureRevision,
+              publishedRevision: table.publishedRevision,
+            })
+            .from(table)
+            .where(and(eq(table.designId, designId), eq(table.fileId, fileId)))
+            .for("update")
+            .limit(1);
+          if (
+            !current ||
+            current.captureRevision !== revision ||
+            current.publishedRevision >= revision
+          ) {
+            return null;
+          }
+
+          const updated = await tx
+            .update(table)
+            .set({
+              blobHandle: JSON.stringify(blob),
+              html: "",
+              publishedRevision: revision,
+              updatedAt: now,
+              visibility: currentDesign.visibility,
+              ownerEmail: currentDesign.ownerEmail,
+              orgId: currentDesign.orgId,
+            })
+            .where(
+              and(
+                eq(table.designId, designId),
+                eq(table.fileId, fileId),
+                eq(table.captureRevision, revision),
+                sql`${table.publishedRevision} < ${revision}`,
+              ),
+            )
+            .returning({ blobHandle: table.blobHandle });
+          return updated.length
+            ? { previousBlobHandle: current.blobHandle }
+            : null;
+        },
+      );
     } catch (error) {
       await discardSnapshotBlob(blob);
       throw error;

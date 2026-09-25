@@ -1,42 +1,15 @@
-import { defineAction } from "@agent-native/core/action";
-import {
-  readPrivateBlob,
-  type PrivateBlobHandle,
-} from "@agent-native/core/private-blob";
+import { defineAction, fail } from "@agent-native/core/action";
+import { readPrivateBlob } from "@agent-native/core/private-blob";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { parseVisualEditSnapshotBlobHandle } from "../server/lib/visual-edit-snapshot-blobs.js";
+import { assertLocalhostScreenMetadata } from "./publish-visual-edit-snapshot.js";
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
-
-function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
-  let handle: unknown;
-  try {
-    handle = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error("Stored visual-edit snapshot handle is malformed.");
-  }
-  if (
-    !handle ||
-    typeof handle !== "object" ||
-    !("id" in handle) ||
-    typeof handle.id !== "string" ||
-    !handle.id ||
-    !("provider" in handle) ||
-    typeof handle.provider !== "string" ||
-    !handle.provider ||
-    !("opaque" in handle) ||
-    handle.opaque !== true ||
-    !("encrypted" in handle) ||
-    typeof handle.encrypted !== "boolean"
-  ) {
-    throw new Error("Stored visual-edit snapshot handle is invalid.");
-  }
-  return handle as PrivateBlobHandle;
-}
 
 export default defineAction({
   description:
@@ -58,9 +31,35 @@ export default defineAction({
   http: { method: "GET" },
   maxResultChars: 1_052_000,
   run: async ({ designId, fileId, knownUpdatedAt }) => {
-    await assertAccess("design", designId, "viewer");
+    const access = await assertAccess("design", designId, "viewer");
+    const design = access.resource as typeof schema.designs.$inferSelect;
 
     const db = getDb();
+    const [file] = await db
+      .select({
+        content: schema.designFiles.content,
+        fileType: schema.designFiles.fileType,
+      })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.id, fileId),
+        ),
+      )
+      .limit(1);
+    if (!file) {
+      fail("The screen does not belong to this design.", {
+        errorCode: "visual_edit_snapshot_file_mismatch",
+      });
+    }
+    if (file.fileType.toLowerCase() !== "html") {
+      fail("Visual-edit snapshots can only be read for HTML screens.", {
+        errorCode: "visual_edit_snapshot_not_html",
+      });
+    }
+    assertLocalhostScreenMetadata(design.data, fileId, file.content);
+
     const table = schema.designVisualEditSnapshots;
     const where = and(eq(table.designId, designId), eq(table.fileId, fileId));
     const [latest] = await db
@@ -122,7 +121,7 @@ export default defineAction({
     let html: string;
     if (snapshot.blobHandle) {
       const blob = await readPrivateBlob(
-        parsePrivateBlobHandle(snapshot.blobHandle),
+        parseVisualEditSnapshotBlobHandle(snapshot.blobHandle),
       );
       if (blob.data.byteLength > MAX_SNAPSHOT_BYTES) {
         throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");

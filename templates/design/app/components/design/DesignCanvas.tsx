@@ -615,6 +615,8 @@ interface DesignCanvasProps {
   connectionId?: string;
   /** Only the active focused/overview screen may own the desktop native backend. */
   nativePreviewActive?: boolean;
+  /** Only the focused shared screen polls for new owner snapshots. */
+  sharedSnapshotPollActive?: boolean;
   /**
    * HTML snapshot for a URL-backed localhost screen. When present, DesignCanvas
    * renders this as editable srcdoc while the persisted design file can remain
@@ -1529,14 +1531,16 @@ function SharedSnapshotPoller({
   designId,
   fileId,
   knownUpdatedAt,
+  active,
   onSnapshot,
 }: {
   designId: string;
   fileId: string;
   knownUpdatedAt: string | null;
+  active: boolean;
   onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
 }) {
-  const { data } = useActionQuery<{
+  const { data, refetch } = useActionQuery<{
     designId: string;
     fileId: string;
     html: string | null;
@@ -1546,10 +1550,16 @@ function SharedSnapshotPoller({
     "get-visual-edit-snapshot",
     { designId, fileId, knownUpdatedAt },
     {
-      // request-storm-allow: Anonymous viewers cannot receive owner sync events; only mounted shared canvases poll, and hidden tabs pause refetching.
-      refetchInterval: 2_000,
+      // request-storm-allow: Anonymous viewers cannot receive owner sync events; only the focused shared canvas polls, and inactive screens refetch when focused.
+      refetchInterval: active ? 2_000 : false,
     },
   );
+  const wasActiveRef = useRef(active);
+
+  useEffect(() => {
+    if (active && !wasActiveRef.current) void refetch();
+    wasActiveRef.current = active;
+  }, [active, refetch]);
 
   useEffect(() => {
     if (
@@ -1578,6 +1588,7 @@ export function DesignCanvas({
   previewUrlOverride,
   connectionId,
   nativePreviewActive = true,
+  sharedSnapshotPollActive = true,
   externalSnapshotHtml,
   snapshotOnly = false,
   blockPreviewInteraction = false,
@@ -2496,7 +2507,7 @@ export function DesignCanvas({
   const liveEditBridgeScript = useMemo(() => {
     if (!urlBackedFrame) return "";
     return (
-      (includeLiveEditEditorChrome ? "" : LIVE_ROUTE_BRIDGE_SCRIPT) +
+      LIVE_ROUTE_BRIDGE_SCRIPT +
       (includeLiveEditEditorChrome
         ? MOTION_PREVIEW_BRIDGE_SCRIPT +
           SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -4125,6 +4136,7 @@ export function DesignCanvas({
         if (typeof e.data.routePath === "string" && e.data.routePath) {
           liveRoutePathRef.current = e.data.routePath;
           onRoutePathChange?.(screenId, e.data.routePath);
+          requestSharedSnapshotAfterEdit();
         }
         return;
       }
@@ -7356,6 +7368,7 @@ export function DesignCanvas({
           designId={designId}
           fileId={screenId}
           knownUpdatedAt={matchingSharedSnapshot?.updatedAt ?? null}
+          active={sharedSnapshotPollActive}
           onSnapshot={handleSharedSnapshot}
         />
       ) : null}

@@ -38,7 +38,7 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
     }
   });
 
-  it("blocks non-public IPv6 literals and keeps public IPv6 resources", () => {
+  it("blocks network resources and keeps embedded images", () => {
     const blockedHosts = [
       "[::]",
       "[::1]",
@@ -56,7 +56,8 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
         (host, index) =>
           `<img id="blocked-${index}" src="https://${host}/asset.png">`,
       ),
-      '<img id="public-v6" src="https://[2606:4700:4700::1111]/asset.png">',
+      '<img id="public-host" src="https://cdn.example.com/asset.png">',
+      '<img id="embedded" src="data:image/png;base64,AAAA">',
     ].join("");
 
     const sanitized = sanitizeVisualEditSnapshotHtml(html);
@@ -67,9 +68,9 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
         `src="https://${blockedHosts[index]}/asset.png"`,
       );
     }
-    expect(sanitized).toContain(
-      'src="https://[2606:4700:4700::1111]/asset.png"',
-    );
+    expect(sanitized).toContain('id="public-host"');
+    expect(sanitized).not.toContain('src="https://cdn.example.com/asset.png"');
+    expect(sanitized).toContain('src="data:image/png;base64,AAAA"');
   });
 
   it("checks background and strips navigation or other URL-bearing attributes", () => {
@@ -100,7 +101,7 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
     expect(sanitized).not.toContain("manifest=");
     expect(sanitized).not.toContain("profile=");
     expect(sanitized).not.toContain("autofocus");
-    expect(sanitized).toContain('src="https://cdn.example.com/public.png"');
+    expect(sanitized).not.toContain('src="https://cdn.example.com/public.png"');
   });
 
   it("strips legacy and navigation URL attributes", () => {
@@ -138,7 +139,7 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
         <path id="private-mask" mask="url(https://[fe80::1]/mask.svg#mask)"></path>
         <path id="private-marker" marker-start="url(https://192.168.1.5/marker.svg#marker)"></path>
         <path id="local" fill="url(#local-gradient)" clip-path="url(#local-clip)"></path>
-        <path id="public" filter="url(https://cdn.example.com/filter.svg#filter)"></path>
+        <path id="public-host" filter="url(https://cdn.example.com/filter.svg#filter)"></path>
       </svg>
     `);
 
@@ -159,7 +160,8 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
     );
     expect(sanitized).toContain('fill="url(#local-gradient)"');
     expect(sanitized).toContain('clip-path="url(#local-clip)"');
-    expect(sanitized).toContain(
+    expect(sanitized).toContain('id="public-host"');
+    expect(sanitized).not.toContain(
       'filter="url(https://cdn.example.com/filter.svg#filter)"',
     );
   });
@@ -176,7 +178,7 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
       'id="unsafe" style="display: grid; gap: 8px; color: red"',
     );
     expect(sanitized).toContain(
-      'id="safe" style="display: grid; gap: 8px; background-image: url(https://cdn.example.com/public.png); color: red"',
+      'id="safe" style="display: grid; gap: 8px; color: red"',
     );
     expect(sanitized).toContain(
       'id="local" style="mask-image: url(#local-mask); margin: 0"',
@@ -197,8 +199,32 @@ describe("sanitizeVisualEditSnapshotHtml", () => {
       'id="escaped" style="display: grid; margin: 0"',
     );
     expect(sanitized).toContain('id="ipv6" style="display: grid; margin: 0"');
-    expect(sanitized).toContain(
-      `id="safe" style="display: grid; background-image: image-set('https://cdn.example.com/a.png' 1x, url(https://cdn.example.com/b.png) 2x); margin: 0"`,
-    );
+    expect(sanitized).toContain('id="safe" style="display: grid; margin: 0"');
+  });
+
+  it("removes form controls and their serialized values", () => {
+    const sanitized = sanitizeVisualEditSnapshotHtml(`
+      <input id="name" value="private name">
+      <input type="hidden" name="csrf" value="example-hidden-secret">
+      <input type="password" name="password" value="example-password-secret">
+      <textarea id="notes">private notes</textarea>
+      <select id="account"><option value="private-id">private account</option></select>
+      <button name="operation" value="private-action">Save changes</button>
+      <output>private result</output>
+      <div id="placeholder" data-value="kept as page markup">Visible</div>
+    `);
+
+    expect(sanitized).not.toContain("<input");
+    expect(sanitized).not.toContain("<textarea");
+    expect(sanitized).not.toContain("<select");
+    expect(sanitized).not.toContain("<option");
+    expect(sanitized).not.toContain("<output");
+    expect(sanitized).not.toContain("private");
+    expect(sanitized).not.toContain("example-hidden-secret");
+    expect(sanitized).not.toContain("example-password-secret");
+    expect(sanitized).not.toContain('name="operation"');
+    expect(sanitized).not.toContain('value="private-action"');
+    expect(sanitized).toContain("<button>Save changes</button>");
+    expect(sanitized).toContain('id="placeholder"');
   });
 });

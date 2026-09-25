@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => {
   insertChain.values.mockReturnValue(insertChain);
   insertChain.onConflictDoUpdate.mockReturnValue(insertChain);
   return {
+    designs: {
+      id: "designs.id",
+      data: "designs.data",
+      visibility: "designs.visibility",
+      ownerEmail: "designs.ownerEmail",
+      orgId: "designs.orgId",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -34,6 +41,11 @@ const mocks = vi.hoisted(() => {
       insert: vi.fn(() => insertChain),
       select: vi.fn(() => selectChain),
     })),
+    withDesignSourceMutationTransaction: vi.fn(),
+    transaction: {
+      select: vi.fn(() => selectChain),
+      insert: vi.fn(() => insertChain),
+    },
     insertChain,
     selectChain,
   };
@@ -60,8 +72,13 @@ vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
     designFiles: mocks.designFiles,
+    designs: mocks.designs,
     designVisualEditSnapshots: mocks.designVisualEditSnapshots,
   },
+}));
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction:
+    mocks.withDesignSourceMutationTransaction,
 }));
 
 import reserveSnapshotAction from "./reserve-visual-edit-snapshot.js";
@@ -81,6 +98,12 @@ const design = {
     },
   }),
 };
+const designRow = {
+  data: design.data,
+  visibility: design.visibility,
+  ownerEmail: design.ownerEmail,
+  orgId: design.orgId,
+};
 const file = { id: fileId, content: routeUrl, fileType: "html" };
 
 describe("reserve visual-edit fallback snapshot", () => {
@@ -89,7 +112,18 @@ describe("reserve visual-edit fallback snapshot", () => {
     mocks.assertAccess.mockResolvedValue({ role: "owner", resource: design });
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
-    mocks.selectChain.limit.mockResolvedValue([file]);
+    mocks.selectChain.limit
+      .mockResolvedValueOnce([designRow])
+      .mockResolvedValueOnce([file]);
+    mocks.withDesignSourceMutationTransaction.mockReset();
+    mocks.withDesignSourceMutationTransaction.mockImplementation(
+      (
+        _designId: string,
+        callback: (tx: typeof mocks.transaction) => unknown,
+      ) => callback(mocks.transaction),
+    );
+    mocks.transaction.select.mockClear();
+    mocks.transaction.insert.mockClear();
     mocks.insertChain.values.mockClear();
     mocks.insertChain.onConflictDoUpdate.mockClear();
     mocks.insertChain.returning.mockReset();
@@ -151,10 +185,13 @@ describe("reserve visual-edit fallback snapshot", () => {
         { caller: "frontend", requestHeaders: new Headers() },
       ),
     ).rejects.toThrow(/Requires editor role/);
-    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.withDesignSourceMutationTransaction).not.toHaveBeenCalled();
 
     mocks.assertAccess.mockResolvedValue({ role: "owner", resource: design });
-    mocks.selectChain.limit.mockResolvedValueOnce([]);
+    mocks.selectChain.limit
+      .mockReset()
+      .mockResolvedValueOnce([designRow])
+      .mockResolvedValueOnce([]);
     await expect(
       reserveSnapshotAction.run(
         { designId, fileId },
@@ -166,6 +203,10 @@ describe("reserve visual-edit fallback snapshot", () => {
     design.data = JSON.stringify({
       screenMetadata: { [fileId]: { sourceType: "fusion", url: routeUrl } },
     });
+    mocks.selectChain.limit
+      .mockReset()
+      .mockResolvedValueOnce([{ ...designRow, data: design.data }])
+      .mockResolvedValueOnce([file]);
     await expect(
       reserveSnapshotAction.run(
         { designId, fileId },

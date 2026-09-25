@@ -21,6 +21,7 @@ import {
   appPath,
   bridgeMessages,
   designFrame,
+  enterDirectMode,
   installBridge,
   readSeedDesignId,
   selectByText,
@@ -40,6 +41,7 @@ let designId: string;
 let linkedScreenId: string;
 let collaborationDesignId: string;
 let collaborationScreenId: string;
+let collaborationSecondScreenId: string;
 let visualEditTargetServer: Server | null = null;
 let visualEditBridge: DesignConnectBridge | null = null;
 let visualEditTargetUrl = "";
@@ -68,7 +70,8 @@ function ownScreenFrame(page: Page) {
 test.describe.serial("public visual edit", () => {
   test.beforeAll(async ({ browser }) => {
     visualEditTargetServer = http.createServer((request, response) => {
-      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      const requestUrl = new URL(request.url ?? "/", "http://localhost");
+      const pathname = requestUrl.pathname;
       if (pathname === "/slow") {
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
@@ -92,7 +95,7 @@ test.describe.serial("public visual edit", () => {
       }
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
-        "<!doctype html><html><body><main><h1>Local visual edit</h1></main></body></html>",
+        `<!doctype html><html><body><main><h1>${requestUrl.searchParams.has("e2eRoute") ? "Owner updated canvas" : "Local visual edit"}</h1></main></body></html>`,
       );
     });
     const address = await listen(visualEditTargetServer);
@@ -114,7 +117,8 @@ test.describe.serial("public visual edit", () => {
     await setDesignVisibility(browser, designId, "public");
     const collaborationDesign = await createOwnedVisualEditDesign(browser);
     collaborationDesignId = collaborationDesign.designId;
-    collaborationScreenId = collaborationDesign.screenId;
+    collaborationScreenId = collaborationDesign.screenIds[0]!;
+    collaborationSecondScreenId = collaborationDesign.screenIds[1]!;
     await setDesignVisibility(browser, collaborationDesignId, "public");
   });
 
@@ -1082,10 +1086,22 @@ test.describe.serial("public visual edit", () => {
     }
 
     const guestSnapshotReads: string[] = [];
+    const guestSnapshotRequestCounts = new Map<string, number>();
     const guest = await openSignedOutPage(
       browser,
       `/visual-edit/${collaborationDesignId}?share=1&editorView=overview`,
       (guestPage) => {
+        guestPage.on("request", (request) => {
+          const url = new URL(request.url());
+          if (!url.pathname.endsWith("/get-visual-edit-snapshot")) return;
+          const fileId = url.searchParams.get("fileId");
+          if (fileId) {
+            guestSnapshotRequestCounts.set(
+              fileId,
+              (guestSnapshotRequestCounts.get(fileId) ?? 0) + 1,
+            );
+          }
+        });
         guestPage.on("response", async (response) => {
           if (response.url().includes("/get-visual-edit-snapshot")) {
             guestSnapshotReads.push(
@@ -1107,6 +1123,13 @@ test.describe.serial("public visual edit", () => {
       await expect(
         guestFrame.getByRole("heading", { name: "Local visual edit" }),
       ).toBeVisible({ timeout: 30_000 });
+      const secondGuestFrame = designFrame(
+        guest.page,
+        collaborationSecondScreenId,
+      );
+      await expect(
+        secondGuestFrame.getByRole("heading", { name: "Local visual edit" }),
+      ).toBeVisible({ timeout: 30_000 });
       const guestIframe = guest.page.locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${collaborationScreenId}"]`,
       );
@@ -1116,15 +1139,117 @@ test.describe.serial("public visual edit", () => {
       );
       await expect(guestIframe).toHaveAttribute("srcdoc", /Local visual edit/);
 
-      await ownerFrame.locator("h1").evaluate((element) => {
+      const firstScreenInitialReads =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationScreenId,
+      });
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenInitialReads);
+      const firstScreenReads =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      const secondScreenReads =
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0;
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenReads);
+      expect(
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
+      ).toBe(secondScreenReads);
+
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationSecondScreenId,
+      });
+      await expect
+        .poll(
+          () =>
+            (guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0) >
+            secondScreenReads,
+        )
+        .toBe(true);
+      const firstScreenReadsAfterSwitch =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      const secondScreenReadsAfterSwitch =
+        guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0;
+      await expect
+        .poll(
+          () =>
+            guestSnapshotRequestCounts.get(collaborationSecondScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(secondScreenReadsAfterSwitch);
+      expect(guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0).toBe(
+        firstScreenReadsAfterSwitch,
+      );
+
+      const firstScreenReadsBeforeRefocus =
+        guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0;
+      await selectByText(guest.page, "Local visual edit", {
+        screenId: collaborationScreenId,
+      });
+      await expect
+        .poll(
+          () => guestSnapshotRequestCounts.get(collaborationScreenId) ?? 0,
+          { timeout: 5_000 },
+        )
+        .toBeGreaterThan(firstScreenReadsBeforeRefocus);
+
+      const ownerPublicationsBeforeEdit = ownerSnapshotStatuses.filter(
+        (status) => status === 200,
+      ).length;
+      await page.evaluate(() => {
+        const state = { messages: [] as string[] };
+        Object.defineProperty(window, "__visualEditCollabMessages", {
+          configurable: true,
+          value: state,
+        });
+        window.addEventListener("message", (event) => {
+          if (typeof event.data?.type === "string") {
+            state.messages.push(event.data.type);
+          }
+        });
+      });
+      await ownerFrame.locator("h1").evaluate(() => {
         const route = new URL(window.location.href);
         route.searchParams.set("e2eRoute", "account");
         window.history.pushState({}, "", route);
-        element.textContent = "Owner updated canvas";
       });
       await expect
-        .poll(() => ownerSnapshotStatuses.some((status) => status === 200))
-        .toBe(true);
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __visualEditCollabMessages?: { messages: string[] };
+                }
+              ).__visualEditCollabMessages?.messages ?? [],
+          ),
+        )
+        .toContain("agent-native:live-route-path");
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as Window & {
+                  __visualEditCollabMessages?: { messages: string[] };
+                }
+              ).__visualEditCollabMessages?.messages ?? [],
+          ),
+        )
+        .toContain("agent-native:runtime-layer-snapshot");
+      await expect
+        .poll(
+          () => ownerSnapshotStatuses.filter((status) => status === 200).length,
+        )
+        .toBeGreaterThan(ownerPublicationsBeforeEdit);
       await expect(
         guestFrame.getByRole("heading", { name: "Owner updated canvas" }),
       ).toBeVisible({ timeout: 20_000 });
@@ -1135,14 +1260,27 @@ test.describe.serial("public visual edit", () => {
           publicationStatuses.push(response.status());
         }
       });
+      await enterDirectMode(guest.page, { screenId: collaborationScreenId });
       await installBridge(guest.page);
-      const selected = await selectByText(guest.page, "Owner updated canvas", {
-        screenId: collaborationScreenId,
-      });
-      expect(selected.textContent).toBe("Owner updated canvas");
       const heading = guestFrame.getByRole("heading", {
         name: "Owner updated canvas",
       });
+      const headingBox = await heading.boundingBox();
+      expect(headingBox).toBeTruthy();
+      await guest.page.evaluate(() => ((window as any).__bridge = []));
+      const modifier = process.platform === "darwin" ? "Meta" : "Control";
+      await guest.page.keyboard.down(modifier);
+      try {
+        await guest.page.mouse.click(
+          (headingBox?.x ?? 0) + (headingBox?.width ?? 0) / 2,
+          (headingBox?.y ?? 0) + (headingBox?.height ?? 0) / 2,
+        );
+      } finally {
+        await guest.page.keyboard.up(modifier);
+      }
+      const selection = await waitForBridge(guest.page, "element-select");
+      const selected = selection?.payload ?? selection;
+      expect(selected.textContent).toContain("Owner updated canvas");
       const before = await heading.boundingBox();
       expect(before).toBeTruthy();
       const handle = guestFrame.locator('[data-agent-native-edge-handle="s"]');
@@ -1268,7 +1406,7 @@ async function createLinkedScreen(browser: Browser, designId: string) {
 
 async function createOwnedVisualEditDesign(
   browser: Browser,
-): Promise<{ designId: string; screenId: string }> {
+): Promise<{ designId: string; screenIds: string[] }> {
   if (!visualEditBridge) throw new Error("visual-edit bridge is not running");
   const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
   try {
@@ -1282,7 +1420,7 @@ async function createOwnedVisualEditDesign(
           rootPath: visualEditBridge.manifest.rootPath,
           routeManifest: visualEditBridge.manifest,
           bridgeToken: VISUAL_EDIT_BRIDGE_TOKEN,
-          paths: ["/"],
+          paths: ["/", "/settings"],
           navigate: false,
           publicReadOnly: false,
         },
@@ -1298,11 +1436,13 @@ async function createOwnedVisualEditDesign(
       screens?: Array<{ id?: string }>;
     };
     const designId = result.designId;
-    const screenId = result.screens?.[0]?.id;
-    if (!designId || !screenId) {
+    const screenIds = result.screens?.flatMap((screen) =>
+      screen.id ? [screen.id] : [],
+    );
+    if (!designId || !screenIds || screenIds.length < 2) {
       throw new Error("open-visual-edit returned no design or screen");
     }
-    return { designId, screenId };
+    return { designId, screenIds };
   } finally {
     await context.close();
   }

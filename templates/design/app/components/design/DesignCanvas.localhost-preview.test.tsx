@@ -176,6 +176,60 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.innerHTML).not.toContain("localhost:5173");
   });
 
+  it("polls shared snapshots only while focused and refetches on activation", async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: undefined });
+    useActionQueryMock.mockReturnValue({ data: undefined, refetch });
+
+    const renderSnapshotCanvas = (active: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey="screen-account"
+        screenId="screen-account"
+        designId="design-one"
+        sourceType="localhost"
+        snapshotOnly
+        sharedSnapshotPollActive={active}
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+    const latestSnapshotQueryOptions = () => {
+      const calls = useActionQueryMock.mock.calls.filter(
+        ([action]) => action === "get-visual-edit-snapshot",
+      );
+      const call = calls[calls.length - 1];
+      return call?.[2];
+    };
+
+    await act(async () => {
+      root.render(renderSnapshotCanvas(false));
+    });
+
+    expect(latestSnapshotQueryOptions()).toMatchObject({
+      refetchInterval: false,
+    });
+    expect(refetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(renderSnapshotCanvas(true));
+    });
+
+    expect(latestSnapshotQueryOptions()).toMatchObject({
+      refetchInterval: 2_000,
+    });
+    expect(refetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.render(renderSnapshotCanvas(true));
+    });
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -412,6 +466,30 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(onRoutePathChange).toHaveBeenCalledTimes(3);
     expect(container.textContent).not.toContain("Preparing live editor");
     expect(liveIframe?.style.pointerEvents).toBe("");
+
+    const postMessage = vi.spyOn(liveIframe!.contentWindow!, "postMessage");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:live-route-path",
+            routePath: "/designer",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: "request-runtime-layer-snapshot" },
+        "*",
+      );
+    });
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "screen-account",
+      "/designer",
+    );
   });
 
   it("stops retrying a stale bridge token and tells the user to reconnect the screen", async () => {

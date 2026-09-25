@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => {
     for: vi.fn(),
     limit: vi.fn(),
   };
-  selectChain.from.mockReturnValue(selectChain);
+  selectChain.from.mockImplementation((table: unknown) => {
+    mocks.currentTable = table;
+    return selectChain;
+  });
   selectChain.where.mockReturnValue(selectChain);
   selectChain.for.mockReturnValue(selectChain);
 
@@ -32,6 +35,13 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
+    designs: {
+      id: "designs.id",
+      data: "designs.data",
+      visibility: "designs.visibility",
+      ownerEmail: "designs.ownerEmail",
+      orgId: "designs.orgId",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -62,6 +72,12 @@ const mocks = vi.hoisted(() => {
       ),
     })),
     blob,
+    currentTable: null as unknown,
+    snapshotRow: {
+      blobHandle: null as string | null,
+      captureRevision: 7n,
+      publishedRevision: 0n,
+    },
     selectChain,
     transaction,
     updateChain,
@@ -93,9 +109,16 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
+    designs: mocks.designs,
     designFiles: mocks.designFiles,
     designVisualEditSnapshots: mocks.designVisualEditSnapshots,
   },
+}));
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction: vi.fn(
+    (_designId: string, callback: (tx: typeof mocks.transaction) => unknown) =>
+      mocks.getDb().transaction(callback),
+  ),
 }));
 
 import { sanitizeVisualEditSnapshotHtml } from "../shared/visual-edit-snapshot.js";
@@ -135,15 +158,21 @@ describe("publish visual-edit fallback snapshot", () => {
     mocks.deletePrivateBlob.mockReset();
     mocks.deletePrivateBlob.mockResolvedValue({ deleted: true });
     mocks.getDb.mockClear();
+    mocks.currentTable = null;
+    mocks.snapshotRow = {
+      blobHandle: null,
+      captureRevision: 7n,
+      publishedRevision: 0n,
+    };
     mocks.selectChain.limit.mockReset();
-    let limitCall = 0;
     mocks.selectChain.limit.mockImplementation(() => {
-      const currentCall = limitCall++ % 2;
-      return Promise.resolve(
-        currentCall === 0
-          ? [file]
-          : [{ blobHandle: null, captureRevision: 7n, publishedRevision: 0n }],
-      );
+      if (mocks.currentTable === mocks.designs) {
+        return Promise.resolve([design]);
+      }
+      if (mocks.currentTable === mocks.designFiles) {
+        return Promise.resolve([file]);
+      }
+      return Promise.resolve([mocks.snapshotRow]);
     });
     mocks.updateChain.set.mockClear();
     mocks.updateChain.where.mockClear();
@@ -230,7 +259,7 @@ describe("publish visual-edit fallback snapshot", () => {
     await expect(
       publishSnapshotAction.run(
         input(
-          `<html><head><style>main { color: red }</style></head><body><main onclick="evil()"><script>top.alert('evil')</script><a href="javascript:evil()">Home</a><img src="http://localhost:5173/private.png"><img src="https://cdn.example.test/screen.png"></main></body></html>`,
+          `<html><head><style>main { color: red }</style></head><body><main onclick="evil()"><script>top.alert('evil')</script><a href="javascript:evil()">Home</a><img src="http://localhost:5173/private.png"><img src="https://cdn.example.test/screen.png"><img src="data:image/png;base64,AAAA"></main></body></html>`,
         ),
         { caller: "frontend", requestHeaders: new Headers() },
       ),
@@ -244,7 +273,8 @@ describe("publish visual-edit fallback snapshot", () => {
     expect(publishedHtml).not.toContain("onclick");
     expect(publishedHtml).not.toContain("href=");
     expect(publishedHtml).not.toContain("localhost:5173");
-    expect(publishedHtml).toContain("https://cdn.example.test/screen.png");
+    expect(publishedHtml).not.toContain("https://cdn.example.test/screen.png");
+    expect(publishedHtml).toContain('src="data:image/png;base64,AAAA"');
     expect(design.data).not.toContain("<script");
     design.data = originalData;
   });
@@ -269,15 +299,11 @@ describe("publish visual-edit fallback snapshot", () => {
       opaque: true,
       encrypted: true,
     };
-    mocks.selectChain.limit
-      .mockResolvedValueOnce([file])
-      .mockResolvedValueOnce([
-        {
-          blobHandle: JSON.stringify(oldBlob),
-          captureRevision: 7n,
-          publishedRevision: 0n,
-        },
-      ]);
+    mocks.snapshotRow = {
+      blobHandle: JSON.stringify(oldBlob),
+      captureRevision: 7n,
+      publishedRevision: 0n,
+    };
 
     await expect(
       publishSnapshotAction.run(input(), {

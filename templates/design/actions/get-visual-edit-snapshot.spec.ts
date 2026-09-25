@@ -8,9 +8,24 @@ const mocks = vi.hoisted(() => {
   };
   query.from.mockReturnValue(query);
   query.where.mockReturnValue(query);
-  const select = vi.fn(() => query);
+  const fileQuery = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  fileQuery.from.mockReturnValue(fileQuery);
+  fileQuery.where.mockReturnValue(fileQuery);
+  const select = vi.fn((selection) =>
+    selection?.content === "files.content" ? fileQuery : query,
+  );
 
   return {
+    files: {
+      id: "files.id",
+      designId: "files.designId",
+      content: "files.content",
+      fileType: "files.fileType",
+    },
     snapshots: {
       designId: "snapshots.designId",
       fileId: "snapshots.fileId",
@@ -19,6 +34,7 @@ const mocks = vi.hoisted(() => {
       updatedAt: "snapshots.updatedAt",
     },
     assertAccess: vi.fn(),
+    assertLocalhostScreenMetadata: vi.fn(),
     readPrivateBlob: vi.fn(),
     select,
     blob: {
@@ -29,11 +45,26 @@ const mocks = vi.hoisted(() => {
     },
     getDb: vi.fn(() => ({ select })),
     query,
+    fileQuery,
+    design: {
+      data: JSON.stringify({
+        sourceType: "localhost",
+        screenMetadata: {
+          "screen-one": {
+            sourceType: "localhost",
+            url: "http://localhost:5173/",
+          },
+        },
+      }),
+    },
   };
 });
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
+  fail: (message: string, options?: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
@@ -41,13 +72,23 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   readPrivateBlob: mocks.readPrivateBlob,
 }));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  parseVisualEditSnapshotBlobHandle: (value: string) => JSON.parse(value),
+}));
+vi.mock("./publish-visual-edit-snapshot.js", () => ({
+  assertLocalhostScreenMetadata: mocks.assertLocalhostScreenMetadata,
+}));
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ conditions })),
   eq: vi.fn((left, right) => ({ left, right })),
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
-  schema: { designVisualEditSnapshots: mocks.snapshots },
+  schema: {
+    designFiles: mocks.files,
+    designs: {},
+    designVisualEditSnapshots: mocks.snapshots,
+  },
 }));
 
 import getSnapshotAction from "./get-visual-edit-snapshot.js";
@@ -55,7 +96,11 @@ import getSnapshotAction from "./get-visual-edit-snapshot.js";
 describe("get visual-edit fallback snapshot", () => {
   beforeEach(() => {
     mocks.assertAccess.mockReset();
-    mocks.assertAccess.mockResolvedValue({ role: "viewer" });
+    mocks.assertAccess.mockResolvedValue({
+      role: "viewer",
+      resource: mocks.design,
+    });
+    mocks.assertLocalhostScreenMetadata.mockReset();
     mocks.readPrivateBlob.mockReset();
     mocks.readPrivateBlob.mockResolvedValue({
       data: new TextEncoder().encode("<html><body>Shared</body></html>"),
@@ -63,6 +108,10 @@ describe("get visual-edit fallback snapshot", () => {
     mocks.select.mockClear();
     mocks.getDb.mockClear();
     mocks.query.limit.mockReset();
+    mocks.fileQuery.limit.mockReset();
+    mocks.fileQuery.limit.mockResolvedValue([
+      { content: "http://localhost:5173/", fileType: "html" },
+    ]);
   });
 
   it("requires design viewer access and scopes the snapshot to its screen", async () => {
@@ -96,6 +145,40 @@ describe("get visual-edit fallback snapshot", () => {
         { left: "snapshots.fileId", right: "screen-one" },
       ],
     });
+    expect(mocks.assertLocalhostScreenMetadata).toHaveBeenCalledWith(
+      mocks.design.data,
+      "screen-one",
+      "http://localhost:5173/",
+    );
+  });
+
+  it("refuses a stale or non-Localhost screen before returning a saved fallback", async () => {
+    mocks.fileQuery.limit.mockResolvedValueOnce([]);
+    await expect(
+      getSnapshotAction.run(
+        { designId: "design-one", fileId: "screen-one" },
+        { caller: "frontend" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "visual_edit_snapshot_file_mismatch",
+    });
+    expect(mocks.query.limit).not.toHaveBeenCalled();
+
+    mocks.fileQuery.limit.mockResolvedValueOnce([
+      { content: "http://localhost:5173/", fileType: "html" },
+    ]);
+    mocks.assertLocalhostScreenMetadata.mockImplementationOnce(() => {
+      throw new Error(
+        "Only Localhost screens can publish a visual-edit snapshot.",
+      );
+    });
+    await expect(
+      getSnapshotAction.run(
+        { designId: "design-one", fileId: "screen-one" },
+        { caller: "frontend" },
+      ),
+    ).rejects.toThrow(/Only Localhost screens/);
+    expect(mocks.query.limit).not.toHaveBeenCalled();
   });
 
   it("omits the HTML body when the viewer already has the latest snapshot", async () => {
@@ -132,7 +215,7 @@ describe("get visual-edit fallback snapshot", () => {
       updatedAt: "2026-09-24T00:00:00.000Z",
       unchanged: true,
     });
-    expect(mocks.select).toHaveBeenCalledTimes(1);
+    expect(mocks.select).toHaveBeenCalledTimes(2);
     expect(mocks.select).toHaveBeenCalledWith({
       updatedAt: "snapshots.updatedAt",
     });
