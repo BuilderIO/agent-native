@@ -385,7 +385,11 @@
   .analytics-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-root {
-  background: hsl(var(--secondary) / 0.72);
+  background: color-mix(
+    in srgb,
+    hsl(var(--secondary)) 72%,
+    hsl(var(--background))
+  );
   box-shadow: none;
 }
 
