@@ -172,11 +172,11 @@ describe("getOnboardingHtml", () => {
   });
 
   describe("browser federated SSO", () => {
-    it("env unset → login HTML is byte-for-byte identical (no SSO entry, no residue)", () => {
+    it("env unset → no federation CTA markup is added to the server shell", () => {
       // Capture baseline with the env unequivocally absent.
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
       const baseline = getOnboardingHtml();
-      expect(baseline).not.toContain("identity-sso-btn");
+      expect(baseline).not.toContain('id="identity-sso-btn"');
       expect(baseline).not.toContain("/_agent-native/identity/login");
       expect(baseline).not.toContain("Sign in with Agent-Native");
 
@@ -185,7 +185,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("canonical hosted login pages enable silent federation", () => {
+    it("renders the federation CTA on canonical hosted login pages", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -193,7 +193,9 @@ describe("getOnboardingHtml", () => {
         requestHost: "calendar.agent-native.com",
       });
 
-      expect(html).not.toContain("identity-sso-btn");
+      expect(html).toContain('id="identity-sso-btn"');
+      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+      expect(html).toContain("Continue with Agent-Native");
       expect(html).not.toContain("Sign in with Agent-Native");
       expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
@@ -206,13 +208,14 @@ describe("getOnboardingHtml", () => {
       expect(readAuthPageData(getOnboardingHtml()).identitySsoAuto).toBe(true);
     });
 
-    it("env set → enables silent federation without adding a separate sign-in control", () => {
+    it("renders the federation CTA for an explicitly configured hub", () => {
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
       );
       const html = getOnboardingHtml();
-      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(html).toContain('id="identity-sso-btn"');
+      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
       expect(html).not.toContain('href="/_agent-native/identity/login"');
       expect(html).not.toContain("Sign in with Agent-Native");
       expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
@@ -226,7 +229,7 @@ describe("getOnboardingHtml", () => {
     it("malformed hub configuration does not change the auth surface", () => {
       vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "not a url");
       const html = getOnboardingHtml();
-      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain('id="identity-sso-btn"');
     });
 
     it("ignores the removed browser SSO request fields", () => {
@@ -235,7 +238,7 @@ describe("getOnboardingHtml", () => {
         identitySsoRequestProtocol: "https",
       });
 
-      expect(html).not.toContain("identity-sso-btn");
+      expect(html).not.toContain('id="identity-sso-btn"');
       expect(html).not.toContain("Sign in with Agent-Native");
     });
   });

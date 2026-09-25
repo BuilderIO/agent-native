@@ -202,6 +202,34 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
+  it("offers the existing federation flow when identity SSO is available", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(<AuthPage {...props} identitySsoEnabled />);
+
+    expect(html).toContain('id="identity-sso-btn"');
+    expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+    expect(html).toContain("Continue with Agent-Native");
+    expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the federation CTA off auth pages without an available hub", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled={false} />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
+  it("preserves Google-only sign-in policy", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled googleOnly />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
+  });
+
   it("renders the organization SSO email entry point when enabled", () => {
     const props = propsFromHtml(getOnboardingHtml());
     const html = renderToString(<AuthPage {...props} organizationSsoEnabled />);

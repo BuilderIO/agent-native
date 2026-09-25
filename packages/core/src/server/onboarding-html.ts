@@ -196,6 +196,9 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
+  continueWithAgentNative: "Continue with Agent-Native",
+  identitySsoHint:
+    "Use the same verified email you use in your other Agent-Native apps.",
   openSource: "FREE & OPEN SOURCE",
   newToApp: "New to {appName}?",
   learnMore: "Learn more",
@@ -282,6 +285,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
+    continueWithAgentNative: "使用 Agent-Native 继续",
+    identitySsoHint: "使用你在其他 Agent-Native 应用中验证过的相同邮箱。",
     openSource: "100% 免费且开源",
     newToApp: "第一次使用 {appName}？",
     learnMore: "了解更多",
@@ -356,6 +361,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
+    continueWithAgentNative: "使用 Agent-Native 繼續",
+    identitySsoHint: "請使用你在其他 Agent-Native 應用中驗證過的相同電子郵件。",
     openSource: "100% 免費且開源",
     newToApp: "第一次使用 {appName}？",
     learnMore: "深入瞭解",
@@ -433,6 +440,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
+    continueWithAgentNative: "Continuar con Agent-Native",
+    identitySsoHint:
+      "Usa el mismo correo verificado que en tus otras apps de Agent-Native.",
     openSource: "100% gratis y de código abierto",
     newToApp: "¿Nuevo en {appName}?",
     learnMore: "Más información",
@@ -516,6 +526,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
+    continueWithAgentNative: "Continuer avec Agent-Native",
+    identitySsoHint:
+      "Utilisez la même adresse e-mail vérifiée que dans vos autres applications Agent-Native.",
     openSource: "100 % gratuit et open source",
     newToApp: "Nouveau sur {appName} ?",
     learnMore: "En savoir plus",
@@ -600,6 +613,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
+    continueWithAgentNative: "Mit Agent-Native fortfahren",
+    identitySsoHint:
+      "Verwende dieselbe bestätigte E-Mail-Adresse wie in deinen anderen Agent-Native-Apps.",
     openSource: "100 % kostenlos und Open Source",
     newToApp: "Neu bei {appName}?",
     learnMore: "Mehr erfahren",
@@ -683,6 +699,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
+    continueWithAgentNative: "Agent-Native で続行",
+    identitySsoHint:
+      "他の Agent-Native アプリで確認済みの同じメールアドレスを使用してください。",
     openSource: "100% 無料でオープンソース",
     newToApp: "{appName} は初めてですか？",
     learnMore: "詳細を見る",
@@ -765,6 +784,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
+    continueWithAgentNative: "Agent-Native로 계속",
+    identitySsoHint:
+      "다른 Agent-Native 앱에서 인증한 것과 같은 이메일 주소를 사용하세요.",
     openSource: "100% 무료 오픈 소스",
     newToApp: "{appName}이(가) 처음이신가요?",
     learnMore: "자세히 알아보기",
@@ -844,6 +866,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
+    continueWithAgentNative: "Continuar com Agent-Native",
+    identitySsoHint:
+      "Use o mesmo email verificado nos outros apps Agent-Native.",
     openSource: "100% grátis e open source",
     newToApp: "Novo no {appName}?",
     learnMore: "Saiba mais",
@@ -925,6 +950,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
+    continueWithAgentNative: "Agent-Native के साथ जारी रखें",
+    identitySsoHint:
+      "दूसरे Agent-Native ऐप्स में सत्यापित किया गया वही ईमेल इस्तेमाल करें।",
     openSource: "100% मुफ्त और open source",
     newToApp: "{appName} पर नए हैं?",
     learnMore: "और जानें",
@@ -1003,6 +1031,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
+    continueWithAgentNative: "المتابعة باستخدام Agent-Native",
+    identitySsoHint:
+      "استخدم عنوان البريد الإلكتروني نفسه الذي تم التحقق منه في تطبيقات Agent-Native الأخرى.",
     openSource: "مجاني ومفتوح المصدر 100%",
     newToApp: "هل أنت جديد على {appName}؟",
     learnMore: "معرفة المزيد",
@@ -1990,6 +2021,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .card.verifying #google-btn,
   .card.verifying #google-err,
   .card.verifying #auth-divider,
+  .card.verifying #identity-sso-entry,
   .card.verifying #upgrade-note {
     display: none;
   }
@@ -2096,6 +2128,24 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .local-dev-full-options[hidden] { display: none; }
   .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
+  .identity-sso-entry { margin: 1rem 0; }
+  .btn-identity-sso {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.75rem;
+    text-align: center;
+    text-decoration: none;
+  }
+  .identity-sso-hint {
+    margin: 0.5rem 0 0;
+    color: color-mix(in srgb, currentColor 50%, transparent);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    text-align: center;
+  }
+  html[data-agent-native-embedded="1"] #identity-sso-entry { display: none; }
   .sso-signin { margin-top: 0.75rem; }
   .legal-note {
     margin-top: 0.375rem;
@@ -2275,6 +2325,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .card.magic-link-complete #google-signin,
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
+  .card.magic-link-complete #identity-sso-entry,
   .card.magic-link-complete #upgrade-note,
   .card.magic-link-complete .form {
     display: none;

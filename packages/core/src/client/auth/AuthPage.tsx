@@ -857,6 +857,11 @@ export function AuthPage(props: AuthPageProps) {
     });
   }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityLoginHref = React.useMemo(
+    () =>
+      `${identityHref}?${new URLSearchParams({ return: resumeHref() }).toString()}`,
+    [identityHref, resumeHref],
+  );
   const identityBootstrapHref = React.useCallback(
     (target?: string) => {
       const safeTarget = target || resumeHref();
@@ -2562,6 +2567,26 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
+      {identitySsoEnabled && !googleOnly ? (
+        <div className="identity-sso-entry" id="identity-sso-entry">
+          <a
+            className="btn-primary btn-identity-sso"
+            id="identity-sso-btn"
+            href={identityLoginHref}
+            aria-describedby="identity-sso-hint"
+            data-i18n="continueWithAgentNative"
+          >
+            {t("continueWithAgentNative")}
+          </a>
+          <p
+            className="identity-sso-hint"
+            id="identity-sso-hint"
+            data-i18n="identitySsoHint"
+          >
+            {t("identitySsoHint")}
+          </p>
+        </div>
+      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"
