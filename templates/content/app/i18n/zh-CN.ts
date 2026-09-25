@@ -838,6 +838,13 @@ const rawLiterals = {
       "此页面可能已被删除，或尚未共享给你的账户。",
   },
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     suggestionCreateFailed: "无法创建建议",
     suggestionsCount: "{{count}} 条建议",
     acceptSuggestion: "接受",
@@ -1107,6 +1114,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
@@ -1344,6 +1358,13 @@ const overrides = {
     genericError: "出了点问题",
   },
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     ...editor,
     sourceComponent: {
       defaultTitle: "源组件",
