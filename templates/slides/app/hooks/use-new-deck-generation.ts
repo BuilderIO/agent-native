@@ -200,9 +200,18 @@ export function useNewDeckGenerationRun(
       const runAtExit = currentRunRef.current;
       // Let a StrictMode effect replay replace the token before cleanup runs.
       queueMicrotask(() => {
+        // A run that never reached a chat tab has nothing worth recovering —
+        // safe to drop immediately. One that did keeps its mapping past this
+        // unmount: the deck route can unmount mid-generation (navigating away
+        // and back via browser history), and only the URL still carrying
+        // `generationSubmitId` when the run finishes/abandons is the actual
+        // signal this mapping is done with. getRunTabId() ages out anything
+        // left behind past RUN_TAB_MAPPING_MAX_AGE_MS so this can't grow
+        // unbounded across many abandoned decks in one tab session.
         if (
           routeCleanupTokenRef.current === token &&
-          runAtExit.submitMessageId
+          runAtExit.submitMessageId &&
+          !runAtExit.tabId
         ) {
           clearNewDeckGenerationRun(
             runAtExit.deckId,
@@ -415,14 +424,44 @@ function getRunTabStorageKey(deckId: string, submitMessageId: string): string {
   return `slides:new-deck-generation:${deckId}:${submitMessageId}`;
 }
 
+// A route unmount no longer clears an in-flight run's mapping (see the route
+// cleanup effect above), so an abandoned generation's entry otherwise lives
+// in sessionStorage until the tab closes. Age it out on read instead.
+export const RUN_TAB_MAPPING_MAX_AGE_MS = 30 * 60 * 1000;
+
+function parseStoredRunTabId(
+  raw: string,
+): { tabId: string; storedAt: number } | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof (parsed as { tabId?: unknown }).tabId === "string" &&
+      typeof (parsed as { storedAt?: unknown }).storedAt === "number"
+    ) {
+      return parsed as { tabId: string; storedAt: number };
+    }
+  } catch {
+    // Legacy plain-string value from before mappings carried an age; treat it
+    // as freshly stored rather than discarding an otherwise-live run.
+  }
+  return raw ? { tabId: raw, storedAt: Date.now() } : null;
+}
+
 function getRunTabId(deckId: string, submitMessageId: string): string | null {
   if (typeof window === "undefined") return null;
   const key = getRunTabStorageKey(deckId, submitMessageId);
   const inMemory = runTabIds.get(key);
   if (inMemory) return inMemory;
   const stored = window.sessionStorage.getItem(key);
-  if (stored) runTabIds.set(key, stored);
-  return stored;
+  if (!stored) return null;
+  const parsed = parseStoredRunTabId(stored);
+  if (!parsed || Date.now() - parsed.storedAt > RUN_TAB_MAPPING_MAX_AGE_MS) {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+  runTabIds.set(key, parsed.tabId);
+  return parsed.tabId;
 }
 
 function rememberRunTabId(
@@ -432,7 +471,10 @@ function rememberRunTabId(
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
   runTabIds.set(key, tabId);
-  window.sessionStorage.setItem(key, tabId);
+  window.sessionStorage.setItem(
+    key,
+    JSON.stringify({ tabId, storedAt: Date.now() }),
+  );
 }
 
 function createLifecycle(
