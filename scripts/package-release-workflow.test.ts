@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import { parse } from "yaml";
@@ -7,7 +9,9 @@ import { parse } from "yaml";
 import {
   DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
   NPM_PUBLISH_PACKAGE_NAMES,
+  isAlreadyStaged,
 } from "./changeset-publish-sequential.ts";
+import { packagesCoveredBy } from "./check-changeset.mjs";
 
 type Workflow = Record<string, unknown>;
 
@@ -16,6 +20,10 @@ const workflow = parse(
 ) as Workflow;
 const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
+  "utf8",
+);
+const changesetCheckWorkflow = readFileSync(
+  ".github/workflows/changeset-check.yml",
   "utf8",
 );
 const trigger = workflow.on as Workflow;
@@ -119,6 +127,92 @@ describe("npm package release workflow", () => {
     assert.match(
       publisherSource,
       /packagesNeedingTags\.map\(\(pkg\) => waitForPackageAvailability\(pkg\)\)/,
+    );
+  });
+
+  it("waits for npm staged versions to become fetchable before tagging", () => {
+    const stagedConflict =
+      'npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@agent-native%2fdispatch - Cannot publish over previously staged version "0.38.7".';
+
+    assert.equal(isAlreadyStaged(stagedConflict), true);
+    assert.equal(
+      isAlreadyStaged("npm error code E409\nnpm error 409 Conflict"),
+      false,
+    );
+    assert.match(
+      publisherSource,
+      /if \(isAlreadyStaged\(output\)\)[\s\S]*?return true;/,
+    );
+  });
+
+  it("validates Changesets YAML frontmatter", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "agent-native-changeset-"));
+    const changeset = path.join(dir, "invalid.md");
+
+    try {
+      writeFileSync(changeset, "Not a changeset\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected YAML frontmatter between --- lines/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": nonsense\n---\nInvalid bump\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected package entries with none, patch, minor, or major bumps/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n---not-a-closing-delimiter\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected YAML frontmatter between --- lines/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": patch\n"@agent-native/core": minor\n---\n',
+      );
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /invalid YAML frontmatter/,
+      );
+
+      writeFileSync(changeset, "---\n- patch\n---\n");
+      assert.throws(
+        () => packagesCoveredBy(changeset),
+        /expected a YAML package-to-bump map/,
+      );
+
+      writeFileSync(
+        changeset,
+        '---\n"@agent-native/core": "patch" # release\n"@agent-native/dispatch": none\n"@agent-native/pinpoint": minor\n"@agent-native/toolkit": major\n---\nValid bumps\n',
+      );
+      assert.deepEqual(packagesCoveredBy(changeset), [
+        "@agent-native/core",
+        "@agent-native/dispatch",
+        "@agent-native/pinpoint",
+        "@agent-native/toolkit",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("installs the YAML parser before checking changesets in CI", () => {
+    assert.match(changesetCheckWorkflow, /pnpm\/action-setup/);
+    assert.match(
+      changesetCheckWorkflow,
+      /pnpm install --frozen-lockfile --ignore-scripts --filter agentnative/,
+    );
+    assert.ok(
+      changesetCheckWorkflow.indexOf("pnpm install") <
+        changesetCheckWorkflow.indexOf("node scripts/check-changeset.mjs"),
     );
   });
 

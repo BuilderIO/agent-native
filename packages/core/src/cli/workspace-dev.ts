@@ -27,6 +27,7 @@ import {
   rewriteRedirectLocation,
   escapeHtml,
 } from "./gateway-helpers.js";
+import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 
 export interface WorkspaceApp {
   id: string;
@@ -901,6 +902,7 @@ export async function runWorkspaceDev(
         {
           ...env,
           APP_NAME: app.id,
+          [DEV_SERVER_SUPERVISOR_ENV]: "1",
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),

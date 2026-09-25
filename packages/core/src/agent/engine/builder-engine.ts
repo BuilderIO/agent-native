@@ -987,6 +987,20 @@ async function* parseJsonlStream(
         case "usage": {
           const cacheWrite =
             (event.cacheCreatedTokens ?? 0) + (event.cacheCreated1hTokens ?? 0);
+          if (
+            event.creditsUsed !== undefined &&
+            (!Number.isFinite(event.creditsUsed) || event.creditsUsed < 0)
+          ) {
+            yield gatewayErrorStop(
+              {
+                error: "Builder gateway returned invalid credit usage",
+                errorCode: "builder_gateway_error",
+              },
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
+            return;
+          }
           yield {
             type: "usage",
             inputTokens: event.inputTokens ?? 0,
@@ -995,6 +1009,9 @@ async function* parseJsonlStream(
               ? { cacheReadTokens: event.cacheInputTokens }
               : {}),
             ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+            ...(event.creditsUsed !== undefined
+              ? { builderCreditsUsed: event.creditsUsed }
+              : {}),
           };
           break;
         }

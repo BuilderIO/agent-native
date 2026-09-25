@@ -222,6 +222,7 @@ export type EngineEvent =
       cacheWriteTokens?: number;
       totalTokens?: number;
       reasoningTokens?: number;
+      builderCreditsUsed?: number;
     }
   | {
       /** Final assistant content for the turn. Engines MUST emit this

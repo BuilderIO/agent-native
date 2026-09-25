@@ -7,7 +7,11 @@
 
 import path from "node:path";
 
-import { getRuntimeDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import {
+  assertHostedRuntimeDatabase,
+  getRuntimeDatabaseUrl,
+  toPostgresParams,
+} from "../../db/client.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -120,6 +124,11 @@ export async function runDbQuery(
   ) {
     query = `${options.sql} LIMIT ${options.limit}`;
   }
+
+  // Only guarded when falling back to the ambient resolution: an explicit
+  // options.databaseUrl (e.g. --db pointing at a snapshot directory) is a
+  // deliberate operator choice, not the silent fallback this guards against.
+  if (!options.databaseUrl) assertHostedRuntimeDatabase();
 
   // Must match the resolver `tryForwardDbQueryToDevServer` hashes for its
   // forward-eligibility check (dev-query-proxy.ts) — otherwise the same
