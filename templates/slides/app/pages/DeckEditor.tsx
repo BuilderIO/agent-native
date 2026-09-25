@@ -390,6 +390,20 @@ export type GenerationDeckRefreshResult =
   | { status: "not_ready" }
   | { status: "failed" };
 
+type EmptyGenerationRetryRecovery = {
+  retryAttemptId: string;
+  restoreAttemptId: string | null;
+};
+
+function clearEmptyGenerationRetryRecovery(key: string | null): void {
+  if (!key || typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    return;
+  }
+}
+
 export async function refreshDeckForGenerationOutcome(
   refreshOpenDeck: (deckId: string) => Promise<Deck | null>,
   deckId: string,
@@ -508,6 +522,7 @@ export default function DeckEditor() {
   const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
   const retryEmptyGenerationInFlightRef = useRef(false);
+  const retryRollbackRecoveryAttemptRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
   const {
@@ -792,6 +807,9 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+  const retryRecoveryStorageKey = id
+    ? `slides:empty-generation-retry-recovery:${id}`
+    : null;
 
   useEffect(() => {
     setAnimationTarget(null);
@@ -837,6 +855,82 @@ export default function DeckEditor() {
     (generationContext !== null &&
       "generationFailureAttemptId" in generationContext &&
       generationContext.generationFailureAttemptId !== generationAttemptId);
+  useEffect(() => {
+    if (!id || !retryRecoveryStorageKey || !generationContext) return;
+
+    let serializedRecovery: string | null;
+    try {
+      serializedRecovery = window.localStorage.getItem(retryRecoveryStorageKey);
+    } catch {
+      return;
+    }
+    if (!serializedRecovery) return;
+
+    let recovery: unknown;
+    try {
+      recovery = JSON.parse(serializedRecovery);
+    } catch {
+      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+      return;
+    }
+    if (typeof recovery !== "object" || recovery === null) {
+      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+      return;
+    }
+    const recoveryRecord = recovery as Record<string, unknown>;
+    if (
+      typeof recoveryRecord.retryAttemptId !== "string" ||
+      !(
+        typeof recoveryRecord.restoreAttemptId === "string" ||
+        recoveryRecord.restoreAttemptId === null
+      )
+    ) {
+      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+      return;
+    }
+    const { retryAttemptId, restoreAttemptId } =
+      recoveryRecord as EmptyGenerationRetryRecovery;
+    if (retryAttemptId !== generationAttemptId) {
+      if (retryRollbackRecoveryAttemptRef.current !== retryAttemptId) {
+        clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+      }
+      return;
+    }
+
+    retryRollbackRecoveryAttemptRef.current = retryAttemptId;
+    updateDeck(id, {
+      generationContext: {
+        ...generationContext,
+        generationAttemptId: restoreAttemptId ?? undefined,
+      },
+    });
+    void flushDeckSave(id)
+      .then(() => {
+        try {
+          if (
+            window.localStorage.getItem(retryRecoveryStorageKey) ===
+            serializedRecovery
+          ) {
+            window.localStorage.removeItem(retryRecoveryStorageKey);
+          }
+        } catch {
+          toast.error(t("settings.saveFailed"));
+          return;
+        }
+        if (retryRollbackRecoveryAttemptRef.current === retryAttemptId) {
+          retryRollbackRecoveryAttemptRef.current = null;
+        }
+      })
+      .catch(() => toast.error(t("settings.saveFailed")));
+  }, [
+    flushDeckSave,
+    generationAttemptId,
+    generationContext,
+    id,
+    retryRecoveryStorageKey,
+    t,
+    updateDeck,
+  ]);
   useEffect(() => {
     if (!id || !deck || slideCount === 0) {
       return;
@@ -1109,6 +1203,25 @@ export default function DeckEditor() {
       generationFailureAttemptId:
         generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
+    const rememberFailedRetryRollback = () => {
+      if (!retryRecoveryStorageKey) return;
+      const recovery: EmptyGenerationRetryRecovery = {
+        retryAttemptId,
+        restoreAttemptId:
+          typeof generationContext.generationFailureAttemptId === "string"
+            ? generationContext.generationFailureAttemptId
+            : generationAttemptId,
+      };
+      try {
+        window.localStorage.setItem(
+          retryRecoveryStorageKey,
+          JSON.stringify(recovery),
+        );
+        retryRollbackRecoveryAttemptRef.current = retryAttemptId;
+      } catch {
+        return;
+      }
+    };
     setGenerationAttemptTab(null);
     generationRunStartedRef.current = false;
     generationSawActiveRef.current = false;
@@ -1135,8 +1248,12 @@ export default function DeckEditor() {
       try {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
+        clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+        retryRollbackRecoveryAttemptRef.current = null;
       } catch {
-        await restoreFailedRetry();
+        if (!(await restoreFailedRetry()).persisted) {
+          rememberFailedRetryRollback();
+        }
         toast.error(t("settings.saveFailed"));
         return;
       }
@@ -1169,12 +1286,14 @@ export default function DeckEditor() {
         );
       } catch {
         if (!(await restoreFailedRetry()).persisted) {
+          rememberFailedRetryRollback();
           toast.error(t("settings.saveFailed"));
         }
         return;
       }
       if (!submission.delivered) {
         if (!(await restoreFailedRetry()).persisted) {
+          rememberFailedRetryRollback();
           toast.error(t("settings.saveFailed"));
         }
         return;
@@ -1205,9 +1324,11 @@ export default function DeckEditor() {
     }
   }, [
     canEdit,
+    generationAttemptId,
     generationContext,
     generationLifecycleOwnedByEditor,
     id,
+    retryRecoveryStorageKey,
     searchParams,
     setSearchParams,
     submitGenerationAttemptAndConfirm,

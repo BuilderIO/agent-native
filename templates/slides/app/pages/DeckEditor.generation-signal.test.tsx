@@ -20,6 +20,12 @@ const mocks = vi.hoisted(() => ({
   targetTabId: "target-tab",
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
   analyticsSessionId: "session-1",
+  updateDeck: vi.fn((_id: string, _changes: Record<string, unknown>) => {}),
+  flushDeckSave: vi.fn(async (_id: string) => {}),
+  submitAndConfirm: vi.fn(async () => ({
+    tabId: "target-tab",
+    delivered: true,
+  })),
   revision: 0,
   listeners: new Set<() => void>(),
 }));
@@ -65,6 +71,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
         observedRun: isTargetTab && mocks.attemptObservedRun,
         timedOut: false,
         submit: vi.fn(),
+        submitAndConfirm: mocks.submitAndConfirm,
       };
     },
   };
@@ -76,7 +83,7 @@ vi.mock("@/context/DeckContext", () => ({
     reloadDecks: vi.fn(),
     reloadDecksWithStatus: vi.fn(),
     refreshOpenDeck: vi.fn(),
-    updateDeck: vi.fn(),
+    updateDeck: mocks.updateDeck,
     updateSlide: vi.fn(),
     updateSlides: vi.fn(),
     deleteSlide: vi.fn(),
@@ -84,7 +91,7 @@ vi.mock("@/context/DeckContext", () => ({
     pasteSlides: vi.fn(),
     duplicateDeck: vi.fn(),
     addSlide: vi.fn(),
-    flushDeckSave: vi.fn(),
+    flushDeckSave: mocks.flushDeckSave,
     reorderSlides: vi.fn(),
     setDeckSlides: vi.fn(),
     undo: vi.fn(),
@@ -270,6 +277,14 @@ describe("DeckEditor generation signal wiring", () => {
       analyticsSessionId: "session-1",
       revision: 0,
     });
+    mocks.updateDeck.mockReset().mockImplementation((_id, changes) => {
+      Object.assign(mocks.deck, changes);
+      publishAgentGeneratingChange();
+    });
+    mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
+    mocks.submitAndConfirm
+      .mockReset()
+      .mockResolvedValue({ tabId: "target-tab", delivered: true });
     mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
     mocks.scopedCalls = [];
     mocks.listeners.clear();
@@ -580,6 +595,76 @@ describe("DeckEditor generation signal wiring", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("recovers a rejected retry after its rollback save fails and the editor reloads", async () => {
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    mocks.flushDeckSave
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("rollback save failed"))
+      .mockResolvedValueOnce(undefined);
+    mocks.submitAndConfirm.mockResolvedValueOnce({
+      tabId: "retry-tab",
+      delivered: false,
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).not.toBeNull(),
+    );
+    const recovery = JSON.parse(
+      window.localStorage.getItem(recoveryKey) ?? "{}",
+    ) as { retryAttemptId: string; restoreAttemptId: string };
+    expect(recovery.restoreAttemptId).toBe("attempt-1");
+
+    cleanup();
+    router?.dispose();
+    router = undefined;
+    Object.assign(mocks.deck, {
+      generationContext: {
+        generationAttemptId: recovery.retryAttemptId,
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "attempt-1",
+      },
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(mocks.deck.generationContext.generationAttemptId).toBe(
+        "attempt-1",
+      ),
+    );
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+    expect(mocks.flushDeckSave).toHaveBeenCalledTimes(3);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "deckEditor.tryAgain",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {
