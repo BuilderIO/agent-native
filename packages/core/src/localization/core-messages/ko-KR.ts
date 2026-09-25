@@ -1061,6 +1061,38 @@ const messages: AgentChatTranslation = {
     "음성 받아쓰기 설정을 저장할 수 없습니다.",
   "settingsShell.account.yourData": "내 데이터",
   "settingsShell.appFallbackName": "앱",
+  "settingsShell.appGroup.adminOnly": "소유자와 관리자만 변경할 수 있습니다",
+  "settingsShell.appGroup.automationsCreateTitle": "언제 무엇을 해야 하나요?",
+  "settingsShell.appGroup.defaultModel": "기본 모델",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}}의 새 에이전트 채팅에 사용됩니다. 기본값은 {{model}}입니다.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}}의 새 에이전트 채팅에 사용됩니다.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "기본 모델을 불러오지 못했습니다.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "기본 모델을 저장하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.demoMode": "데모 모드",
+  "settingsShell.appGroup.demoModeDescription":
+    "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
+  "settingsShell.appGroup.labsFootnote":
+    "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
+  "settingsShell.appGroup.mcpFootnote":
+    "에이전트가 직접 사용하는 도구는 {{integrations}}에서 확인하세요.",
+  "settingsShell.appGroup.newAutomation": "새 자동화",
+  "settingsShell.appGroup.retry": "다시 시도",
+  "settingsShell.appGroup.thisBrowser": "이 브라우저",
+  "settingsShell.appGroup.useDefault": "기본값 사용",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}}의 업데이트입니다. 앱마다 변경 기록이 따로 있습니다.",
+  "settingsShell.appGroup.whatsNewEmpty": "아직 업데이트가 없습니다.",
+  "settingsShell.appGroup.whatsNewShowFewer": "업데이트 적게 보기",
+  "settingsShell.appGroup.whatsNewViewAll": "모든 업데이트 보기",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",
   "settingsShell.builder.connect": "연결",

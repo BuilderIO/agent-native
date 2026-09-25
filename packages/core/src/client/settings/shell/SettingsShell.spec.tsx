@@ -185,6 +185,23 @@ describe("SettingsShell", () => {
     expect(container.textContent).toContain("Back to Clips");
   });
 
+  it("shows Notifications and What's new when the app passes them", async () => {
+    await render({
+      notifications: <div>email</div>,
+      whatsNewMarkdown: "## 2026-09-25\n- Added",
+    });
+    expect(groupLabels().find((group) => group.id === "app")?.pages).toEqual([
+      "app",
+      "notifications",
+      "automations",
+      "channels",
+      "mcp",
+    ]);
+    expect(groupLabels().find((group) => group.id === "footer")?.pages).toEqual(
+      ["labs", "whats-new"],
+    );
+  });
+
   it("shows owners and admins the four extra Organization pages", async () => {
     orgState.value = {
       data: { orgId: "org-1", role: "admin" },
@@ -460,6 +477,30 @@ describe("SettingsShell", () => {
       );
       expect(scrollIntoView).toHaveBeenCalled();
       expect(searchInput().value).toBe("");
+    });
+
+    it("finds app areas and labs, and opens an area's row on its tab", async () => {
+      await render({
+        appAreas: [
+          {
+            id: "recordings",
+            label: "Recordings",
+            content: null,
+            searchEntries: [
+              { id: "speed", label: "Playback speed", hash: "playback" },
+            ],
+          },
+        ],
+        labs: [{ key: "clips.meetings", displayName: "Meetings lab" }],
+      });
+      expect(search("recordings")[0]).toBe("RecordingsClips › General");
+      expect(search("meetings lab")[0]).toBe("Meetings labLabs");
+      search("playback speed");
+      press("Enter");
+      await flush();
+      expect(`${window.location.pathname}${window.location.hash}`).toBe(
+        "/settings/app/recordings#playback",
+      );
     });
 
     it("focuses on / and clears on Escape", async () => {

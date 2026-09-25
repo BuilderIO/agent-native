@@ -13,6 +13,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { STANDARD_APP_ROUTES } from "../../navigation/index.js";
 import { appMountedPath } from "../api-path.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import type { ResourceView } from "../resources/ResourcesPanel.js";
 import { AgentDirectorySection } from "../settings/AgentDirectorySection.js";
 import { AgentsSection } from "../settings/AgentsSection.js";
@@ -58,6 +59,19 @@ const HUB_TABS: Array<{
 ];
 
 const RESOURCE_IDS = new Set(RESOURCE_TABS.map((tab) => tab.id));
+
+/** Settings' automations, with the viewer's real organization role. */
+function WorkspaceAutomations() {
+  const { data: org } = useOrg();
+  return (
+    <AgentJobsTab
+      scope="user"
+      canManageOrg={!org?.orgId || org.role === "owner" || org.role === "admin"}
+      organizationId={org?.orgId}
+      hideHeader
+    />
+  );
+}
 
 function normalizeHash(value: string): string {
   return decodeURIComponent(value.replace(/^#/, "")).toLowerCase();
@@ -234,7 +248,7 @@ export function AgentWorkspaceContent({
             <div className="h-48 animate-pulse rounded-xl border border-border bg-muted/20" />
           }
         >
-          <AgentJobsTab scope="user" canManageOrg hideHeader />
+          <WorkspaceAutomations />
         </Suspense>
       )}
       {activeTab === "agents" && <AgentsSection />}

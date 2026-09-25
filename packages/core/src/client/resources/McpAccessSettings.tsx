@@ -82,10 +82,13 @@ function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
 
 export interface McpAccessSettingsProps {
   appName?: string;
+  /** Drop the title and description, for a page whose header already names it. */
+  hideHeader?: boolean;
 }
 
 export function McpAccessSettings({
   appName: appNameProp,
+  hideHeader = false,
 }: McpAccessSettingsProps) {
   const t = useT();
   const { locale } = useLocale();
@@ -187,6 +190,7 @@ export function McpAccessSettings({
 
   return (
     <AgentTabFrame
+      compact={hideHeader}
       title={t("settings.mcpTitle")}
       description={t("settings.mcpDescription")}
       helpHref={MCP_ACCESS_DOCS_HREF.mcp}

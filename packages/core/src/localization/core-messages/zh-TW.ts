@@ -1013,6 +1013,35 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.voiceSaveError": "無法儲存您的語音轉錄設定。",
   "settingsShell.account.yourData": "您的資料",
   "settingsShell.appFallbackName": "應用程式",
+  "settingsShell.appGroup.adminOnly": "只有擁有者和管理員可以變更此項",
+  "settingsShell.appGroup.automationsCreateTitle": "應該在何時發生什麼事？",
+  "settingsShell.appGroup.defaultModel": "預設模型",
+  "settingsShell.appGroup.defaultModelDescription":
+    "用於 {{app}} 中新的代理對話。預設為 {{model}}。",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "用於 {{app}} 中新的代理對話。",
+  "settingsShell.appGroup.defaultModelLoadError": "無法載入預設模型。",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "無法儲存預設模型。請再試一次。",
+  "settingsShell.appGroup.demoMode": "示範模式",
+  "settingsShell.appGroup.demoModeDescription":
+    "在此瀏覽器中使用範例資料進行簡報。",
+  "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
+  "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
+  "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
+  "settingsShell.appGroup.mcpAbout":
+    "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
+  "settingsShell.appGroup.mcpFootnote":
+    "如需代理本身使用的工具，請參閱{{integrations}}。",
+  "settingsShell.appGroup.newAutomation": "新增自動化",
+  "settingsShell.appGroup.retry": "重試",
+  "settingsShell.appGroup.thisBrowser": "此瀏覽器",
+  "settingsShell.appGroup.useDefault": "使用預設值",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} 的更新。每個應用程式都有自己的變更記錄。",
+  "settingsShell.appGroup.whatsNewEmpty": "尚無更新。",
+  "settingsShell.appGroup.whatsNewShowFewer": "顯示較少更新",
+  "settingsShell.appGroup.whatsNewViewAll": "查看所有更新",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "階層式導覽",
   "settingsShell.builder.connect": "連結",

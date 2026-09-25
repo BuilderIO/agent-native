@@ -579,6 +579,43 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
+  it("shows the app-group props as today's tabs, so a migrated template works with the flag off", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          generalGroups={<div>App groups</div>}
+          notifications={<div>Email settings</div>}
+          notificationsLabel="Notifications"
+          appAreas={[
+            {
+              id: "recordings",
+              label: "Recordings",
+              content: <div>Recording defaults</div>,
+            },
+            {
+              id: "meetings",
+              label: "Meetings",
+              visible: false,
+              content: <div>Meeting settings</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual([
+      "General",
+      "Notifications",
+      "Recordings",
+      "Labs",
+    ]);
+    expect(container.textContent).toContain("App groups");
+  });
+
   it("visually separates app, agent, and workspace tabs", () => {
     act(() => {
       root.render(

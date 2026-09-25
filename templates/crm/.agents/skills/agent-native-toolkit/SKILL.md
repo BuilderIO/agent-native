@@ -156,6 +156,38 @@ preference, notification preference, or usage/billing surface, register it as a
 settings tab or app settings panel first. Only add sidebar UI when it is needed
 in the moment of agent use.
 
+### The app's group in the redesigned Settings
+
+Behind the `settings-redesign` flag, Settings has a group named after the app.
+Core owns its pages: General, Notifications, Automations, Channels, MCP server,
+Creative context, plus Labs and What's new in the footer. A template supplies
+only its own content, through these `SettingsTabsPage` props:
+
+- `generalGroups`: the app's own `SettingsGroup`s on its General page. Core puts
+  Agent › Default model above them (owners and admins change it; the agent
+  uses `manage-agent-engine` `set-app-default`) and This browser › Demo mode
+  below. Until a template passes it, today's `general` shows there.
+- `appAreas`: `[{ id, label, content, visible?, keywords?, searchEntries? }]`,
+  tabs on the General page routed `/settings/app/<id>`. Set `visible: false`
+  while the lab behind an area is off. A tab with
+  `settingsPlacement: "app-area"` in `extraTabs` works the same.
+- `notifications` (plus `notificationsSearchEntries`): the Notifications page
+  shows only when this is passed.
+- `mcpAbout`: the MCP server page's about line, naming what an MCP host can do
+  in this app.
+- Labs come from `labs`; What's new comes from `whatsNewMarkdown`, or from the
+  `ChangelogSettingsCard` passed as `whatsNew`.
+
+Search entries per area: each `searchEntries` item's `hash` is the row's
+`SettingsRow` id, and a hit opens that area's tab and scrolls to the row. With
+the flag off, the same props render as today's tabs, so a migrated template
+works either way. Link with `buildSettingsRoute("app", "<area>")`, never a
+hand-written path.
+
+Gate UI on a lab with `useLab(LAB_DEFINITION)` rather than `useLab(key)`: a
+definition reads as its `defaultEnabled` until the server answers, while a bare
+key reads as on.
+
 ## Integration Setup Preflight
 
 Before building any setup, settings, credential, OAuth, or connection surface,

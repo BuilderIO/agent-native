@@ -1134,6 +1134,40 @@ const messages: AgentChatTranslation = {
     "Deine Einstellung für die Sprachtranskription konnte nicht gespeichert werden.",
   "settingsShell.account.yourData": "Deine Daten",
   "settingsShell.appFallbackName": "App",
+  "settingsShell.appGroup.adminOnly":
+    "Nur Inhaber und Admins können das ändern",
+  "settingsShell.appGroup.automationsCreateTitle": "Was soll wann passieren?",
+  "settingsShell.appGroup.defaultModel": "Standardmodell",
+  "settingsShell.appGroup.defaultModelDescription":
+    "Wird für neue Agent-Chats in {{app}} verwendet. Der Standard ist {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "Wird für neue Agent-Chats in {{app}} verwendet.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "Das Standardmodell konnte nicht geladen werden.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "Das Standardmodell konnte nicht gespeichert werden. Versuche es erneut.",
+  "settingsShell.appGroup.demoMode": "Demo-Modus",
+  "settingsShell.appGroup.demoModeDescription":
+    "Beispieldaten in diesem Browser für Präsentationen verwenden.",
+  "settingsShell.appGroup.labsFootnote":
+    "Diese neuen, instabilen Funktionen können Fehler enthalten.",
+  "settingsShell.appGroup.labsLoadError":
+    "Deine Labs konnten nicht geladen werden.",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.mcpAbout":
+    "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
+  "settingsShell.appGroup.mcpFootnote":
+    "Tools, die der Agent selbst verwendet, findest du unter {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "Neue Automatisierung",
+  "settingsShell.appGroup.retry": "Erneut versuchen",
+  "settingsShell.appGroup.thisBrowser": "Dieser Browser",
+  "settingsShell.appGroup.useDefault": "Standard verwenden",
+  "settingsShell.appGroup.whatsNewChip":
+    "Updates für {{app}}. Jede App hat ein eigenes Änderungsprotokoll.",
+  "settingsShell.appGroup.whatsNewEmpty": "Noch keine Updates.",
+  "settingsShell.appGroup.whatsNewShowFewer": "Weniger Updates anzeigen",
+  "settingsShell.appGroup.whatsNewViewAll": "Alle Updates anzeigen",
   "settingsShell.backToApp": "Zurück zu {{app}}",
   "settingsShell.breadcrumbLabel": "Brotkrümelnavigation",
   "settingsShell.builder.connect": "Verbinden",

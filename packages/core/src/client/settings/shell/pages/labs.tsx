@@ -1,12 +1,13 @@
-import { LabsSettings } from "../../../labs/LabsSettings.js";
+import { useT } from "../../../i18n.js";
+import { LabsSettingsGroup } from "../../../labs/LabsSettings.js";
 import type { SettingsPageProps } from "../registry.js";
 
 export default function LabsSettingsPage({ bridge }: SettingsPageProps) {
+  const t = useT();
   return (
-    <LabsSettings
+    <LabsSettingsGroup
       labs={bridge.labs}
-      title={bridge.labsLabel}
-      intro={bridge.labsIntro}
+      title={bridge.appName ?? t("agentChat.settingsShell.appFallbackName")}
     />
   );
 }

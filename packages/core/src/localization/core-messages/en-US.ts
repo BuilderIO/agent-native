@@ -1067,6 +1067,38 @@ const messages = {
     "Could not save your voice transcription setting.",
   "settingsShell.account.yourData": "Your data",
   "settingsShell.appFallbackName": "App",
+  "settingsShell.appGroup.adminOnly": "Only owners and admins can change this",
+  "settingsShell.appGroup.automationsCreateTitle":
+    "What should happen, and when?",
+  "settingsShell.appGroup.defaultModel": "Default model",
+  "settingsShell.appGroup.defaultModelDescription":
+    "Used for new agent chats in {{app}}. The default is {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "Used for new agent chats in {{app}}.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "Couldn't load the default model.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "Couldn't save the default model. Try again.",
+  "settingsShell.appGroup.demoMode": "Demo mode",
+  "settingsShell.appGroup.demoModeDescription":
+    "Use sample data in this browser for presentations.",
+  "settingsShell.appGroup.labsFootnote":
+    "These new, unstable features may have bugs.",
+  "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
+  "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.mcpAbout":
+    "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
+  "settingsShell.appGroup.mcpFootnote":
+    "For tools the agent itself uses, see {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "New automation",
+  "settingsShell.appGroup.retry": "Retry",
+  "settingsShell.appGroup.thisBrowser": "This browser",
+  "settingsShell.appGroup.useDefault": "Use the default",
+  "settingsShell.appGroup.whatsNewChip":
+    "Updates to {{app}}. Each app has its own changelog.",
+  "settingsShell.appGroup.whatsNewEmpty": "No updates yet.",
+  "settingsShell.appGroup.whatsNewShowFewer": "Show fewer updates",
+  "settingsShell.appGroup.whatsNewViewAll": "View all updates",
   "settingsShell.backToApp": "Back to {{app}}",
   "settingsShell.breadcrumbLabel": "Breadcrumb",
   "settingsShell.builder.connect": "Connect",

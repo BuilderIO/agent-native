@@ -9,7 +9,6 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
-  isValidElement,
   lazy,
   Suspense,
   useCallback,
@@ -19,7 +18,6 @@ import {
   useState,
   useSyncExternalStore,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
@@ -192,13 +190,6 @@ function sectionFromHistoryState(state: unknown): string | null {
     SETTINGS_SECTION_STATE_KEY
   ];
   return typeof section === "string" && section ? section : null;
-}
-
-/** Reads the changelog markdown off today's `<ChangelogSettingsCard markdown>` so templates get the dot unchanged. */
-function markdownFromWhatsNew(whatsNew: ReactNode): string | undefined {
-  if (!isValidElement(whatsNew)) return undefined;
-  const markdown = (whatsNew.props as { markdown?: unknown }).markdown;
-  return typeof markdown === "string" ? markdown : undefined;
 }
 
 /**
@@ -377,15 +368,23 @@ function SettingsShellContent({
   const {
     extraTabs,
     general,
+    generalGroups,
     account,
     team,
     whatsNew,
+    appAreas,
+    notifications,
+    notificationsLabel,
+    notificationsSearchEntries,
     labs: appLabs,
     labsLabel,
     labsIntro,
     generalSearchEntries,
     searchEntries,
+    mcpAbout,
   } = bridgeInput;
+  const appGroupLabel =
+    identity.name ?? t("agentChat.settingsShell.appFallbackName");
   const { pages, bridge } = useMemo(() => {
     const byId = new Map(CORE_SETTINGS_PAGES.map((page) => [page.id, page]));
     for (const page of registered) byId.set(page.id, page);
@@ -401,30 +400,46 @@ function SettingsShellContent({
         {
           extraTabs,
           general,
+          generalGroups,
           account,
           team,
           whatsNew,
+          appAreas,
+          notifications,
+          notificationsLabel,
+          notificationsSearchEntries,
           labs: appLabs,
           labsLabel,
           labsIntro,
           generalSearchEntries,
           searchEntries,
+          mcpAbout,
+          appName: appGroupLabel,
+          whatsNewMarkdown,
         },
         derived.pageTabs,
       ),
     };
   }, [
     account,
+    appAreas,
+    appGroupLabel,
     appLabs,
     extraTabs,
     general,
+    generalGroups,
     generalSearchEntries,
     labsIntro,
     labsLabel,
+    mcpAbout,
+    notifications,
+    notificationsLabel,
+    notificationsSearchEntries,
     registered,
     searchEntries,
     team,
     whatsNew,
+    whatsNewMarkdown,
   ]);
   const visiblePages = useMemo(
     () => pages.filter((page) => isSettingsPageVisible(page, context, bridge)),
@@ -580,7 +595,7 @@ function SettingsShellContent({
   }, [appAreaIds, navigate, routePage, value, visiblePages]);
 
   const latestChangelogId = getChangelogLatestId(
-    whatsNewMarkdown ?? markdownFromWhatsNew(whatsNew),
+    bridge.whatsNewMarkdown ?? undefined,
   );
   const changelog = useChangelogSeen(
     identity.appId ?? "app",
@@ -591,8 +606,6 @@ function SettingsShellContent({
     if (activePage?.id === "whats-new") markChangelogSeen();
   }, [activePage?.id, markChangelogSeen]);
 
-  const appGroupLabel =
-    identity.name ?? t("agentChat.settingsShell.appFallbackName");
   const groupLabel = useCallback(
     (group: SettingsPageGroup) => {
       if (group === "app") return appGroupLabel;
@@ -617,13 +630,17 @@ function SettingsShellContent({
   const subpageLabel = routeSub
     ? activePage?.subpages?.find((subpage) => subpage.id === routeSub)
     : undefined;
+  const appAreaLabel =
+    routeSub && routePage === "app"
+      ? bridge.appAreas.find((area) => area.id === routeSub)?.label
+      : undefined;
   const settingsViewLabel = activePage
     ? [
         groupLabel(activePage.group),
         pageLabel(activePage),
         subpageLabel?.labelKey
           ? t(subpageLabel.labelKey)
-          : (subpageLabel?.label ?? null),
+          : (subpageLabel?.label ?? appAreaLabel ?? null),
       ]
         .filter(Boolean)
         .join(" › ")
@@ -795,6 +812,11 @@ function SettingsShellContent({
                     className="truncate font-medium text-foreground"
                   >
                     {pageLabel(activePage)}
+                  </span>
+                ) : null}
+                {activePage && header?.badge ? (
+                  <span className="flex shrink-0 items-center">
+                    {header.badge}
                   </span>
                 ) : null}
               </nav>

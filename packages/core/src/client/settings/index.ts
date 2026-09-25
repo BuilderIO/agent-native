@@ -14,6 +14,7 @@ export {
 } from "./agent-settings-search.js";
 export {
   SettingsTabsPage,
+  type SettingsAppArea,
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,

@@ -1,10 +1,12 @@
 import { IconSettings } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../../labs/core-labs.js";
 import type { LabDefinition } from "../../../labs/registry.js";
 import { isCoreSectionSearchEntryId } from "../agent-settings-search.js";
+import { withAppSettingsTabs } from "../app-settings-tabs.js";
 import type {
+  SettingsAppArea,
   SettingsSearchEntry,
   SettingsTabItem,
 } from "../SettingsTabsPage.js";
@@ -20,22 +22,40 @@ import type {
  */
 export interface SettingsBridgeInput {
   general?: ReactNode;
+  /** The app's own General groups; win over `general` on the app General page. */
+  generalGroups?: ReactNode;
   account?: ReactNode;
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: readonly SettingsTabItem[];
+  appAreas?: readonly SettingsAppArea[];
+  notifications?: ReactNode;
+  notificationsLabel?: string;
+  notificationsSearchEntries?: readonly SettingsSearchEntry[];
   labs?: readonly LabDefinition[];
   labsLabel?: string;
   labsIntro?: string;
   generalSearchEntries?: readonly SettingsSearchEntry[];
   searchEntries?: readonly SettingsSearchEntry[];
+  /** The MCP server page's about line. Already translated. */
+  mcpAbout?: string;
+  /** The app group's display name. */
+  appName?: string;
+  /** Raw CHANGELOG.md behind What's new. */
+  whatsNewMarkdown?: string;
 }
 
 export interface SettingsBridge {
+  /** The app General page's own groups: `generalGroups`, else today's General tab. */
   general: ReactNode | null;
   account: ReactNode | null;
   team: ReactNode | null;
   whatsNew: ReactNode | null;
+  /** Raw CHANGELOG.md, passed or read off today's changelog card. */
+  whatsNewMarkdown: string | null;
+  /** `null` outside the shell, which always names the app group. */
+  appName: string | null;
+  mcpAbout: string | null;
   /** App labs plus the core labs every app shows. */
   labs: readonly LabDefinition[];
   labsLabel?: string;
@@ -57,14 +77,24 @@ export function createSettingsBridge(
   input: SettingsBridgeInput,
   pageTabs: ReadonlyMap<string, SettingsTabItem> = new Map(),
 ): SettingsBridge {
-  const tabs = input.extraTabs ?? [];
+  // The shell names the Notifications page itself, so this tab's label is
+  // only read by today's tabs.
+  const tabs = withAppSettingsTabs(
+    input.extraTabs,
+    input,
+    input.notificationsLabel ?? "",
+  );
   const labs = input.labs ?? [];
   const byId = new Map(tabs.map((tab) => [tab.id, tab]));
   return {
-    general: input.general ?? null,
+    general: input.generalGroups ?? input.general ?? null,
     account: input.account ?? null,
     team: input.team ?? null,
     whatsNew: input.whatsNew ?? null,
+    whatsNewMarkdown:
+      input.whatsNewMarkdown ?? changelogMarkdownFrom(input.whatsNew) ?? null,
+    appName: input.appName?.trim() || null,
+    mcpAbout: input.mcpAbout?.trim() || null,
     labs: labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)
       ? labs
       : [CHATGPT_SUBSCRIPTION_LAB, ...labs],
@@ -83,6 +113,25 @@ export function createSettingsBridge(
     },
     tabForPage: (pageId) => pageTabs.get(pageId),
   };
+}
+
+/**
+ * The markdown today's `<ChangelogSettingsCard markdown>` renders, found
+ * through the wrappers templates put around it, so What's new gets its dot
+ * and its page without a template change.
+ */
+export function changelogMarkdownFrom(
+  node: ReactNode,
+  depth = 0,
+): string | undefined {
+  if (depth > 4 || !isValidElement(node)) return undefined;
+  const props = node.props as { markdown?: unknown; children?: ReactNode };
+  if (typeof props.markdown === "string") return props.markdown;
+  for (const child of Children.toArray(props.children)) {
+    const markdown = changelogMarkdownFrom(child, depth + 1);
+    if (markdown !== undefined) return markdown;
+  }
+  return undefined;
 }
 
 function pageIdFromTabId(tabId: string): string {
@@ -199,6 +248,29 @@ export function bridgedCoreSearchEntries(
   }
   for (const entry of bridge.generalSearchEntries) {
     add("app", toPageSearchEntry(entry));
+  }
+  // App areas are tabs on the app's General page, so their hits open it with
+  // the area as the sub-page.
+  for (const area of bridge.appAreas) {
+    add("app", {
+      id: `app-area:${area.id}`,
+      label: area.label,
+      keywords: area.keywords,
+      sub: area.id,
+    });
+    for (const entry of searchEntriesFromTab(area)) {
+      add("app", { ...entry, sub: area.id });
+    }
+  }
+  for (const lab of bridge.labs) {
+    add("labs", {
+      id: `lab:${lab.key}`,
+      label: lab.displayName ?? lab.key,
+      keywords: [lab.key, lab.keywords, lab.description]
+        .filter(Boolean)
+        .join(" "),
+      anchor: `lab-${lab.key}`,
+    });
   }
   return byPage;
 }

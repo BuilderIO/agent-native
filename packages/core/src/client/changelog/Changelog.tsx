@@ -230,6 +230,8 @@ export interface ChangelogSettingsCardProps {
   limit?: number;
   /** Card heading. Default: "What's new". */
   title?: string;
+  /** Drop the heading, for a page whose header already names it. */
+  hideTitle?: boolean;
   closeLabel?: string;
   emptyText?: string;
   viewAllLabel?: string;
@@ -241,6 +243,7 @@ export function ChangelogSettingsCard({
   markdown,
   limit = 2,
   title = "What's new",
+  hideTitle = false,
   emptyText = "No updates yet.",
   viewAllLabel = "View all updates",
   collapseLabel = "Show fewer updates",
@@ -263,10 +266,12 @@ export function ChangelogSettingsCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border px-5 py-4">
-        <IconHistory className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
+      {hideTitle ? null : (
+        <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+          <IconHistory className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </div>
+      )}
       <div className="px-5 py-4">
         <div
           id={bodyId}

@@ -233,10 +233,21 @@ export function AgentJobsTab({
   canManageOrg = false,
   hideHeader = false,
   organizationId,
+  organizationName,
+  variant = "page",
 }: AgentPageTabProps & {
   hideHeader?: boolean;
   organizationId?: string | null;
+  /** Titles the organization group in the `"settings"` variant. */
+  organizationName?: string | null;
+  /**
+   * `"settings"` is the Settings page's shape: group titles without
+   * descriptions, the member note as the organization group's footnote, and
+   * no create button in the body, because the page header carries it.
+   */
+  variant?: "page" | "settings";
 }) {
+  const settingsVariant = variant === "settings";
   const t = useT();
   const formatters = useFormatters();
   const personalJobsQuery = useRecurringJobs("user");
@@ -333,19 +344,25 @@ export function AgentJobsTab({
     errors: unknown[];
     organization?: boolean;
   }) => (
-    <section className="space-y-4">
+    <section className={settingsVariant ? "space-y-2.5" : "space-y-4"}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            {title}
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {description}
-          </p>
+          {settingsVariant ? (
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          ) : (
+            <>
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                {title}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                {description}
+              </p>
+            </>
+          )}
         </div>
         {organization ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {!canManageOrg ? (
+            {!canManageOrg && !settingsVariant ? (
               <span className="text-xs text-muted-foreground">
                 {t("jobs.organizationMemberNote", {
                   defaultValue: "You can manage automations you created.",
@@ -705,6 +722,13 @@ export function AgentJobsTab({
           </div>
         </div>
       )}
+      {settingsVariant && organization && !canManageOrg ? (
+        <p className="px-0.5 text-xs text-muted-foreground">
+          {t("jobs.organizationMemberNote", {
+            defaultValue: "You can manage automations you created.",
+          })}
+        </p>
+      ) : null}
     </section>
   );
 
@@ -717,7 +741,7 @@ export function AgentJobsTab({
 
   return (
     <AgentTabFrame
-      compact={hideHeader}
+      compact={hideHeader || settingsVariant}
       title={t("jobs.pageTitle", { defaultValue: "Automations" })}
       description={t("jobs.pageDescription", {
         defaultValue:
@@ -741,7 +765,7 @@ export function AgentJobsTab({
     >
       <div className="space-y-7">
         <ScheduledTriggerNotice state={scheduledTriggerState} />
-        {hideHeader ? (
+        {hideHeader && !settingsVariant ? (
           <div className="flex justify-end">
             <AgentAskPopover
               context={automationCreationContext()}
@@ -774,7 +798,9 @@ export function AgentJobsTab({
         })}
         <div className="pt-2">
           {renderSection({
-            title: t("jobs.organization", { defaultValue: "Organization" }),
+            title:
+              (settingsVariant && organizationName?.trim()) ||
+              t("jobs.organization", { defaultValue: "Organization" }),
             description: t("jobs.organizationDescription", {
               defaultValue:
                 "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",

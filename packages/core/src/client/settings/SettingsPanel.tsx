@@ -611,7 +611,7 @@ function ManualSetupCard({
 
 // ─── LLM helpers ────────────────────────────────────────────────────────────
 
-function friendlyModelName(model: string): string {
+export function friendlyModelName(model: string): string {
   if (model === "z-ai/glm-5.2") return "GLM 5.2";
   const normalizedModel = model.replace(/^(?:anthropic|openai)\//, "");
   const claude = normalizedModel.match(

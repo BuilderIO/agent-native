@@ -5,6 +5,8 @@ import type { SettingsRoute } from "./routing.js";
 export interface SettingsPageHeader {
   /** Replaces the page label as the header title (a sub-page's own name). */
   title?: ReactNode;
+  /** A small chip beside the title: a Labs badge, the app a page belongs to. */
+  badge?: ReactNode;
   /** Rendered at the right of the header, replacing the page's `primaryAction`. */
   action?: ReactNode;
 }

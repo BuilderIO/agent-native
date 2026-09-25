@@ -37,6 +37,7 @@ import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
 import { cn } from "../utils.js";
+import { withAppSettingsTabs } from "./app-settings-tabs.js";
 import { SettingsShellSkeleton } from "./shell/SettingsShellSkeleton.js";
 
 const SettingsShell = lazy(() =>
@@ -102,8 +103,50 @@ export interface SettingsTabItem {
   settingsPlacement?: "page" | "app-area";
 }
 
+/**
+ * One of the app's own areas. The redesigned Settings shows it as a tab on
+ * the app's General page (`/settings/app/<id>`); today's tabs show it as its
+ * own tab.
+ */
+export interface SettingsAppArea {
+  /** Route segment, lowercase and hyphenated: `/settings/app/<id>`. */
+  id: string;
+  label: string;
+  content: ReactNode;
+  /** `false` hides the area, for example while the lab behind it is off. */
+  visible?: boolean;
+  /** Today's tab icon. */
+  icon?: SettingsTabIcon;
+  keywords?: string;
+  /** Row-level search hits. `hash` is the row's `SettingsRow` id. */
+  searchEntries?: SettingsSearchEntry[];
+}
+
 export interface SettingsTabsPageProps {
-  general: ReactNode;
+  /**
+   * Today's General tab. The redesigned app General page shows
+   * `generalGroups` instead when a template passes both.
+   */
+  general?: ReactNode;
+  /**
+   * The app's own groups on its General page in the redesigned Settings,
+   * between core's Agent and This browser groups. Today's General tab shows
+   * `general` when both are passed, else these.
+   */
+  generalGroups?: ReactNode;
+  /** The app's own areas, as tabs on its General page (see `SettingsAppArea`). */
+  appAreas?: readonly SettingsAppArea[];
+  /** The app's notification settings. The Notifications page shows only when passed. */
+  notifications?: ReactNode;
+  /** Today's Notifications tab label. */
+  notificationsLabel?: string;
+  /** Row-level search hits on the Notifications page. */
+  notificationsSearchEntries?: SettingsSearchEntry[];
+  /**
+   * The MCP server page's about line, naming what an MCP host can do in this
+   * app. Already translated.
+   */
+  mcpAbout?: string;
   account?: ReactNode;
   team?: ReactNode;
   whatsNew?: ReactNode;
@@ -355,11 +398,16 @@ function isEditableElement(element: Element | null): boolean {
 }
 
 function SettingsTabsPageContent({
-  general,
+  general: generalTab,
+  generalGroups,
   account,
   team,
   whatsNew,
-  extraTabs = [],
+  extraTabs: templateTabs,
+  appAreas,
+  notifications,
+  notificationsLabel,
+  notificationsSearchEntries,
   generalLabel = "General",
   accountLabel = "Account",
   teamLabel = "Team",
@@ -386,6 +434,31 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
+  const general = generalTab ?? generalGroups;
+  const notificationsFallbackLabel = t(
+    "agentChat.settingsShell.page.notifications",
+  );
+  const extraTabs = useMemo(
+    () =>
+      withAppSettingsTabs(
+        templateTabs,
+        {
+          appAreas,
+          notifications,
+          notificationsLabel,
+          notificationsSearchEntries,
+        },
+        notificationsFallbackLabel,
+      ),
+    [
+      appAreas,
+      notifications,
+      notificationsFallbackLabel,
+      notificationsLabel,
+      notificationsSearchEntries,
+      templateTabs,
+    ],
+  );
   const visibleLabs = useMemo(() => {
     if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
       return labs;
@@ -1000,6 +1073,12 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
     <Suspense fallback={<SettingsShellSkeleton className={props.className} />}>
       <SettingsShell
         general={props.general}
+        generalGroups={props.generalGroups}
+        appAreas={props.appAreas}
+        notifications={props.notifications}
+        notificationsLabel={props.notificationsLabel}
+        notificationsSearchEntries={props.notificationsSearchEntries}
+        mcpAbout={props.mcpAbout}
         account={props.account}
         team={props.team}
         whatsNew={props.whatsNew}

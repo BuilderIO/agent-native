@@ -412,7 +412,8 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     order: 20,
     labelKey: label("whatsNew"),
     icon: IconNews,
-    visible: (_context, bridge) => bridge.whatsNew != null,
+    visible: (_context, bridge) =>
+      bridge.whatsNew != null || bridge.whatsNewMarkdown != null,
     component: lazy(() => import("./pages/whats-new.js")),
     legacyTabIds: ["whats-new", "changelog", "updates"],
     keywords: "whats new changelog updates releases",

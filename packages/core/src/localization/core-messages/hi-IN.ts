@@ -1051,6 +1051,36 @@ const messages: AgentChatTranslation = {
     "आपकी वॉइस ट्रांसक्रिप्शन सेटिंग सहेजी नहीं जा सकी।",
   "settingsShell.account.yourData": "आपका डेटा",
   "settingsShell.appFallbackName": "ऐप",
+  "settingsShell.appGroup.adminOnly": "केवल स्वामी और एडमिन इसे बदल सकते हैं",
+  "settingsShell.appGroup.automationsCreateTitle": "क्या होना चाहिए, और कब?",
+  "settingsShell.appGroup.defaultModel": "डिफ़ॉल्ट मॉडल",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}} में नई एजेंट चैट के लिए उपयोग होता है। डिफ़ॉल्ट {{model}} है।",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}} में नई एजेंट चैट के लिए उपयोग होता है।",
+  "settingsShell.appGroup.defaultModelLoadError": "डिफ़ॉल्ट मॉडल लोड नहीं हो सका।",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "डिफ़ॉल्ट मॉडल सहेजा नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.demoMode": "डेमो मोड",
+  "settingsShell.appGroup.demoModeDescription":
+    "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
+  "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.appGroup.mcpFootnote":
+    "एजेंट जिन टूल्स का खुद उपयोग करता है, उनके लिए {{integrations}} देखें।",
+  "settingsShell.appGroup.newAutomation": "नया ऑटोमेशन",
+  "settingsShell.appGroup.retry": "फिर से कोशिश करें",
+  "settingsShell.appGroup.thisBrowser": "यह ब्राउज़र",
+  "settingsShell.appGroup.useDefault": "डिफ़ॉल्ट का उपयोग करें",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} के अपडेट। हर ऐप का अपना चेंजलॉग होता है।",
+  "settingsShell.appGroup.whatsNewEmpty": "अभी तक कोई अपडेट नहीं।",
+  "settingsShell.appGroup.whatsNewShowFewer": "कम अपडेट दिखाएं",
+  "settingsShell.appGroup.whatsNewViewAll": "सभी अपडेट देखें",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
   "settingsShell.builder.connect": "कनेक्ट करें",

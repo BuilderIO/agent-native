@@ -1090,6 +1090,37 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.voiceSaveError": "تعذّر حفظ إعداد تحويل الصوت إلى نص.",
   "settingsShell.account.yourData": "بياناتك",
   "settingsShell.appFallbackName": "التطبيق",
+  "settingsShell.appGroup.adminOnly": "يمكن للمالكين والمسؤولين فقط تغيير هذا",
+  "settingsShell.appGroup.automationsCreateTitle": "ما الذي يجب أن يحدث، ومتى؟",
+  "settingsShell.appGroup.defaultModel": "النموذج الافتراضي",
+  "settingsShell.appGroup.defaultModelDescription":
+    "يُستخدم في محادثات الوكيل الجديدة في {{app}}. النموذج الافتراضي هو {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "يُستخدم في محادثات الوكيل الجديدة في {{app}}.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "تعذّر تحميل النموذج الافتراضي.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "تعذّر حفظ النموذج الافتراضي. حاول مرة أخرى.",
+  "settingsShell.appGroup.demoMode": "وضع العرض التوضيحي",
+  "settingsShell.appGroup.demoModeDescription":
+    "استخدم بيانات نموذجية في هذا المتصفح للعروض التقديمية.",
+  "settingsShell.appGroup.labsFootnote":
+    "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
+  "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
+  "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
+  "settingsShell.appGroup.mcpAbout":
+    "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.appGroup.mcpFootnote":
+    "للاطلاع على الأدوات التي يستخدمها الوكيل نفسه، راجع {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "أتمتة جديدة",
+  "settingsShell.appGroup.retry": "إعادة المحاولة",
+  "settingsShell.appGroup.thisBrowser": "هذا المتصفح",
+  "settingsShell.appGroup.useDefault": "استخدام الافتراضي",
+  "settingsShell.appGroup.whatsNewChip":
+    "تحديثات {{app}}. لكل تطبيق سجل تغييرات خاص به.",
+  "settingsShell.appGroup.whatsNewEmpty": "لا توجد تحديثات بعد.",
+  "settingsShell.appGroup.whatsNewShowFewer": "عرض تحديثات أقل",
+  "settingsShell.appGroup.whatsNewViewAll": "عرض كل التحديثات",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",
   "settingsShell.builder.connect": "ربط",

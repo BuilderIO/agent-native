@@ -1133,6 +1133,39 @@ const messages: AgentChatTranslation = {
     "No se pudo guardar tu configuración de transcripción de voz.",
   "settingsShell.account.yourData": "Tus datos",
   "settingsShell.appFallbackName": "Aplicación",
+  "settingsShell.appGroup.adminOnly":
+    "Solo los propietarios y administradores pueden cambiar esto",
+  "settingsShell.appGroup.automationsCreateTitle": "¿Qué debe pasar y cuándo?",
+  "settingsShell.appGroup.defaultModel": "Modelo predeterminado",
+  "settingsShell.appGroup.defaultModelDescription":
+    "Se usa en los chats nuevos con el agente en {{app}}. El predeterminado es {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "Se usa en los chats nuevos con el agente en {{app}}.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "No se pudo cargar el modelo predeterminado.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "No se pudo guardar el modelo predeterminado. Inténtalo de nuevo.",
+  "settingsShell.appGroup.demoMode": "Modo demo",
+  "settingsShell.appGroup.demoModeDescription":
+    "Usa datos de ejemplo en este navegador para presentaciones.",
+  "settingsShell.appGroup.labsFootnote":
+    "Estas funciones nuevas e inestables pueden tener errores.",
+  "settingsShell.appGroup.labsLoadError": "No se pudieron cargar tus Labs.",
+  "settingsShell.appGroup.labsSaveError":
+    "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
+  "settingsShell.appGroup.mcpAbout":
+    "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",
+  "settingsShell.appGroup.mcpFootnote":
+    "Para las herramientas que usa el propio agente, consulta {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "Nueva automatización",
+  "settingsShell.appGroup.retry": "Reintentar",
+  "settingsShell.appGroup.thisBrowser": "Este navegador",
+  "settingsShell.appGroup.useDefault": "Usar el predeterminado",
+  "settingsShell.appGroup.whatsNewChip":
+    "Novedades de {{app}}. Cada app tiene su propio registro de cambios.",
+  "settingsShell.appGroup.whatsNewEmpty": "Aún no hay novedades.",
+  "settingsShell.appGroup.whatsNewShowFewer": "Mostrar menos novedades",
+  "settingsShell.appGroup.whatsNewViewAll": "Ver todas las novedades",
   "settingsShell.backToApp": "Volver a {{app}}",
   "settingsShell.breadcrumbLabel": "Ruta de navegación",
   "settingsShell.builder.connect": "Conectar",

@@ -1085,6 +1085,38 @@ const messages: AgentChatTranslation = {
     "音声文字起こしの設定を保存できませんでした。",
   "settingsShell.account.yourData": "あなたのデータ",
   "settingsShell.appFallbackName": "アプリ",
+  "settingsShell.appGroup.adminOnly": "オーナーと管理者のみが変更できます",
+  "settingsShell.appGroup.automationsCreateTitle": "いつ、何を実行しますか？",
+  "settingsShell.appGroup.defaultModel": "デフォルトモデル",
+  "settingsShell.appGroup.defaultModelDescription":
+    "{{app}} の新しいエージェントチャットで使用します。デフォルトは {{model}} です。",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "{{app}} の新しいエージェントチャットで使用します。",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "デフォルトモデルを読み込めませんでした。",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "デフォルトモデルを保存できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.demoMode": "デモモード",
+  "settingsShell.appGroup.demoModeDescription":
+    "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
+  "settingsShell.appGroup.labsFootnote":
+    "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
+  "settingsShell.appGroup.labsSaveError":
+    "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.mcpAbout":
+    "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
+  "settingsShell.appGroup.mcpFootnote":
+    "エージェント自身が使うツールについては、{{integrations}} を参照してください。",
+  "settingsShell.appGroup.newAutomation": "新しい自動化",
+  "settingsShell.appGroup.retry": "再試行",
+  "settingsShell.appGroup.thisBrowser": "このブラウザ",
+  "settingsShell.appGroup.useDefault": "デフォルトを使用",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} の更新情報です。変更履歴はアプリごとにあります。",
+  "settingsShell.appGroup.whatsNewEmpty": "まだ更新はありません。",
+  "settingsShell.appGroup.whatsNewShowFewer": "更新の表示を減らす",
+  "settingsShell.appGroup.whatsNewViewAll": "すべての更新を表示",
   "settingsShell.backToApp": "{{app}} に戻る",
   "settingsShell.breadcrumbLabel": "パンくずリスト",
   "settingsShell.builder.connect": "接続",

@@ -1009,6 +1009,34 @@ const messages: AgentChatTranslation = {
   "settingsShell.account.voiceSaveError": "无法保存您的语音转写设置。",
   "settingsShell.account.yourData": "您的数据",
   "settingsShell.appFallbackName": "应用",
+  "settingsShell.appGroup.adminOnly": "只有所有者和管理员可以更改此项",
+  "settingsShell.appGroup.automationsCreateTitle": "应该在何时发生什么？",
+  "settingsShell.appGroup.defaultModel": "默认模型",
+  "settingsShell.appGroup.defaultModelDescription":
+    "用于 {{app}} 中新的智能体对话。默认值为 {{model}}。",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "用于 {{app}} 中新的智能体对话。",
+  "settingsShell.appGroup.defaultModelLoadError": "无法加载默认模型。",
+  "settingsShell.appGroup.defaultModelSaveError": "无法保存默认模型。请重试。",
+  "settingsShell.appGroup.demoMode": "演示模式",
+  "settingsShell.appGroup.demoModeDescription":
+    "在此浏览器中使用示例数据进行演示。",
+  "settingsShell.appGroup.labsFootnote": "这些新功能尚不稳定，可能存在错误。",
+  "settingsShell.appGroup.labsLoadError": "无法加载实验室功能。",
+  "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
+  "settingsShell.appGroup.mcpAbout":
+    "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
+  "settingsShell.appGroup.mcpFootnote":
+    "如需了解智能体自身使用的工具，请参阅{{integrations}}。",
+  "settingsShell.appGroup.newAutomation": "新建自动化",
+  "settingsShell.appGroup.retry": "重试",
+  "settingsShell.appGroup.thisBrowser": "此浏览器",
+  "settingsShell.appGroup.useDefault": "使用默认值",
+  "settingsShell.appGroup.whatsNewChip":
+    "{{app}} 的更新。每个应用都有自己的更新日志。",
+  "settingsShell.appGroup.whatsNewEmpty": "暂无更新。",
+  "settingsShell.appGroup.whatsNewShowFewer": "显示更少更新",
+  "settingsShell.appGroup.whatsNewViewAll": "查看所有更新",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "面包屑导航",
   "settingsShell.builder.connect": "连接",

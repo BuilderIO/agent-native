@@ -1,13 +1,69 @@
+import { Switch } from "@agent-native/toolkit/design-system";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@agent-native/toolkit/ui/tabs";
+
+import { setBrowserDemoModeEnabled } from "../../../../demo/browser-state.js";
 import { useT } from "../../../i18n.js";
-import { cn } from "../../../utils.js";
+import { useDemoModeStatus } from "../../../use-demo-mode-status.js";
+import { AppDefaultModelRow } from "../../app-group/AppDefaultModelRow.js";
+import { SettingsGroup, SettingsRow } from "../../SettingsRow.js";
 import { useSettingsShell } from "../context.js";
 import type { SettingsPageProps } from "../registry.js";
 
 const GENERAL_AREA = "general";
 
+function DemoModeRow() {
+  const t = useT();
+  const { enabled } = useDemoModeStatus();
+  const label = t("agentChat.settingsShell.appGroup.demoMode");
+  return (
+    <SettingsRow
+      id="demo-mode"
+      label={label}
+      description={t("agentChat.settingsShell.appGroup.demoModeDescription")}
+      control={
+        <Switch
+          checked={enabled}
+          onChange={setBrowserDemoModeEnabled}
+          aria-label={label}
+          className="shrink-0"
+        />
+      }
+    />
+  );
+}
+
+/** Core's Agent group, the app's own groups, then This browser. */
+function AppGeneralArea({ bridge }: Pick<SettingsPageProps, "bridge">) {
+  const t = useT();
+  const appName =
+    bridge.appName ?? t("agentChat.settingsShell.appFallbackName");
+  return (
+    <div className="flex flex-col gap-8">
+      <SettingsGroup
+        id="agent"
+        title={t("agentChat.settingsShell.group.agent")}
+      >
+        <AppDefaultModelRow appName={appName} />
+      </SettingsGroup>
+      {bridge.general}
+      <SettingsGroup
+        id="this-browser"
+        title={t("agentChat.settingsShell.appGroup.thisBrowser")}
+      >
+        <DemoModeRow />
+      </SettingsGroup>
+    </div>
+  );
+}
+
 /**
- * The app's own General page. Tabs a template marks
- * `settingsPlacement: "app-area"` render as areas routed `app/<area>`.
+ * The app's own General page. App areas (`appAreas`, or tabs a template marks
+ * `settingsPlacement: "app-area"`) are tabs here, routed `app/<area>`.
  */
 export default function AppGeneralSettingsPage({
   bridge,
@@ -16,44 +72,35 @@ export default function AppGeneralSettingsPage({
   const t = useT();
   const { navigate } = useSettingsShell();
   const areas = bridge.appAreas;
-  const active = areas.find((area) => area.id === sub) ?? null;
-  if (areas.length === 0) return <>{bridge.general}</>;
-  const tabs = [
-    { id: GENERAL_AREA, label: t("agentChat.settingsShell.page.appGeneral") },
-    ...areas.map((area) => ({ id: area.id, label: area.label })),
-  ];
-  const activeId = active?.id ?? GENERAL_AREA;
+  if (areas.length === 0) return <AppGeneralArea bridge={bridge} />;
+  const activeId =
+    sub && areas.some((area) => area.id === sub) ? sub : GENERAL_AREA;
   return (
-    <div className="flex flex-col gap-6">
-      <div
-        role="tablist"
-        aria-orientation="horizontal"
-        className="flex items-center gap-1 overflow-x-auto"
-      >
-        {tabs.map((tab) => {
-          const selected = tab.id === activeId;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() =>
-                navigate("app", tab.id === GENERAL_AREA ? null : tab.id)
-              }
-              className={cn(
-                "inline-flex h-8 shrink-0 items-center rounded-md px-3 text-sm font-medium transition-colors",
-                selected
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-      <div role="tabpanel">{active ? active.content : bridge.general}</div>
-    </div>
+    <Tabs
+      value={activeId}
+      onValueChange={(next) =>
+        navigate("app", next === GENERAL_AREA ? null : next)
+      }
+      className="flex flex-col gap-6"
+    >
+      <TabsList className="max-w-full justify-start self-start overflow-x-auto">
+        <TabsTrigger value={GENERAL_AREA}>
+          {t("agentChat.settingsShell.page.appGeneral")}
+        </TabsTrigger>
+        {areas.map((area) => (
+          <TabsTrigger key={area.id} value={area.id}>
+            {area.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      <TabsContent value={GENERAL_AREA} className="mt-0">
+        <AppGeneralArea bridge={bridge} />
+      </TabsContent>
+      {areas.map((area) => (
+        <TabsContent key={area.id} value={area.id} className="mt-0">
+          {area.content}
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }

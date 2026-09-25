@@ -1147,6 +1147,40 @@ const messages: AgentChatTranslation = {
     "Impossible d’enregistrer votre paramètre de transcription vocale.",
   "settingsShell.account.yourData": "Vos données",
   "settingsShell.appFallbackName": "Application",
+  "settingsShell.appGroup.adminOnly":
+    "Seuls les propriétaires et les administrateurs peuvent modifier ce paramètre",
+  "settingsShell.appGroup.automationsCreateTitle":
+    "Que doit-il se passer, et quand ?",
+  "settingsShell.appGroup.defaultModel": "Modèle par défaut",
+  "settingsShell.appGroup.defaultModelDescription":
+    "Utilisé pour les nouvelles conversations avec l’agent dans {{app}}. Le modèle par défaut est {{model}}.",
+  "settingsShell.appGroup.defaultModelDescriptionUnset":
+    "Utilisé pour les nouvelles conversations avec l’agent dans {{app}}.",
+  "settingsShell.appGroup.defaultModelLoadError":
+    "Impossible de charger le modèle par défaut.",
+  "settingsShell.appGroup.defaultModelSaveError":
+    "Impossible d’enregistrer le modèle par défaut. Réessayez.",
+  "settingsShell.appGroup.demoMode": "Mode démo",
+  "settingsShell.appGroup.demoModeDescription":
+    "Utiliser des données d’exemple dans ce navigateur pour les présentations.",
+  "settingsShell.appGroup.labsFootnote":
+    "Ces nouvelles fonctionnalités instables peuvent comporter des bugs.",
+  "settingsShell.appGroup.labsLoadError": "Impossible de charger vos Labs.",
+  "settingsShell.appGroup.labsSaveError":
+    "Impossible de modifier {{lab}}. Réessayez.",
+  "settingsShell.appGroup.mcpAbout":
+    "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
+  "settingsShell.appGroup.mcpFootnote":
+    "Pour les outils que l’agent utilise lui-même, consultez {{integrations}}.",
+  "settingsShell.appGroup.newAutomation": "Nouvelle automatisation",
+  "settingsShell.appGroup.retry": "Réessayer",
+  "settingsShell.appGroup.thisBrowser": "Ce navigateur",
+  "settingsShell.appGroup.useDefault": "Utiliser la valeur par défaut",
+  "settingsShell.appGroup.whatsNewChip":
+    "Mises à jour de {{app}}. Chaque application a son propre journal des modifications.",
+  "settingsShell.appGroup.whatsNewEmpty": "Aucune mise à jour pour l’instant.",
+  "settingsShell.appGroup.whatsNewShowFewer": "Afficher moins de mises à jour",
+  "settingsShell.appGroup.whatsNewViewAll": "Voir toutes les mises à jour",
   "settingsShell.backToApp": "Retour à {{app}}",
   "settingsShell.breadcrumbLabel": "Fil d’Ariane",
   "settingsShell.builder.connect": "Connecter",
