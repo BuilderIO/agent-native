@@ -22,7 +22,26 @@ import {
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 
-const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
+const SESSION_FILTER_KEYS = new Set([
+  "range",
+  "app",
+  "q",
+  "fromDate",
+  "toDate",
+  "from",
+  "to",
+  "sort",
+  "page",
+  "triage",
+  "minDurationMs",
+  "hideEmpty",
+  "hideInternal",
+  "visitorType",
+  "emailDomain",
+  "hasErrors",
+  "hasNetworkErrors",
+  "hasRageClicks",
+]);
 const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
@@ -205,11 +224,48 @@ export default defineAction({
             );
           } else {
             const params = url?.searchParams ?? {};
+            const triage = params.triage === "1";
+            const customRange = triage && params.range === "custom";
+            const page = Number.parseInt(params.page ?? "1", 10);
+            const minDurationMs = Number(params.minDurationMs);
             const sessions = await listSessionRecordings(scope, {
-              from:
-                replayRangeToIso(readReplayRange(params.range)) ?? undefined,
+              from: customRange
+                ? params.from
+                : (replayRangeToIso(readReplayRange(params.range)) ??
+                  undefined),
+              to: customRange ? params.to : undefined,
               app: params.app,
               query: params.q,
+              ...(triage
+                ? {
+                    minDurationMs:
+                      Number.isFinite(minDurationMs) && minDurationMs >= 0
+                        ? minDurationMs
+                        : undefined,
+                    hideEmpty: params.hideEmpty !== "false",
+                    hideInternal: params.hideInternal === "true",
+                    hasErrors: params.hasErrors === "true",
+                    hasNetworkErrors: params.hasNetworkErrors === "true",
+                    hasRageClicks: params.hasRageClicks === "true",
+                    emailDomain: params.emailDomain,
+                    visitorType:
+                      params.visitorType === "internal" ||
+                      params.visitorType === "work" ||
+                      params.visitorType === "personal"
+                        ? params.visitorType
+                        : undefined,
+                    sort:
+                      params.sort === "newest" ||
+                      params.sort === "longest" ||
+                      params.sort === "errors" ||
+                      params.sort === "events" ||
+                      params.sort === "rage"
+                        ? params.sort
+                        : undefined,
+                    offset:
+                      Number.isFinite(page) && page > 0 ? (page - 1) * 100 : 0,
+                  }
+                : {}),
               limit: 25,
             });
             screen.sessionReplays = sessions;

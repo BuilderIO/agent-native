@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   };
 });
 
+import { organizations } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -45,6 +46,7 @@ import {
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
   listSessionRecordings,
+  listSessionRecordingsPage,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
   parseSessionReplayIngestPayload,
@@ -136,6 +138,76 @@ function conditionText(value: unknown): string {
     return item;
   });
 }
+
+describe("session replay list page", () => {
+  it("returns a real filtered total and app counts before pagination", async () => {
+    const conditions: unknown[] = [];
+    const orders: unknown[][] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) {
+              return {
+                limit: async () => [
+                  { allowedDomain: null, createdBy: "owner@builder.io" },
+                ],
+              };
+            }
+            if (table !== schema.sessionRecordings)
+              throw new Error("Unexpected table in session list query");
+            conditions.push(condition);
+            const result = selection?.app
+              ? [{ app: "clips", count: "137" }]
+              : selection?.count
+                ? [{ count: "137" }]
+                : [];
+            const query = {
+              orderBy: (...values: unknown[]) => {
+                orders.push(values);
+                return query;
+              },
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => result,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(result).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const page = await listSessionRecordingsPage(
+      { userEmail: "owner@builder.io", orgId: "org_123" },
+      {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-01-02T23:59:59.999Z",
+        app: "clips",
+        hideEmpty: true,
+        hasNetworkErrors: true,
+        visitorType: "internal",
+        sort: "longest",
+        offset: 100,
+        limit: 50,
+      },
+    );
+
+    expect(page).toEqual({
+      recordings: [],
+      total: 137,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(conditions).toHaveLength(3);
+    expect(conditionText(conditions[0])).toContain("clips");
+    expect(conditionText(conditions[0])).toContain("builder.io");
+    expect(conditionText(conditions[1])).toContain("clips");
+    expect(conditionText(conditions[2])).not.toContain("clips");
+    expect(conditionText(orders[0])).toContain("nulls last");
+  });
+});
 
 describe("session replay agent summaries", () => {
   it("omits owner, org, visibility, and metadata from compact agent payloads", () => {

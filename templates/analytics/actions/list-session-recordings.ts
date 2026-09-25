@@ -5,7 +5,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listSessionRecordings } from "../server/lib/session-replay.js";
+import {
+  listSessionRecordings,
+  listSessionRecordingsPage,
+} from "../server/lib/session-replay.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -53,6 +56,31 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Only recordings with detected rage clicks"),
+    hasNetworkErrors: z
+      .boolean()
+      .optional()
+      .describe("Only recordings with failed network requests"),
+    hideEmpty: z
+      .boolean()
+      .optional()
+      .describe("Exclude recordings with zero duration"),
+    hideInternal: z
+      .boolean()
+      .optional()
+      .describe("Exclude visitors using the organization's email domains"),
+    visitorType: z.enum(["internal", "work", "personal"]).optional(),
+    emailDomain: z
+      .string()
+      .optional()
+      .describe("Exact visitor email domain, without @"),
+    sort: z.enum(["newest", "longest", "errors", "events", "rage"]).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+    paginated: z
+      .boolean()
+      .optional()
+      .describe(
+        "Return recordings, total count, and app counts rather than the legacy recordings array",
+      ),
     status: z.enum(["active", "completed"]).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
@@ -61,6 +89,9 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
   run: async (args) => {
-    return listSessionRecordings(resolveScope(), args);
+    const scope = resolveScope();
+    return args.paginated
+      ? listSessionRecordingsPage(scope, args)
+      : listSessionRecordings(scope, args);
   },
 });

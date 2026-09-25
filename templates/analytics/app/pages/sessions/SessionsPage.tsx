@@ -2,6 +2,7 @@ import { CodeSurface } from "@agent-native/core/blocks";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -58,6 +59,9 @@ import {
 } from "@/components/ui/tooltip";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
+
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import { SessionsTriagePage } from "./SessionsTriagePage";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -219,6 +223,27 @@ export function useDebouncedUrlFilter(
 }
 
 export default function SessionsPage() {
+  const lab = useLabState(ANALYTICS_SESSIONS_TRIAGE_LAB.key);
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (!lab.isSuccess || lab.enabled || !searchParams.has("triage")) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("triage");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [lab.isSuccess, lab.enabled, searchParams, setSearchParams]);
+  return lab.isSuccess && lab.enabled ? (
+    <SessionsTriagePage />
+  ) : (
+    <LegacySessionsPage />
+  );
+}
+
+function LegacySessionsPage() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = readRange(searchParams.get("range"));

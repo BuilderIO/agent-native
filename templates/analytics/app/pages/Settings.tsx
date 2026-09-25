@@ -31,6 +31,7 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../shared/labs";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -144,6 +145,11 @@ export default function Settings() {
   });
   const labs = useMemo(
     () => [
+      {
+        ...ANALYTICS_SESSIONS_TRIAGE_LAB,
+        displayName: t("sessions.labName"),
+        description: t("sessions.labDescription"),
+      },
       {
         ...CREATIVE_CONTEXT_LIBRARY_LAB,
         displayName: t("creativeContext.share.title"),
