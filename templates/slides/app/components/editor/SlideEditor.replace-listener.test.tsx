@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -95,5 +95,68 @@ describe("SlideEditor with a newer version of the edited slide", () => {
         message: expect.stringContaining("refused to re-render"),
       }),
     );
+  });
+
+  /** Opens an edit on the caption and waits for its first draft. */
+  async function editWithDraft() {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onUpdateSlide = vi.fn(
+      (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+        undefined,
+    );
+    const noop = () => {};
+    const props = {
+      onUpdateSlide,
+      onGenerateImage: noop,
+      onOpenAssetLibrary: noop,
+      onUploadImage: noop,
+      onToggleObjectFit: noop,
+      onChangeObjectPosition: noop,
+    };
+    const slide = {
+      id: "slide-img",
+      content:
+        '<div class="fmd-slide"><img src="https://cdn.test/old.png" style="width:100px"><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    const view = render(<SlideEditor slide={slide} {...props} />, {
+      wrapper: Providers,
+    });
+    const edited = document.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    (edited.firstChild as Text).data = "Caption ty";
+    fireEvent.input(edited);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+    const draft = onUpdateSlide.mock.calls.find(
+      ([, , options]) =>
+        (options as { preserveLocalState?: boolean } | undefined)
+          ?.preserveLocalState,
+    )?.[0].content;
+    expect(draft).toContain("Caption ty");
+    (edited.firstChild as Text).data = "Caption typed";
+    const rerender = (content: string) =>
+      view.rerender(<SlideEditor slide={{ ...slide, content }} {...props} />);
+    return { draft: draft!, edited, onUpdateSlide, rerender };
+  }
+
+  it("keeps an edit open under an upload built on its own draft", async () => {
+    const { draft, edited, rerender } = await editWithDraft();
+    rerender(draft.replace("old.png", "new.png"));
+    expect(edited.getAttribute("contenteditable")).toBe("true");
+    expect(edited.textContent).toBe("Caption typed");
+    expect(
+      document.querySelector(".slide-content img")!.getAttribute("src"),
+    ).toBe("https://cdn.test/new.png");
+  });
+
+  it("ends an edit whose text another writer changed along with an image", async () => {
+    const { draft, edited, onUpdateSlide, rerender } = await editWithDraft();
+    const remote = draft
+      .replace("old.png", "new.png")
+      .replace("Caption ty", "Agent caption");
+    rerender(remote);
+    expect(edited.hasAttribute("contenteditable")).toBe(false);
+    expect(onUpdateSlide.mock.calls.at(-1)?.[0]).toEqual({ content: remote });
   });
 });
