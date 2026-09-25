@@ -522,7 +522,7 @@ jobs:
                 echo "Concurrent changesets were consumed by another main update."
                 exit 0
               fi
-              git rebase origin/main
+              git rebase --autostash origin/main
               sleep $((attempt * 2))
             fi
           done
