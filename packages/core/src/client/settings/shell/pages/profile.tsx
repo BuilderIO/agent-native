@@ -1,6 +1,5 @@
-import { AccountSettingsCard } from "../../AccountSettingsCard.js";
-import type { SettingsPageProps } from "../registry.js";
+import { ProfileSettings } from "../../account/ProfileSettings.js";
 
-export default function ProfileSettingsPage({ bridge }: SettingsPageProps) {
-  return <>{bridge.account ?? <AccountSettingsCard />}</>;
+export default function ProfileSettingsPage() {
+  return <ProfileSettings />;
 }

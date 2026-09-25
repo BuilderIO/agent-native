@@ -981,6 +981,91 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "الانضمام التلقائي حسب نطاق البريد الإلكتروني",
   "settingsOrg.search.roles": "أدوار الأعضاء",
+  "settingsShell.account.addPassword": "إضافة كلمة مرور",
+  "settingsShell.account.authenticatorCode": "رمز المصادقة",
+  "settingsShell.account.change": "تغيير",
+  "settingsShell.account.changeEmail": "تغيير البريد الإلكتروني",
+  "settingsShell.account.changePassword": "تغيير كلمة المرور",
+  "settingsShell.account.confirmPassword": "تأكيد كلمة المرور الجديدة",
+  "settingsShell.account.currentPassword": "كلمة المرور الحالية",
+  "settingsShell.account.deletionDialogDescription":
+    "يُرسل هذا طلب حذف إلى أحد المسؤولين. تبقى بياناتك حتى يراجعه.",
+  "settingsShell.account.done": "تم",
+  "settingsShell.account.email": "البريد الإلكتروني",
+  "settingsShell.account.emailChangeError": "تعذّر إرسال التأكيد.",
+  "settingsShell.account.emailChangeSent":
+    "تحقق من بريدك الإلكتروني للاطلاع على تعليمات تأكيد هذا التغيير.",
+  "settingsShell.account.languageAndRegion": "اللغة والمنطقة",
+  "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
+  "settingsShell.account.manage": "إدارة",
+  "settingsShell.account.name": "الاسم",
+  "settingsShell.account.nameDescription":
+    "يُستخدم للإشارة إليك في تطبيقات Agent-Native.",
+  "settingsShell.account.namePlaceholder": "اسمك",
+  "settingsShell.account.nameSaveError": "تعذّر تحديث اسمك.",
+  "settingsShell.account.nameSaved": "تم تحديث الاسم",
+  "settingsShell.account.newEmail": "البريد الإلكتروني الجديد",
+  "settingsShell.account.newEmailPlaceholder": "أدخل البريد الإلكتروني الجديد",
+  "settingsShell.account.newPassword": "كلمة المرور الجديدة",
+  "settingsShell.account.password": "كلمة المرور",
+  "settingsShell.account.passwordDescription":
+    "أضف كلمة مرور لتحصل على طريقة أخرى لتسجيل الدخول إلى حسابك.",
+  "settingsShell.account.passwordLoadError":
+    "تعذّر تحميل طرق تسجيل الدخول الخاصة بك.",
+  "settingsShell.account.passwordMinLength":
+    "اختر كلمة مرور لا تقل عن {{count}} حرفًا.",
+  "settingsShell.account.passwordMismatch": "كلمتا المرور غير متطابقتين.",
+  "settingsShell.account.passwordSaveError": "تعذّر تحديث كلمة المرور.",
+  "settingsShell.account.passwordSaved": "تم تحديث كلمة المرور",
+  "settingsShell.account.photoError": "تعذّر تحديث الصورة.",
+  "settingsShell.account.photoUpdated": "تم تحديث الصورة",
+  "settingsShell.account.profilePhoto": "صورة الملف الشخصي",
+  "settingsShell.account.requestCopyDescription":
+    "يتحقق أحد المسؤولين من هويتك ويتابع معك.",
+  "settingsShell.account.requestCopyLabel": "طلب نسخة من بياناتك",
+  "settingsShell.account.requestDeletionDescription":
+    "تبقى بياناتك حتى يُكمل أحد المسؤولين الطلب.",
+  "settingsShell.account.requestDeletionLabel": "طلب حذف البيانات",
+  "settingsShell.account.savePassword": "حفظ كلمة المرور",
+  "settingsShell.account.sendConfirmation": "إرسال التأكيد",
+  "settingsShell.account.sending": "جارٍ الإرسال...",
+  "settingsShell.account.setUpTwoFactor": "إعداد المصادقة الثنائية",
+  "settingsShell.account.signIn": "تسجيل الدخول",
+  "settingsShell.account.timezone": "المنطقة الزمنية",
+  "settingsShell.account.timezoneDescription":
+    "تُستخدم للطوابع الزمنية وعمليات الأتمتة المجدولة.",
+  "settingsShell.account.turnOffTwoFactor": "إيقاف المصادقة الثنائية",
+  "settingsShell.account.twoFactor": "المصادقة الثنائية",
+  "settingsShell.account.twoFactorBackupCodes":
+    "احفظ رموز النسخ الاحتياطي هذه في مكان آمن. يمكن استخدام كل رمز مرة واحدة إذا فقدت الوصول إلى تطبيق المصادقة.",
+  "settingsShell.account.twoFactorCodeError":
+    "أدخل الرمز المكوّن من ستة أرقام من تطبيق المصادقة.",
+  "settingsShell.account.twoFactorDescription":
+    "استخدم تطبيق مصادقة لإضافة خطوة ثانية لتسجيل الدخول إلى حسابك.",
+  "settingsShell.account.twoFactorDisableError":
+    "تعذّر إيقاف المصادقة الثنائية.",
+  "settingsShell.account.twoFactorEnabled": "المصادقة الثنائية مفعّلة.",
+  "settingsShell.account.twoFactorLoadError":
+    "تعذّر تحميل إعدادات المصادقة الثنائية.",
+  "settingsShell.account.twoFactorQrLabel": "رمز QR لإعداد المصادقة الثنائية",
+  "settingsShell.account.twoFactorSaved": "تم تفعيل المصادقة الثنائية",
+  "settingsShell.account.twoFactorScan":
+    "امسح رمز QR هذا بتطبيق المصادقة، ثم أدخل الرمز الذي يعرضه.",
+  "settingsShell.account.twoFactorSetupError":
+    "تعذّر تحديث إعدادات المصادقة الثنائية.",
+  "settingsShell.account.twoFactorSetupTitle": "إعداد المصادقة الثنائية",
+  "settingsShell.account.uploading": "جارٍ الرفع...",
+  "settingsShell.account.verifyAndEnable": "التحقق والتفعيل",
+  "settingsShell.account.voiceBatch": "دفعة واحدة",
+  "settingsShell.account.voiceDescription":
+    "اختر طريقة تحويل الإدخال الصوتي إلى نص.",
+  "settingsShell.account.voiceGoogleRealtime": "Google في الوقت الفعلي",
+  "settingsShell.account.voiceInput": "الإدخال الصوتي",
+  "settingsShell.account.voiceLoadError":
+    "تعذّر تحميل إعداد تحويل الصوت إلى نص.",
+  "settingsShell.account.voiceMacNative": "Mac الأصلي",
+  "settingsShell.account.voiceSaveError": "تعذّر حفظ إعداد تحويل الصوت إلى نص.",
+  "settingsShell.account.yourData": "بياناتك",
   "settingsShell.appFallbackName": "التطبيق",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",

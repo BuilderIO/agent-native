@@ -956,6 +956,93 @@ const messages = {
   "settingsOrg.apps.defaults": "Defaults",
   "settingsOrg.search.domainAutoJoin": "Email domain auto-join",
   "settingsOrg.search.roles": "Member roles",
+  "settingsShell.account.addPassword": "Add password",
+  "settingsShell.account.authenticatorCode": "Authenticator code",
+  "settingsShell.account.change": "Change",
+  "settingsShell.account.changeEmail": "Change email",
+  "settingsShell.account.changePassword": "Change password",
+  "settingsShell.account.confirmPassword": "Confirm new password",
+  "settingsShell.account.currentPassword": "Current password",
+  "settingsShell.account.deletionDialogDescription":
+    "This sends a deletion request to an administrator. Your data stays until they review it.",
+  "settingsShell.account.done": "Done",
+  "settingsShell.account.email": "Email",
+  "settingsShell.account.emailChangeError": "Could not send confirmation.",
+  "settingsShell.account.emailChangeSent":
+    "Check your email for instructions to confirm this change.",
+  "settingsShell.account.languageAndRegion": "Language and region",
+  "settingsShell.account.languageDescription": "Applies on all your devices.",
+  "settingsShell.account.manage": "Manage",
+  "settingsShell.account.name": "Name",
+  "settingsShell.account.nameDescription":
+    "Used when referring to you across Agent-Native apps.",
+  "settingsShell.account.namePlaceholder": "Your name",
+  "settingsShell.account.nameSaveError": "Could not update your name.",
+  "settingsShell.account.nameSaved": "Name updated",
+  "settingsShell.account.newEmail": "New email",
+  "settingsShell.account.newEmailPlaceholder": "Enter new email",
+  "settingsShell.account.newPassword": "New password",
+  "settingsShell.account.password": "Password",
+  "settingsShell.account.passwordDescription":
+    "Add a password for an alternative way to sign in to your account.",
+  "settingsShell.account.passwordLoadError":
+    "Could not load your sign-in methods.",
+  "settingsShell.account.passwordMinLength":
+    "Choose a password with at least {{count}} characters.",
+  "settingsShell.account.passwordMismatch": "Passwords do not match.",
+  "settingsShell.account.passwordSaveError": "Could not update password.",
+  "settingsShell.account.passwordSaved": "Password updated",
+  "settingsShell.account.photoError": "Could not update photo.",
+  "settingsShell.account.photoUpdated": "Photo updated",
+  "settingsShell.account.profilePhoto": "Profile photo",
+  "settingsShell.account.requestCopyDescription":
+    "An administrator verifies your identity and follows up.",
+  "settingsShell.account.requestCopyLabel": "Request a copy of your data",
+  "settingsShell.account.requestDeletionDescription":
+    "Your data stays until an administrator completes the request.",
+  "settingsShell.account.requestDeletionLabel": "Request data deletion",
+  "settingsShell.account.savePassword": "Save password",
+  "settingsShell.account.sendConfirmation": "Send confirmation",
+  "settingsShell.account.sending": "Sending...",
+  "settingsShell.account.setUpTwoFactor": "Set up two-factor",
+  "settingsShell.account.signIn": "Sign-in",
+  "settingsShell.account.timezone": "Timezone",
+  "settingsShell.account.timezoneDescription":
+    "Used for timestamps and scheduled automations.",
+  "settingsShell.account.turnOffTwoFactor": "Turn off two-factor",
+  "settingsShell.account.twoFactor": "Two-factor authentication",
+  "settingsShell.account.twoFactorBackupCodes":
+    "Save these backup codes somewhere safe. Each one can be used once if you lose access to your authenticator.",
+  "settingsShell.account.twoFactorCodeError":
+    "Enter the six-digit code from your authenticator app.",
+  "settingsShell.account.twoFactorDescription":
+    "Use an authenticator app to add a second sign-in step to your account.",
+  "settingsShell.account.twoFactorDisableError":
+    "Could not turn off two-factor authentication.",
+  "settingsShell.account.twoFactorEnabled": "Two-factor authentication is on.",
+  "settingsShell.account.twoFactorLoadError":
+    "Could not load two-factor settings.",
+  "settingsShell.account.twoFactorQrLabel": "Two-factor setup QR code",
+  "settingsShell.account.twoFactorSaved": "Two-factor authentication enabled",
+  "settingsShell.account.twoFactorScan":
+    "Scan this QR code with your authenticator app, then enter the code it gives you.",
+  "settingsShell.account.twoFactorSetupError":
+    "Could not update two-factor settings.",
+  "settingsShell.account.twoFactorSetupTitle":
+    "Set up two-factor authentication",
+  "settingsShell.account.uploading": "Uploading...",
+  "settingsShell.account.verifyAndEnable": "Verify and enable",
+  "settingsShell.account.voiceBatch": "Batch",
+  "settingsShell.account.voiceDescription":
+    "Choose how voice input is transcribed.",
+  "settingsShell.account.voiceGoogleRealtime": "Google Realtime",
+  "settingsShell.account.voiceInput": "Voice input",
+  "settingsShell.account.voiceLoadError":
+    "Could not load your voice transcription setting.",
+  "settingsShell.account.voiceMacNative": "Mac Native",
+  "settingsShell.account.voiceSaveError":
+    "Could not save your voice transcription setting.",
+  "settingsShell.account.yourData": "Your data",
   "settingsShell.appFallbackName": "App",
   "settingsShell.backToApp": "Back to {{app}}",
   "settingsShell.breadcrumbLabel": "Breadcrumb",

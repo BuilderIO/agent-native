@@ -972,6 +972,95 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "デフォルト",
   "settingsOrg.search.domainAutoJoin": "メールドメインによる自動参加",
   "settingsOrg.search.roles": "メンバーのロール",
+  "settingsShell.account.addPassword": "パスワードを追加",
+  "settingsShell.account.authenticatorCode": "認証コード",
+  "settingsShell.account.change": "変更",
+  "settingsShell.account.changeEmail": "メールアドレスを変更",
+  "settingsShell.account.changePassword": "パスワードを変更",
+  "settingsShell.account.confirmPassword": "新しいパスワード（確認）",
+  "settingsShell.account.currentPassword": "現在のパスワード",
+  "settingsShell.account.deletionDialogDescription":
+    "管理者に削除リクエストを送信します。管理者が確認するまで、データは保持されます。",
+  "settingsShell.account.done": "完了",
+  "settingsShell.account.email": "メールアドレス",
+  "settingsShell.account.emailChangeError":
+    "確認メールを送信できませんでした。",
+  "settingsShell.account.emailChangeSent":
+    "メールを確認し、手順に従ってこの変更を確定してください。",
+  "settingsShell.account.languageAndRegion": "言語と地域",
+  "settingsShell.account.languageDescription":
+    "すべてのデバイスに適用されます。",
+  "settingsShell.account.manage": "管理",
+  "settingsShell.account.name": "名前",
+  "settingsShell.account.nameDescription":
+    "Agent-Native の各アプリであなたを表す名前として使われます。",
+  "settingsShell.account.namePlaceholder": "あなたの名前",
+  "settingsShell.account.nameSaveError": "名前を更新できませんでした。",
+  "settingsShell.account.nameSaved": "名前を更新しました",
+  "settingsShell.account.newEmail": "新しいメールアドレス",
+  "settingsShell.account.newEmailPlaceholder": "新しいメールアドレスを入力",
+  "settingsShell.account.newPassword": "新しいパスワード",
+  "settingsShell.account.password": "パスワード",
+  "settingsShell.account.passwordDescription":
+    "パスワードを追加すると、別の方法でアカウントにログインできます。",
+  "settingsShell.account.passwordLoadError":
+    "ログイン方法を読み込めませんでした。",
+  "settingsShell.account.passwordMinLength":
+    "{{count}} 文字以上のパスワードを設定してください。",
+  "settingsShell.account.passwordMismatch": "パスワードが一致しません。",
+  "settingsShell.account.passwordSaveError":
+    "パスワードを更新できませんでした。",
+  "settingsShell.account.passwordSaved": "パスワードを更新しました",
+  "settingsShell.account.photoError": "写真を更新できませんでした。",
+  "settingsShell.account.photoUpdated": "写真を更新しました",
+  "settingsShell.account.profilePhoto": "プロフィール写真",
+  "settingsShell.account.requestCopyDescription":
+    "管理者が本人確認を行い、対応します。",
+  "settingsShell.account.requestCopyLabel": "データのコピーをリクエスト",
+  "settingsShell.account.requestDeletionDescription":
+    "管理者がリクエストを完了するまで、データは保持されます。",
+  "settingsShell.account.requestDeletionLabel": "データの削除をリクエスト",
+  "settingsShell.account.savePassword": "パスワードを保存",
+  "settingsShell.account.sendConfirmation": "確認メールを送信",
+  "settingsShell.account.sending": "送信中...",
+  "settingsShell.account.setUpTwoFactor": "2 要素認証を設定",
+  "settingsShell.account.signIn": "ログイン",
+  "settingsShell.account.timezone": "タイムゾーン",
+  "settingsShell.account.timezoneDescription":
+    "タイムスタンプとスケジュールされた自動化に使われます。",
+  "settingsShell.account.turnOffTwoFactor": "2 要素認証をオフにする",
+  "settingsShell.account.twoFactor": "2 要素認証",
+  "settingsShell.account.twoFactorBackupCodes":
+    "これらのバックアップコードを安全な場所に保管してください。認証アプリにアクセスできなくなった場合、各コードを 1 回ずつ使用できます。",
+  "settingsShell.account.twoFactorCodeError":
+    "認証アプリに表示される 6 桁のコードを入力してください。",
+  "settingsShell.account.twoFactorDescription":
+    "認証アプリを使って、アカウントのログインに 2 つ目の手順を追加します。",
+  "settingsShell.account.twoFactorDisableError":
+    "2 要素認証をオフにできませんでした。",
+  "settingsShell.account.twoFactorEnabled": "2 要素認証はオンです。",
+  "settingsShell.account.twoFactorLoadError":
+    "2 要素認証の設定を読み込めませんでした。",
+  "settingsShell.account.twoFactorQrLabel": "2 要素認証の設定用 QR コード",
+  "settingsShell.account.twoFactorSaved": "2 要素認証を有効にしました",
+  "settingsShell.account.twoFactorScan":
+    "認証アプリでこの QR コードをスキャンし、表示されたコードを入力してください。",
+  "settingsShell.account.twoFactorSetupError":
+    "2 要素認証の設定を更新できませんでした。",
+  "settingsShell.account.twoFactorSetupTitle": "2 要素認証を設定",
+  "settingsShell.account.uploading": "アップロード中...",
+  "settingsShell.account.verifyAndEnable": "確認して有効にする",
+  "settingsShell.account.voiceBatch": "一括",
+  "settingsShell.account.voiceDescription":
+    "音声入力の文字起こし方法を選択します。",
+  "settingsShell.account.voiceGoogleRealtime": "Google リアルタイム",
+  "settingsShell.account.voiceInput": "音声入力",
+  "settingsShell.account.voiceLoadError":
+    "音声文字起こしの設定を読み込めませんでした。",
+  "settingsShell.account.voiceMacNative": "Mac ネイティブ",
+  "settingsShell.account.voiceSaveError":
+    "音声文字起こしの設定を保存できませんでした。",
+  "settingsShell.account.yourData": "あなたのデータ",
   "settingsShell.appFallbackName": "アプリ",
   "settingsShell.backToApp": "{{app}} に戻る",
   "settingsShell.breadcrumbLabel": "パンくずリスト",

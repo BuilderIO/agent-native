@@ -1015,6 +1015,101 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "Automatischer Beitritt per E-Mail-Domain",
   "settingsOrg.search.roles": "Mitgliederrollen",
+  "settingsShell.account.addPassword": "Passwort hinzufügen",
+  "settingsShell.account.authenticatorCode": "Authenticator-Code",
+  "settingsShell.account.change": "Ändern",
+  "settingsShell.account.changeEmail": "E-Mail-Adresse ändern",
+  "settingsShell.account.changePassword": "Passwort ändern",
+  "settingsShell.account.confirmPassword": "Neues Passwort bestätigen",
+  "settingsShell.account.currentPassword": "Aktuelles Passwort",
+  "settingsShell.account.deletionDialogDescription":
+    "Damit wird eine Löschanfrage an einen Administrator gesendet. Deine Daten bleiben erhalten, bis er sie prüft.",
+  "settingsShell.account.done": "Fertig",
+  "settingsShell.account.email": "E-Mail",
+  "settingsShell.account.emailChangeError":
+    "Bestätigung konnte nicht gesendet werden.",
+  "settingsShell.account.emailChangeSent":
+    "Prüfe deine E-Mails, um die Änderung zu bestätigen.",
+  "settingsShell.account.languageAndRegion": "Sprache und Region",
+  "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
+  "settingsShell.account.manage": "Verwalten",
+  "settingsShell.account.name": "Name",
+  "settingsShell.account.nameDescription":
+    "Wird in allen Agent-Native-Apps verwendet, wenn von dir die Rede ist.",
+  "settingsShell.account.namePlaceholder": "Dein Name",
+  "settingsShell.account.nameSaveError":
+    "Dein Name konnte nicht aktualisiert werden.",
+  "settingsShell.account.nameSaved": "Name aktualisiert",
+  "settingsShell.account.newEmail": "Neue E-Mail-Adresse",
+  "settingsShell.account.newEmailPlaceholder": "Neue E-Mail-Adresse eingeben",
+  "settingsShell.account.newPassword": "Neues Passwort",
+  "settingsShell.account.password": "Passwort",
+  "settingsShell.account.passwordDescription":
+    "Füge ein Passwort hinzu, um dich auf eine weitere Art bei deinem Konto anzumelden.",
+  "settingsShell.account.passwordLoadError":
+    "Deine Anmeldemethoden konnten nicht geladen werden.",
+  "settingsShell.account.passwordMinLength":
+    "Wähle ein Passwort mit mindestens {{count}} Zeichen.",
+  "settingsShell.account.passwordMismatch":
+    "Die Passwörter stimmen nicht überein.",
+  "settingsShell.account.passwordSaveError":
+    "Passwort konnte nicht aktualisiert werden.",
+  "settingsShell.account.passwordSaved": "Passwort aktualisiert",
+  "settingsShell.account.photoError": "Foto konnte nicht aktualisiert werden.",
+  "settingsShell.account.photoUpdated": "Foto aktualisiert",
+  "settingsShell.account.profilePhoto": "Profilfoto",
+  "settingsShell.account.requestCopyDescription":
+    "Ein Administrator prüft deine Identität und meldet sich bei dir.",
+  "settingsShell.account.requestCopyLabel": "Kopie deiner Daten anfordern",
+  "settingsShell.account.requestDeletionDescription":
+    "Deine Daten bleiben erhalten, bis ein Administrator die Anfrage abschließt.",
+  "settingsShell.account.requestDeletionLabel":
+    "Löschung deiner Daten anfordern",
+  "settingsShell.account.savePassword": "Passwort speichern",
+  "settingsShell.account.sendConfirmation": "Bestätigung senden",
+  "settingsShell.account.sending": "Wird gesendet...",
+  "settingsShell.account.setUpTwoFactor": "Zwei-Faktor einrichten",
+  "settingsShell.account.signIn": "Anmeldung",
+  "settingsShell.account.timezone": "Zeitzone",
+  "settingsShell.account.timezoneDescription":
+    "Wird für Zeitstempel und geplante Automatisierungen verwendet.",
+  "settingsShell.account.turnOffTwoFactor": "Zwei-Faktor deaktivieren",
+  "settingsShell.account.twoFactor": "Zwei-Faktor-Authentifizierung",
+  "settingsShell.account.twoFactorBackupCodes":
+    "Bewahre diese Backup-Codes sicher auf. Jeder Code kann einmal verwendet werden, falls du keinen Zugriff mehr auf deinen Authenticator hast.",
+  "settingsShell.account.twoFactorCodeError":
+    "Gib den sechsstelligen Code aus deiner Authenticator-App ein.",
+  "settingsShell.account.twoFactorDescription":
+    "Verwende eine Authenticator-App, um deinem Konto einen zweiten Anmeldeschritt hinzuzufügen.",
+  "settingsShell.account.twoFactorDisableError":
+    "Zwei-Faktor-Authentifizierung konnte nicht deaktiviert werden.",
+  "settingsShell.account.twoFactorEnabled":
+    "Zwei-Faktor-Authentifizierung ist aktiviert.",
+  "settingsShell.account.twoFactorLoadError":
+    "Zwei-Faktor-Einstellungen konnten nicht geladen werden.",
+  "settingsShell.account.twoFactorQrLabel":
+    "QR-Code zur Zwei-Faktor-Einrichtung",
+  "settingsShell.account.twoFactorSaved":
+    "Zwei-Faktor-Authentifizierung aktiviert",
+  "settingsShell.account.twoFactorScan":
+    "Scanne diesen QR-Code mit deiner Authenticator-App und gib dann den angezeigten Code ein.",
+  "settingsShell.account.twoFactorSetupError":
+    "Zwei-Faktor-Einstellungen konnten nicht aktualisiert werden.",
+  "settingsShell.account.twoFactorSetupTitle":
+    "Zwei-Faktor-Authentifizierung einrichten",
+  "settingsShell.account.uploading": "Wird hochgeladen...",
+  "settingsShell.account.verifyAndEnable": "Bestätigen und aktivieren",
+  "settingsShell.account.voiceBatch": "Stapelverarbeitung",
+  "settingsShell.account.voiceDescription":
+    "Wähle, wie Spracheingaben transkribiert werden.",
+  "settingsShell.account.voiceGoogleRealtime": "Google Echtzeit",
+  "settingsShell.account.voiceInput": "Spracheingabe",
+  "settingsShell.account.voiceLoadError":
+    "Deine Einstellung für die Sprachtranskription konnte nicht geladen werden.",
+  "settingsShell.account.voiceMacNative": "Mac nativ",
+  "settingsShell.account.voiceSaveError":
+    "Deine Einstellung für die Sprachtranskription konnte nicht gespeichert werden.",
+  "settingsShell.account.yourData": "Deine Daten",
   "settingsShell.appFallbackName": "App",
   "settingsShell.backToApp": "Zurück zu {{app}}",
   "settingsShell.breadcrumbLabel": "Brotkrümelnavigation",

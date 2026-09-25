@@ -181,13 +181,14 @@ export function isCoreSectionSearchEntryId(id: string): boolean {
 }
 
 // Labels are the new pages' row names. Sections that are a whole page
-// (automations, secrets, integrations, usage) are found by the page itself.
+// (automations, secrets, integrations, usage) are found by the page itself,
+// and so are rows a page declares in its own `searchEntries` (voice is in
+// Preferences' entries).
 const SHELL_SECTION_SEARCH_LABELS: Partial<Record<SettingsSectionId, string>> =
   {
     llm: "agentChat.settingsShell.search.defaultModel",
     "app-models": "agentChat.settingsShell.search.appDefaultModel",
     limits: "agentChat.settingsShell.search.maxIterations",
-    voice: "agentChat.settingsShell.search.voiceTranscription",
     "demo-mode": "agentChat.settingsShell.search.demoMode",
     hosting: "agentChat.settingsShell.search.hosting",
     database: "agentChat.settingsShell.search.database",

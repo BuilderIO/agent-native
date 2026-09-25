@@ -29,6 +29,11 @@ import { lazy } from "react";
 
 import { SIGN_OUT_SEARCH_TERMS } from "../../sign-out.js";
 import {
+  PREFERENCES_SEARCH_ENTRIES,
+  PROFILE_SEARCH_ENTRIES,
+  SECURITY_SEARCH_ENTRIES,
+} from "../account/search-entries.js";
+import {
   canManageOrganizationPages,
   defineSettingsPage,
   type SettingsPageDefinition,
@@ -63,6 +68,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
       "profile photo avatar identity signed in email name",
       ...SIGN_OUT_SEARCH_TERMS,
     ].join(" "),
+    searchEntries: PROFILE_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "preferences",
@@ -73,6 +79,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     component: lazy(() => import("./pages/preferences.js")),
     legacyTabIds: ["language"],
     keywords: "language locale timezone voice transcription dictation",
+    searchEntries: PREFERENCES_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "security",
@@ -82,6 +89,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: IconShieldLock,
     component: lazy(() => import("./pages/security.js")),
     keywords: "password two-factor 2fa authenticator privacy data deletion",
+    searchEntries: SECURITY_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "integrations",

@@ -1008,6 +1008,100 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "Entrada automática por domínio de e-mail",
   "settingsOrg.search.roles": "Funções dos membros",
+  "settingsShell.account.addPassword": "Adicionar senha",
+  "settingsShell.account.authenticatorCode": "Código do autenticador",
+  "settingsShell.account.change": "Alterar",
+  "settingsShell.account.changeEmail": "Alterar e-mail",
+  "settingsShell.account.changePassword": "Alterar senha",
+  "settingsShell.account.confirmPassword": "Confirmar nova senha",
+  "settingsShell.account.currentPassword": "Senha atual",
+  "settingsShell.account.deletionDialogDescription":
+    "Isso envia uma solicitação de exclusão a um administrador. Seus dados permanecem até que ele a analise.",
+  "settingsShell.account.done": "Concluído",
+  "settingsShell.account.email": "E-mail",
+  "settingsShell.account.emailChangeError":
+    "Não foi possível enviar a confirmação.",
+  "settingsShell.account.emailChangeSent":
+    "Confira seu e-mail para ver como confirmar esta alteração.",
+  "settingsShell.account.languageAndRegion": "Idioma e região",
+  "settingsShell.account.languageDescription":
+    "Vale para todos os seus dispositivos.",
+  "settingsShell.account.manage": "Gerenciar",
+  "settingsShell.account.name": "Nome",
+  "settingsShell.account.nameDescription":
+    "Usado para se referir a você nos apps Agent-Native.",
+  "settingsShell.account.namePlaceholder": "Seu nome",
+  "settingsShell.account.nameSaveError": "Não foi possível atualizar seu nome.",
+  "settingsShell.account.nameSaved": "Nome atualizado",
+  "settingsShell.account.newEmail": "Novo e-mail",
+  "settingsShell.account.newEmailPlaceholder": "Digite o novo e-mail",
+  "settingsShell.account.newPassword": "Nova senha",
+  "settingsShell.account.password": "Senha",
+  "settingsShell.account.passwordDescription":
+    "Adicione uma senha para ter outra forma de entrar na sua conta.",
+  "settingsShell.account.passwordLoadError":
+    "Não foi possível carregar seus métodos de login.",
+  "settingsShell.account.passwordMinLength":
+    "Escolha uma senha com pelo menos {{count}} caracteres.",
+  "settingsShell.account.passwordMismatch": "As senhas não coincidem.",
+  "settingsShell.account.passwordSaveError":
+    "Não foi possível atualizar a senha.",
+  "settingsShell.account.passwordSaved": "Senha atualizada",
+  "settingsShell.account.photoError": "Não foi possível atualizar a foto.",
+  "settingsShell.account.photoUpdated": "Foto atualizada",
+  "settingsShell.account.profilePhoto": "Foto do perfil",
+  "settingsShell.account.requestCopyDescription":
+    "Um administrador verifica sua identidade e dá retorno.",
+  "settingsShell.account.requestCopyLabel":
+    "Solicitar uma cópia dos seus dados",
+  "settingsShell.account.requestDeletionDescription":
+    "Seus dados permanecem até que um administrador conclua a solicitação.",
+  "settingsShell.account.requestDeletionLabel": "Solicitar exclusão dos dados",
+  "settingsShell.account.savePassword": "Salvar senha",
+  "settingsShell.account.sendConfirmation": "Enviar confirmação",
+  "settingsShell.account.sending": "Enviando...",
+  "settingsShell.account.setUpTwoFactor": "Configurar dois fatores",
+  "settingsShell.account.signIn": "Login",
+  "settingsShell.account.timezone": "Fuso horário",
+  "settingsShell.account.timezoneDescription":
+    "Usado para carimbos de data e hora e automações agendadas.",
+  "settingsShell.account.turnOffTwoFactor": "Desativar dois fatores",
+  "settingsShell.account.twoFactor": "Autenticação de dois fatores",
+  "settingsShell.account.twoFactorBackupCodes":
+    "Guarde estes códigos de backup em um lugar seguro. Cada um pode ser usado uma vez se você perder o acesso ao seu autenticador.",
+  "settingsShell.account.twoFactorCodeError":
+    "Digite o código de seis dígitos do seu app autenticador.",
+  "settingsShell.account.twoFactorDescription":
+    "Use um app autenticador para adicionar uma segunda etapa de login à sua conta.",
+  "settingsShell.account.twoFactorDisableError":
+    "Não foi possível desativar a autenticação de dois fatores.",
+  "settingsShell.account.twoFactorEnabled":
+    "A autenticação de dois fatores está ativada.",
+  "settingsShell.account.twoFactorLoadError":
+    "Não foi possível carregar as configurações de dois fatores.",
+  "settingsShell.account.twoFactorQrLabel":
+    "Código QR de configuração de dois fatores",
+  "settingsShell.account.twoFactorSaved":
+    "Autenticação de dois fatores ativada",
+  "settingsShell.account.twoFactorScan":
+    "Escaneie este código QR com seu app autenticador e digite o código exibido.",
+  "settingsShell.account.twoFactorSetupError":
+    "Não foi possível atualizar as configurações de dois fatores.",
+  "settingsShell.account.twoFactorSetupTitle":
+    "Configurar a autenticação de dois fatores",
+  "settingsShell.account.uploading": "Enviando...",
+  "settingsShell.account.verifyAndEnable": "Verificar e ativar",
+  "settingsShell.account.voiceBatch": "Em lote",
+  "settingsShell.account.voiceDescription":
+    "Escolha como a entrada de voz é transcrita.",
+  "settingsShell.account.voiceGoogleRealtime": "Google em tempo real",
+  "settingsShell.account.voiceInput": "Entrada de voz",
+  "settingsShell.account.voiceLoadError":
+    "Não foi possível carregar sua configuração de transcrição de voz.",
+  "settingsShell.account.voiceMacNative": "Nativo do Mac",
+  "settingsShell.account.voiceSaveError":
+    "Não foi possível salvar sua configuração de transcrição de voz.",
+  "settingsShell.account.yourData": "Seus dados",
   "settingsShell.appFallbackName": "Aplicativo",
   "settingsShell.backToApp": "Voltar para {{app}}",
   "settingsShell.breadcrumbLabel": "Trilha de navegação",

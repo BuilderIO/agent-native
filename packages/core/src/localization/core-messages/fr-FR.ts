@@ -1024,6 +1024,105 @@ const messages: AgentChatTranslation = {
   "settingsOrg.search.domainAutoJoin":
     "Adhésion automatique par domaine e-mail",
   "settingsOrg.search.roles": "Rôles des membres",
+  "settingsShell.account.addPassword": "Ajouter un mot de passe",
+  "settingsShell.account.authenticatorCode": "Code d’authentification",
+  "settingsShell.account.change": "Modifier",
+  "settingsShell.account.changeEmail": "Modifier l’adresse e-mail",
+  "settingsShell.account.changePassword": "Modifier le mot de passe",
+  "settingsShell.account.confirmPassword": "Confirmer le nouveau mot de passe",
+  "settingsShell.account.currentPassword": "Mot de passe actuel",
+  "settingsShell.account.deletionDialogDescription":
+    "Une demande de suppression est envoyée à un administrateur. Vos données sont conservées jusqu’à ce qu’il l’examine.",
+  "settingsShell.account.done": "Terminé",
+  "settingsShell.account.email": "E-mail",
+  "settingsShell.account.emailChangeError":
+    "Impossible d’envoyer la confirmation.",
+  "settingsShell.account.emailChangeSent":
+    "Consultez vos e-mails pour savoir comment confirmer cette modification.",
+  "settingsShell.account.languageAndRegion": "Langue et région",
+  "settingsShell.account.languageDescription":
+    "S’applique sur tous vos appareils.",
+  "settingsShell.account.manage": "Gérer",
+  "settingsShell.account.name": "Nom",
+  "settingsShell.account.nameDescription":
+    "Utilisé pour vous désigner dans les applications Agent-Native.",
+  "settingsShell.account.namePlaceholder": "Votre nom",
+  "settingsShell.account.nameSaveError":
+    "Impossible de mettre à jour votre nom.",
+  "settingsShell.account.nameSaved": "Nom mis à jour",
+  "settingsShell.account.newEmail": "Nouvelle adresse e-mail",
+  "settingsShell.account.newEmailPlaceholder":
+    "Saisissez la nouvelle adresse e-mail",
+  "settingsShell.account.newPassword": "Nouveau mot de passe",
+  "settingsShell.account.password": "Mot de passe",
+  "settingsShell.account.passwordDescription":
+    "Ajoutez un mot de passe pour disposer d’un autre moyen de vous connecter à votre compte.",
+  "settingsShell.account.passwordLoadError":
+    "Impossible de charger vos méthodes de connexion.",
+  "settingsShell.account.passwordMinLength":
+    "Choisissez un mot de passe d’au moins {{count}} caractères.",
+  "settingsShell.account.passwordMismatch":
+    "Les mots de passe ne correspondent pas.",
+  "settingsShell.account.passwordSaveError":
+    "Impossible de mettre à jour le mot de passe.",
+  "settingsShell.account.passwordSaved": "Mot de passe mis à jour",
+  "settingsShell.account.photoError": "Impossible de mettre à jour la photo.",
+  "settingsShell.account.photoUpdated": "Photo mise à jour",
+  "settingsShell.account.profilePhoto": "Photo de profil",
+  "settingsShell.account.requestCopyDescription":
+    "Un administrateur vérifie votre identité et assure le suivi.",
+  "settingsShell.account.requestCopyLabel": "Demander une copie de vos données",
+  "settingsShell.account.requestDeletionDescription":
+    "Vos données sont conservées jusqu’à ce qu’un administrateur traite la demande.",
+  "settingsShell.account.requestDeletionLabel":
+    "Demander la suppression des données",
+  "settingsShell.account.savePassword": "Enregistrer le mot de passe",
+  "settingsShell.account.sendConfirmation": "Envoyer la confirmation",
+  "settingsShell.account.sending": "Envoi...",
+  "settingsShell.account.setUpTwoFactor":
+    "Configurer la double authentification",
+  "settingsShell.account.signIn": "Connexion",
+  "settingsShell.account.timezone": "Fuseau horaire",
+  "settingsShell.account.timezoneDescription":
+    "Utilisé pour les horodatages et les automatisations planifiées.",
+  "settingsShell.account.turnOffTwoFactor":
+    "Désactiver la double authentification",
+  "settingsShell.account.twoFactor": "Authentification à deux facteurs",
+  "settingsShell.account.twoFactorBackupCodes":
+    "Conservez ces codes de secours en lieu sûr. Chacun peut être utilisé une fois si vous perdez l’accès à votre application d’authentification.",
+  "settingsShell.account.twoFactorCodeError":
+    "Saisissez le code à six chiffres de votre application d’authentification.",
+  "settingsShell.account.twoFactorDescription":
+    "Utilisez une application d’authentification pour ajouter une seconde étape de connexion à votre compte.",
+  "settingsShell.account.twoFactorDisableError":
+    "Impossible de désactiver l’authentification à deux facteurs.",
+  "settingsShell.account.twoFactorEnabled":
+    "L’authentification à deux facteurs est activée.",
+  "settingsShell.account.twoFactorLoadError":
+    "Impossible de charger les paramètres de double authentification.",
+  "settingsShell.account.twoFactorQrLabel":
+    "Code QR de configuration de la double authentification",
+  "settingsShell.account.twoFactorSaved":
+    "Authentification à deux facteurs activée",
+  "settingsShell.account.twoFactorScan":
+    "Scannez ce code QR avec votre application d’authentification, puis saisissez le code qu’elle affiche.",
+  "settingsShell.account.twoFactorSetupError":
+    "Impossible de mettre à jour les paramètres de double authentification.",
+  "settingsShell.account.twoFactorSetupTitle":
+    "Configurer l’authentification à deux facteurs",
+  "settingsShell.account.uploading": "Envoi en cours...",
+  "settingsShell.account.verifyAndEnable": "Vérifier et activer",
+  "settingsShell.account.voiceBatch": "Par lots",
+  "settingsShell.account.voiceDescription":
+    "Choisissez comment la saisie vocale est transcrite.",
+  "settingsShell.account.voiceGoogleRealtime": "Google en temps réel",
+  "settingsShell.account.voiceInput": "Saisie vocale",
+  "settingsShell.account.voiceLoadError":
+    "Impossible de charger votre paramètre de transcription vocale.",
+  "settingsShell.account.voiceMacNative": "Mac natif",
+  "settingsShell.account.voiceSaveError":
+    "Impossible d’enregistrer votre paramètre de transcription vocale.",
+  "settingsShell.account.yourData": "Vos données",
   "settingsShell.appFallbackName": "Application",
   "settingsShell.backToApp": "Retour à {{app}}",
   "settingsShell.breadcrumbLabel": "Fil d’Ariane",

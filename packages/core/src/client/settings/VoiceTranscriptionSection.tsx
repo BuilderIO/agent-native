@@ -27,6 +27,7 @@ import {
 } from "../../navigation/index.js";
 import { GEMINI_API_KEY } from "../../secrets/key-aliases.js";
 import { agentNativePath, appMountedPath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
@@ -141,6 +142,9 @@ export function VoiceTranscriptionSection({
   >(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The picker must not present the Batch default as the saved choice when
+  // the saved choice could not be read.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
   const { status: builderStatus, refetch: refetchBuilderStatus } =
@@ -213,7 +217,12 @@ export function VoiceTranscriptionSection({
   useEffect(() => {
     let cancelled = false;
     fetch(PREFS_URL)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // A key that was never saved comes back as an empty 200.
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      })
       .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
         const value =
@@ -239,6 +248,7 @@ export function VoiceTranscriptionSection({
       })
       .catch(() => {
         if (!cancelled) {
+          setLoadFailed(true);
           setTranscriptionMode(DEFAULT_TRANSCRIPTION_MODE);
           setProvider(DEFAULT_BATCH_PROVIDER);
         }
@@ -377,48 +387,19 @@ export function VoiceTranscriptionSection({
     }
   };
 
-  if (transcriptionMode === null) {
-    if (compact) {
-      return (
-        <SettingsRow
-          label="Voice transcription"
-          description="Choose how voice input is transcribed."
-          control={
-            <Skeleton
-              className="h-9 w-44 border border-border bg-muted-foreground/10"
-              aria-label="Loading voice transcription"
-            />
-          }
-        />
-      );
-    }
-    return <SettingsSkeleton lines={1} />;
-  }
-
   if (compact) {
     return (
-      <SettingsRow
-        label="Voice transcription"
-        description="Choose how voice input is transcribed."
-        control={
-          <Picker
-            mode="select"
-            options={[
-              { value: "mac-native", label: "Mac Native" },
-              { value: "google-realtime", label: "Google Realtime" },
-              { value: "batch", label: "Batch" },
-            ]}
-            value={transcriptionMode}
-            onChange={(next) => {
-              const value = String(next ?? "");
-              if (isTranscriptionMode(value)) chooseSource(value);
-            }}
-            aria-label="Voice transcription"
-            className="w-44 text-start"
-          />
-        }
+      <CompactVoiceTranscriptionRow
+        mode={transcriptionMode}
+        loadFailed={loadFailed}
+        saveFailed={!!saveError && !saving}
+        onChoose={chooseSource}
       />
     );
+  }
+
+  if (transcriptionMode === null) {
+    return <SettingsSkeleton lines={1} />;
   }
 
   return (
@@ -771,6 +752,71 @@ interface ProviderOptionProps {
   title: string;
   subtitle?: React.ReactNode;
   rightSlot?: React.ReactNode;
+}
+
+const COMPACT_MODE_LABEL_KEYS: Record<TranscriptionMode, string> = {
+  "mac-native": "agentChat.settingsShell.account.voiceMacNative",
+  "google-realtime": "agentChat.settingsShell.account.voiceGoogleRealtime",
+  batch: "agentChat.settingsShell.account.voiceBatch",
+};
+
+/** One Settings row with a select, used by the Preferences page. */
+function CompactVoiceTranscriptionRow({
+  mode,
+  loadFailed,
+  saveFailed,
+  onChoose,
+}: {
+  mode: TranscriptionMode | null;
+  loadFailed: boolean;
+  saveFailed: boolean;
+  onChoose: (mode: TranscriptionMode) => void;
+}) {
+  const t = useT();
+  const label = t("agentChat.settingsShell.search.voiceTranscription");
+  const description = loadFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceLoadError")}
+    </span>
+  ) : saveFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceSaveError")}
+    </span>
+  ) : (
+    t("agentChat.settingsShell.account.voiceDescription")
+  );
+  return (
+    <SettingsRow
+      id="voice"
+      label={label}
+      description={description}
+      control={
+        mode === null ? (
+          <Skeleton
+            className="h-9 w-44 border border-border bg-muted-foreground/10"
+            aria-label={t("agentChat.common.loading")}
+          />
+        ) : loadFailed ? null : (
+          <Picker
+            mode="select"
+            options={(["mac-native", "google-realtime", "batch"] as const).map(
+              (value) => ({
+                value,
+                label: t(COMPACT_MODE_LABEL_KEYS[value]),
+              }),
+            )}
+            value={mode}
+            onChange={(next) => {
+              const value = String(next ?? "");
+              if (isTranscriptionMode(value)) onChoose(value);
+            }}
+            aria-label={label}
+            className="w-44 text-start"
+          />
+        )
+      }
+    />
+  );
 }
 
 function ProviderOption({

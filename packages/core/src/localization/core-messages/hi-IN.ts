@@ -942,6 +942,91 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "डिफ़ॉल्ट",
   "settingsOrg.search.domainAutoJoin": "ईमेल डोमेन से अपने-आप जुड़ना",
   "settingsOrg.search.roles": "सदस्यों की भूमिकाएं",
+  "settingsShell.account.addPassword": "पासवर्ड जोड़ें",
+  "settingsShell.account.authenticatorCode": "ऑथेंटिकेटर कोड",
+  "settingsShell.account.change": "बदलें",
+  "settingsShell.account.changeEmail": "ईमेल बदलें",
+  "settingsShell.account.changePassword": "पासवर्ड बदलें",
+  "settingsShell.account.confirmPassword": "नए पासवर्ड की पुष्टि करें",
+  "settingsShell.account.currentPassword": "मौजूदा पासवर्ड",
+  "settingsShell.account.deletionDialogDescription":
+    "इससे किसी व्यवस्थापक को डेटा हटाने का अनुरोध भेजा जाता है। उनके समीक्षा करने तक आपका डेटा बना रहता है।",
+  "settingsShell.account.done": "हो गया",
+  "settingsShell.account.email": "ईमेल",
+  "settingsShell.account.emailChangeError": "पुष्टि नहीं भेजी जा सकी।",
+  "settingsShell.account.emailChangeSent":
+    "इस बदलाव की पुष्टि करने के निर्देशों के लिए अपना ईमेल देखें।",
+  "settingsShell.account.languageAndRegion": "भाषा और क्षेत्र",
+  "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
+  "settingsShell.account.manage": "प्रबंधित करें",
+  "settingsShell.account.name": "नाम",
+  "settingsShell.account.nameDescription":
+    "Agent-Native ऐप्स में आपका उल्लेख करते समय इसका उपयोग होता है।",
+  "settingsShell.account.namePlaceholder": "आपका नाम",
+  "settingsShell.account.nameSaveError": "आपका नाम अपडेट नहीं किया जा सका।",
+  "settingsShell.account.nameSaved": "नाम अपडेट किया गया",
+  "settingsShell.account.newEmail": "नया ईमेल",
+  "settingsShell.account.newEmailPlaceholder": "नया ईमेल दर्ज करें",
+  "settingsShell.account.newPassword": "नया पासवर्ड",
+  "settingsShell.account.password": "पासवर्ड",
+  "settingsShell.account.passwordDescription":
+    "अपने खाते में साइन इन करने के दूसरे तरीके के लिए पासवर्ड जोड़ें।",
+  "settingsShell.account.passwordLoadError":
+    "आपके साइन-इन तरीके लोड नहीं किए जा सके।",
+  "settingsShell.account.passwordMinLength":
+    "कम से कम {{count}} वर्णों वाला पासवर्ड चुनें।",
+  "settingsShell.account.passwordMismatch": "पासवर्ड मेल नहीं खाते।",
+  "settingsShell.account.passwordSaveError": "पासवर्ड अपडेट नहीं किया जा सका।",
+  "settingsShell.account.passwordSaved": "पासवर्ड अपडेट किया गया",
+  "settingsShell.account.photoError": "फ़ोटो अपडेट नहीं की जा सकी।",
+  "settingsShell.account.photoUpdated": "फ़ोटो अपडेट की गई",
+  "settingsShell.account.profilePhoto": "प्रोफ़ाइल फ़ोटो",
+  "settingsShell.account.requestCopyDescription":
+    "कोई व्यवस्थापक आपकी पहचान सत्यापित करके आगे की कार्रवाई करता है।",
+  "settingsShell.account.requestCopyLabel": "अपने डेटा की कॉपी का अनुरोध करें",
+  "settingsShell.account.requestDeletionDescription":
+    "व्यवस्थापक के अनुरोध पूरा करने तक आपका डेटा बना रहता है।",
+  "settingsShell.account.requestDeletionLabel": "डेटा हटाने का अनुरोध करें",
+  "settingsShell.account.savePassword": "पासवर्ड सहेजें",
+  "settingsShell.account.sendConfirmation": "पुष्टि भेजें",
+  "settingsShell.account.sending": "भेजा जा रहा है...",
+  "settingsShell.account.setUpTwoFactor": "टू-फ़ैक्टर सेट अप करें",
+  "settingsShell.account.signIn": "साइन-इन",
+  "settingsShell.account.timezone": "समय क्षेत्र",
+  "settingsShell.account.timezoneDescription":
+    "टाइमस्टैम्प और शेड्यूल किए गए ऑटोमेशन के लिए उपयोग होता है।",
+  "settingsShell.account.turnOffTwoFactor": "टू-फ़ैक्टर बंद करें",
+  "settingsShell.account.twoFactor": "टू-फ़ैक्टर ऑथेंटिकेशन",
+  "settingsShell.account.twoFactorBackupCodes":
+    "इन बैकअप कोड को किसी सुरक्षित जगह पर सहेजें। अगर आप अपने ऑथेंटिकेटर तक पहुंच खो देते हैं, तो हर कोड एक बार इस्तेमाल किया जा सकता है।",
+  "settingsShell.account.twoFactorCodeError":
+    "अपने ऑथेंटिकेटर ऐप से छह अंकों का कोड दर्ज करें।",
+  "settingsShell.account.twoFactorDescription":
+    "अपने खाते में दूसरा साइन-इन चरण जोड़ने के लिए ऑथेंटिकेटर ऐप का उपयोग करें।",
+  "settingsShell.account.twoFactorDisableError":
+    "टू-फ़ैक्टर ऑथेंटिकेशन बंद नहीं किया जा सका।",
+  "settingsShell.account.twoFactorEnabled": "टू-फ़ैक्टर ऑथेंटिकेशन चालू है।",
+  "settingsShell.account.twoFactorLoadError": "टू-फ़ैक्टर सेटिंग लोड नहीं की जा सकीं।",
+  "settingsShell.account.twoFactorQrLabel": "टू-फ़ैक्टर सेटअप QR कोड",
+  "settingsShell.account.twoFactorSaved": "टू-फ़ैक्टर ऑथेंटिकेशन चालू किया गया",
+  "settingsShell.account.twoFactorScan":
+    "इस QR कोड को अपने ऑथेंटिकेटर ऐप से स्कैन करें, फिर उसका दिया गया कोड दर्ज करें।",
+  "settingsShell.account.twoFactorSetupError":
+    "टू-फ़ैक्टर सेटिंग अपडेट नहीं की जा सकीं।",
+  "settingsShell.account.twoFactorSetupTitle": "टू-फ़ैक्टर ऑथेंटिकेशन सेट अप करें",
+  "settingsShell.account.uploading": "अपलोड हो रहा है...",
+  "settingsShell.account.verifyAndEnable": "सत्यापित करें और चालू करें",
+  "settingsShell.account.voiceBatch": "बैच",
+  "settingsShell.account.voiceDescription":
+    "चुनें कि वॉइस इनपुट को कैसे ट्रांसक्राइब किया जाए।",
+  "settingsShell.account.voiceGoogleRealtime": "Google रियलटाइम",
+  "settingsShell.account.voiceInput": "वॉइस इनपुट",
+  "settingsShell.account.voiceLoadError":
+    "आपकी वॉइस ट्रांसक्रिप्शन सेटिंग लोड नहीं की जा सकी।",
+  "settingsShell.account.voiceMacNative": "Mac नेटिव",
+  "settingsShell.account.voiceSaveError":
+    "आपकी वॉइस ट्रांसक्रिप्शन सेटिंग सहेजी नहीं जा सकी।",
+  "settingsShell.account.yourData": "आपका डेटा",
   "settingsShell.appFallbackName": "ऐप",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",

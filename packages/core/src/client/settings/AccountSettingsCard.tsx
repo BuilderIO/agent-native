@@ -30,16 +30,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import { docsUrl } from "../../shared/docs-url.js";
-import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
-import { agentNativePath } from "../api-path.js";
-import {
-  disableTwoFactor,
-  enableTwoFactor,
-  getTwoFactorStatus,
-  verifyTwoFactor,
-  type TwoFactorSetup,
-} from "../auth/two-factor.js";
 import {
   Popover,
   PopoverContent,
@@ -52,141 +43,48 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import {
+  passwordErrorText,
+  profileInitials,
+  twoFactorErrorText,
+} from "./account/account-copy.js";
+import {
+  useAvatarUpload,
+  useEmailChange,
+  usePasswordForm,
+  usePrivacyRequest,
+  useTwoFactorSettings,
+  type PrivacyRequestType,
+} from "./account/account-hooks.js";
 import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
-function profileInitials(name: string): string {
-  return (
-    name
-      .split(/[ @._-]+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "?"
-  );
-}
-
-interface AuthMethods {
-  hasPassword: boolean;
-}
-
-interface PasswordMutationResult {
-  status: boolean;
-}
-
 function TwoFactorSettings() {
   const t = useT();
-  const { session } = useSession();
-  const authMethods = useActionQuery<AuthMethods>(
-    "get-auth-methods",
-    undefined,
-    { enabled: !!session?.email },
-  );
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
-  const [code, setCode] = useState("");
-  const [password, setPassword] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const {
+    signedIn,
+    enabled,
+    setup,
+    code,
+    setCode,
+    password,
+    setPassword,
+    pending,
+    error: twoFactorError,
+    saved,
+    hasPassword,
+    isLoading,
+    startSetup,
+    confirmSetup,
+    turnOff,
+  } = useTwoFactorSettings();
 
-  useEffect(() => {
-    if (!session?.email) return;
-    let active = true;
-    void getTwoFactorStatus()
-      .then((status) => {
-        if (active) setEnabled(status.enabled);
-      })
-      .catch((reason: unknown) => {
-        if (active) {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : t("settings.twoFactorLoadError"),
-          );
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [session?.email, t]);
+  if (!signedIn) return null;
 
-  if (!session?.email) return null;
-
-  const hasPassword = authMethods.data?.hasPassword ?? false;
-  const isLoading = enabled === null || authMethods.isLoading;
-
-  const resetForm = () => {
-    setError(null);
-    setSaved(false);
-    setPassword("");
-    setCode("");
-  };
-
-  const startSetup = async () => {
-    const currentPassword = password;
-    setPending(true);
-    resetForm();
-    try {
-      setSetup(
-        await enableTwoFactor(hasPassword ? currentPassword : undefined),
-      );
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : t("settings.twoFactorSetupError"),
-      );
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const confirmSetup = async () => {
-    if (!/^\d{6,8}$/.test(code.trim())) {
-      setError(t("settings.twoFactorCodeError"));
-      return;
-    }
-    setPending(true);
-    setError(null);
-    try {
-      await verifyTwoFactor(code.trim());
-      setEnabled(true);
-      setSaved(true);
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : t("settings.twoFactorSetupError"),
-      );
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const turnOff = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      await disableTwoFactor(hasPassword ? password : undefined);
-      setEnabled(false);
-      setSetup(null);
-      setSaved(false);
-      setPassword("");
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : t("settings.twoFactorDisableError"),
-      );
-    } finally {
-      setPending(false);
-    }
-  };
+  const error = twoFactorError ? twoFactorErrorText(t, twoFactorError) : null;
 
   const passwordField = hasPassword ? (
     <TextField
@@ -194,10 +92,7 @@ function TwoFactorSettings() {
       type="password"
       label={t("settings.passwordCurrentLabel")}
       value={password}
-      onChange={(value) => {
-        setError(null);
-        setPassword(value);
-      }}
+      onChange={setPassword}
       placeholder={t("settings.passwordPlaceholder")}
       autoComplete="current-password"
       disabled={pending}
@@ -346,79 +241,23 @@ function TwoFactorSettings() {
 function PasswordSettings() {
   const t = useT();
   const { session } = useSession();
-  const authMethods = useActionQuery<AuthMethods>(
-    "get-auth-methods",
-    undefined,
-    { enabled: !!session?.email },
-  );
-  const setPassword = useActionMutation<
-    PasswordMutationResult,
-    { newPassword: string }
-  >("set-password");
-  const changePassword = useActionMutation<
-    PasswordMutationResult,
-    { currentPassword: string; newPassword: string }
-  >("change-password");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [validationError, setValidationError] = useState<
-    "length" | "mismatch" | null
-  >(null);
-  const [saved, setSaved] = useState(false);
-
-  const mutation = authMethods.data?.hasPassword ? changePassword : setPassword;
-  const error = validationError
-    ? validationError === "length"
-      ? t("settings.passwordMinLength")
-      : t("settings.passwordMismatch")
-    : mutation.error
-      ? t("settings.passwordSaveError")
-      : undefined;
-
-  const clearStatus = () => {
-    setSaved(false);
-    setValidationError(null);
-    setPassword.reset();
-    changePassword.reset();
-  };
-
-  const submit = () => {
-    setSaved(false);
-    setValidationError(null);
-    if (newPassword.length < PASSWORD_MIN_LENGTH) {
-      setValidationError("length");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setValidationError("mismatch");
-      return;
-    }
-
-    const onSuccess = () => {
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setSaved(true);
-      void authMethods.refetch();
-    };
-
-    if (authMethods.data?.hasPassword) {
-      changePassword.mutate({ currentPassword, newPassword }, { onSuccess });
-    } else {
-      setPassword.mutate({ newPassword }, { onSuccess });
-    }
-  };
-
-  const isPending = setPassword.isPending || changePassword.isPending;
-  const isLoading = authMethods.isLoading;
-  const hasPassword = authMethods.data?.hasPassword ?? false;
+  const form = usePasswordForm();
+  const {
+    hasPassword,
+    isLoading,
+    currentPassword,
+    newPassword,
+    confirmPassword,
+    saved,
+    isPending,
+  } = form;
+  const error = passwordErrorText(t, form);
 
   if (!session?.email) return null;
 
   const passwordForm = isLoading ? (
     <SettingsSkeleton lines={2} />
-  ) : authMethods.error ? (
+  ) : form.loadFailed ? (
     <p className="text-xs text-destructive">
       {t("settings.passwordSaveError")}
     </p>
@@ -430,10 +269,7 @@ function PasswordSettings() {
           type="password"
           label={t("settings.passwordCurrentLabel")}
           value={currentPassword}
-          onChange={(value) => {
-            clearStatus();
-            setCurrentPassword(value);
-          }}
+          onChange={form.setCurrentPassword}
           placeholder={t("settings.passwordPlaceholder")}
           autoComplete="current-password"
           disabled={isPending}
@@ -444,10 +280,7 @@ function PasswordSettings() {
         type="password"
         label={t("settings.passwordNewLabel")}
         value={newPassword}
-        onChange={(value) => {
-          clearStatus();
-          setNewPassword(value);
-        }}
+        onChange={form.setNewPassword}
         placeholder={t("settings.passwordPlaceholder")}
         autoComplete="new-password"
         disabled={isPending}
@@ -458,10 +291,7 @@ function PasswordSettings() {
         type="password"
         label={t("settings.passwordConfirmLabel")}
         value={confirmPassword}
-        onChange={(value) => {
-          clearStatus();
-          setConfirmPassword(value);
-        }}
+        onChange={form.setConfirmPassword}
         placeholder={t("settings.passwordPlaceholder")}
         autoComplete="new-password"
         disabled={isPending}
@@ -483,13 +313,8 @@ function PasswordSettings() {
           emphasis="solid"
           size="compact"
           pending={isPending}
-          disabled={
-            isPending ||
-            !newPassword ||
-            !confirmPassword ||
-            (hasPassword && !currentPassword)
-          }
-          onPress={submit}
+          disabled={!form.canSubmit}
+          onPress={() => form.submit()}
         >
           {isPending
             ? t("settings.passwordSaving")
@@ -541,43 +366,22 @@ function PasswordSettings() {
 function EmailSettings({ email }: { email: string }) {
   const t = useT();
   const [newEmail, setNewEmail] = useState(email);
-  const [pending, setPending] = useState(false);
-  const [status, setStatus] = useState<"idle" | "sent" | "error">("idle");
+  const {
+    pending,
+    status,
+    setStatus,
+    submit: requestChange,
+  } = useEmailChange();
 
   useEffect(() => {
     setNewEmail(email);
     setStatus("idle");
-  }, [email]);
+  }, [email, setStatus]);
 
   const submit = async () => {
     const nextEmail = newEmail.trim();
     if (!nextEmail || nextEmail.toLowerCase() === email.toLowerCase()) return;
-    setPending(true);
-    setStatus("idle");
-    try {
-      const response = await fetch(
-        agentNativePath("/_agent-native/auth/ba/change-email"),
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newEmail: nextEmail }),
-        },
-      );
-      let data: { status?: unknown } | null = null;
-      try {
-        data = (await response.json()) as { status?: unknown };
-      } catch (error) {
-        console.warn("[settings] change-email response was not JSON", error);
-      }
-      if (!response.ok || data?.status !== true)
-        throw new Error("change-email failed");
-      setStatus("sent");
-    } catch {
-      setStatus("error");
-    } finally {
-      setPending(false);
-    }
+    await requestChange(nextEmail);
   };
 
   return (
@@ -655,41 +459,16 @@ function EmailSettings({ email }: { email: string }) {
   );
 }
 
-type PrivacyRequestType = "access" | "deletion";
-
-interface PrivacyRequestResult {
-  requestType: PrivacyRequestType;
-  status: "pending";
-  requestedAt: number;
-}
-
 function PrivacySettings() {
   const t = useT();
-  const requestPrivacyRight = useActionMutation<
-    PrivacyRequestResult,
-    { requestType: PrivacyRequestType }
-  >("request-privacy-right");
+  const privacy = usePrivacyRequest();
+  const { pendingType, submittedType } = privacy;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [pendingType, setPendingType] = useState<PrivacyRequestType | null>(
-    null,
-  );
-  const [submittedType, setSubmittedType] = useState<PrivacyRequestType | null>(
-    null,
-  );
 
   const submitRequest = (requestType: PrivacyRequestType) => {
-    requestPrivacyRight.reset();
-    setPendingType(requestType);
-    requestPrivacyRight.mutate(
-      { requestType },
-      {
-        onSuccess: (result) => {
-          setSubmittedType(result.requestType);
-          if (result.requestType === "deletion") setDeleteDialogOpen(false);
-        },
-        onSettled: () => setPendingType(null),
-      },
-    );
+    privacy.submit(requestType, (result) => {
+      if (result.requestType === "deletion") setDeleteDialogOpen(false);
+    });
   };
 
   return (
@@ -740,7 +519,7 @@ function PrivacySettings() {
                   size="compact"
                   leadingIcon={<IconDownload className="size-3.5" />}
                   pending={pendingType === "access"}
-                  disabled={requestPrivacyRight.isPending}
+                  disabled={privacy.isPending}
                   onPress={() => submitRequest("access")}
                 >
                   {submittedType === "access"
@@ -758,7 +537,7 @@ function PrivacySettings() {
                       emphasis="outline"
                       size="compact"
                       leadingIcon={<IconTrash className="size-3.5" />}
-                      disabled={requestPrivacyRight.isPending}
+                      disabled={privacy.isPending}
                     >
                       {t("settings.privacyRequestDeletion")}
                     </ActionButton>
@@ -777,7 +556,7 @@ function PrivacySettings() {
                         {t("common.cancel")}
                       </AlertDialogCancel>
                       <AlertDialogAction
-                        disabled={requestPrivacyRight.isPending}
+                        disabled={privacy.isPending}
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         onClick={(event) => {
                           event.preventDefault();
@@ -792,7 +571,7 @@ function PrivacySettings() {
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
-              {requestPrivacyRight.error && (
+              {privacy.failed && (
                 <p className="text-xs text-destructive" role="alert">
                   {t("settings.privacyRequestError")}
                 </p>
@@ -832,12 +611,13 @@ export function AccountSettingsForm({
   const updateProfile = useActionMutation<UserProfile, { name: string }>(
     "update-user-profile",
   );
-  const avatarUrl = useAvatarUrl(email);
+  const {
+    avatarUrl,
+    uploading,
+    status: photoStatus,
+    upload,
+  } = useAvatarUpload(email);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [photoStatus, setPhotoStatus] = useState<"idle" | "saved" | "error">(
-    "idle",
-  );
   const [name, setName] = useState("");
   const [savedName, setSavedName] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
@@ -860,20 +640,10 @@ export function AccountSettingsForm({
     setSavedName(profileName);
   }, [email, profileName]);
 
-  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !email) return;
-    setUploading(true);
-    setPhotoStatus("idle");
-    try {
-      await uploadAvatar(file, email);
-      setPhotoStatus("saved");
-    } catch {
-      setPhotoStatus("error");
-    } finally {
-      setUploading(false);
-    }
+    if (file) void upload(file);
   };
 
   const handleProfileSave = () => {

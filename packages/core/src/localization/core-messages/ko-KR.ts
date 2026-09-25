@@ -951,6 +951,92 @@ const messages: AgentChatTranslation = {
   "settingsOrg.apps.defaults": "기본값",
   "settingsOrg.search.domainAutoJoin": "이메일 도메인 자동 참여",
   "settingsOrg.search.roles": "멤버 역할",
+  "settingsShell.account.addPassword": "비밀번호 추가",
+  "settingsShell.account.authenticatorCode": "인증 코드",
+  "settingsShell.account.change": "변경",
+  "settingsShell.account.changeEmail": "이메일 변경",
+  "settingsShell.account.changePassword": "비밀번호 변경",
+  "settingsShell.account.confirmPassword": "새 비밀번호 확인",
+  "settingsShell.account.currentPassword": "현재 비밀번호",
+  "settingsShell.account.deletionDialogDescription":
+    "관리자에게 삭제 요청을 보냅니다. 관리자가 검토할 때까지 데이터는 유지됩니다.",
+  "settingsShell.account.done": "완료",
+  "settingsShell.account.email": "이메일",
+  "settingsShell.account.emailChangeError": "확인 메일을 보낼 수 없습니다.",
+  "settingsShell.account.emailChangeSent":
+    "이메일을 확인하고 안내에 따라 이 변경을 확정하세요.",
+  "settingsShell.account.languageAndRegion": "언어 및 지역",
+  "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
+  "settingsShell.account.manage": "관리",
+  "settingsShell.account.name": "이름",
+  "settingsShell.account.nameDescription":
+    "Agent-Native 앱 전체에서 사용자를 부를 때 사용됩니다.",
+  "settingsShell.account.namePlaceholder": "이름",
+  "settingsShell.account.nameSaveError": "이름을 업데이트할 수 없습니다.",
+  "settingsShell.account.nameSaved": "이름이 업데이트되었습니다",
+  "settingsShell.account.newEmail": "새 이메일",
+  "settingsShell.account.newEmailPlaceholder": "새 이메일 입력",
+  "settingsShell.account.newPassword": "새 비밀번호",
+  "settingsShell.account.password": "비밀번호",
+  "settingsShell.account.passwordDescription":
+    "비밀번호를 추가하면 다른 방법으로 계정에 로그인할 수 있습니다.",
+  "settingsShell.account.passwordLoadError":
+    "로그인 방법을 불러올 수 없습니다.",
+  "settingsShell.account.passwordMinLength":
+    "{{count}}자 이상의 비밀번호를 선택하세요.",
+  "settingsShell.account.passwordMismatch": "비밀번호가 일치하지 않습니다.",
+  "settingsShell.account.passwordSaveError":
+    "비밀번호를 업데이트할 수 없습니다.",
+  "settingsShell.account.passwordSaved": "비밀번호가 업데이트되었습니다",
+  "settingsShell.account.photoError": "사진을 업데이트할 수 없습니다.",
+  "settingsShell.account.photoUpdated": "사진이 업데이트되었습니다",
+  "settingsShell.account.profilePhoto": "프로필 사진",
+  "settingsShell.account.requestCopyDescription":
+    "관리자가 본인 확인 후 후속 조치를 합니다.",
+  "settingsShell.account.requestCopyLabel": "내 데이터 사본 요청",
+  "settingsShell.account.requestDeletionDescription":
+    "관리자가 요청을 완료할 때까지 데이터는 유지됩니다.",
+  "settingsShell.account.requestDeletionLabel": "데이터 삭제 요청",
+  "settingsShell.account.savePassword": "비밀번호 저장",
+  "settingsShell.account.sendConfirmation": "확인 메일 보내기",
+  "settingsShell.account.sending": "보내는 중...",
+  "settingsShell.account.setUpTwoFactor": "2단계 인증 설정",
+  "settingsShell.account.signIn": "로그인",
+  "settingsShell.account.timezone": "시간대",
+  "settingsShell.account.timezoneDescription":
+    "타임스탬프와 예약된 자동화에 사용됩니다.",
+  "settingsShell.account.turnOffTwoFactor": "2단계 인증 끄기",
+  "settingsShell.account.twoFactor": "2단계 인증",
+  "settingsShell.account.twoFactorBackupCodes":
+    "이 백업 코드를 안전한 곳에 보관하세요. 인증 앱에 접근할 수 없게 되면 각 코드를 한 번씩 사용할 수 있습니다.",
+  "settingsShell.account.twoFactorCodeError":
+    "인증 앱의 6자리 코드를 입력하세요.",
+  "settingsShell.account.twoFactorDescription":
+    "인증 앱을 사용해 계정 로그인에 두 번째 단계를 추가합니다.",
+  "settingsShell.account.twoFactorDisableError": "2단계 인증을 끌 수 없습니다.",
+  "settingsShell.account.twoFactorEnabled": "2단계 인증이 켜져 있습니다.",
+  "settingsShell.account.twoFactorLoadError":
+    "2단계 인증 설정을 불러올 수 없습니다.",
+  "settingsShell.account.twoFactorQrLabel": "2단계 인증 설정 QR 코드",
+  "settingsShell.account.twoFactorSaved": "2단계 인증이 활성화되었습니다",
+  "settingsShell.account.twoFactorScan":
+    "인증 앱으로 이 QR 코드를 스캔한 다음 표시된 코드를 입력하세요.",
+  "settingsShell.account.twoFactorSetupError":
+    "2단계 인증 설정을 업데이트할 수 없습니다.",
+  "settingsShell.account.twoFactorSetupTitle": "2단계 인증 설정",
+  "settingsShell.account.uploading": "업로드 중...",
+  "settingsShell.account.verifyAndEnable": "확인 후 사용",
+  "settingsShell.account.voiceBatch": "일괄",
+  "settingsShell.account.voiceDescription":
+    "음성 입력을 받아쓰는 방법을 선택합니다.",
+  "settingsShell.account.voiceGoogleRealtime": "Google 실시간",
+  "settingsShell.account.voiceInput": "음성 입력",
+  "settingsShell.account.voiceLoadError":
+    "음성 받아쓰기 설정을 불러올 수 없습니다.",
+  "settingsShell.account.voiceMacNative": "Mac 기본",
+  "settingsShell.account.voiceSaveError":
+    "음성 받아쓰기 설정을 저장할 수 없습니다.",
+  "settingsShell.account.yourData": "내 데이터",
   "settingsShell.appFallbackName": "앱",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",

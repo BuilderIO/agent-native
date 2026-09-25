@@ -48,7 +48,10 @@ whether `loadMessages` can actually resolve it.
   opens from the account menu in the sidebar footer and from ⌘, (Ctrl+,
   elsewhere). Put `<LanguagePicker />` in that settings page, usually in a
   Language or General section, and keep the header language icon only as a
-  quick-access shortcut.
+  quick-access shortcut. With the `settings-redesign` flag on, core's
+  Account › Preferences page already renders the Interface language row
+  (with Timezone; both are the per-user `localization` record, so a change
+  applies in every app); don't add a second picker to a redesigned page.
 - Settings pages should include an "Agent settings" row/card that calls
   `openAgentSettings()` from `@agent-native/core/client` to open the right
   agent sidebar's Settings tab. Localize the title, description, and button.

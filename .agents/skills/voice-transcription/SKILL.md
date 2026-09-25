@@ -16,8 +16,13 @@ metadata:
 The microphone inside the sidebar composer offers two distinct paths:
 editable dictation and an opt-in realtime speech-to-speech agent session.
 Users configure dictation separately from AI cleanup in Settings → Voice
-Transcription. Both paths are available in every template that renders the
-shared agent sidebar.
+Transcription. With the `settings-redesign` flag on, the source picker (Mac
+Native, Google Realtime, Batch) is the Voice transcription row on Settings ›
+Account › Preferences (`VoiceTranscriptionSection compact`, anchor `voice`);
+cleanup and batch provider keys stay in the agent sidebar's Voice
+Transcription section. Both write the per-user `voice-transcription-prefs`
+application state. Both paths are available in every template that renders
+the shared agent sidebar.
 
 ## UX rules
 
@@ -159,7 +164,7 @@ Default behavior:
 | `packages/toolkit/src/composer/RealtimeVoiceMode.tsx`                | Opt-in popover + persistent speech orb              |
 | `packages/toolkit/src/composer/useRealtimeVoiceMode.tsx`             | WebRTC lifecycle, provider events, and tool bridge  |
 | `packages/toolkit/src/composer/TiptapComposer.tsx`                    | Wires the hook, insertion, and keyboard shortcut    |
-| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings  |
+| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings; `compact` is the Preferences row |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
 | `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
