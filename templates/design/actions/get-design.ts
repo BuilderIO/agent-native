@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -73,25 +73,19 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileFields =
+    const fileContent =
       includeFileContent === false
-        ? {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          }
-        : {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            content: schema.designFiles.content,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          };
+        ? sql<string>`NULL::text`.as("content")
+        : schema.designFiles.content;
     const files = await db
-      .select(fileFields)
+      .select({
+        id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: fileContent,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
+      })
       .from(schema.designFiles)
       .where(
         fileId
