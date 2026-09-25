@@ -4,6 +4,8 @@ import {
   type CanvasResizeHandle,
 } from "@agent-native/toolkit/canvas-interactions";
 
+import { stripSourceStamps } from "@/lib/slide-source-map";
+
 import {
   isRichTextBlock,
   isSlideCanvasShell,
@@ -3229,12 +3231,24 @@ export async function writeSlideObjectClipboard(
   throw new Error("Clipboard writing is not supported");
 }
 
-export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {
+/**
+ * `storedForm` turns a copy into the HTML it has in the stored slide; without
+ * it (a Markdown slide has no stored HTML) the rendered copy is used.
+ */
+export function copySlideObjects(
+  elements: HTMLElement[],
+  storedForm?: (copy: HTMLElement) => string | null,
+): CopiedSlideObjects {
   return {
     html: normalizeSlideObjectRoots(elements)
       .filter(isValidSlideClipboardRoot)
       .map((element) => {
         const clone = cloneSlideObject(element);
+        const html = storedForm?.(clone);
+        if (html != null) return html;
+        // Stamps only mean something to the render they came from; a paste
+        // after the slide re-renders would map them onto other elements.
+        stripSourceStamps(clone);
         return clone.outerHTML;
       }),
   };

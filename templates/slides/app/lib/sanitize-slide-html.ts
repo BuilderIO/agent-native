@@ -1,4 +1,4 @@
-const ALLOWED_TAGS = new Set([
+export const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   "a",
   "article",
   "aside",
@@ -50,7 +50,7 @@ const ALLOWED_TAGS = new Set([
   "ul",
 ]);
 
-const DROP_WITH_CHILDREN = new Set([
+export const DROP_WITH_CHILDREN: ReadonlySet<string> = new Set([
   "base",
   "button",
   "embed",
@@ -204,6 +204,14 @@ function sanitizeStyle(style: string): string {
     .join("; ");
 }
 
+/**
+ * A scope prefix left in stored CSS by an earlier save of the rendered DOM.
+ * Re-prefixing it would chain two scopes that never match together, which
+ * silently turned off every rule of a slide's stylesheet.
+ */
+const EXISTING_SCOPE_PREFIX =
+  /^(?:\[data-slide-content-scope(?:=(?:"[^"]*"|'[^']*'|[^\]\s]*))?\](?:\s+|$))+/;
+
 function scopeCssSelector(selector: string, scopeSelector?: string): string {
   const trimmed = selector.trim();
   if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
@@ -211,8 +219,10 @@ function scopeCssSelector(selector: string, scopeSelector?: string): string {
   return trimmed
     .split(",")
     .map((part) => {
-      const item = part.trim();
-      if (!item) return "";
+      const scoped = part.trim();
+      const item = scoped.replace(EXISTING_SCOPE_PREFIX, "").trim();
+      if (!scoped) return "";
+      if (!item) return scopeSelector;
       if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
       if (/^(?:html|body|:root)\b/i.test(item)) {
         return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);

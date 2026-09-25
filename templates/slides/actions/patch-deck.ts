@@ -27,7 +27,10 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
@@ -60,6 +63,10 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import {
+  assertNoRenderArtifacts,
+  assertNoRenderArtifactsInNewSlide,
+} from "./_render-artifacts.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -507,15 +514,18 @@ export function applyOperation(
         excalidrawData: slide.excalidrawData,
       };
       if (fields.content !== undefined) {
+        const previousContent =
+          typeof slide.content === "string" ? slide.content : undefined;
         const nextContent = op.styleOnly
           ? fields.content
-          : normalizeSlidePadding(fields.content);
+          : normalizeSlidePaddingForWrite(previousContent, fields.content);
         if (op.styleOnly) {
           assertStyleOnlyEdit(
             options?.styleOnlyBaseline ?? String(slide.content ?? ""),
             nextContent,
           );
         }
+        assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
@@ -611,6 +621,13 @@ export function applyOperation(
       const { slideId, afterSlideId, fields } = op;
       // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return false;
+      if (typeof fields.content === "string") {
+        assertNoRenderArtifactsInNewSlide(
+          fields.content,
+          slideId,
+          slides.map((s: { content?: unknown }) => String(s.content ?? "")),
+        );
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Copy every provided field: a duplicated or undo-restored slide has to
       // keep its transition, animations, and image data, not just its text.
@@ -1143,7 +1160,10 @@ export default defineAction({
                 ? undefined
                 : op.styleOnly
                   ? op.fields.content
-                  : normalizeSlidePadding(op.fields.content),
+                  : normalizeSlidePaddingForWrite(
+                      contentsBeforeOperations.get(op.slideId),
+                      op.fields.content,
+                    ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });

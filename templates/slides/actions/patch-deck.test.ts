@@ -22,6 +22,7 @@ import patchDeckAction from "./patch-deck";
 // ---------------------------------------------------------------------------
 vi.mock("../app/lib/normalize-slide-padding.js", () => ({
   normalizeSlidePadding: (html: string) => html,
+  normalizeSlidePaddingForWrite: (_previous: string, html: string) => html,
 }));
 
 // ---------------------------------------------------------------------------
@@ -146,6 +147,89 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe("<p>New</p>");
     expect(deck.slides[0].notes).toBe("note"); // unchanged
     expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
+  });
+
+  it("refuses content that adds editor-rendered markup", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: '<div class="fmd-slide"><p>Old</p></div>' },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="true">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+        details: {
+          slideId: "s1",
+          markers: ["scoped-style-selector", "contenteditable"],
+        },
+      }),
+    );
+    expect(deck.slides[0].content).toBe(
+      '<div class="fmd-slide"><p>Old</p></div>',
+    );
+  });
+
+  it("refuses an added slide carrying editor markup but keeps older scoped styles", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
+    expect(deck.slides).toHaveLength(1);
+    const restored =
+      '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>R</p></div>';
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s3",
+      fields: { content: restored },
+    });
+    expect(deck.slides[1].content).toBe(restored);
+    // A duplicate is an exact copy of a stored slide, whatever it carries.
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s4",
+      fields: { content: deck.slides[0].content },
+    });
+    expect(deck.slides).toHaveLength(3);
+  });
+
+  it("still saves content that already carried rendered markup", () => {
+    const flattened =
+      '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>';
+    const deck = { slides: [{ id: "s1", content: flattened }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: flattened.replace("Old", "New") },
+    });
+    expect(deck.slides[0].content).toBe(flattened.replace("Old", "New"));
   });
 
   it("rejects a stale per-slide hash without mutating the slide", () => {

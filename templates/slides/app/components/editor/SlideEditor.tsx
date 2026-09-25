@@ -35,7 +35,10 @@ import {
   ExcalidrawSlide,
   parseExcalidrawData,
 } from "@/components/deck/ExcalidrawSlide";
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideRenderer, {
+  getRenderedSlideSource,
+  isRawHtmlSlide,
+} from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
   isBulletRow,
@@ -74,7 +77,6 @@ import {
   sendEditorPromptToAgent,
 } from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
-import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
@@ -90,6 +92,11 @@ import {
   type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
+import {
+  mergeRenderedEdits,
+  storedFormOf,
+  type RenderedSlideSource,
+} from "@/lib/slide-source-map";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
@@ -290,7 +297,8 @@ type RichTextEditorSession = {
   slideId: string;
   element: HTMLElement;
   slideContentSnapshot: HTMLElement;
-  sourceContent: string;
+  /** What the canvas was rendered from when the edit started. */
+  renderedSource: RenderedSlideSource | undefined;
   path: number[];
   host: HTMLDivElement;
   root: Root;
@@ -301,7 +309,35 @@ type RichTextEditorSession = {
   originalStyle: string | null;
   cleanupHost: () => void;
   latestHtml: string;
+  /**
+   * The editor's HTML right after it mounted, `null` until it has. The editor
+   * normalizes markup it cannot represent, so output equal to this (or no
+   * mounted editor at all) means the user changed nothing and the element
+   * must be left as rendered.
+   */
+  baselineHtml: string | null;
 };
+
+type ActiveTextEdit = {
+  path: number[];
+  /** `null` when the editor output is unchanged since mount. */
+  html: string | null;
+  originalContent: string;
+  originalStyle: string | null;
+};
+
+function activeTextEdit(session: RichTextEditorSession): ActiveTextEdit {
+  const html = session.apiRef.current?.getHTML() ?? session.latestHtml;
+  return {
+    path: session.path,
+    html:
+      session.baselineHtml === null || html === session.baselineHtml
+        ? null
+        : html,
+    originalContent: session.originalContent,
+    originalStyle: session.originalStyle,
+  };
+}
 
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
 const SLIDE_SHAPE_DEFAULT_SIZES = {
@@ -663,7 +699,16 @@ function stripBuilderIds(html: string): string {
       .replace(/\s*contenteditable="[^"]*"/gi, "")
       .replace(/\s*data-editing-block="[^"]*"/g, "")
       .replace(/\s*data-slide-text-block="[^"]*"/g, "")
+      .replace(/\s*data-src-i="[^"]*"/g, "")
   );
+}
+
+/** Editor-only text and spacers, removed before live and base are compared. */
+function prepareSerializationRoot(root: ParentNode): void {
+  for (const child of Array.from(root.children)) {
+    stripPlaceholderZws(child);
+    stripTransientSlideLayoutSpacers(child);
+  }
 }
 
 /**
@@ -1619,9 +1664,7 @@ export default function SlideEditor({
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
   const content = typeof slide.content === "string" ? slide.content : "";
-  const isHtmlSlide =
-    content.includes('class="fmd-slide"') ||
-    ["blank", "section", "statement", "full-image"].includes(slide.layout);
+  const isHtmlSlide = isRawHtmlSlide(slide);
 
   const [canvasZoom, setCanvasZoom] = useState(100);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -2110,8 +2153,6 @@ export default function SlideEditor({
   const previousSlideIdRef = useRef(slide.id);
   const richTextEditorRef = useRef<SlideRichTextEditorHandle | null>(null);
   const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
-  const activeRichTextHtmlRef = useRef<string | null>(null);
-  const activeRichTextPathRef = useRef<number[] | null>(null);
   const inlineEditDraftCaptureTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -2134,94 +2175,74 @@ export default function SlideEditor({
     }
   }, [slide.id]);
 
+  /**
+   * The slide HTML to store for the canvas DOM under `slideContent`: the
+   * stored source with the DOM's changes merged in, never the rendered DOM
+   * itself. `null` when the canvas has no source map to merge against.
+   */
   const serializeSlideContentHtml = useCallback(
     (
       slideContent: HTMLElement,
-      sourceContent: string,
-      activePath: number[] | null = null,
-      activeHtml: string | null = null,
-      activeSourceContent: string | null = null,
-      activeOriginalStyle: string | null | undefined = undefined,
-    ) => {
-      // SlideRenderer swaps each `<div class="mermaid">` for a
-      // `data-mermaid-index` placeholder and renders the diagram as SVG via
-      // MermaidRenderer — the live DOM never contains the original mermaid
-      // syntax. Serializing it as-is here would permanently bake the rendered
-      // SVG into slide.content and turn a diagram edited or moved alongside
-      // (e.g. another text block on the same slide) into inert markup that can
-      // never be resized, edited, or re-rendered again. Restore the original
-      // `<div class="mermaid">` markup from the untouched source before saving.
+      source: RenderedSlideSource | undefined,
+      active: ActiveTextEdit | null = null,
+    ): string | null => {
       const clone = slideContent.cloneNode(true) as HTMLElement;
-      if (activeHtml !== null && activePath) {
+      if (active) {
         // The live DOM can be restructured under an active edit (autofit
         // wraps the slide's children when the canvas resizes), so the path
         // captured at edit start is only trustworthy for the static snapshot.
-        // The editing block itself is marked; find it by that mark first, or
-        // the editor's own markup would be serialized as slide content.
+        // The editing block itself is marked; find it by that mark first.
         const activeClone =
           clone.querySelector<HTMLElement>('[data-editing-block="true"]') ??
-          resolveElementPath(clone, activePath);
+          resolveElementPath(clone, active.path);
         if (activeClone) {
-          restoreSlideTextContainerContent(
-            activeClone,
-            activeHtml,
-            activeSourceContent ?? undefined,
-          );
-          if (activeOriginalStyle !== undefined) {
-            const originalStyleElement =
-              clone.ownerDocument.createElement("div");
-            if (activeOriginalStyle !== null) {
-              originalStyleElement.setAttribute("style", activeOriginalStyle);
-            }
-            const originalVisibility =
-              originalStyleElement.style.getPropertyValue("visibility");
-            if (originalVisibility) {
-              activeClone.style.setProperty(
-                "visibility",
-                originalVisibility,
-                originalStyleElement.style.getPropertyPriority("visibility"),
-              );
-            } else {
-              activeClone.style.removeProperty("visibility");
-            }
+          // The source element is hidden while the floating editor is open.
+          // Unhide it first: a multi-block restore replaces the element with
+          // a copy of its current attributes.
+          const originalStyleElement = clone.ownerDocument.createElement("div");
+          if (active.originalStyle !== null) {
+            originalStyleElement.setAttribute("style", active.originalStyle);
+          }
+          const originalVisibility =
+            originalStyleElement.style.getPropertyValue("visibility");
+          if (originalVisibility) {
+            activeClone.style.setProperty(
+              "visibility",
+              originalVisibility,
+              originalStyleElement.style.getPropertyPriority("visibility"),
+            );
+          } else {
+            activeClone.style.removeProperty("visibility");
+          }
+          if (active.html !== null) {
+            restoreSlideTextContainerContent(
+              activeClone,
+              active.html,
+              active.originalContent,
+            );
           }
         }
       }
-      const placeholders = clone.querySelectorAll("[data-mermaid-index]");
-      // Look up source blocks by index before touching the DOM. If slide.content
-      // changed since this placeholder last rendered (e.g. a concurrent update),
-      // its index may no longer have a matching block — leave that placeholder's
-      // node untouched rather than swapping in a marker with nothing to restore
-      // it, which would otherwise persist as inert marker text.
-      const { blocks } = extractMermaidBlocks(sourceContent);
-      // Swap each rendered node for a plain-text marker now, and splice the
-      // real `<div class="mermaid">` markup back in as a raw string AFTER
-      // stripBuilderIds() below. stripBuilderIds round-trips through
-      // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
-      // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
-      // mermaid blocks before its own sanitization pass. Doing the real
-      // substitution as a plain string replace, after all DOM round-trips,
-      // avoids that entirely.
-      const nonce = Math.random().toString(36).slice(2);
-      const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
-      const restorable = new Map<number, string>();
-      placeholders.forEach((placeholder) => {
-        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-        const definition = blocks[idx];
-        if (definition === undefined) return;
-        restorable.set(idx, definition);
-        placeholder.replaceWith(
-          clone.ownerDocument.createTextNode(markerFor(idx)),
-        );
-      });
-      let html = stripBuilderIds(clone.innerHTML);
-      restorable.forEach((definition, idx) => {
-        html = html.replace(
-          markerFor(idx),
-          `<div class="mermaid">${definition}</div>`,
-        );
-      });
-      return html;
+      if (source) {
+        return mergeRenderedEdits({
+          stored: source.stored,
+          ranges: source.ranges,
+          base: source.base,
+          live: clone,
+          nonce: source.nonce,
+          prepare: prepareSerializationRoot,
+        }).html;
+      }
+      // Markdown layouts render through React, with no stored HTML to merge
+      // into; the only writes that reach here are explicit conversions of the
+      // slide to HTML (a text box, a freeform move), which store the DOM.
+      if (slideContent.hasAttribute("data-slide-autofit-root")) {
+        return stripBuilderIds(clone.innerHTML);
+      }
+      console.error(
+        "[slides] refusing to save: the slide canvas has no source map to merge edits into",
+      );
+      return null;
     },
     [],
   );
@@ -2231,27 +2252,26 @@ export default function SlideEditor({
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
-    const session = richTextEditorSessionRef.current;
-    const liveSerializationRoot =
-      session?.slideId === slide.id &&
-      session.element.isConnected &&
-      slideContent.contains(session.element)
-        ? slideContent
+    const session =
+      richTextEditorSessionRef.current?.slideId === slide.id
+        ? richTextEditorSessionRef.current
         : null;
-    const serializationRoot =
-      liveSerializationRoot ??
-      (session?.slideId === slide.id
-        ? session.slideContentSnapshot
-        : slideContent);
+    if (
+      session &&
+      !(session.element.isConnected && slideContent.contains(session.element))
+    ) {
+      return serializeSlideContentHtml(
+        session.slideContentSnapshot,
+        session.renderedSource,
+        activeTextEdit(session),
+      );
+    }
     return serializeSlideContentHtml(
-      serializationRoot,
-      slide.content,
-      activeRichTextPathRef.current,
-      activeRichTextHtmlRef.current,
-      session?.slideId === slide.id ? session.originalContent : null,
-      session?.slideId === slide.id ? session.originalStyle : undefined,
+      slideContent,
+      getRenderedSlideSource(slideContent),
+      session ? activeTextEdit(session) : null,
     );
-  }, [serializeSlideContentHtml, slide.content]);
+  }, [serializeSlideContentHtml, slide.id]);
 
   const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
   useEffect(() => {
@@ -2320,27 +2340,25 @@ export default function SlideEditor({
     const session = richTextEditorSessionRef.current;
     if (!session) return null;
 
-    const latest =
-      session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
+    const latest = session.apiRef.current?.getHTML() ?? session.latestHtml;
     session.latestHtml = latest;
-    activeRichTextHtmlRef.current = latest;
     const liveSlideContent = containerRef.current?.querySelector(
       ".slide-content",
     ) as HTMLElement | null;
-    const serializationRoot =
+    const draftContent =
       liveSlideContent &&
       session.element.isConnected &&
       liveSlideContent.contains(session.element)
-        ? liveSlideContent
-        : session.slideContentSnapshot;
-    const draftContent = serializeSlideContentHtml(
-      serializationRoot,
-      session.sourceContent,
-      session.path,
-      latest,
-      session.originalContent,
-      session.originalStyle,
-    );
+        ? serializeSlideContentHtml(
+            liveSlideContent,
+            getRenderedSlideSource(liveSlideContent),
+            activeTextEdit(session),
+          )
+        : serializeSlideContentHtml(
+            session.slideContentSnapshot,
+            session.renderedSource,
+            activeTextEdit(session),
+          );
     if (draftContent !== null)
       persistInlineEditDraft(session.slideId, draftContent);
     session.root.unmount();
@@ -2369,8 +2387,6 @@ export default function SlideEditor({
 
     richTextEditorSessionRef.current = null;
     richTextEditorRef.current = null;
-    activeRichTextHtmlRef.current = null;
-    activeRichTextPathRef.current = null;
     setRichTextEditorRevision((revision) => revision + 1);
     return { content: draftContent, html: latest, element: session.element };
   }, [persistInlineEditDraft, serializeSlideContentHtml]);
@@ -2750,7 +2766,6 @@ export default function SlideEditor({
     if (session) {
       const latest = session.apiRef.current?.getHTML() ?? session.latestHtml;
       session.latestHtml = latest;
-      activeRichTextHtmlRef.current = latest;
     }
     const disposed = disposeRichTextEditor();
     const html = disposed?.content ?? readCurrentSlideContentHtml();
@@ -2817,6 +2832,7 @@ export default function SlideEditor({
   const handleRichTextEditorReady = useCallback((editor: Editor) => {
     const session = richTextEditorSessionRef.current;
     if (!session || session.apiRef.current?.getEditor() !== editor) return;
+    session.baselineHtml ??= editor.getHTML();
     richTextEditorRef.current = session.apiRef.current;
     setRichTextEditorRevision((revision) => revision + 1);
   }, []);
@@ -2867,6 +2883,7 @@ export default function SlideEditor({
       const path = elementPathFromRoot(slideContent, el);
       if (path.length === 0) return;
       const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
+      const renderedSource = getRenderedSlideSource(slideContent);
       const originalContent = el.innerHTML;
 
       const editorContext = document.createElement("div");
@@ -3114,7 +3131,7 @@ export default function SlideEditor({
         slideId: slide.id,
         element: el,
         slideContentSnapshot,
-        sourceContent: slide.content,
+        renderedSource,
         path,
         host,
         root: createRoot(host),
@@ -3125,10 +3142,9 @@ export default function SlideEditor({
         originalStyle,
         cleanupHost,
         latestHtml: initialHtml,
+        baselineHtml: null,
       };
       richTextEditorSessionRef.current = session;
-      activeRichTextHtmlRef.current = initialHtml;
-      activeRichTextPathRef.current = path;
       el.contentEditable = "false";
       el.setAttribute("data-editing-block", "true");
       el.style.visibility = "hidden";
@@ -3138,7 +3154,16 @@ export default function SlideEditor({
       setSelectedElementMeasurement(null);
       editingElRef.current = el;
       setEditingEl(el);
-      captureInlineEditDraft(slide.id);
+      // The no-change baseline is what the canvas saves before any typing:
+      // the stored string itself for a stored element (a merge with no edit
+      // returns it exactly), or the content with a just-placed text box, which
+      // a Markdown canvas or an abandoned empty box must not write.
+      inlineEditDraftRef.current = null;
+      const entryContent = readCurrentSlideContentHtml();
+      inlineEditInitialContentRef.current =
+        entryContent === null
+          ? null
+          : { slideId: slide.id, content: entryContent };
       // Mark the slide active immediately so SSE/poll refreshes do not replace
       // the live DOM under an active contentEditable edit, even before the
       // user types and triggers an onUpdateSlide flush.
@@ -3156,7 +3181,6 @@ export default function SlideEditor({
           onChange={(html) => {
             if (richTextEditorSessionRef.current !== session) return;
             session.latestHtml = html;
-            activeRichTextHtmlRef.current = html;
             positionHost();
             scheduleInlineEditDraftCapture(slide.id);
           }}
@@ -3178,15 +3202,14 @@ export default function SlideEditor({
     },
     [
       buildSelectionState,
-      captureInlineEditDraft,
       disposeRichTextEditor,
       exitInlineEdit,
       getSlideContent,
       handleRichTextEditorReady,
       onInlineEditStart,
+      readCurrentSlideContentHtml,
       scheduleInlineEditDraftCapture,
       selectElementForStyling,
-      slide.content,
       slide.id,
     ],
   );
@@ -4814,7 +4837,6 @@ export default function SlideEditor({
         if (range) styledRange = richEditor.applyTextStyle(inlinePatch, range);
         else richEditor.applyTextStyleToContent(inlinePatch);
         handledByRichEditor = true;
-        activeRichTextHtmlRef.current = richEditor.getHTML();
       } else if (
         range &&
         restoreEditableTextRange(editableSurface, range) &&
@@ -4931,9 +4953,19 @@ export default function SlideEditor({
     slide.id,
   ]);
 
+  /** A copied object as stored, so a paste carries no rendered markup. */
+  const storedFormOfCopy = useCallback(
+    (copy: HTMLElement) => {
+      const slideContent = getSlideContent();
+      const source = slideContent && getRenderedSlideSource(slideContent);
+      return source ? storedFormOf(source, copy) : null;
+    },
+    [getSlideContent],
+  );
+
   const storeCopiedObjects = useCallback(
     (selection: HTMLElement[]) => {
-      const copied = copySlideObjects(selection);
+      const copied = copySlideObjects(selection, storedFormOfCopy);
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
@@ -4980,7 +5012,7 @@ export default function SlideEditor({
       );
       return clipboard;
     },
-    [deckId, slide.id],
+    [deckId, slide.id, storedFormOfCopy],
   );
 
   const copySelectedObjects = useCallback(() => {
@@ -5006,9 +5038,12 @@ export default function SlideEditor({
   const duplicateSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    pasteSlideObjects(copySlideObjects(selection), selection[0]);
+    pasteSlideObjects(
+      copySlideObjects(selection, storedFormOfCopy),
+      selection[0],
+    );
     return true;
-  }, [getClipboardSelection, pasteSlideObjects]);
+  }, [getClipboardSelection, pasteSlideObjects, storedFormOfCopy]);
 
   const cutSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
@@ -5076,7 +5111,10 @@ export default function SlideEditor({
       // Duplicate re-copies the live selection so it duplicates what's
       // currently selected regardless of what's on the clipboard.
       e.preventDefault();
-      pasteSlideObjects(copySlideObjects(selection), selection[0]);
+      pasteSlideObjects(
+        copySlideObjects(selection, storedFormOfCopy),
+        selection[0],
+      );
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -5089,6 +5127,7 @@ export default function SlideEditor({
     readOnly,
     slide.id,
     storeCopiedObjects,
+    storedFormOfCopy,
   ]);
 
   // The native paste event is authoritative: a matching layer marker means
@@ -8264,8 +8303,9 @@ export default function SlideEditor({
       // For editable text, a single click edits the whole smart block (a text
       // leaf, or an entire bullet list) — not the individual line — so typing,
       // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
-      // style dock targets the same block being edited.
-      if (!readOnly && slideContent) {
+      // style dock targets the same block being edited. Markdown layouts are
+      // rendered by React and have no stored HTML to save an edit into.
+      if (!readOnly && isHtmlSlide && slideContent) {
         stampBuilderIds(slideContent);
         const block = findSmartBlock(target, slideContent, {
           includeTextBoxes: false,
@@ -8794,7 +8834,6 @@ export default function SlideEditor({
         } else {
           chain.toggleOrderedList().run();
         }
-        activeRichTextHtmlRef.current = richEditor.getHTML();
         captureInlineEditDraft(slide.id);
         const selector =
           selectedElementSelector ?? getBuilderSelector(activeEditing);
@@ -9286,6 +9325,7 @@ export default function SlideEditor({
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
                             onAutofitSettled={handleAutofitSettled}
+                            stampSource
                           />
                           {/* Fading "AI edited" ring around the canvas when the
                               agent just edited THIS slide (component handles fade). */}

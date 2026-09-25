@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSlidePadding } from "./normalize-slide-padding";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "./normalize-slide-padding";
 
 describe("normalizeSlidePadding", () => {
   it("preserves explicit one-value padding", () => {
@@ -47,6 +50,29 @@ describe("normalizeSlidePadding", () => {
     const html = '<div class="fmd-slide"></div>';
     expect(normalizeSlidePadding(html)).toBe(
       '<div class="fmd-slide" style="padding: 64px 80px;"></div>',
+    );
+  });
+});
+
+describe("normalizeSlidePaddingForWrite", () => {
+  const styled =
+    '<div class="fmd-slide"><style>.fmd-slide{padding:32px}</style><p>Hi</p></div>';
+
+  it("leaves a stylesheet-padded slide alone when its root tag is unchanged", () => {
+    const next = styled.replace("Hi", "Hi there");
+    expect(normalizeSlidePaddingForWrite(styled, next)).toBe(next);
+  });
+
+  it("normalizes when the root tag changed or the slide is new", () => {
+    const next = styled.replace(
+      '<div class="fmd-slide">',
+      '<div class="fmd-slide" style="color: red">',
+    );
+    expect(normalizeSlidePaddingForWrite(styled, next)).toContain(
+      'style="padding: 64px 80px; color: red"',
+    );
+    expect(normalizeSlidePaddingForWrite(undefined, styled)).toContain(
+      'style="padding: 64px 80px;"',
     );
   });
 });

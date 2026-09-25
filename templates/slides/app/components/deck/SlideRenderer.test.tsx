@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeSlideFitTransform,
+  getRenderedSlideSource,
+  isRawHtmlSlide,
   prepareImportedFonts,
   resolveImportedFont,
   slideDeclaresTextColor,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import { mergeRenderedEdits, SOURCE_STAMP_ATTR } from "@/lib/slide-source-map";
 
 vi.mock("./MermaidRenderer", () => ({
   MermaidRenderer: () => <div data-mermaid-diagram="true" />,
@@ -155,6 +158,80 @@ describe("computeSlideFitTransform", () => {
       verticalOverflow: 0,
       horizontalOverflow: 0,
     });
+  });
+});
+
+describe("isRawHtmlSlide", () => {
+  it("treats any stored markup as raw HTML, whatever its layout", () => {
+    // Imported PPTX slides carry extra classes and the `content` layout; the
+    // editor once disagreed with the renderer here and refused to edit them.
+    expect(
+      isRawHtmlSlide({
+        content: '<div class="fmd-slide fmd-imported-pptx"><div>Hi</div></div>',
+        layout: "content",
+      }),
+    ).toBe(true);
+    expect(
+      isRawHtmlSlide({ content: "# Title\n\n- one", layout: "content" }),
+    ).toBe(false);
+    expect(
+      isRawHtmlSlide({
+        content: '<img data-markdown-image src="https://cdn.test/a.png">',
+        layout: "content",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("SlideInner source stamps", () => {
+  afterEach(() => cleanup());
+
+  const content =
+    '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px"><p>Caption</p></div>';
+
+  it("stamps and registers only the editable canvas", () => {
+    const slide = { id: "slide-a", content, layout: "blank" } as Slide;
+    const { unmount } = render(<SlideInner slide={slide} />);
+    const plain = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(plain.innerHTML).not.toContain(SOURCE_STAMP_ATTR);
+    expect(getRenderedSlideSource(plain)).toBeUndefined();
+    unmount();
+
+    render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    expect(root.querySelector("p")!.getAttribute(SOURCE_STAMP_ATTR)).toMatch(
+      /\.slide-a:2$/,
+    );
+    expect(getRenderedSlideSource(root)?.stored).toBe(content);
+  });
+
+  it("re-registers the new source after an in-place image swap", async () => {
+    const slide = { id: "slide-b", content, layout: "blank" } as Slide;
+    const { rerender } = render(<SlideInner slide={slide} stampSource />);
+    const root = document.querySelector<HTMLElement>(".slide-content")!;
+    const image = root.querySelector("img")!;
+    const uploaded = content.replace("blob:preview", "https://cdn.test/a.png");
+    rerender(
+      <SlideInner slide={{ ...slide, content: uploaded }} stampSource />,
+    );
+    await waitFor(() =>
+      expect(image.getAttribute("src")).toBe("https://cdn.test/a.png"),
+    );
+    expect(root.querySelector("img")).toBe(image);
+    const source = getRenderedSlideSource(root)!;
+    expect(source.stored).toBe(uploaded);
+    image.style.left = "80px";
+    expect(
+      mergeRenderedEdits({
+        ...source,
+        live: root.cloneNode(true) as Element,
+      }).html,
+    ).toBe(
+      uploaded.replace(
+        "position:absolute;left:40px;top:24px",
+        "position:absolute; top:24px; left: 80px",
+      ),
+    );
   });
 });
 
@@ -609,6 +686,28 @@ describe("SlideInner autofit", () => {
     rerender(<SlideInner slide={slide} />);
 
     expect(document.querySelector("h2")).toBe(heading);
+  });
+
+  it("renders a mermaid diagram in place inside the slide root", async () => {
+    const slide: Slide = {
+      id: "raw-mermaid-inside",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><h2>Diagram title</h2><div class="mermaid">graph TD; A--&gt;B;</div><p>Caption below</p></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fmdSlide = document.querySelector(".fmd-slide")!;
+    expect(document.querySelectorAll(".fmd-slide")).toHaveLength(1);
+    expect(fmdSlide.querySelector("p")?.textContent).toBe("Caption below");
+    const placeholder = fmdSlide.querySelector("[data-mermaid-index]")!;
+    expect(placeholder).toBeTruthy();
+    // The diagram component mounts inside the placeholder, not beside it.
+    await waitFor(() =>
+      expect(placeholder.querySelector("[data-mermaid-diagram]")).toBeTruthy(),
+    );
   });
 
   it("does not fit the flow layer around a moved freeform object", async () => {

@@ -1,0 +1,22 @@
+{
+  "title": "Designing the Guest Journey",
+  "notes": "Light editorial theme with semantic h1-h4 and <p> siblings, a centered flex statement slide (Enter must reflow and re-center live), and blockquote.",
+  "slides": [
+    {
+      "id": "ed-title",
+      "layout": "title",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 72px 96px; background: #fffdf8; color: #292524; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; justify-content: center;\"><h4 style=\"font-size: 14px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #9a3412; margin: 0 0 18px;\">Design review · Northwind Resorts</h4><h1 style=\"font-family: 'Georgia', serif; font-size: 60px; font-weight: 400; line-height: 1.05; letter-spacing: -0.01em; margin: 0 0 20px;\">Designing the guest journey</h1><p style=\"font-size: 20px; line-height: 1.5; color: #57534e; margin: 0; max-width: 620px;\">From the booking confirmation to the checkout email — what guests see, and where we lose them.</p></div>"
+    },
+    {
+      "id": "ed-sections",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 80px; background: #fffdf8; color: #292524; font-family: 'Inter', sans-serif; display: flex; flex-direction: column;\"><h2 style=\"font-family: 'Georgia', serif; font-size: 38px; font-weight: 400; margin: 0 0 22px;\">Three moments that matter</h2><div style=\"display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;\"><div><h3 style=\"font-size: 20px; font-weight: 700; margin: 0 0 8px; color: #9a3412;\">Arrival</h3><p style=\"font-size: 16px; line-height: 1.55; margin: 0 0 10px; color: #44403c;\">Guests wait an average of eleven minutes at the desk on Friday evenings.</p><p style=\"font-size: 14px; line-height: 1.5; margin: 0; color: #78716c;\">Mobile key adoption is 23%.</p></div><div><h3 style=\"font-size: 20px; font-weight: 700; margin: 0 0 8px; color: #9a3412;\">First night</h3><p style=\"font-size: 16px; line-height: 1.55; margin: 0 0 10px; color: #44403c;\">Most complaints are about noise and room temperature, not cleanliness.</p><p style=\"font-size: 14px; line-height: 1.5; margin: 0; color: #78716c;\">Fix list is already with facilities.</p></div><div><h3 style=\"font-size: 20px; font-weight: 700; margin: 0 0 8px; color: #9a3412;\">Checkout</h3><p style=\"font-size: 16px; line-height: 1.55; margin: 0 0 10px; color: #44403c;\">The folio email arrives two hours late and is hard to read on a phone.</p><p style=\"font-size: 14px; line-height: 1.5; margin: 0; color: #78716c;\">Template redesign in progress.</p></div></div></div>"
+    },
+    {
+      "id": "ed-statement",
+      "layout": "statement",
+      "notes": "Pause here. This is the one sentence to remember.",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 80px 120px; background: #292524; color: #fafaf9; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 22px;\"><p style=\"font-family: 'Georgia', serif; font-size: 40px; line-height: 1.25; margin: 0;\">Guests forgive a slow check-in. They don't forgive a room that's too loud to sleep in.</p><p style=\"font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; color: #d6d3d1; margin: 0;\">— 2026 guest survey, 4,100 responses</p></div>"
+    }
+  ]
+}

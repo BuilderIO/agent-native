@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -347,6 +347,21 @@ describe("slide image replacement", () => {
 
     expect(img?.getAttribute("src")).toBe("/uploads/new.png");
     expect(img?.getAttribute("alt")).toBe("New");
+  });
+
+  it("keeps a slide's leading <style> block", () => {
+    const html = `<style>.card{padding:16px}</style>\n<div class="fmd-slide"><div class="card">Card</div><img src="/old.png" style="width: 120px;"></div>`;
+    const replaced = replaceImageTargetInSlideHtml(
+      html,
+      "/old.png",
+      "/new.png",
+    );
+    expect(replaced).toContain("<style>.card{padding:16px}</style>");
+    expect(firstImage(replaced)?.getAttribute("src")).toBe("/new.png");
+    const fitted = updateImageFitInSlideHtml(html, "/old.png", {
+      objectFit: "cover",
+    });
+    expect(fitted).toContain("<style>.card{padding:16px}</style>");
   });
 
   it("updates fit and position when the image URL contains escaped query params", () => {
