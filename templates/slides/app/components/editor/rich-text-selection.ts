@@ -597,8 +597,10 @@ export function normalizeSlideClipboardHtml(html: string): string | null {
       element.remove();
       return;
     }
+    // Editor state and identity: a pasted copy answering to its source's id
+    // or object id breaks selection, freeform moves, and export.
     for (const attribute of Array.from(element.attributes)) {
-      if (attribute.name.startsWith("data-"))
+      if (attribute.name.startsWith("data-") || attribute.name === "id")
         element.removeAttribute(attribute.name);
     }
     for (const property of SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES) {

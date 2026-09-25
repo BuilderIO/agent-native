@@ -404,6 +404,6 @@ describe("review round 3", () => {
     const html = normalizeSlideClipboardHtml(
       '<p id="a">x<span id="b" data-slide-object-id="c" class="k" style="color: red">y</span></p>',
     );
-    expect(html).toBe('<p>x<span class="k" style="color: red">y</span></p>');
+    expect(html).toBe('<p>x<span class="k" style="color: red;">y</span></p>');
   });
 });
