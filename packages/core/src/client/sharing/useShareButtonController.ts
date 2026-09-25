@@ -138,6 +138,7 @@ export function useShareButtonController(
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareButtonVisibility | null>(null);
+  const visibilitySequenceStartRef = useRef<ShareButtonVisibility | null>(null);
   const appliedDefaultOpenRef = useRef(false);
   const {
     queryKey: shareQueryKey,
@@ -175,6 +176,7 @@ export function useShareButtonController(
     setSelectedGroup(null);
     setShareMessage("");
     setMessageOpen(false);
+    visibilitySequenceStartRef.current = null;
   }, [options.resourceId, options.resourceType]);
 
   useEffect(() => {
@@ -198,6 +200,7 @@ export function useShareButtonController(
         return Promise.resolve();
       }
       const requestId = visibilityGuard.begin();
+      visibilitySequenceStartRef.current ??= visibility;
       const previous =
         optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
           queryClient,
@@ -221,7 +224,7 @@ export function useShareButtonController(
                 (result as { visibility?: unknown }).visibility;
               if (visibilityGuard.isLatest(requestId)) {
                 if (
-                  visibility === "private" &&
+                  visibilitySequenceStartRef.current === "private" &&
                   (resultVisibility === "org" || resultVisibility === "public")
                 ) {
                   options.onShareSuccess?.();
@@ -248,12 +251,14 @@ export function useShareButtonController(
                 .finally(() => {
                   if (visibilityGuard.isLatest(requestId)) {
                     setVisibilityOverride(null);
+                    visibilitySequenceStartRef.current = null;
                   }
                 });
             },
             onError: (error) => {
               if (visibilityGuard.isLatest(requestId)) {
                 setVisibilityOverride(null);
+                visibilitySequenceStartRef.current = null;
                 rollbackShareCache(queryClient, shareQueryKey, previous);
               }
               reject(error);

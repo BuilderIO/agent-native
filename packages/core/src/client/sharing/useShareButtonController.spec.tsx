@@ -197,6 +197,23 @@ describe("useShareButtonController", () => {
     expect(onShareSuccess).toHaveBeenCalledOnce();
   });
 
+  it("reports a rapid private-to-shared visibility sequence from its final result", async () => {
+    const onShareSuccess = vi.fn();
+    const result = await render({ ...options, onShareSuccess });
+    act(() => result.handleVisibility("org"));
+    const staleMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    act(() => (controller as ShareButtonController).handleVisibility("public"));
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      staleMutation?.onSuccess?.({ visibility: "org" });
+      latestMutation?.onSuccess?.({ visibility: "public" });
+      await Promise.resolve();
+    });
+
+    expect(onShareSuccess).toHaveBeenCalledOnce();
+  });
+
   it("ignores stale visibility success and requires an authoritative shared result", async () => {
     const onShareSuccess = vi.fn();
     const result = await render({ ...options, onShareSuccess });

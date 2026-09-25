@@ -2032,7 +2032,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
-  const [planShareSucceeded, setPlanShareSucceeded] = useState(false);
+  const [planShareSucceededId, setPlanShareSucceededId] = useState<
+    string | null
+  >(null);
   const [localBridgeCommentPending, setLocalBridgeCommentPending] =
     useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
@@ -5052,8 +5054,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     localShareUrl={planShareUrl}
                     hostedPlanId={bundle.plan.hostedPlanId}
                     hostedPlanUrl={bundle.plan.hostedPlanUrl}
-                    firstShare={planShareSucceeded}
-                    onShareSuccess={() => setPlanShareSucceeded(true)}
+                    firstShare={planShareSucceededId === bundle.plan.id}
+                    onShareSuccess={() =>
+                      setPlanShareSucceededId(bundle.plan.id)
+                    }
                     onOpenChange={(open) => {
                       if (open) closeInlineComment();
                     }}
