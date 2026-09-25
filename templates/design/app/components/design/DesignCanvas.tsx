@@ -1808,6 +1808,15 @@ export function DesignCanvas({
   const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
     null,
   );
+  const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
+    string | null
+  >(null);
+  if (
+    lastRuntimeStructureTargetReloadTransactionIdRef.current !==
+    runtimeStructureTargetTransactionId
+  ) {
+    lastRuntimeStructureTargetReloadTransactionIdRef.current = null;
+  }
   const flushPendingOneShotMessages = useCallback(() => {
     const iframe = iframeRef.current;
     const win = iframe?.contentWindow;
@@ -4015,6 +4024,19 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:runtime-reloading") {
+        const targetTransactionId = runtimeStructureTargetTransactionId;
+        if (
+          targetTransactionId &&
+          lastRuntimeStructureTargetReloadTransactionIdRef.current !==
+            targetTransactionId
+        ) {
+          lastRuntimeStructureTargetReloadTransactionIdRef.current =
+            targetTransactionId;
+          onRuntimeStructureInsertRejected?.(
+            "target-document-replaced",
+            targetTransactionId,
+          );
+        }
         // A local dev server full reload is unavoidable after some source
         // writes. Keep the last authenticated snapshot painted instead of
         // exposing the iframe's blank navigation frame; the replacement
@@ -5244,6 +5266,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     runtimeVerificationRequest,
+    runtimeStructureTargetTransactionId,
     fusionUrl,
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,

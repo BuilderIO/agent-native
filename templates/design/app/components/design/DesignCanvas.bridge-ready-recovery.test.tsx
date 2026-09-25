@@ -404,6 +404,105 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeStructureRollbackResult).not.toHaveBeenCalled();
   });
 
+  it("cancels an acknowledged insert when the destination document reloads before source ack", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const onRuntimeStructureInsertRejected = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/target"
+          contentKey="screen-target"
+          screenId="screen-target"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="ready-recovery-preview-token"
+          // The editor supplies this only after insert ack while the source
+          // delete request is still awaiting its own ack.
+          runtimeStructureTargetTransactionId="move-reload"
+          onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    iframeWindow.postMessage = vi.fn() as unknown as Window["postMessage"];
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "/target",
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(onRuntimeStructureInsertRejected).toHaveBeenCalledExactlyOnceWith(
+      "target-document-replaced",
+      "move-reload",
+    );
+  });
+
   it("keeps a live iframe bridge ready when its source snapshot key changes", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

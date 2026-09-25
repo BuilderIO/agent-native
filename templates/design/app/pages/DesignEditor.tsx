@@ -17133,20 +17133,23 @@ function DesignEditor() {
         runtimeStructureDeleteRequest?.transactionId === transactionId
           ? runtimeStructureDeleteRequest
           : null;
-      const targetUnmountCancellation =
-        reason === "target-canvas-unmounted" && transactionId
+      const targetDocumentUnavailable =
+        reason === "target-canvas-unmounted" ||
+        reason === "target-document-replaced";
+      const targetUnavailableCancellation =
+        targetDocumentUnavailable && transactionId
           ? crossScreenTargetUnmountDeleteCancellation(
               sourceDeleteRequest,
               transactionId,
             )
           : null;
-      if (sourceDeleteRequest && targetUnmountCancellation) {
+      if (sourceDeleteRequest && targetUnavailableCancellation) {
         setRuntimeStructureInsertRequest((current) =>
           current?.transactionId === transactionId ? null : current,
         );
         setRuntimeStructureDeleteRequest((current) =>
           current?.transactionId === transactionId
-            ? targetUnmountCancellation
+            ? targetUnavailableCancellation
             : current,
         );
         toast.error(t("designEditor.toasts.layerMoveFailed"), {
