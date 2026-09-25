@@ -229,7 +229,8 @@ describe("empty-deck generation retry", () => {
       "await flushDeckSave(id)",
     );
     expect(retryBody).toContain("return { persisted: false }");
-    expect(retryBody).toContain("if (!(await restoreFailedRetry()).persisted)");
+    expect(retryBody).toContain("const rollback = await restoreFailedRetry();");
+    expect(retryBody).toContain('t("home.generationStartFailed")');
     expect(retryBody).toContain("newTab: true");
     expect(retryBody).toContain("reuseEmptyTab: true");
     expect(retryBody).toContain(

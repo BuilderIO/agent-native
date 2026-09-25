@@ -1,5 +1,7 @@
 import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   sendToAgentChat,
+  type AgentChatSubmitResult,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -390,17 +392,78 @@ export type GenerationDeckRefreshResult =
   | { status: "not_ready" }
   | { status: "failed" };
 
-type EmptyGenerationRetryRecovery = {
-  retryAttemptId: string;
-  restoreAttemptId: string | null;
-};
+type EmptyGenerationRecovery =
+  | {
+      kind: "retry_rollback";
+      retryAttemptId: string;
+      restoreAttemptId: string | null;
+      restoreSearchParams?: string;
+    }
+  | { kind: "retry_accepted"; retryAttemptId: string }
+  | { kind: "generation_failure"; attemptId: string; failureCode: string };
 
-function clearEmptyGenerationRetryRecovery(key: string | null): void {
-  if (!key || typeof window === "undefined") return;
+function parseEmptyGenerationRecovery(
+  serialized: string,
+): EmptyGenerationRecovery | null {
+  let recovery: unknown;
   try {
+    recovery = JSON.parse(serialized);
+  } catch (error) {
+    console.warn("Ignoring invalid Slides generation recovery data.", error);
+    return null;
+  }
+  if (typeof recovery !== "object" || recovery === null) return null;
+  const record = recovery as Record<string, unknown>;
+  if (
+    (record.kind === "retry_rollback" || record.kind === undefined) &&
+    typeof record.retryAttemptId === "string" &&
+    (typeof record.restoreAttemptId === "string" ||
+      record.restoreAttemptId === null)
+  ) {
+    return {
+      kind: "retry_rollback",
+      retryAttemptId: record.retryAttemptId,
+      restoreAttemptId: record.restoreAttemptId,
+      ...(typeof record.restoreSearchParams === "string"
+        ? { restoreSearchParams: record.restoreSearchParams }
+        : {}),
+    };
+  }
+  if (
+    record.kind === "retry_accepted" &&
+    typeof record.retryAttemptId === "string"
+  ) {
+    return {
+      kind: "retry_accepted",
+      retryAttemptId: record.retryAttemptId,
+    };
+  }
+  if (
+    record.kind === "generation_failure" &&
+    typeof record.attemptId === "string" &&
+    typeof record.failureCode === "string"
+  ) {
+    return {
+      kind: "generation_failure",
+      attemptId: record.attemptId,
+      failureCode: record.failureCode,
+    };
+  }
+  return null;
+}
+
+function clearEmptyGenerationRecovery(
+  key: string | null,
+  expected?: string,
+): boolean {
+  if (!key || typeof window === "undefined") return false;
+  try {
+    if (expected && window.localStorage.getItem(key) !== expected) return false;
     window.localStorage.removeItem(key);
-  } catch {
-    return;
+    return window.localStorage.getItem(key) === null;
+  } catch (error) {
+    console.error("Failed to clear Slides generation recovery data.", error);
+    return false;
   }
 }
 
@@ -522,7 +585,7 @@ export default function DeckEditor() {
   const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
   const retryEmptyGenerationInFlightRef = useRef(false);
-  const retryRollbackRecoveryAttemptRef = useRef<string | null>(null);
+  const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
   const {
@@ -866,59 +929,115 @@ export default function DeckEditor() {
     }
     if (!serializedRecovery) return;
 
-    let recovery: unknown;
-    try {
-      recovery = JSON.parse(serializedRecovery);
-    } catch {
-      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+    const recovery = parseEmptyGenerationRecovery(serializedRecovery);
+    if (!recovery) {
+      clearEmptyGenerationRecovery(retryRecoveryStorageKey, serializedRecovery);
       return;
     }
-    if (typeof recovery !== "object" || recovery === null) {
-      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
-      return;
-    }
-    const recoveryRecord = recovery as Record<string, unknown>;
-    if (
-      typeof recoveryRecord.retryAttemptId !== "string" ||
-      !(
-        typeof recoveryRecord.restoreAttemptId === "string" ||
-        recoveryRecord.restoreAttemptId === null
-      )
-    ) {
-      clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
-      return;
-    }
-    const { retryAttemptId, restoreAttemptId } =
-      recoveryRecord as EmptyGenerationRetryRecovery;
-    if (retryAttemptId !== generationAttemptId) {
-      if (retryRollbackRecoveryAttemptRef.current !== retryAttemptId) {
-        clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
+    if (recovery.kind === "retry_rollback") {
+      if (recovery.retryAttemptId !== generationAttemptId) {
+        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+        }
+        return;
       }
-      return;
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+      if (
+        searchParams.get("generation_attempt_id") === recovery.retryAttemptId
+      ) {
+        const restoredSearchParams = new URLSearchParams(
+          recovery.restoreSearchParams ?? searchParams,
+        );
+        if (recovery.restoreSearchParams === undefined) {
+          restoredSearchParams.delete("generating");
+          restoredSearchParams.delete("generation_attempt_id");
+          restoredSearchParams.delete("generationSubmitId");
+        }
+        setSearchParams(restoredSearchParams, { replace: true });
+      }
+      updateDeck(id, {
+        generationContext: {
+          ...generationContext,
+          generationAttemptId: recovery.restoreAttemptId ?? undefined,
+        },
+      });
+    } else if (recovery.kind === "generation_failure") {
+      if (recovery.attemptId !== generationAttemptId) {
+        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+        }
+        return;
+      }
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      if (
+        generationContext.generationFailureCode === recovery.failureCode &&
+        generationContext.generationFailureAttemptId === recovery.attemptId
+      ) {
+        clearEmptyGenerationRecovery(
+          retryRecoveryStorageKey,
+          serializedRecovery,
+        );
+        return;
+      }
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+      updateDeck(id, {
+        generationContext: {
+          ...generationContext,
+          generationFailureCode: recovery.failureCode,
+          generationFailureAttemptId: recovery.attemptId,
+        },
+      });
+    } else {
+      if (recovery.retryAttemptId !== generationAttemptId) {
+        if (emptyGenerationRecoveryRef.current !== serializedRecovery) {
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          );
+        }
+        return;
+      }
+      if (emptyGenerationRecoveryRef.current === serializedRecovery) return;
+      if (
+        generationContext.generationFailureCode == null &&
+        generationContext.generationFailureAttemptId == null
+      ) {
+        clearEmptyGenerationRecovery(
+          retryRecoveryStorageKey,
+          serializedRecovery,
+        );
+        return;
+      }
+      emptyGenerationRecoveryRef.current = serializedRecovery;
+      updateDeck(id, {
+        generationContext: {
+          ...generationContext,
+          generationFailureCode: null,
+          generationFailureAttemptId: null,
+        },
+      });
     }
 
-    retryRollbackRecoveryAttemptRef.current = retryAttemptId;
-    updateDeck(id, {
-      generationContext: {
-        ...generationContext,
-        generationAttemptId: restoreAttemptId ?? undefined,
-      },
-    });
     void flushDeckSave(id)
       .then(() => {
-        try {
-          if (
-            window.localStorage.getItem(retryRecoveryStorageKey) ===
-            serializedRecovery
-          ) {
-            window.localStorage.removeItem(retryRecoveryStorageKey);
-          }
-        } catch {
+        if (
+          !clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            serializedRecovery,
+          )
+        ) {
           toast.error(t("settings.saveFailed"));
           return;
         }
-        if (retryRollbackRecoveryAttemptRef.current === retryAttemptId) {
-          retryRollbackRecoveryAttemptRef.current = null;
+        if (emptyGenerationRecoveryRef.current === serializedRecovery) {
+          emptyGenerationRecoveryRef.current = null;
         }
       })
       .catch(() => toast.error(t("settings.saveFailed")));
@@ -928,6 +1047,8 @@ export default function DeckEditor() {
     generationContext,
     id,
     retryRecoveryStorageKey,
+    searchParams,
+    setSearchParams,
     t,
     updateDeck,
   ]);
@@ -1127,8 +1248,36 @@ export default function DeckEditor() {
               generationFailureAttemptId: generationAttemptId,
             },
           });
+          const recovery: EmptyGenerationRecovery = {
+            kind: "generation_failure",
+            attemptId: generationAttemptId,
+            failureCode,
+          };
+          const serializedRecovery = JSON.stringify(recovery);
+          if (retryRecoveryStorageKey) {
+            try {
+              window.localStorage.setItem(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              );
+              emptyGenerationRecoveryRef.current = serializedRecovery;
+            } catch (error) {
+              console.error(
+                "Failed to store Slides generation recovery data.",
+                error,
+              );
+            }
+          }
           try {
             await flushDeckSave(id);
+            if (
+              clearEmptyGenerationRecovery(
+                retryRecoveryStorageKey,
+                serializedRecovery,
+              )
+            ) {
+              emptyGenerationRecoveryRef.current = null;
+            }
           } catch {
             toast.error(t("editorSidebar.newSlideSaveFailed"));
           }
@@ -1175,6 +1324,7 @@ export default function DeckEditor() {
     id,
     newDeckGenerationSignal,
     refreshOpenDeck,
+    retryRecoveryStorageKey,
     updateDeck,
     flushDeckSave,
     t,
@@ -1203,25 +1353,37 @@ export default function DeckEditor() {
       generationFailureAttemptId:
         generationContext.generationFailureAttemptId ?? generationAttemptId,
     };
-    const rememberFailedRetryRollback = () => {
-      if (!retryRecoveryStorageKey) return;
-      const recovery: EmptyGenerationRetryRecovery = {
-        retryAttemptId,
-        restoreAttemptId:
-          typeof generationContext.generationFailureAttemptId === "string"
-            ? generationContext.generationFailureAttemptId
-            : generationAttemptId,
-      };
+    const rollbackRecovery: EmptyGenerationRecovery = {
+      kind: "retry_rollback",
+      retryAttemptId,
+      restoreAttemptId:
+        typeof generationContext.generationFailureAttemptId === "string"
+          ? generationContext.generationFailureAttemptId
+          : generationAttemptId,
+      restoreSearchParams: originalSearchParams.toString(),
+    };
+    const storeRecovery = (recovery: EmptyGenerationRecovery) => {
+      if (!retryRecoveryStorageKey) return null;
+      const serialized = JSON.stringify(recovery);
       try {
-        window.localStorage.setItem(
-          retryRecoveryStorageKey,
-          JSON.stringify(recovery),
+        window.localStorage.setItem(retryRecoveryStorageKey, serialized);
+        emptyGenerationRecoveryRef.current = serialized;
+        return serialized;
+      } catch (error) {
+        console.error(
+          "Failed to store Slides generation recovery data.",
+          error,
         );
-        retryRollbackRecoveryAttemptRef.current = retryAttemptId;
-      } catch {
-        return;
+        return null;
       }
     };
+    const rollbackRecoverySerialized = storeRecovery(rollbackRecovery);
+    if (!rollbackRecoverySerialized) {
+      retryEmptyGenerationInFlightRef.current = false;
+      setRetryEmptyGenerationPending(false);
+      toast.error(t("settings.saveFailed"));
+      return;
+    }
     setGenerationAttemptTab(null);
     generationRunStartedRef.current = false;
     generationSawActiveRef.current = false;
@@ -1238,6 +1400,11 @@ export default function DeckEditor() {
       generationStartedAtRef.current = null;
       try {
         await flushDeckSave(id);
+        clearEmptyGenerationRecovery(
+          retryRecoveryStorageKey,
+          rollbackRecoverySerialized,
+        );
+        emptyGenerationRecoveryRef.current = null;
         return { persisted: true };
       } catch {
         return { persisted: false };
@@ -1248,12 +1415,8 @@ export default function DeckEditor() {
       try {
         updateDeck(id, { generationContext: retryContext });
         await flushDeckSave(id);
-        clearEmptyGenerationRetryRecovery(retryRecoveryStorageKey);
-        retryRollbackRecoveryAttemptRef.current = null;
       } catch {
-        if (!(await restoreFailedRetry()).persisted) {
-          rememberFailedRetryRollback();
-        }
+        await restoreFailedRetry();
         toast.error(t("settings.saveFailed"));
         return;
       }
@@ -1268,9 +1431,24 @@ export default function DeckEditor() {
         typeof generationContext.originalPrompt === "string"
           ? generationContext.originalPrompt
           : "Continue generating this deck.";
+      const acceptedRecovery: EmptyGenerationRecovery = {
+        kind: "retry_accepted",
+        retryAttemptId,
+      };
+      let acceptedRecoverySerialized: string | null = null;
+      const rememberConfirmedDelivery = (event: Event) => {
+        const { detail } = event as CustomEvent<AgentChatSubmitResult>;
+        if (detail?.submitMessageId === submitMessageId && detail.delivered) {
+          acceptedRecoverySerialized = storeRecovery(acceptedRecovery);
+        }
+      };
       let submission: Awaited<
         ReturnType<typeof submitGenerationAttemptAndConfirm>
       >;
+      window.addEventListener(
+        AGENT_CHAT_SUBMIT_RESULT_EVENT,
+        rememberConfirmedDelivery,
+      );
       try {
         submission = await submitGenerationAttemptAndConfirm(
           prompt,
@@ -1285,17 +1463,39 @@ export default function DeckEditor() {
           },
         );
       } catch {
-        if (!(await restoreFailedRetry()).persisted) {
-          rememberFailedRetryRollback();
-          toast.error(t("settings.saveFailed"));
-        }
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("home.generationStartFailed")
+            : t("settings.saveFailed"),
+        );
         return;
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          rememberConfirmedDelivery,
+        );
       }
       if (!submission.delivered) {
-        if (!(await restoreFailedRetry()).persisted) {
-          rememberFailedRetryRollback();
-          toast.error(t("settings.saveFailed"));
+        const rollback = await restoreFailedRetry();
+        toast.error(
+          rollback.persisted
+            ? t("home.generationStartFailed")
+            : t("settings.saveFailed"),
+        );
+        return;
+      }
+      acceptedRecoverySerialized ??= storeRecovery(acceptedRecovery);
+      if (!acceptedRecoverySerialized) {
+        if (
+          clearEmptyGenerationRecovery(
+            retryRecoveryStorageKey,
+            rollbackRecoverySerialized,
+          )
+        ) {
+          emptyGenerationRecoveryRef.current = null;
         }
+        toast.error(t("settings.saveFailed"));
         return;
       }
       trackEvent("generation_started", {
@@ -1315,6 +1515,11 @@ export default function DeckEditor() {
       });
       try {
         await flushDeckSave(id);
+        clearEmptyGenerationRecovery(
+          retryRecoveryStorageKey,
+          acceptedRecoverySerialized,
+        );
+        emptyGenerationRecoveryRef.current = null;
       } catch {
         toast.error(t("settings.saveFailed"));
       }
