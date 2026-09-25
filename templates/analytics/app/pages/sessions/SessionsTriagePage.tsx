@@ -4,14 +4,13 @@ import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
-  IconFilter,
   IconRefresh,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -228,261 +227,280 @@ export function SessionsTriagePage() {
 
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
-      <Card>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-44 flex-1 sm:max-w-44">
-              <Input
-                value={queryInput}
-                onChange={(event) => setQueryInput(event.target.value)}
-                placeholder={t("sessions.searchPlaceholder")}
-                aria-label={t("sessions.searchPlaceholder")}
-                className="h-9"
-              />
-            </div>
-            <Select
-              value={app || "all"}
-              onValueChange={(value) =>
-                setFilter("app", value === "all" ? "" : value)
-              }
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-56 flex-1 max-sm:basis-full">
+          <Input
+            value={queryInput}
+            onChange={(event) => setQueryInput(event.target.value)}
+            placeholder={t("sessions.searchPlaceholder")}
+            aria-label={t("sessions.searchPlaceholder")}
+            className="h-8 bg-transparent"
+          />
+        </div>
+        <Select
+          value={app || "all"}
+          onValueChange={(value) =>
+            setFilter("app", value === "all" ? "" : value)
+          }
+        >
+          <SelectTrigger
+            className="h-8 w-auto min-w-28 gap-2 bg-transparent"
+            aria-label={t("sessions.app")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
+            {(data?.appCounts ?? []).map(({ app: name, count }) => (
+              <SelectItem key={name} value={name}>
+                {name} ({count.toLocaleString()})
+              </SelectItem>
+            ))}
+            {app && !data?.appCounts?.some(({ app: name }) => name === app) ? (
+              <SelectItem value={app}>{app}</SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border border-input bg-transparent font-normal hover:bg-accent"
             >
-              <SelectTrigger
-                className="h-9 w-auto min-w-28"
-                aria-label={t("sessions.app")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
-                {(data?.appCounts ?? []).map(({ app: name, count }) => (
-                  <SelectItem key={name} value={name}>
-                    {name} ({count.toLocaleString()})
-                  </SelectItem>
-                ))}
-                {app &&
-                !data?.appCounts?.some(({ app: name }) => name === app) ? (
-                  <SelectItem value={app}>{app}</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9">
-                  <IconCalendar />
-                  {range === "custom"
-                    ? t("sessions.customRange")
-                    : rangeLabel(range, t)}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-72">
-                <div className="space-y-3">
-                  <Label>{t("sessions.range")}</Label>
-                  <Select
-                    value={range}
-                    onValueChange={(value) => setFilter("range", value)}
-                  >
-                    <SelectTrigger aria-label={t("sessions.range")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RANGES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {rangeLabel(value, t)}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom">
-                        {t("sessions.customRange")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div
-                      className="space-y-1"
-                      role="group"
-                      aria-label={t("sessions.fromDate")}
-                    >
-                      <Label>{t("sessions.fromDate")}</Label>
-                      <DatePicker
-                        value={fromDate}
-                        placeholder={t("sessions.fromDate")}
-                        onChange={(value) => setCustomDate("fromDate", value)}
-                      />
-                    </div>
-                    <div
-                      className="space-y-1"
-                      role="group"
-                      aria-label={t("sessions.toDate")}
-                    >
-                      <Label>{t("sessions.toDate")}</Label>
-                      <DatePicker
-                        value={toDate}
-                        placeholder={t("sessions.toDate")}
-                        onChange={(value) => setCustomDate("toDate", value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Select
-              value={String(minDurationMs)}
-              onValueChange={(value) =>
-                setFilter("minDurationMs", value === "0" ? "" : value)
-              }
-            >
-              <SelectTrigger
-                className="h-9 w-auto min-w-32"
-                aria-label={t("sessions.duration")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DURATIONS.map((value) => (
-                  <SelectItem key={value} value={String(value)}>
-                    {durationLabel(value, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={
-                    hasErrors || hasNetworkErrors || hasRageClicks || !hideEmpty
-                      ? "secondary"
-                      : "outline"
-                  }
-                  size="sm"
-                  className="h-9"
-                >
-                  <IconFilter />
-                  {t("sessions.signals")}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-56">
-                <div className="space-y-3">
-                  <CheckFilter
-                    label={t("sessions.hideEmptySessions")}
-                    checked={hideEmpty}
-                    onChange={(checked) =>
-                      setFilter("hideEmpty", checked ? "" : "false")
-                    }
-                  />
-                  <CheckFilter
-                    label={t("sessions.errors")}
-                    checked={hasErrors}
-                    onChange={(checked) => toggle("hasErrors", checked)}
-                  />
-                  <CheckFilter
-                    label={t("sessions.networkErrors")}
-                    checked={hasNetworkErrors}
-                    onChange={(checked) => toggle("hasNetworkErrors", checked)}
-                  />
-                  <CheckFilter
-                    label={t("sessions.rageClicksFilter")}
-                    checked={hasRageClicks}
-                    onChange={(checked) => toggle("hasRageClicks", checked)}
-                  />
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={
-                    visitorType || hideInternal || domain
-                      ? "secondary"
-                      : "outline"
-                  }
-                  size="sm"
-                  className="h-9"
-                >
-                  {t("sessions.visitors")}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-64">
-                <div className="space-y-3">
-                  <Select
-                    value={visitorType ?? "all"}
-                    onValueChange={(value) =>
-                      setFilter("visitorType", value === "all" ? "" : value)
-                    }
-                  >
-                    <SelectTrigger aria-label={t("sessions.visitors")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">
-                        {t("sessions.allVisitors")}
-                      </SelectItem>
-                      <SelectItem value="internal">
-                        {t("sessions.internalVisitors")}
-                      </SelectItem>
-                      <SelectItem value="work">
-                        {t("sessions.workVisitors")}
-                      </SelectItem>
-                      <SelectItem value="personal">
-                        {t("sessions.personalVisitors")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <CheckFilter
-                    label={t("sessions.hideInternal")}
-                    checked={hideInternal}
-                    onChange={(checked) => toggle("hideInternal", checked)}
-                  />
-                  <div className="space-y-1">
-                    <Label htmlFor="sessions-email-domain">
-                      {t("sessions.emailDomain")}
-                    </Label>
-                    <Input
-                      id="sessions-email-domain"
-                      aria-label={t("sessions.emailDomain")}
-                      value={domainInput}
-                      onChange={(event) => setDomainInput(event.target.value)}
-                      placeholder="example.com"
-                    />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <div className="ms-auto flex items-center gap-2">
+              <IconCalendar />
+              {range === "custom"
+                ? t("sessions.customRange")
+                : rangeLabel(range, t)}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72">
+            <div className="space-y-3">
+              <Label>{t("sessions.range")}</Label>
               <Select
-                value={sort}
-                onValueChange={(value) =>
-                  setFilter("sort", value === "newest" ? "" : value)
-                }
+                value={range}
+                onValueChange={(value) => setFilter("range", value)}
               >
-                <SelectTrigger
-                  className="h-9 w-auto min-w-36"
-                  aria-label={t("sessions.sortBy")}
-                >
+                <SelectTrigger aria-label={t("sessions.range")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {SORTS.map((value) => (
+                  {RANGES.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {sortLabel(value, t)}
+                      {rangeLabel(value, t)}
                     </SelectItem>
                   ))}
+                  <SelectItem value="custom">
+                    {t("sessions.customRange")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-9"
-                onClick={() => void refetch()}
-                disabled={isFetching}
-                aria-label={t("sessions.refresh")}
-              >
-                <IconRefresh className={cn(isFetching && "animate-spin")} />
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <div
+                  className="space-y-1"
+                  role="group"
+                  aria-label={t("sessions.fromDate")}
+                >
+                  <Label>{t("sessions.fromDate")}</Label>
+                  <DatePicker
+                    value={fromDate}
+                    placeholder={t("sessions.fromDate")}
+                    onChange={(value) => setCustomDate("fromDate", value)}
+                  />
+                </div>
+                <div
+                  className="space-y-1"
+                  role="group"
+                  aria-label={t("sessions.toDate")}
+                >
+                  <Label>{t("sessions.toDate")}</Label>
+                  <DatePicker
+                    value={toDate}
+                    placeholder={t("sessions.toDate")}
+                    onChange={(value) => setCustomDate("toDate", value)}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </PopoverContent>
+        </Popover>
+        <Select
+          value={String(minDurationMs)}
+          onValueChange={(value) =>
+            setFilter("minDurationMs", value === "0" ? "" : value)
+          }
+        >
+          <SelectTrigger
+            className="h-8 w-auto min-w-32 gap-2 bg-transparent"
+            aria-label={t("sessions.duration")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DURATIONS.map((value) => (
+              <SelectItem key={value} value={String(value)}>
+                {durationLabel(value, t)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={
+                hasErrors || hasNetworkErrors || hasRageClicks || !hideEmpty
+                  ? "secondary"
+                  : "outline"
+              }
+              size="sm"
+              className={cn(
+                "h-8 border border-input font-normal",
+                !(
+                  hasErrors ||
+                  hasNetworkErrors ||
+                  hasRageClicks ||
+                  !hideEmpty
+                ) && "bg-transparent hover:bg-accent",
+              )}
+            >
+              {t("sessions.signals")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-56">
+            <div className="space-y-3">
+              <CheckFilter
+                label={t("sessions.hideEmptySessions")}
+                checked={hideEmpty}
+                onChange={(checked) =>
+                  setFilter("hideEmpty", checked ? "" : "false")
+                }
+              />
+              <CheckFilter
+                label={t("sessions.errors")}
+                checked={hasErrors}
+                onChange={(checked) => toggle("hasErrors", checked)}
+              />
+              <CheckFilter
+                label={t("sessions.networkErrors")}
+                checked={hasNetworkErrors}
+                onChange={(checked) => toggle("hasNetworkErrors", checked)}
+              />
+              <CheckFilter
+                label={t("sessions.rageClicksFilter")}
+                checked={hasRageClicks}
+                onChange={(checked) => toggle("hasRageClicks", checked)}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant={
+                visitorType || hideInternal || domain ? "secondary" : "outline"
+              }
+              size="sm"
+              className={cn(
+                "h-8 border border-input font-normal",
+                !(visitorType || hideInternal || domain) &&
+                  "bg-transparent hover:bg-accent",
+              )}
+            >
+              {t("sessions.visitors")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64">
+            <div className="space-y-3">
+              <Select
+                value={visitorType ?? "all"}
+                onValueChange={(value) =>
+                  setFilter("visitorType", value === "all" ? "" : value)
+                }
+              >
+                <SelectTrigger aria-label={t("sessions.visitors")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("sessions.allVisitors")}
+                  </SelectItem>
+                  <SelectItem value="internal">
+                    {t("sessions.internalVisitors")}
+                  </SelectItem>
+                  <SelectItem value="work">
+                    {t("sessions.workVisitors")}
+                  </SelectItem>
+                  <SelectItem value="personal">
+                    {t("sessions.personalVisitors")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <CheckFilter
+                label={t("sessions.hideInternal")}
+                checked={hideInternal}
+                onChange={(checked) => toggle("hideInternal", checked)}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="sessions-email-domain">
+                  {t("sessions.emailDomain")}
+                </Label>
+                <Input
+                  id="sessions-email-domain"
+                  aria-label={t("sessions.emailDomain")}
+                  value={domainInput}
+                  onChange={(event) => setDomainInput(event.target.value)}
+                  placeholder="example.com"
+                />
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
       <Card>
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-sm">
+          <div className="text-muted-foreground" aria-live="polite">
+            {data ? (
+              t(total === 1 ? "sessions.showingSingular" : "sessions.showing", {
+                count: total.toLocaleString(),
+              })
+            ) : isLoading ? (
+              <Skeleton className="h-4 w-24" />
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Select
+              value={sort}
+              onValueChange={(value) =>
+                setFilter("sort", value === "newest" ? "" : value)
+              }
+            >
+              <SelectTrigger
+                className="h-8 w-auto gap-2 border-transparent bg-transparent shadow-none text-xs"
+                aria-label={t("sessions.sortBy")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORTS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {sortLabel(value, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              aria-label={t("sessions.refresh")}
+            >
+              <IconRefresh className={cn(isFetching && "animate-spin")} />
+            </Button>
+          </div>
+        </div>
         <div>
           {error ? (
             <div className="p-6 text-sm text-destructive" role="alert">
@@ -496,19 +514,6 @@ export function SessionsTriagePage() {
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm">
-                <span className="font-medium">
-                  {t("sessions.sessionPlaylist")}
-                </span>
-                <span className="text-muted-foreground" aria-live="polite">
-                  {t(
-                    total === 1
-                      ? "sessions.showingSingular"
-                      : "sessions.showing",
-                    { count: total.toLocaleString() },
-                  )}
-                </span>
-              </div>
               {recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   {t("sessions.noSessions")}
