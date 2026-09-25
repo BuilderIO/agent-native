@@ -344,7 +344,7 @@ describe("createDesignVersionSnapshot", () => {
   });
 
   it("captures the start of a chat once per thread", async () => {
-    const run = { threadId: "thread-1", runId: "run-1" };
+    const run = { threadId: 'thread "%_\\path', runId: "run-1" };
 
     const first = await createDesignChatBeginningSnapshot("design-1", run);
     const retry = await createDesignChatBeginningSnapshot("design-1", run);
@@ -355,6 +355,25 @@ describe("createDesignVersionSnapshot", () => {
     expect(
       JSON.parse(captureMocks.revisions[0]!.chatContext as string),
     ).toMatchObject({ ...run, phase: "start" });
+
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [
+        expect.objectContaining({
+          id: expect.any(String),
+          chatContext: { ...run, phase: "start" },
+        }),
+      ],
+    });
+
+    captureMocks.revisions[0]!.chatContext = `{"threadId":${JSON.stringify(run.threadId)},"phase":"start",broken}`;
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [],
+      invalidCount: 1,
+    });
   });
 
   it("uses the database primary key to deduplicate concurrent thread baselines", async () => {

@@ -211,35 +211,18 @@ export async function createDeckChatBeginningSnapshot(
   source: DeckSnapshotSource,
   run: { threadId: string; runId: string },
 ): Promise<{ created: boolean; id?: string; reason?: string }> {
-  const escapedThreadId = JSON.stringify(run.threadId).replace(
-    /[\\%_]/g,
-    "\\$&",
-  );
   const rows = await getDb()
-    .select({ chatContext: schema.deckVersions.chatContext })
+    .select({ id: schema.deckVersions.id })
     .from(schema.deckVersions)
     .where(
       and(
         eq(schema.deckVersions.deckId, source.id),
         eq(schema.deckVersions.ownerEmail, source.ownerEmail),
-        like(schema.deckVersions.chatContext, '%"phase":"start"%'),
-        like(
-          schema.deckVersions.chatContext,
-          `%"threadId":${escapedThreadId}%`,
-        ),
+        eq(schema.deckVersions.changeGroup, `start:thread:${run.threadId}`),
       ),
     )
     .limit(1);
-  if (
-    rows.some((row) => {
-      try {
-        const context = parseDeckVersionChatContext(row.chatContext);
-        return context?.threadId === run.threadId && context.phase === "start";
-      } catch {
-        return false;
-      }
-    })
-  ) {
+  if (rows.length) {
     return { created: false, reason: "beginning-exists" };
   }
   return createDeckVersionSnapshot(source, {

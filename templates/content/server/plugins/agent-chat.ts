@@ -9,8 +9,10 @@ import { and, eq, like } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { getDb, schema } from "../db/index.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
-import { recordDocumentHistoryTransition } from "../lib/document-history.js";
-import { parseDocumentVersionChatContext } from "../lib/document-version-context.js";
+import {
+  documentChatStartVersionId,
+  recordDocumentHistoryTransition,
+} from "../lib/document-history.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -112,39 +114,25 @@ async function autosaveDocumentAtChatBoundary(
   const chatContext = { threadId: run.threadId, runId: run.runId, phase };
 
   if (phase === "start") {
-    const escapedThreadId = JSON.stringify(run.threadId).replace(
-      /[\\%_]/g,
-      "\\$&",
-    );
     const existing = await db
-      .select({ chatContext: schema.documentVersions.chatContext })
+      .select({ id: schema.documentVersions.id })
       .from(schema.documentVersions)
       .where(
         and(
           eq(schema.documentVersions.documentId, scope.id),
           eq(schema.documentVersions.ownerEmail, document.ownerEmail),
-          like(schema.documentVersions.chatContext, '%"phase":"start"%'),
-          like(
-            schema.documentVersions.chatContext,
-            `%"threadId":${escapedThreadId}%`,
+          eq(
+            schema.documentVersions.id,
+            documentChatStartVersionId(
+              document.ownerEmail,
+              scope.id,
+              run.threadId,
+            ),
           ),
         ),
       )
       .limit(1);
-    if (
-      existing.some((row) => {
-        try {
-          const context = parseDocumentVersionChatContext(row.chatContext);
-          return (
-            context?.threadId === run.threadId && context?.phase === "start"
-          );
-        } catch {
-          return false;
-        }
-      })
-    ) {
-      return;
-    }
+    if (existing.length) return;
   }
 
   const state = { title: document.title, content: document.content };

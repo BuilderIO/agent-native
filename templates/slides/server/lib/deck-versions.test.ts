@@ -210,6 +210,7 @@ describe("deck version snapshot deduplication", () => {
   });
 
   it("separates the beginning checkpoint from the end snapshot group", async () => {
+    const threadId = 'thread "%_\\path';
     await createDeckVersionSnapshot(
       {
         id: "deck-1",
@@ -219,13 +220,13 @@ describe("deck version snapshot deduplication", () => {
       },
       {
         force: true,
-        chatContext: { threadId: "thread-1", runId: "run-1", phase: "start" },
+        chatContext: { threadId, runId: "run-1", phase: "start" },
         db: db as unknown as ReturnType<typeof getDb>,
       },
     );
 
     expect(insertedVersions).toEqual([
-      expect.objectContaining({ changeGroup: "start:thread:thread-1" }),
+      expect.objectContaining({ changeGroup: `start:thread:${threadId}` }),
     ]);
   });
 

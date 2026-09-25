@@ -3341,22 +3341,34 @@ const AssistantChatInner = forwardRef<
   const refetchChatHistory = chatHistoryListQuery.refetch;
   const restoreHistory = chatHistoryRestoreMutation.mutateAsync;
   const createHistoryVersion = chatHistoryCreateMutation.mutateAsync;
+  const [isChatHistoryRestoring, setIsChatHistoryRestoring] = useState(false);
+  const chatHistoryRestoreInFlightRef = useRef(false);
   const restoreChatHistoryVersion = useCallback(
     async (version: AssistantChatHistoryVersion) => {
       if (!chatHistory) return;
-      await restoreAssistantChatHistoryVersion({
-        history: chatHistory,
-        version,
-        restore: restoreHistory,
-        refetch: refetchChatHistory,
-        onRefetchError: (error) =>
-          captureError(error, {
-            tags: {
-              source: "agent-chat-client",
-              phase: "chat-history-refetch-after-restore",
-            },
-          }),
-      });
+      if (chatHistoryRestoreInFlightRef.current) {
+        throw new Error("A chat history restore is already in progress.");
+      }
+      chatHistoryRestoreInFlightRef.current = true;
+      setIsChatHistoryRestoring(true);
+      try {
+        await restoreAssistantChatHistoryVersion({
+          history: chatHistory,
+          version,
+          restore: restoreHistory,
+          refetch: refetchChatHistory,
+          onRefetchError: (error) =>
+            captureError(error, {
+              tags: {
+                source: "agent-chat-client",
+                phase: "chat-history-refetch-after-restore",
+              },
+            }),
+        });
+      } finally {
+        chatHistoryRestoreInFlightRef.current = false;
+        setIsChatHistoryRestoring(false);
+      }
     },
     [chatHistory, refetchChatHistory, restoreHistory],
   );
@@ -3369,6 +3381,7 @@ const AssistantChatInner = forwardRef<
               threadId,
               chatHistory.isEditable,
             ),
+            isRestoring: isChatHistoryRestoring,
             findVersion: (message: AssistantChatHistoryMessage) =>
               findMatchingAssistantChatHistoryVersion(
                 chatHistoryVersions,
@@ -3382,7 +3395,13 @@ const AssistantChatInner = forwardRef<
             restoreVersion: restoreChatHistoryVersion,
           }
         : null,
-    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion, threadId],
+    [
+      chatHistory,
+      chatHistoryVersions,
+      isChatHistoryRestoring,
+      restoreChatHistoryVersion,
+      threadId,
+    ],
   );
   const chatHistoryRunObservedRef = useRef(false);
   const chatHistoryCreateKeyRef = useRef<string | null>(null);

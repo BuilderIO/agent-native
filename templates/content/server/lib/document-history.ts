@@ -45,6 +45,14 @@ function newGroupId(prefix: string) {
   return `${prefix}:${crypto.randomUUID()}`;
 }
 
+export function documentChatStartVersionId(
+  ownerEmail: string,
+  documentId: string,
+  chatStartKey: string,
+) {
+  return `agent-chat-start:${encodeURIComponent(ownerEmail)}:${encodeURIComponent(documentId)}:${encodeURIComponent(chatStartKey)}`;
+}
+
 export function resolveDocumentHistoryCause(
   cause: DocumentHistoryCause,
 ): ResolvedDocumentHistoryCause {
@@ -185,7 +193,7 @@ export async function recordDocumentHistoryTransition(args: {
     cause.groupKind === "agent_run" && cause.operation === "chat start";
   const chatStartKey = args.cause.chatContext?.threadId ?? cause.groupId;
   const afterCheckpointId = isChatStart
-    ? `agent-chat-start:${encodeURIComponent(args.ownerEmail)}:${encodeURIComponent(args.documentId)}:${encodeURIComponent(chatStartKey)}`
+    ? documentChatStartVersionId(args.ownerEmail, args.documentId, chatStartKey)
     : crypto.randomUUID();
   const afterValues = {
     id: afterCheckpointId,

@@ -228,19 +228,42 @@ describe("grouped document history", () => {
 
   it("keeps a malformed recent checkpoint without treating it as the chat start", async () => {
     const threadId = 'legacy "%_\\thread';
+    const malformedTime = new Date(Date.now() - 60_000).toISOString();
     await getDb()
       .insert(schema.documentVersions)
-      .values({
-        id: "malformed-chat-context",
-        ownerEmail: OWNER,
-        documentId: DOCUMENT_ID,
-        title: "Legacy checkpoint",
-        content: "content",
-        chatContext: `{"phase":"start","threadId":${JSON.stringify(threadId)},broken}`,
-        createdAt: new Date().toISOString(),
-      });
+      .values([
+        {
+          id: "malformed-chat-context",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Legacy checkpoint",
+          content: "content",
+          chatContext: `{"phase":"start","threadId":${JSON.stringify(threadId)},broken}`,
+          createdAt: malformedTime,
+        },
+        {
+          id: "newer-ordinary-checkpoint",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Recent checkpoint",
+          content: "recent",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
 
-    const result = await asOwner(() =>
+    const bounded = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 1,
+        threadId,
+      }),
+    );
+    expect(bounded.versions.map((version) => version.id)).toEqual([
+      "newer-ordinary-checkpoint",
+    ]);
+
+    const recent = await asOwner(() =>
       listDocumentVersions.run({
         documentId: DOCUMENT_ID,
         includeContent: false,
@@ -248,7 +271,7 @@ describe("grouped document history", () => {
         threadId,
       }),
     );
-    expect(result.versions).toContainEqual(
+    expect(recent.versions).toContainEqual(
       expect.objectContaining({
         id: "malformed-chat-context",
         editable: false,

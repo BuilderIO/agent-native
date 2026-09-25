@@ -532,6 +532,7 @@ export interface AssistantChatHistoryConfig<
 
 export interface AssistantChatHistoryContextValue {
   beginningVersion: AssistantChatHistoryVersion | null;
+  isRestoring: boolean;
   findVersion: (
     message: AssistantChatHistoryMessage,
   ) => AssistantChatHistoryVersion | null;
@@ -1202,6 +1203,8 @@ function AssistantChatHistoryRevertButton({
 }) {
   const t = useT();
   const chatRunning = React.useContext(ChatRunningContext);
+  const history = React.useContext(AssistantChatHistoryContext);
+  const restoreInProgress = chatRunning || Boolean(history?.isRestoring);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"confirming" | "restoring" | "error">(
     "confirming",
@@ -1210,8 +1213,7 @@ function AssistantChatHistoryRevertButton({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (nextOpen && chatRunning) return;
-      if (!nextOpen && state === "restoring") return;
+      if (nextOpen && restoreInProgress) return;
       setOpen(nextOpen);
       if (nextOpen) {
         setState("confirming");
@@ -1220,11 +1222,15 @@ function AssistantChatHistoryRevertButton({
         setError(null);
       }
     },
-    [chatRunning, state],
+    [restoreInProgress],
   );
 
+  useEffect(() => {
+    if (restoreInProgress) setOpen(false);
+  }, [restoreInProgress]);
+
   const handleRestore = useCallback(async () => {
-    if (chatRunning) return;
+    if (restoreInProgress) return;
     setState("restoring");
     setError(null);
     try {
@@ -1242,7 +1248,7 @@ function AssistantChatHistoryRevertButton({
       );
       setState("error");
     }
-  }, [chatRunning, onRestore, onRestored, t]);
+  }, [onRestore, onRestored, restoreInProgress, t]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1253,7 +1259,7 @@ function AssistantChatHistoryRevertButton({
               <button
                 type="button"
                 aria-label={label ?? t("agentChat.message.revertHere")}
-                disabled={chatRunning}
+                disabled={restoreInProgress}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
                   !persistent && messageFooterFadeClassName,
@@ -1290,7 +1296,7 @@ function AssistantChatHistoryRevertButton({
               </button>
               <button
                 type="button"
-                disabled={chatRunning}
+                disabled={restoreInProgress}
                 onClick={() => void handleRestore()}
                 className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >

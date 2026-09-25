@@ -4,6 +4,7 @@ import { and, asc, desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChatStartVersionId } from "../server/lib/document-history.js";
 import { parseDocumentVersionChatContext } from "../server/lib/document-version-context.js";
 
 export default defineAction({
@@ -49,9 +50,6 @@ export default defineAction({
           .where(where)
           .orderBy(desc(schema.documentVersions.createdAt))
           .limit(args.limit);
-    const escapedThreadId = args.threadId
-      ? JSON.stringify(args.threadId).replace(/[\\%_]/g, "\\$&")
-      : undefined;
     const beginningVersions = args.threadId
       ? args.includeContent
         ? await db
@@ -60,10 +58,13 @@ export default defineAction({
             .where(
               and(
                 where,
-                like(schema.documentVersions.chatContext, '%"phase":"start"%'),
-                like(
-                  schema.documentVersions.chatContext,
-                  `%"threadId":${escapedThreadId}%`,
+                eq(
+                  schema.documentVersions.id,
+                  documentChatStartVersionId(
+                    ownerEmail,
+                    args.documentId,
+                    args.threadId,
+                  ),
                 ),
               ),
             )
@@ -81,10 +82,13 @@ export default defineAction({
             .where(
               and(
                 where,
-                like(schema.documentVersions.chatContext, '%"phase":"start"%'),
-                like(
-                  schema.documentVersions.chatContext,
-                  `%"threadId":${escapedThreadId}%`,
+                eq(
+                  schema.documentVersions.id,
+                  documentChatStartVersionId(
+                    ownerEmail,
+                    args.documentId,
+                    args.threadId,
+                  ),
                 ),
               ),
             )
@@ -126,15 +130,7 @@ export default defineAction({
       ]),
     );
 
-    const mergedVersions = [...versionsById.values()].filter((version) => {
-      if (!args.threadId || !beginningVersions.includes(version)) return true;
-      try {
-        const context = parseDocumentVersionChatContext(version.chatContext);
-        return context?.threadId === args.threadId && context.phase === "start";
-      } catch {
-        return false;
-      }
-    });
+    const mergedVersions = [...versionsById.values()];
     const sortedVersions = mergedVersions.sort(
       (left, right) =>
         new Date(right.createdAt).getTime() -

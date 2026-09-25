@@ -263,6 +263,7 @@ describe("assistant chat history matching", () => {
                     id: "beginning",
                     createdAt: "2026-01-01T00:00:00.000Z",
                   },
+                  isRestoring: false,
                   findVersion: () => null,
                   restoreVersion,
                 }}
@@ -275,6 +276,55 @@ describe("assistant chat history matching", () => {
       });
 
       expect(testContainer.querySelector("button")).toBeNull();
+      expect(restoreVersion).not.toHaveBeenCalled();
+    } finally {
+      act(() => testRoot.unmount());
+      testContainer.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("disables history controls while another restore is active", async () => {
+    const restoreVersion = vi.fn(async () => {});
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testRoot = createRoot(testContainer);
+    try {
+      await act(async () => {
+        testRoot.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <AssistantChatHistoryContext.Provider
+              value={{
+                beginningVersion: {
+                  id: "beginning",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+                isRestoring: true,
+                findVersion: () => null,
+                restoreVersion,
+              }}
+            >
+              <AssistantChatHistoryBeginningRevertButton />
+              <AssistantChatHistoryBeginningRevertButton />
+            </AssistantChatHistoryContext.Provider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const triggers = [...testContainer.querySelectorAll("button")];
+      expect(triggers).toHaveLength(2);
+      expect(
+        triggers.every((trigger) => (trigger as HTMLButtonElement).disabled),
+      ).toBe(true);
+      await act(async () => triggers.forEach((trigger) => trigger.click()));
+      expect(
+        testContainer.querySelector("[role='dialog'], [data-state='open']"),
+      ).toBeNull();
       expect(restoreVersion).not.toHaveBeenCalled();
     } finally {
       act(() => testRoot.unmount());

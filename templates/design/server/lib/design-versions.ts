@@ -173,6 +173,15 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
+function designVersionIdForIdempotencyKey(
+  designId: string,
+  idempotencyKey: string,
+) {
+  return `design-version-${createHash("sha256")
+    .update(stableStringify({ designId, idempotencyKey }))
+    .digest("hex")}`;
+}
+
 function nextRevisionTimestamp(previous: string | null | undefined): string {
   const previousMs = previous ? Date.parse(previous) : Number.NaN;
   return new Date(
@@ -740,20 +749,18 @@ async function captureDesignVersion(
       };
     }
   }
-  const id = `design-version-${createHash("sha256")
-    .update(
-      stableStringify(
-        options.idempotencyKey
-          ? { designId, idempotencyKey: options.idempotencyKey }
-          : {
-              designId,
-              previousVersionId: latest?.id ?? "initial",
-              chatContextKey: chatContextKey(options.chatContext),
-              stateHash,
-            },
-      ),
-    )
-    .digest("hex")}`;
+  const id = options.idempotencyKey
+    ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
+    : `design-version-${createHash("sha256")
+        .update(
+          stableStringify({
+            designId,
+            previousVersionId: latest?.id ?? "initial",
+            chatContextKey: chatContextKey(options.chatContext),
+            stateHash,
+          }),
+        )
+        .digest("hex")}`;
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
@@ -892,38 +899,23 @@ export async function createDesignChatBeginningSnapshot(
 ) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
-    const escapedThreadId = JSON.stringify(run.threadId).replace(
-      /[\\%_]/g,
-      "\\$&",
-    );
     const rows = await getDb()
-      .select({ chatContext: schema.designVersions.chatContext })
+      .select({ id: schema.designVersions.id })
       .from(schema.designVersions)
       .where(
         and(
           eq(schema.designVersions.designId, designId),
-          like(schema.designVersions.chatContext, '%"phase":"start"%'),
-          like(
-            schema.designVersions.chatContext,
-            `%"threadId":${escapedThreadId}%`,
+          eq(
+            schema.designVersions.id,
+            designVersionIdForIdempotencyKey(
+              designId,
+              `chat-start:${run.threadId}`,
+            ),
           ),
         ),
       )
       .limit(1);
-    if (
-      rows.some((row) => {
-        try {
-          const context = parseStoredChatContext(row.chatContext);
-          return (
-            context?.threadId === run.threadId && context.phase === "start"
-          );
-        } catch {
-          return false;
-        }
-      })
-    ) {
-      return null;
-    }
+    if (rows.length) return null;
     return captureDesignVersion(
       designId,
       {
@@ -1224,9 +1216,6 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
-  const escapedThreadId = threadId
-    ? JSON.stringify(threadId).replace(/[\\%_]/g, "\\$&")
-    : undefined;
   const beginningRows = await db
     .select({
       id: schema.designVersions.id,
@@ -1240,10 +1229,12 @@ export async function listDesignVersions(
       threadId
         ? and(
             eq(schema.designVersions.designId, designId),
-            like(schema.designVersions.chatContext, '%"phase":"start"%'),
-            like(
-              schema.designVersions.chatContext,
-              `%"threadId":${escapedThreadId}%`,
+            eq(
+              schema.designVersions.id,
+              designVersionIdForIdempotencyKey(
+                designId,
+                `chat-start:${threadId}`,
+              ),
             ),
           )
         : and(
@@ -1256,18 +1247,8 @@ export async function listDesignVersions(
       asc(schema.designVersions.createdAt),
     )
     .limit(threadId ? 1 : limit);
-  const exactBeginningRows = threadId
-    ? beginningRows.filter((row) => {
-        try {
-          const context = parseStoredChatContext(row.chatContext);
-          return context?.threadId === threadId && context.phase === "start";
-        } catch {
-          return false;
-        }
-      })
-    : beginningRows;
   const rowsById = new Map(
-    [...rows, ...exactBeginningRows].map((row) => [row.id, row]),
+    [...rows, ...beginningRows].map((row) => [row.id, row]),
   );
 
   const regular: DesignVersionListEntry[] = [];

@@ -76,9 +76,6 @@ export default defineAction({
       .where(where)
       .orderBy(desc(schema.deckVersions.createdAt))
       .limit(limit);
-    const escapedThreadId = threadId
-      ? JSON.stringify(threadId).replace(/[\\%_]/g, "\\$&")
-      : undefined;
     const beginningVersions = await db
       .select({
         id: schema.deckVersions.id,
@@ -94,11 +91,7 @@ export default defineAction({
         threadId
           ? and(
               where,
-              like(schema.deckVersions.chatContext, '%"phase":"start"%'),
-              like(
-                schema.deckVersions.chatContext,
-                `%"threadId":${escapedThreadId}%`,
-              ),
+              eq(schema.deckVersions.changeGroup, `start:thread:${threadId}`),
             )
           : and(
               where,
@@ -117,15 +110,7 @@ export default defineAction({
         version,
       ]),
     );
-    const allVersions = [...versionsById.values()].filter((version) => {
-      if (!threadId || !beginningVersions.includes(version)) return true;
-      try {
-        const context = parseDeckVersionChatContext(version.chatContext);
-        return context?.threadId === threadId && context.phase === "start";
-      } catch {
-        return false;
-      }
-    });
+    const allVersions = [...versionsById.values()];
     allVersions.sort(
       (left, right) =>
         new Date(right.createdAt).getTime() -
