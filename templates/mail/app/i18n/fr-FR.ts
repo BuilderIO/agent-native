@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Tout",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "Renommer l’onglet",
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
-      help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
+      allTab: "Onglet Tout",
+      help: "Tout inclut tous les fils de la boîte de réception. Les libellés cochés répartissent la boîte.",
     },
     accounts: {
       remove: "Retirer",

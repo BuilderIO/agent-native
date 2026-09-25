@@ -24,7 +24,7 @@ export default defineAction({
       .max(80)
       .optional()
       .describe(
-        'Inbox tab id to open, from list-inbox-threads\' `tabs` list — a pinned label id, a saved filter id, "important", or "other"',
+        'Inbox tab id to open, from list-inbox-threads\' `tabs` list — All, a pinned label id, a saved filter id, "important", or "other"',
       ),
     filter: z
       .string()
