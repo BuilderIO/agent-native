@@ -93,8 +93,9 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   proof, and never say "leaving open until published." Keep it open only while
   accepted scope is still unfixed, the source fix is not merged, or reporter
   information is required.
-- Use the current worktree. For a detached checkout, follow the preflight
-  branch gate below; never create an unused branch or attach or move another
+- Use the current worktree. If it is detached, create a named task branch only
+  when publishing this work requires one, as described in the preflight gate
+  below. Do not create a branch just for tidiness or attach or move another
   worktree.
 - Never add Co-Authored-By, codex, [codex], or agent labels to commits, branch
   names, PR titles, or PR bodies.
