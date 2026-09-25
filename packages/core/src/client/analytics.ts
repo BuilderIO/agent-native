@@ -1731,10 +1731,21 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
-      onUploadRejected:
-        options.onUploadRejected ??
-        ((details) => {
+      onRecordingStarted: (recordingAttemptId) => {
+        try {
+          trackEvent("session_replay_started", {
+            recording_attempt_id: recordingAttemptId,
+          });
+        } catch {
+          // coercion-ok: keep capture running if optional telemetry fails.
+        }
+        options.onRecordingStarted?.(recordingAttemptId);
+      },
+      onUploadRejected: options.onUploadRejected,
+      onUploadRejectedWithAttemptId: (details, recordingAttemptId) => {
+        try {
           trackEvent("session replay upload rejected", {
+            recording_attempt_id: recordingAttemptId,
             status: details.status,
             restart_attempted: details.restartAttempted,
             restart_succeeded: details.restartSucceeded,
@@ -1748,7 +1759,10 @@ function configuredSessionReplayOptions(
               ? { restart_reason: details.restartReason }
               : {}),
           });
-        }),
+        } finally {
+          options.onUploadRejectedWithAttemptId?.(details, recordingAttemptId);
+        }
+      },
       requireSignedInUser:
         options.requireSignedInUser ??
         sessionReplayRequiresSignedInUserFromEnv() ??
@@ -1958,6 +1972,28 @@ function resolveProps(
   name: string,
   params?: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (name === "session_replay_started") {
+    return params?.recording_attempt_id === undefined
+      ? {}
+      : { recording_attempt_id: params.recording_attempt_id };
+  }
+  if (
+    name === "session replay upload rejected" ||
+    name === "session_replay_upload_rejected"
+  ) {
+    const allowed = [
+      "recording_attempt_id",
+      "status",
+      "restart_attempted",
+      "restart_succeeded",
+      "failure_reason",
+      "retry_after_seconds",
+      "restart_reason",
+    ];
+    return Object.fromEntries(
+      Object.entries(params ?? {}).filter(([key]) => allowed.includes(key)),
+    );
+  }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
     url: window.location.origin + window.location.pathname,

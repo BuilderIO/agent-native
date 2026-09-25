@@ -1548,6 +1548,17 @@ const requestTranscriptAction = defineAction({
       now,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
+    track(
+      "recording_transcription_failed",
+      {
+        failure_code: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
+        stage: "transcription",
+        retryable: cloudTransient,
+        output_id: args.recordingId,
+        output_type: "clip",
+      },
+      recordingTrackingSource(ownerEmail, context),
+    );
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (cloudTransient) {
       scheduleAutoTranscriptRetry({

@@ -273,6 +273,13 @@ export interface SessionReplayOptions {
   network?: boolean | SessionReplayNetworkOptions;
   /** Rare recorder lifecycle signal; never includes replay content or URLs. */
   onUploadRejected?: (details: SessionReplayUploadRejectedDetails) => void;
+  /** Internal Analytics hook; the attempt id comes from the rejected upload payload. */
+  onUploadRejectedWithAttemptId?: (
+    details: SessionReplayUploadRejectedDetails,
+    recordingAttemptId: string,
+  ) => void;
+  /** Fires after rrweb starts; automatic restarts report their new replay id. */
+  onRecordingStarted?: (recordingAttemptId: string) => void;
   extraProperties?:
     | Record<string, unknown>
     | (() => Record<string, unknown> | undefined);
@@ -327,6 +334,8 @@ interface NormalizedSessionReplayOptions {
   /** Null disables network capture entirely. */
   network: NormalizedCaptureOptions | null;
   onUploadRejected?: SessionReplayOptions["onUploadRejected"];
+  onUploadRejectedWithAttemptId?: SessionReplayOptions["onUploadRejectedWithAttemptId"];
+  onRecordingStarted?: SessionReplayOptions["onRecordingStarted"];
   extraProperties?: SessionReplayOptions["extraProperties"];
   shouldStart?: SessionReplayOptions["shouldStart"];
 }
@@ -1079,6 +1088,8 @@ function normalizeOptions(
       DEFAULT_MAX_NETWORK_EVENTS,
     ),
     onUploadRejected: options.onUploadRejected,
+    onUploadRejectedWithAttemptId: options.onUploadRejectedWithAttemptId,
+    onRecordingStarted: options.onRecordingStarted,
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
@@ -2414,18 +2425,15 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     }
   }
   if (droppedOversizedBatch || pausedForQuota) {
+    const details: SessionReplayUploadRejectedDetails = {
+      status: droppedOversizedBatch ? 413 : 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: droppedOversizedBatch ? "oversized_event" : "quota_pause",
+      ...(pausedForQuota ? { retryAfterSeconds: quotaRetryAfterSeconds } : {}),
+    };
     try {
-      state.options?.onUploadRejected?.({
-        status: droppedOversizedBatch ? 413 : 429,
-        restartAttempted: false,
-        restartSucceeded: false,
-        failureReason: droppedOversizedBatch
-          ? "oversized_event"
-          : "quota_pause",
-        ...(pausedForQuota
-          ? { retryAfterSeconds: quotaRetryAfterSeconds }
-          : {}),
-      });
+      state.options?.onUploadRejected?.(details);
     } catch {
       const previousInternal = replayCaptureInternal;
       replayCaptureInternal = true;
@@ -2436,6 +2444,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       } finally {
         replayCaptureInternal = previousInternal;
       }
+    }
+    try {
+      state.options?.onUploadRejectedWithAttemptId?.(details, payload.replayId);
+    } catch {
+      // coercion-ok: tracking-hook failure must not interrupt replay recovery.
+      // Tracking must not interfere with replay recovery.
     }
   }
   if (
@@ -2472,22 +2486,30 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
 
     // Rare recovery-path telemetry lets Analytics owners quantify conflicts
     // without recording the rejected replay id, URL, or any captured content.
+    const details: SessionReplayUploadRejectedDetails = {
+      status: definitiveClientErrorStatus,
+      restartAttempted: shouldRestartAfterConflict,
+      restartSucceeded: restartResult?.started === true,
+      ...(definitiveClientErrorStatus === 429
+        ? {
+            failureReason: "quota_stop",
+            retryAfterSeconds: quotaRetryAfterSeconds,
+          }
+        : {}),
+      ...(restartResult?.reason ? { restartReason: restartResult.reason } : {}),
+    };
     try {
-      rejectedOptions?.onUploadRejected?.({
-        status: definitiveClientErrorStatus,
-        restartAttempted: shouldRestartAfterConflict,
-        restartSucceeded: restartResult?.started === true,
-        ...(definitiveClientErrorStatus === 429
-          ? {
-              failureReason: "quota_stop",
-              retryAfterSeconds: quotaRetryAfterSeconds,
-            }
-          : {}),
-        ...(restartResult?.reason
-          ? { restartReason: restartResult.reason }
-          : {}),
-      });
+      rejectedOptions?.onUploadRejected?.(details);
     } catch {
+      // best-effort telemetry must never interfere with recording recovery
+    }
+    try {
+      rejectedOptions?.onUploadRejectedWithAttemptId?.(
+        details,
+        payload.replayId,
+      );
+    } catch {
+      // coercion-ok: tracking-hook failure must not interrupt replay recovery.
       // best-effort telemetry must never interfere with recording recovery
     }
   }
@@ -3735,6 +3757,12 @@ async function startSessionReplayRecorder(
         ? rrweb.record.addCustomEvent
         : null;
     installCaptureInterceptors(state);
+    try {
+      normalized.onRecordingStarted?.(replaySession.replayId);
+    } catch {
+      // coercion-ok: telemetry-hook failure must not turn a working recorder into a failed start.
+      // A telemetry callback cannot turn a working recorder into a failed start.
+    }
     return {
       started: true,
       replayId: state.replayId,

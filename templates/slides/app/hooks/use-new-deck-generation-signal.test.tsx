@@ -36,15 +36,17 @@ describe("useNewDeckGenerationSignal", () => {
 
   function Harness() {
     state = useNewDeckGenerationSignal(props);
+    const phase = state.generationStarted ? "started" : "pending";
     const overlay = shouldShowNewDeckGeneratingOverlay({
       generating: state.generating,
       isNewDeckCreation: true,
       slideCount: 0,
-      generationStarted: state.generationStarted,
+      phase,
     });
     const clearUrl = shouldClearNewDeckGeneratingState({
       generating: state.generating,
-      generationStarted: state.generationStarted,
+      waitingOnQuestions: false,
+      phase,
     });
     return (
       <div

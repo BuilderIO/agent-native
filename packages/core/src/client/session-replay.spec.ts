@@ -440,6 +440,44 @@ describe("session replay", () => {
     });
   });
 
+  it("reports the replay id once after rrweb starts, including active calls", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const first = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+    const alreadyActive = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(first.started).toBe(true);
+    expect(first.replayId).toBeDefined();
+    expect(alreadyActive.reason).toBe("already-active");
+    expect(recordMock).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledOnce();
+    expect(onRecordingStarted).toHaveBeenCalledWith(first.replayId);
+  });
+
+  it("does not report a start when rrweb fails", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(undefined);
+    const onRecordingStarted = vi.fn();
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      onRecordingStarted,
+    });
+
+    expect(result).toMatchObject({ started: false, reason: "record-failed" });
+    expect(onRecordingStarted).not.toHaveBeenCalled();
+  });
+
   it("times out a hung replay upload and releases the flush lock", async () => {
     vi.useFakeTimers();
     try {
@@ -2903,6 +2941,8 @@ describe("session replay", () => {
     });
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const onUploadRejected = vi.fn();
+    const onUploadRejectedWithAttemptId = vi.fn();
+    const onRecordingStarted = vi.fn();
     const replay = await freshSessionReplay();
     const first = await replay.startSessionReplay({
       publicKey: "anpk_test",
@@ -2916,6 +2956,8 @@ describe("session replay", () => {
         maxErrorBodyLength: 123,
       },
       onUploadRejected,
+      onUploadRejectedWithAttemptId,
+      onRecordingStarted,
     });
     const initialNormalizedOptions = (globalThis as any)[replayStateKey]
       .options;
@@ -2951,11 +2993,21 @@ describe("session replay", () => {
       storage.get("agent-native.session_replay_id") ?? "{}",
     );
     expect(restarted.replayId).not.toBe(first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(1, first.replayId);
+    expect(onRecordingStarted).toHaveBeenNthCalledWith(2, restarted.replayId);
     expect(onUploadRejected).toHaveBeenCalledWith({
       status: 409,
       restartAttempted: true,
       restartSucceeded: true,
     });
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledWith(
+      {
+        status: 409,
+        restartAttempted: true,
+        restartSucceeded: true,
+      },
+      rejectedUpload.replayId,
+    );
 
     recordOptions[1].emit({ type: 3, data: { href: "/recovered" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
