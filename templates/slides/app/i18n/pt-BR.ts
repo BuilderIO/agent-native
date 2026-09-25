@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Pergunte qualquer coisa sobre suas apresentações",
     thisSlide: "Este slide",
     currentSelection: "Seleção atual",
+    slideNumber: "Slide {{number}}",
     suggestionPitch: "Crie um pitch de 10 slides a partir deste doc",
     suggestionBrand: "Aplique nossa marca a este deck",
     suggestionHero: "Gere uma imagem hero para este slide",
@@ -709,6 +710,8 @@ const messages = {
       "Se você sair ou recarregar agora, poderá perder alterações que ainda não foram salvas. Tem certeza de que deseja sair?",
     keepEditing: "Continuar editando",
     leaveWithoutSaving: "Sair sem salvar",
+    editorMarkupNotSaved:
+      "Esta edição não foi salva porque adicionaria marcação do editor ao slide.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

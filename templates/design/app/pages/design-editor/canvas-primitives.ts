@@ -56,6 +56,7 @@ export function createPrimitiveInsertFromSpec(
       geometry,
       points: penPath.nodes.map((node) => node.point),
       pathData: serializePenPath(penPath),
+      penPath,
     };
   }
 
@@ -83,16 +84,13 @@ export function createPrimitiveInsertFromSpec(
  * handles coincide with their anchors) or `C c1x c1y c2x c2y x y`
  * (`c1`/`c2` are the FROM node's `handleOut` / TO node's `handleIn`,
  * respectively — see `serializeSegment`), optionally followed by a trailing
- * `Z` for a closed path (whose preceding segment is the wrap-around from the
- * last node back to the first, not a new node).
+ * `Z` for a closed path. The serializer writes an explicit final segment to
+ * the first node before `Z`; ordinary SVG paths may instead end on their last
+ * node and use `Z` for the implicit closing segment.
  *
- * This exists because `CanvasPrimitiveInsert` (MultiScreenCanvas.tsx) only
- * carries the already-flattened `pathData` string across the overview
- * commit boundary, not the richer `DraftPrimitive.penPath` MultiScreenCanvas
- * keeps internally — so committing a pen path drawn in OVERVIEW mode has no
- * other source for the structured node/handle data `data-an-pen-nodes`
- * needs. Single-screen pen placement (`createPrimitiveInsertFromSpec` above)
- * builds its `PenPath` directly and never needs this reverse parse.
+ * This remains the fallback for inserts that only carry flattened `pathData`.
+ * New overview and single-screen Pen inserts also carry `penPath` directly,
+ * preserving the full node/handle model across the commit boundary.
  *
  * Returns `null` for anything that doesn't match the expected grammar
  * (empty/malformed `d`) rather than throwing, so a call site can always fall
@@ -140,14 +138,14 @@ export function parsePenPathFromSerializedD(d: string): PenPath | null {
         const [to] = readNumbers(2);
         if (!to) return null;
         cursor += 2;
-        // Same wrap-around case as the "C" branch below: a closed path's
-        // final segment (immediately followed by Z) returns to the FIRST
-        // node rather than describing a new one.
+        // Only the serializer's explicit final segment back to the first
+        // anchor is a wrap-around; an ordinary SVG's last node is still real.
         const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
-        if (nextIsClose) {
+        if (nextIsClose && samePenPoint(to, nodes[0]!.point)) {
           closed = true;
         } else {
           nodes.push({ point: to });
+          if (nextIsClose) closed = true;
         }
         continue;
       }
@@ -162,12 +160,10 @@ export function parsePenPathFromSerializedD(d: string): PenPath | null {
         if (!samePenPoint(c1, fromNode.point)) {
           fromNode.handleOut = c1;
         }
-        // A closed path's final "C"/"L" segment (immediately followed by Z)
-        // wraps from the last real node back to the FIRST node — it is not a
-        // new node. Apply its handles to the existing first node instead of
-        // pushing a duplicate.
+        // As above, only a segment that actually targets the first anchor is
+        // the serializer's explicit wrap-around segment.
         const nextIsClose = tokens[cursor]?.toUpperCase() === "Z";
-        if (nextIsClose) {
+        if (nextIsClose && samePenPoint(to, nodes[0]!.point)) {
           closed = true;
           const firstNode = nodes[0];
           if (firstNode && !samePenPoint(c2, firstNode.point)) {
@@ -177,6 +173,7 @@ export function parsePenPathFromSerializedD(d: string): PenPath | null {
           const node: PenNode = { point: to };
           if (!samePenPoint(c2, to)) node.handleIn = c2;
           nodes.push(node);
+          if (nextIsClose) closed = true;
         }
         continue;
       }

@@ -130,6 +130,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
@@ -304,6 +311,13 @@ const overrides = {
     genericError: "出了點問題",
   },
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionFormattingUnsupported:
       "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
     suggestionFormattingBaselineUnsupported:
@@ -1572,6 +1586,35 @@ const overrides = {
     addWorkspace: "新增工作區",
     addChild: "新增子項目",
     addChildTo: "新增子項目至 {{title}}",
+    collapseItem: "收合 {{title}}",
+    removeFromRecent: "從最近瀏覽中移除",
+    copyLink: "複製連結",
+    openInNewTab: "在新分頁中開啟",
+    rename: "重新命名",
+    duplicate: "建立副本",
+    moveTo: "移動到",
+    moveToTrash: "移到垃圾桶",
+    lastEditedBy: "最後編輯者：{{name}}",
+    lastEdited: "最後編輯",
+    pageName: "頁面名稱",
+    movePageTo: "將「{{title}}」移動到",
+    topLevel: "最上層",
+    noMatchingPages: "沒有符合的頁面",
+    failedRenamePage: "無法重新命名頁面",
+    failedDuplicatePage: "無法建立頁面副本",
+    duplicatedFromLastSave:
+      "已複製最後儲存的版本；最近未儲存的編輯未包含在內。",
+    chooseSpace: "選擇工作區",
+    moveToSpaceTitle: "移至 {{space}}？",
+    moveToSpaceWarningShared:
+      "{{space}} 中的所有人都能看到「{{title}}」及其子頁面。目前的共用設定和公開連結將被移除，你將成為擁有者。",
+    moveToSpaceWarningPrivate:
+      "「{{title}}」及其子頁面在 {{space}} 中將僅你可見。目前的共用設定和公開連結將被移除，你將成為擁有者。",
+    back: "返回",
+    movePage: "移動",
+    movedToSpace: "已將「{{title}}」移至 {{space}}",
+    failedRemoveFromRecent: "無法從最近瀏覽中移除",
+    expandItem: "展開 {{title}}",
     addSubPage: "新增子頁面",
     collapse: "折疊側邊欄",
     resize: "調整側邊欄寬度",

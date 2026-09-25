@@ -144,9 +144,8 @@ async function loadMammoth(): Promise<{
   convertToHtml(input: { buffer: Buffer }): Promise<{ value: string }>;
   extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>;
 }> {
-  const moduleName = "mammoth";
   try {
-    return (await import(moduleName)) as {
+    return (await import("mammoth")) as {
       convertToHtml(input: { buffer: Buffer }): Promise<{ value: string }>;
       extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>;
     };

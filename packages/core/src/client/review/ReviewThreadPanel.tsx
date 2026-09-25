@@ -38,7 +38,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import type {
   ReviewComment,
@@ -260,21 +260,68 @@ export function ReviewThreadPanel({
 }: ReviewThreadPanelProps) {
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
-  const [submittingTarget, setSubmittingTarget] =
-    useState<ReviewResolutionTarget | null>(null);
+  const draftRef = useRef("");
+  const draftMentionsRef = useRef<ReviewMention[]>([]);
+  const draftGenerationRef = useRef(0);
+  const createRetryRef = useRef<{ key: string; id: string } | null>(null);
+  const [failedCreates, setFailedCreates] = useState<
+    Array<{
+      id: string;
+      resourceType: string;
+      resourceId: string;
+      body: string;
+      mentions: ReviewMention[];
+      resolutionTarget: ReviewResolutionTarget;
+      targetId?: string | null;
+      anchor?: ReviewComment["anchor"];
+      metadata?: ReviewComment["metadata"];
+    }>
+  >([]);
+  const createPendingRef = useRef(false);
   const [replyingThreadId, setReplyingThreadId] = useState<string | null>(null);
+  const replyingThreadIdRef = useRef<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const replyDraftsRef = useRef<Record<string, string>>({});
   const [replyMentions, setReplyMentions] = useState<
     Record<string, ReviewMention[]>
   >({});
+  const replyMentionsRef = useRef<Record<string, ReviewMention[]>>({});
+  const replyGenerationsRef = useRef<Record<string, number>>({});
+  const replyRetriesRef = useRef<Record<string, { key: string; id: string }>>(
+    {},
+  );
+  const [failedReplies, setFailedReplies] = useState<
+    Record<
+      string,
+      Array<{
+        id: string;
+        resourceType: string;
+        resourceId: string;
+        body: string;
+        mentions: ReviewMention[];
+      }>
+    >
+  >({});
+  const replyPendingRef = useRef<Set<string>>(new Set());
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
   );
+  const editCandidateRef = useRef<ReviewComment | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const editDraftRef = useRef("");
   const [editMentions, setEditMentions] = useState<ReviewMention[]>([]);
+  const editMentionsRef = useRef<ReviewMention[]>([]);
+  const editGenerationRef = useRef(0);
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
+  const deleteCandidateRef = useRef<ReviewComment | null>(null);
+  const deleteGenerationRef = useRef(0);
+  const deletingCommentIdRef = useRef<string | null>(null);
+  const [resolvingThreadIds, setResolvingThreadIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const resolvingThreadIdsRef = useRef(new Set<string>());
   const [commentFilter, setCommentFilter] = useState<ReviewCommentFilter>(
     showFilter ? "open" : "all",
   );
@@ -375,53 +422,361 @@ export function ReviewThreadPanel({
         ? resolvedCommentsLabel
         : allCommentsLabel;
 
-  const submitDraft = (resolutionTarget: ReviewResolutionTarget) => {
-    const body = draft.trim();
-    if (!body || createComment.isPending) return;
-    setSubmittingTarget(resolutionTarget);
-    createComment.mutate(
-      {
+  const submitDraft = async (resolutionTarget: ReviewResolutionTarget) => {
+    if (createPendingRef.current) return;
+    const submittedDraft = draftRef.current;
+    const body = submittedDraft.trim();
+    if (!body) return;
+    const submittedMentions = [...draftMentionsRef.current];
+    const retryKey = JSON.stringify({
+      body,
+      mentions: submittedMentions,
+      resolutionTarget,
+      targetId: composerTargetId === undefined ? targetId : composerTargetId,
+      anchor: composerAnchor,
+      metadata: composerMetadata,
+    });
+    const operationId =
+      createRetryRef.current?.key === retryKey
+        ? createRetryRef.current.id
+        : globalThis.crypto.randomUUID();
+    const generation = draftGenerationRef.current;
+    createPendingRef.current = true;
+    draftRef.current = "";
+    draftMentionsRef.current = [];
+    setDraft("");
+    setDraftMentions([]);
+    try {
+      const comment = await createComment.mutateAsync({
         resourceType,
         resourceId,
         targetId: composerTargetId === undefined ? targetId : composerTargetId,
         ...(composerAnchor !== undefined ? { anchor: composerAnchor } : {}),
         ...(composerMetadata ? { metadata: composerMetadata } : {}),
         body,
-        ...(draftMentions.length ? { mentions: draftMentions } : {}),
+        ...(submittedMentions.length ? { mentions: submittedMentions } : {}),
         resolutionTarget: showComposerTargetPicker ? resolutionTarget : "human",
-      },
-      {
-        onSuccess: (comment) => {
-          setDraft("");
-          setDraftMentions([]);
-          onCommentCreated?.(comment);
-        },
-        onSettled: () => setSubmittingTarget(null),
-      },
-    );
+        clientOperationId: operationId,
+      });
+      if (createRetryRef.current?.id === operationId) {
+        createRetryRef.current = null;
+      }
+      onCommentCreated?.(comment);
+    } catch {
+      if (
+        draftGenerationRef.current !== generation ||
+        draftRef.current !== ""
+      ) {
+        setFailedCreates((current) => [
+          ...current,
+          {
+            id: operationId,
+            resourceType,
+            resourceId,
+            body,
+            mentions: submittedMentions,
+            resolutionTarget: showComposerTargetPicker
+              ? resolutionTarget
+              : "human",
+            targetId:
+              composerTargetId === undefined ? targetId : composerTargetId,
+            anchor: composerAnchor,
+            metadata: composerMetadata,
+          },
+        ]);
+        return;
+      }
+      createRetryRef.current = { key: retryKey, id: operationId };
+      draftRef.current = submittedDraft;
+      draftMentionsRef.current = submittedMentions;
+      setDraft(submittedDraft);
+      setDraftMentions(submittedMentions);
+    } finally {
+      createPendingRef.current = false;
+    }
   };
 
-  const submitEdit = () => {
+  const retryFailedCreate = async (failed: (typeof failedCreates)[number]) => {
+    if (
+      createPendingRef.current ||
+      failed.resourceType !== resourceType ||
+      failed.resourceId !== resourceId
+    )
+      return;
+    createPendingRef.current = true;
+    try {
+      const comment = await createComment.mutateAsync({
+        resourceType: failed.resourceType,
+        resourceId: failed.resourceId,
+        targetId: failed.targetId,
+        ...(failed.anchor !== undefined ? { anchor: failed.anchor } : {}),
+        ...(failed.metadata ? { metadata: failed.metadata } : {}),
+        body: failed.body,
+        ...(failed.mentions.length ? { mentions: failed.mentions } : {}),
+        resolutionTarget: failed.resolutionTarget,
+        clientOperationId: failed.id,
+      });
+      setFailedCreates((current) =>
+        current.filter((item) => item.id !== failed.id),
+      );
+      onCommentCreated?.(comment);
+    } catch {
+      return;
+    } finally {
+      createPendingRef.current = false;
+    }
+  };
+
+  const submitEdit = async () => {
     const comment = editCandidate;
     const body = editDraft.trim();
-    if (!comment || !body || updateComment.isPending) return;
-    updateComment.mutate(
-      {
+    if (!comment || !body) return;
+    const submittedDraft = editDraft;
+    const submittedMentions = [...editMentions];
+    const generation = editGenerationRef.current;
+    editCandidateRef.current = null;
+    editDraftRef.current = "";
+    editMentionsRef.current = [];
+    setEditCandidate(null);
+    setEditDraft("");
+    setEditMentions([]);
+    try {
+      const updated = await updateComment.mutateAsync({
         resourceType,
         resourceId,
         commentId: comment.id,
         body,
-        mentions: editMentions,
-      },
-      {
-        onSuccess: (updated) => {
-          setEditCandidate(null);
-          setEditDraft("");
-          setEditMentions([]);
-          onCommentUpdated?.(updated);
-        },
-      },
-    );
+        mentions: submittedMentions,
+      });
+      onCommentUpdated?.(updated);
+    } catch {
+      if (
+        editGenerationRef.current !== generation ||
+        editCandidateRef.current
+      ) {
+        return;
+      }
+      editCandidateRef.current = comment;
+      editDraftRef.current = submittedDraft;
+      editMentionsRef.current = submittedMentions;
+      setEditCandidate(comment);
+      setEditDraft(submittedDraft);
+      setEditMentions(submittedMentions);
+    }
+  };
+
+  const startEditing = (comment: ReviewComment) => {
+    editGenerationRef.current += 1;
+    editCandidateRef.current = comment;
+    editDraftRef.current = comment.body;
+    editMentionsRef.current = [...comment.mentions];
+    setEditCandidate(comment);
+    setEditDraft(comment.body);
+    setEditMentions([...comment.mentions]);
+  };
+
+  const cancelEditing = () => {
+    editGenerationRef.current += 1;
+    editCandidateRef.current = null;
+    editDraftRef.current = "";
+    editMentionsRef.current = [];
+    setEditCandidate(null);
+    setEditDraft("");
+    setEditMentions([]);
+  };
+
+  const startReplying = (threadId: string) => {
+    replyingThreadIdRef.current = threadId;
+    setReplyingThreadId(threadId);
+  };
+
+  const cancelReplying = () => {
+    replyingThreadIdRef.current = null;
+    setReplyingThreadId(null);
+  };
+
+  const submitReply = async (comment: ReviewComment) => {
+    if (replyPendingRef.current.has(comment.id)) return;
+    const threadId = comment.threadId;
+    const submittedDraft = replyDraftsRef.current[comment.id] ?? "";
+    const body = submittedDraft.trim();
+    if (!body) return;
+    const submittedMentions = [...(replyMentionsRef.current[comment.id] ?? [])];
+    const retryKey = JSON.stringify({ body, mentions: submittedMentions });
+    const retry = replyRetriesRef.current[comment.id];
+    const operationId =
+      retry?.key === retryKey ? retry.id : globalThis.crypto.randomUUID();
+    const generation = replyGenerationsRef.current[comment.id] ?? 0;
+    replyPendingRef.current.add(comment.id);
+    replyDraftsRef.current = {
+      ...replyDraftsRef.current,
+      [comment.id]: "",
+    };
+    replyMentionsRef.current = {
+      ...replyMentionsRef.current,
+      [comment.id]: [],
+    };
+    setReplyDrafts((current) => ({ ...current, [comment.id]: "" }));
+    setReplyMentions((current) => ({ ...current, [comment.id]: [] }));
+    if (replyingThreadIdRef.current === threadId) cancelReplying();
+
+    try {
+      await replyComment.mutateAsync({
+        resourceType,
+        resourceId,
+        commentId: comment.id,
+        body,
+        ...(submittedMentions.length ? { mentions: submittedMentions } : {}),
+        clientOperationId: operationId,
+      });
+      if (replyRetriesRef.current[comment.id]?.id === operationId) {
+        delete replyRetriesRef.current[comment.id];
+      }
+    } catch {
+      if (
+        (replyGenerationsRef.current[comment.id] ?? 0) !== generation ||
+        (replyDraftsRef.current[comment.id] ?? "") !== ""
+      ) {
+        setFailedReplies((current) => ({
+          ...current,
+          [comment.id]: [
+            ...(current[comment.id] ?? []),
+            {
+              id: operationId,
+              resourceType,
+              resourceId,
+              body,
+              mentions: submittedMentions,
+            },
+          ],
+        }));
+        return;
+      }
+      replyRetriesRef.current[comment.id] = { key: retryKey, id: operationId };
+      replyDraftsRef.current = {
+        ...replyDraftsRef.current,
+        [comment.id]: submittedDraft,
+      };
+      replyMentionsRef.current = {
+        ...replyMentionsRef.current,
+        [comment.id]: submittedMentions,
+      };
+      setReplyDrafts((current) => ({
+        ...current,
+        [comment.id]: submittedDraft,
+      }));
+      setReplyMentions((current) => ({
+        ...current,
+        [comment.id]: submittedMentions,
+      }));
+      if (replyingThreadIdRef.current === null) startReplying(threadId);
+    } finally {
+      replyPendingRef.current.delete(comment.id);
+    }
+  };
+
+  const retryFailedReply = async (
+    comment: ReviewComment,
+    failed: (typeof failedReplies)[string][number],
+  ) => {
+    if (
+      replyPendingRef.current.has(comment.id) ||
+      failed.resourceType !== resourceType ||
+      failed.resourceId !== resourceId
+    )
+      return;
+    replyPendingRef.current.add(comment.id);
+    try {
+      await replyComment.mutateAsync({
+        resourceType: failed.resourceType,
+        resourceId: failed.resourceId,
+        commentId: comment.id,
+        body: failed.body,
+        ...(failed.mentions.length ? { mentions: failed.mentions } : {}),
+        clientOperationId: failed.id,
+      });
+      setFailedReplies((current) => ({
+        ...current,
+        [comment.id]: (current[comment.id] ?? []).filter(
+          (item) => item.id !== failed.id,
+        ),
+      }));
+    } catch {
+      return;
+    } finally {
+      replyPendingRef.current.delete(comment.id);
+    }
+  };
+
+  const setThreadResolution = async (
+    thread: ReviewThread,
+    status: "open" | "resolved",
+  ) => {
+    const threadId = thread.root.threadId;
+    if (resolvingThreadIdsRef.current.has(threadId)) return;
+    resolvingThreadIdsRef.current.add(threadId);
+    setResolvingThreadIds((current) => new Set(current).add(threadId));
+    try {
+      await resolveThread.mutateAsync({
+        resourceType,
+        resourceId,
+        threadId,
+        status,
+      });
+      status === "open"
+        ? onThreadReopened?.(thread)
+        : onThreadResolved?.(thread);
+    } catch (error) {
+      console.error("Failed to update review thread status", error);
+    } finally {
+      resolvingThreadIdsRef.current.delete(threadId);
+      setResolvingThreadIds((current) => {
+        const next = new Set(current);
+        next.delete(threadId);
+        return next;
+      });
+    }
+  };
+
+  const openDeleteDialog = (comment: ReviewComment) => {
+    deleteGenerationRef.current += 1;
+    deleteCandidateRef.current = comment;
+    setDeleteCandidate(comment);
+  };
+
+  const closeDeleteDialog = () => {
+    if (!deleteCandidateRef.current && deletingCommentIdRef.current) return;
+    deleteGenerationRef.current += 1;
+    deleteCandidateRef.current = null;
+    setDeleteCandidate(null);
+  };
+
+  const submitDelete = async () => {
+    const candidate = deleteCandidateRef.current;
+    if (!candidate) return;
+    const generation = deleteGenerationRef.current;
+    deletingCommentIdRef.current = candidate.id;
+    deleteCandidateRef.current = null;
+    setDeleteCandidate(null);
+    try {
+      await deleteComment.mutateAsync({
+        resourceType,
+        resourceId,
+        commentId: candidate.id,
+      });
+    } catch {
+      if (
+        deleteGenerationRef.current === generation &&
+        !deleteCandidateRef.current
+      ) {
+        deleteCandidateRef.current = candidate;
+        setDeleteCandidate(candidate);
+      }
+    } finally {
+      if (deletingCommentIdRef.current === candidate.id) {
+        deletingCommentIdRef.current = null;
+      }
+    }
   };
 
   return (
@@ -453,20 +808,25 @@ export function ReviewThreadPanel({
             className="border-b border-border px-3 py-3"
             value={draft}
             mentions={draftMentions}
-            onMentionsChange={setDraftMentions}
+            onMentionsChange={(mentions) => {
+              draftMentionsRef.current = mentions;
+              setDraftMentions(mentions);
+            }}
             mentionOptions={mentionOptions}
             showCommentTools={showComposerTools}
             onChange={(value) => {
+              draftGenerationRef.current += 1;
+              draftRef.current = value;
               setDraft(value);
-              setDraftMentions((current) =>
-                current.filter((mention) =>
+              setDraftMentions((current) => {
+                const next = current.filter((mention) =>
                   value.includes(`@${mention.label}`),
-                ),
-              );
+                );
+                draftMentionsRef.current = next;
+                return next;
+              });
             }}
             onSubmit={submitDraft}
-            submittingTarget={submittingTarget}
-            disabled={createComment.isPending}
             showAgentAction={showComposerTargetPicker}
             placeholder={placeholder}
             commentLabel={composerCommentLabel}
@@ -474,6 +834,35 @@ export function ReviewThreadPanel({
             contextLabel={composerContextLabel}
           />
         ) : null}
+        {failedCreates
+          .filter(
+            (failed) =>
+              failed.resourceType === resourceType &&
+              failed.resourceId === resourceId,
+          )
+          .map((failed) => (
+            <div
+              key={failed.id}
+              className="flex items-start gap-2 border-b border-border px-3 py-2 text-sm"
+              data-review-failed-create={failed.id}
+            >
+              <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+                {failed.body}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={createPendingRef.current}
+                onClick={() => void retryFailedCreate(failed)}
+              >
+                {failed.resolutionTarget === "agent"
+                  ? composerAgentLabel
+                  : composerCommentLabel}
+              </Button>
+            </div>
+          ))}
 
         {showFilter ? (
           <div className="flex items-center justify-end border-b border-border px-3 py-1.5">
@@ -600,21 +989,23 @@ export function ReviewThreadPanel({
                         className="min-w-0 flex-1"
                         value={editDraft}
                         mentions={editMentions}
-                        onMentionsChange={setEditMentions}
+                        onMentionsChange={(mentions) => {
+                          editMentionsRef.current = mentions;
+                          setEditMentions(mentions);
+                        }}
                         mentionOptions={mentionOptions}
                         showCommentTools={showComposerTools}
-                        onChange={setEditDraft}
+                        onChange={(value) => {
+                          editGenerationRef.current += 1;
+                          editDraftRef.current = value;
+                          setEditDraft(value);
+                        }}
                         onSubmit={submitEdit}
-                        disabled={updateComment.isPending}
                         commentLabel={saveEditLabel}
                         placeholder={editLabel}
                         textareaProps={{ "aria-label": editLabel }}
                         submitOnEnter
-                        onEscape={() => {
-                          setEditCandidate(null);
-                          setEditDraft("");
-                          setEditMentions([]);
-                        }}
+                        onEscape={cancelEditing}
                       />
                       <Button
                         type="button"
@@ -622,11 +1013,7 @@ export function ReviewThreadPanel({
                         variant="ghost"
                         className="mt-1 size-8 shrink-0"
                         aria-label={cancelEditLabel}
-                        onClick={() => {
-                          setEditCandidate(null);
-                          setEditDraft("");
-                          setEditMentions([]);
-                        }}
+                        onClick={cancelEditing}
                       >
                         <IconX className="size-3.5" />
                       </Button>
@@ -678,6 +1065,35 @@ export function ReviewThreadPanel({
                     </div>
                   ) : null}
 
+                  {(failedReplies[thread.root.id] ?? [])
+                    .filter(
+                      (failed) =>
+                        failed.resourceType === resourceType &&
+                        failed.resourceId === resourceId,
+                    )
+                    .map((failed) => (
+                      <div
+                        key={failed.id}
+                        className="mt-2 flex items-start gap-2 text-sm"
+                        data-review-failed-reply={failed.id}
+                      >
+                        <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+                          {failed.body}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={replyPendingRef.current.has(thread.root.id)}
+                          onClick={() =>
+                            void retryFailedReply(thread.root, failed)
+                          }
+                        >
+                          {replyLabel}
+                        </Button>
+                      </div>
+                    ))}
                   {replying && replyAllowed ? (
                     <div
                       className="mt-3 flex min-w-0 items-start gap-1.5"
@@ -688,14 +1104,28 @@ export function ReviewThreadPanel({
                         value={replyDraft}
                         mentions={replyMentions[thread.root.id] ?? []}
                         mentionOptions={mentionOptions}
-                        onMentionsChange={(mentions) =>
+                        onMentionsChange={(mentions) => {
+                          replyMentionsRef.current = {
+                            ...replyMentionsRef.current,
+                            [thread.root.id]: mentions,
+                          };
                           setReplyMentions((current) => ({
                             ...current,
                             [thread.root.id]: mentions,
-                          }))
-                        }
+                          }));
+                        }}
                         showCommentTools={showComposerTools}
                         onChange={(value) => {
+                          replyGenerationsRef.current = {
+                            ...replyGenerationsRef.current,
+                            [thread.root.id]:
+                              (replyGenerationsRef.current[thread.root.id] ??
+                                0) + 1,
+                          };
+                          replyDraftsRef.current = {
+                            ...replyDraftsRef.current,
+                            [thread.root.id]: value,
+                          };
                           setReplyDrafts((current) => ({
                             ...current,
                             [thread.root.id]: value,
@@ -708,45 +1138,20 @@ export function ReviewThreadPanel({
                               value.includes(`@${mention.label}`),
                             ),
                           }));
+                          replyMentionsRef.current = {
+                            ...replyMentionsRef.current,
+                            [thread.root.id]: (
+                              replyMentionsRef.current[thread.root.id] ?? []
+                            ).filter((mention) =>
+                              value.includes(`@${mention.label}`),
+                            ),
+                          };
                         }}
-                        onSubmit={() => {
-                          const body = replyDraft.trim();
-                          if (!body || replyComment.isPending) return;
-                          replyComment.mutate(
-                            {
-                              resourceType,
-                              resourceId,
-                              commentId: thread.root.id,
-                              body,
-                              ...((replyMentions[thread.root.id] ?? []).length
-                                ? {
-                                    mentions: replyMentions[thread.root.id],
-                                  }
-                                : {}),
-                            },
-                            {
-                              onSuccess: () => {
-                                setReplyDrafts((current) => ({
-                                  ...current,
-                                  [thread.root.id]: "",
-                                }));
-                                setReplyMentions((current) => ({
-                                  ...current,
-                                  [thread.root.id]: [],
-                                }));
-                                setReplyingThreadId(null);
-                              },
-                            },
-                          );
-                        }}
-                        submittingTarget={
-                          replyComment.isPending ? "human" : null
-                        }
-                        disabled={replyComment.isPending}
+                        onSubmit={() => submitReply(thread.root)}
                         placeholder={replyPlaceholder}
                         commentLabel={replyLabel}
                         submitOnEnter
-                        onEscape={() => setReplyingThreadId(null)}
+                        onEscape={cancelReplying}
                         textareaProps={{ "data-review-reply-input": true }}
                       />
                       <Button
@@ -755,7 +1160,7 @@ export function ReviewThreadPanel({
                         variant="ghost"
                         className="size-8 shrink-0"
                         aria-label={cancelReplyLabel}
-                        onClick={() => setReplyingThreadId(null)}
+                        onClick={cancelReplying}
                       >
                         <IconX className="size-3.5" />
                       </Button>
@@ -772,9 +1177,7 @@ export function ReviewThreadPanel({
                           size="sm"
                           className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
                           aria-label={replyLabel}
-                          onClick={() =>
-                            setReplyingThreadId(thread.root.threadId)
-                          }
+                          onClick={() => startReplying(thread.root.threadId)}
                         >
                           <IconMessageCircle className="size-3.5" />
                           <span className="hidden @2xs/review:inline">
@@ -790,22 +1193,15 @@ export function ReviewThreadPanel({
                             variant="ghost"
                             size="sm"
                             className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
-                            disabled={resolveThread.isPending}
+                            disabled={resolvingThreadIds.has(
+                              thread.root.threadId,
+                            )}
                             aria-label={resolveLabel}
                             onClick={() =>
-                              resolveThread.mutate(
-                                {
-                                  resourceType,
-                                  resourceId,
-                                  threadId: thread.root.threadId,
-                                },
-                                {
-                                  onSuccess: () => onThreadResolved?.(thread),
-                                },
-                              )
+                              setThreadResolution(thread, "resolved")
                             }
                           >
-                            {resolveThread.isPending ? (
+                            {resolvingThreadIds.has(thread.root.threadId) ? (
                               <Spinner className="size-3.5" />
                             ) : (
                               <IconCircleCheck className="size-3.5" />
@@ -821,29 +1217,19 @@ export function ReviewThreadPanel({
                             variant="ghost"
                             size="sm"
                             className="h-7 min-w-0 gap-1.5 px-1.5 text-xs @xs/review:px-2"
-                            disabled={resolveThread.isPending}
+                            disabled={resolvingThreadIds.has(
+                              thread.root.threadId,
+                            )}
                             aria-label={reopenLabel}
-                            onClick={() =>
-                              resolveThread.mutate(
-                                {
-                                  resourceType,
-                                  resourceId,
-                                  threadId: thread.root.threadId,
-                                  status: "open",
-                                },
-                                {
-                                  onSuccess: () => onThreadReopened?.(thread),
-                                },
-                              )
-                            }
+                            onClick={() => setThreadResolution(thread, "open")}
                           >
-                            {resolveThread.isPending ? (
+                            {resolvingThreadIds.has(thread.root.threadId) ? (
                               <Spinner className="size-3.5" />
                             ) : (
                               <IconCircleCheck className="size-3.5" />
                             )}
                             <span className="hidden @xs/review:inline">
-                              {resolveThread.isPending
+                              {resolvingThreadIds.has(thread.root.threadId)
                                 ? reopeningLabel
                                 : reopenLabel}
                             </span>
@@ -865,11 +1251,7 @@ export function ReviewThreadPanel({
                             <DropdownMenuContent align="end" className="w-44">
                               {editAllowed ? (
                                 <DropdownMenuItem
-                                  onSelect={() => {
-                                    setEditCandidate(thread.root);
-                                    setEditDraft(thread.root.body);
-                                    setEditMentions([...thread.root.mentions]);
-                                  }}
+                                  onSelect={() => startEditing(thread.root)}
                                 >
                                   {editLabel}
                                 </DropdownMenuItem>
@@ -918,11 +1300,8 @@ export function ReviewThreadPanel({
                               ) : null}
                               {deleteAllowed ? (
                                 <DropdownMenuItem
-                                  disabled={deleteComment.isPending}
                                   className="text-destructive focus:text-destructive"
-                                  onSelect={() =>
-                                    setDeleteCandidate(thread.root)
-                                  }
+                                  onSelect={() => openDeleteDialog(thread.root)}
                                 >
                                   <IconTrash className="size-4" />
                                   {deleteLabel}
@@ -947,7 +1326,7 @@ export function ReviewThreadPanel({
       <AlertDialog
         open={Boolean(deleteCandidate)}
         onOpenChange={(open) => {
-          if (!open && !deleteComment.isPending) setDeleteCandidate(null);
+          if (!open) closeDeleteDialog();
         }}
       >
         <AlertDialogContent>
@@ -958,23 +1337,12 @@ export function ReviewThreadPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteComment.isPending}>
-              {cancelDeleteLabel}
-            </AlertDialogCancel>
+            <AlertDialogCancel>{cancelDeleteLabel}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!deleteCandidate || deleteComment.isPending}
+              disabled={!deleteCandidate}
               onClick={(event) => {
                 event.preventDefault();
-                const candidate = deleteCandidate;
-                if (!candidate) return;
-                deleteComment.mutate(
-                  {
-                    resourceType,
-                    resourceId,
-                    commentId: candidate.id,
-                  },
-                  { onSettled: () => setDeleteCandidate(null) },
-                );
+                submitDelete();
               }}
             >
               {confirmDeleteLabel}

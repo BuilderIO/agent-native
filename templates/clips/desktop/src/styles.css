@@ -1005,6 +1005,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 8px;
   border-radius: 50%;
   flex: 0 0 auto;
+  transform: translateY(1px);
   background: hsl(var(--ui-destructive));
 }
 

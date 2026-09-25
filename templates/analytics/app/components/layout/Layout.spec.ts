@@ -24,7 +24,7 @@ describe("Analytics layout sidebar route policy", () => {
     );
   });
 
-  it("keeps sidebar navigation compact and separate from its pinned footer", () => {
+  it("keeps sidebar navigation compact and footer gutters aligned", () => {
     const source = readFileSync(
       new URL("./Sidebar.tsx", import.meta.url),
       "utf8",
@@ -37,7 +37,14 @@ describe("Analytics layout sidebar route policy", () => {
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
     expect(source).toContain(
-      'className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3"',
+      'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3"',
+    );
+    expect(source).toContain(
+      'className="flex min-w-0 flex-col space-y-0.5 px-2"',
+    );
+    expect(source).toContain('className="space-y-1 px-2"');
+    expect(source).toContain(
+      'className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"',
     );
     expect(source).toContain("<AppSidebarHeader");
     expect(source).toContain("<AppSidebarFooter");

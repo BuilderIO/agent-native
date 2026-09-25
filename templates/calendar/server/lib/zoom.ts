@@ -162,8 +162,12 @@ export async function disconnectZoom(ownerEmail: string) {
 
 /**
  * Create a Zoom meeting for a new booking. Picks the first Zoom account
- * owned by the host. Returns undefined if the host has no connected Zoom.
+ * owned by the host. `not_started` means no provider request was made.
  */
+export type ZoomMeetingResult =
+  | { status: "created"; meetingUrl: string; meetingId: string }
+  | { status: "not_started" };
+
 export async function createZoomMeeting(opts: {
   hostEmail: string;
   title: string;
@@ -172,11 +176,11 @@ export async function createZoomMeeting(opts: {
   endTime: string; // ISO
   timezone: string;
   attendees?: Array<{ email: string; name?: string }>;
-}): Promise<{ meetingUrl: string; meetingId: string } | undefined> {
+}): Promise<ZoomMeetingResult> {
   const accounts = await listOAuthAccountsByOwner(PROVIDER, opts.hostEmail);
-  if (accounts.length === 0) return undefined;
+  if (accounts.length === 0) return { status: "not_started" };
   const creds = getZoomCreds();
-  if (!creds) return undefined;
+  if (!creds) return { status: "not_started" };
 
   const provider = createZoomProvider({
     clientId: creds.clientId,
@@ -209,7 +213,11 @@ export async function createZoomMeeting(opts: {
       iCalSequence: 0,
     } as any,
   });
-  return { meetingUrl: result.meetingUrl, meetingId: result.meetingId };
+  return {
+    status: "created",
+    meetingUrl: result.meetingUrl,
+    meetingId: result.meetingId,
+  };
 }
 
 /**
@@ -225,10 +233,12 @@ async function resolveAccessToken(credentialId: string): Promise<string> {
   const stillFresh =
     typeof expiresAt === "number" && expiresAt > Date.now() + 60_000;
   if (stillFresh) return record.accessToken;
-  if (!record.refreshToken) return record.accessToken;
+  if (!record.refreshToken) {
+    throw new Error("Expired Zoom credential cannot be refreshed");
+  }
 
   const creds = getZoomCreds();
-  if (!creds) return record.accessToken;
+  if (!creds) throw new Error("Zoom OAuth is not configured");
   const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString(
     "base64",
   );
@@ -244,7 +254,7 @@ async function resolveAccessToken(credentialId: string): Promise<string> {
     },
     body,
   });
-  if (!res.ok) return record.accessToken;
+  if (!res.ok) throw new Error(`Zoom token refresh failed: ${res.status}`);
   const next = (await res.json()) as {
     access_token: string;
     refresh_token?: string;

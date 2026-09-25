@@ -904,7 +904,7 @@ export function shouldAnimateMarkdownText({
   );
 }
 
-export function MarkdownText() {
+export function MarkdownText({ text: textOverride }: { text?: string } = {}) {
   const t = useT();
   const textPart = useMessagePartText();
   const messageRuntime = useMessageRuntime();
@@ -921,7 +921,7 @@ export function MarkdownText() {
 
   return (
     <StreamingText
-      text={localizeKnownChatErrorText(textPart.text, t)}
+      text={localizeKnownChatErrorText(textOverride ?? textPart.text, t)}
       streaming={shouldAnimateMarkdownText({
         textStreaming,
         isLastAssistantMessage,

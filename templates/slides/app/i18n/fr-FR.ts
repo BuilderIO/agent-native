@@ -55,6 +55,7 @@ const messages = {
     emptyState: "Posez-moi vos questions sur vos présentations",
     thisSlide: "Cette diapositive",
     currentSelection: "Sélection actuelle",
+    slideNumber: "Diapositive {{number}}",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",
@@ -719,6 +720,8 @@ const messages = {
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
     keepEditing: "Continuer à modifier",
     leaveWithoutSaving: "Quitter sans enregistrer",
+    editorMarkupNotSaved:
+      "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",

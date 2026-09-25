@@ -81,29 +81,13 @@ export default defineAction({
     const { organizationId } =
       await requireOrganizationAccess(activeOrganizationId);
 
-    const [org] = await db
-      .select({
-        id: organizations.id,
-        name: organizations.name,
-        createdAt: organizations.createdAt,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
-    if (!org) return emptyOrganizationState(ownerEmail);
+    const resolvedDb = await Promise.resolve(db);
+    const meetingRecordingIds = resolvedDb
+      .select({ id: schema.meetings.recordingId })
+      .from(schema.meetings)
+      .where(isNotNull(schema.meetings.recordingId));
 
-    // These organization-scoped reads are independent. Keep them in one
-    // round-trip window before resolving member profiles below.
-    const [settingsRows, memberRows, inviteRows] = await Promise.all([
-      db
-        .select({
-          brandColor: schema.organizationSettings.brandColor,
-          brandLogoUrl: schema.organizationSettings.brandLogoUrl,
-          defaultVisibility: schema.organizationSettings.defaultVisibility,
-        })
-        .from(schema.organizationSettings)
-        .where(eq(schema.organizationSettings.organizationId, organizationId))
-        .limit(1),
+    const memberRowsPromise = Promise.resolve(
       db
         .select({
           id: orgMembers.id,
@@ -114,6 +98,39 @@ export default defineAction({
         .from(orgMembers)
         .where(eq(orgMembers.orgId, organizationId))
         .orderBy(asc(orgMembers.joinedAt)),
+    );
+    const [
+      [org],
+      settingsRows,
+      memberRows,
+      profiles,
+      inviteRows,
+      spaces,
+      folders,
+      folderRecordingCountRows,
+    ] = await Promise.all([
+      db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          createdAt: organizations.createdAt,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .limit(1),
+      db
+        .select({
+          brandColor: schema.organizationSettings.brandColor,
+          brandLogoUrl: schema.organizationSettings.brandLogoUrl,
+          defaultVisibility: schema.organizationSettings.defaultVisibility,
+        })
+        .from(schema.organizationSettings)
+        .where(eq(schema.organizationSettings.organizationId, organizationId))
+        .limit(1),
+      memberRowsPromise,
+      memberRowsPromise.then((rows) =>
+        getUserProfiles(rows.map((member) => member.email)),
+      ),
       db
         .select({
           id: orgInvitations.id,
@@ -130,39 +147,6 @@ export default defineAction({
           ),
         )
         .orderBy(desc(orgInvitations.createdAt)),
-    ]);
-    const settings = settingsRows[0];
-    const members = memberRows.map((m) => ({
-      id: m.id,
-      email: m.email,
-      role: m.role,
-      joinedAt: Number(m.joinedAt),
-    }));
-    const profiles = await getUserProfiles(
-      members.map((member) => member.email),
-    );
-    const membersWithProfiles = members.map((member) => {
-      const name = profiles.get(member.email.toLowerCase())?.name;
-      return {
-        ...member,
-        ...(name && !isEmailDerivedName(name, member.email) ? { name } : {}),
-      };
-    });
-
-    const invitations = inviteRows.map((i) => ({
-      id: i.id,
-      email: i.email,
-      role: i.role ?? "member",
-      status: i.status,
-      createdAt: Number(i.createdAt),
-    }));
-
-    const resolvedDb = await Promise.resolve(db);
-    const meetingRecordingIds = resolvedDb
-      .select({ id: schema.meetings.recordingId })
-      .from(schema.meetings)
-      .where(isNotNull(schema.meetings.recordingId));
-    const [spaces, folders, folderRecordingCountRows] = await Promise.all([
       db
         .select()
         .from(schema.spaces)
@@ -207,6 +191,28 @@ export default defineAction({
         )
         .groupBy(schema.recordings.folderId),
     ]);
+    if (!org) return emptyOrganizationState(ownerEmail);
+
+    const settings = settingsRows[0];
+    const membersWithProfiles = memberRows.map((m) => {
+      const name = profiles.get(m.email.toLowerCase())?.name;
+      return {
+        id: m.id,
+        email: m.email,
+        role: m.role,
+        joinedAt: Number(m.joinedAt),
+        ...(name && !isEmailDerivedName(name, m.email) ? { name } : {}),
+      };
+    });
+
+    const invitations = inviteRows.map((i) => ({
+      id: i.id,
+      email: i.email,
+      role: i.role ?? "member",
+      status: i.status,
+      createdAt: Number(i.createdAt),
+    }));
+
     const recordingCountByFolder = new Map(
       folderRecordingCountRows.flatMap((row) =>
         row.folderId

@@ -843,7 +843,7 @@ export function ComposeModal({
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
             ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:h-[300px] sm:w-[490px] sm:rounded-xl",
+            : "bottom-0 h-[100dvh] sm:h-[min(540px,_calc(100dvh_-_2rem))] md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))] sm:rounded-xl",
       )}
       data-mail-compose
       style={composeStyle}
@@ -926,7 +926,7 @@ export function ComposeModal({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 aria-label={
                   minimized
                     ? t("mail.compose.restoreCompose")
@@ -955,7 +955,7 @@ export function ComposeModal({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
                   aria-label={
                     isExpanded
                       ? t("mail.compose.restoreComposeSize")
@@ -987,7 +987,7 @@ export function ComposeModal({
             variant="ghost"
             size="icon"
             type="button"
-            className="h-7 w-7"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={onCloseAll}
             aria-label={t("mail.compose.closeAllDrafts")}
           >
@@ -1119,7 +1119,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.bold")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.toggleBold()}
                   >
                     <IconBold className="h-3.5 w-3.5" />
@@ -1134,7 +1134,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.italic")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.toggleItalic()}
                   >
                     <IconItalic className="h-3.5 w-3.5" />
@@ -1149,7 +1149,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.insertLink")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => editorRef.current?.setLink()}
                   >
                     <IconLink className="h-3.5 w-3.5" />
@@ -1164,7 +1164,7 @@ export function ComposeModal({
                     size="icon"
                     type="button"
                     aria-label={t("mail.compose.attachFile")}
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={() => void handleAttach()}
                   >
                     <IconPaperclip className="h-3.5 w-3.5" />

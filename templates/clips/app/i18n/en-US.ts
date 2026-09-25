@@ -359,6 +359,10 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
+    commentSignupTitle: "Give your AI agent the full picture",
+    commentSignupContext: "Share transcript and timestamped frames in one link",
+    commentSignupFeedback: "Turn recorded feedback into clear next steps",
+    commentSignupDebug: "Capture console errors and failed requests",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -1145,6 +1149,7 @@ const messages = {
     transcript: "Transcript",
     comment: "Comment",
     titleOrDescription: "Title or description",
+    matchAt: "Match at {{time}} in video",
   },
   organizationSwitcher: {
     noOrganization: "No organization",

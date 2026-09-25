@@ -22,19 +22,34 @@ import {
 } from "./store.js";
 
 /**
+ * `event.context` key under which the route mount places the app's anonymous
+ * owner resolver, when the app lets anonymous visitors keep application state.
+ */
+export const APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY =
+  "agentNativeAppStateAnonymousOwner";
+
+export type AppStateAnonymousOwnerResolver = (
+  event: H3Event,
+) => string | null | Promise<string | null>;
+
+/**
  * Resolve the session ID for app state scoping. Returns the authenticated
- * user's email; throws 401 when the request has no session.
+ * user's email, else the anonymous owner when the app opted in; throws 401
+ * when neither exists.
  */
 async function getSessionId(event: H3Event): Promise<string> {
   const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
-  if (!session?.email) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthenticated",
-    });
-  }
-  return session.email;
+  if (session?.email) return session.email;
+  const anonymousOwner = event.context?.[
+    APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY
+  ] as AppStateAnonymousOwnerResolver | undefined;
+  const owner = await anonymousOwner?.(event);
+  if (owner) return owner;
+  throw createError({
+    statusCode: 401,
+    statusMessage: "Unauthenticated",
+  });
 }
 
 function safeKey(key: string): string {

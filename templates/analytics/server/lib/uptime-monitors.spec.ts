@@ -594,19 +594,18 @@ describe("shouldOpenMonitorIncident", () => {
     expect(shouldOpenMonitorIncident(degradedOutcome, 1, 2)).toBe(true);
   });
 
-  it("opens immediately for HTTP failures that returned a response", () => {
+  it("requires confirmation for transient server errors but not client errors", () => {
+    const serverError: CheckOutcome = {
+      ...timeoutOutcome,
+      statusCode: 503,
+      latencyMs: 120,
+      error: "Unexpected status 503",
+      failedAssertions: ["Unexpected status 503"],
+    };
+    expect(shouldOpenMonitorIncident(serverError, 0, 2)).toBe(false);
+    expect(shouldOpenMonitorIncident(serverError, 1, 2)).toBe(true);
     expect(
-      shouldOpenMonitorIncident(
-        {
-          ...timeoutOutcome,
-          statusCode: 503,
-          latencyMs: 120,
-          error: "Unexpected status 503",
-          failedAssertions: ["Unexpected status 503"],
-        },
-        0,
-        2,
-      ),
+      shouldOpenMonitorIncident({ ...serverError, statusCode: 404 }, 0, 2),
     ).toBe(true);
   });
 

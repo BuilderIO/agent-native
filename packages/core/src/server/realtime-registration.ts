@@ -37,7 +37,7 @@ import {
   readDeployCredentialEnv,
 } from "./credential-provider.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
-import { resolveSelfDispatchBaseUrl } from "./self-dispatch.js";
+import { resolveDeploymentBaseUrl } from "./self-dispatch.js";
 
 /**
  * Deployment-wide, so this lives in the plain settings store rather than
@@ -302,7 +302,7 @@ function collectInputs(): RegistrationInputs | null {
   // Which origin this deployment may claim, and whether it may claim one at
   // all.
   //
-  // `resolveSelfDispatchBaseUrl` prefers the platform's per-deploy vars but
+  // `resolveDeploymentBaseUrl` prefers the platform's per-deploy vars but
   // falls back to `app.url`, the CANONICAL origin, which every environment
   // built from the production env file shares. Registering that from a process
   // that is NOT the production deployment is the failure the preview check
@@ -352,7 +352,9 @@ function collectInputs(): RegistrationInputs | null {
     // The declared value wins: an operator who names the origin is telling us
     // which one this process serves, which is exactly what the platform vars
     // would otherwise be inferred to mean.
-    origin = new URL(declaredAppUrl || resolveSelfDispatchBaseUrl()).origin;
+    // Not `resolveSelfDispatchBaseUrl`: its declared override is typically
+    // loopback, and the gateway calls this origin from outside.
+    origin = new URL(declaredAppUrl || resolveDeploymentBaseUrl()).origin;
   } catch {
     console.warn(
       "[realtime] this deployment has no parseable self URL; staying on local sync",

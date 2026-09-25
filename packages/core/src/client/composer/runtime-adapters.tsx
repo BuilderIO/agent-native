@@ -105,7 +105,14 @@ export function CoreComposerRuntimeProvider({
 }) {
   const translate = useT();
   const formatters = useFormatters();
-  const formatNumber = formatters.formatNumber.bind(formatters);
+  // Bind once per formatters instance (memoized per locale). A bind on every
+  // render minted a new function, which rebuilt `adapters` and re-ran every
+  // consumer effect keyed on it (VoiceButton re-read `voice-input-preference`
+  // on each render).
+  const formatNumber = useMemo(
+    () => formatters.formatNumber.bind(formatters),
+    [formatters],
+  );
   const adapters = useMemo(
     () => ({ ...coreComposerAdapters, formatNumber, translate }),
     [formatNumber, translate],

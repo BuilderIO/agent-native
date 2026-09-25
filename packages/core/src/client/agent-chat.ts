@@ -62,6 +62,8 @@ export interface AgentChatMessage {
   attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
+  /** Existing chat tab that should receive this submit, regardless of focus. */
+  targetTabId?: string;
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
@@ -128,6 +130,12 @@ export interface AgentChatMessage {
    * distinguishable from a typed chat message. Omit for ordinary chat.
    */
   usageLabel?: string;
+  /**
+   * Approval keys of paused `needsApproval` calls this send approves. The
+   * server consumes only a matching durable grant, and the message is hidden
+   * as a protocol continuation rather than shown as a new prompt.
+   */
+  approvedToolCalls?: string[];
 }
 
 export interface AgentChatContextItem {
@@ -988,6 +996,7 @@ export interface ParsedSubmitChat {
   reuseEmptyTab?: boolean;
   background?: boolean;
   tabId?: string;
+  targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
@@ -996,6 +1005,24 @@ export interface ParsedSubmitChat {
   submitMessageId?: string;
   /** See {@link AgentChatMessage.usageLabel}. */
   usageLabel?: string;
+  /** See {@link AgentChatMessage.approvedToolCalls}. */
+  approvedToolCalls?: string[];
+}
+
+const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
+
+// Keys are kept verbatim: the server matches them byte-for-byte against the
+// durable grant, so trimming one would make the approval silently miss.
+function parseSubmitChatApprovedToolCalls(
+  value: unknown,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys = value
+    .filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    )
+    .slice(0, MAX_SUBMIT_APPROVED_TOOL_CALLS);
+  return keys.length > 0 ? keys : undefined;
 }
 
 function parseSubmitChatAttachments(
@@ -1085,12 +1112,14 @@ export function parseSubmitChatMessage(
     background:
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
+    targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
     usageLabel: nonEmptyString(raw.usageLabel),
+    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };
 }
 
@@ -1125,6 +1154,41 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 }
 
 /**
+ * Whether an approval continuation must stay with this app's own chat. The
+ * paused `needsApproval` run and its durable grant live there, and two outer
+ * chats cannot carry the keys: Builder's chat (`builder.submitChat` has no
+ * field for them and Builder holds none of this app's grants) and an MCP
+ * host's chat (every host transport — the direct follow-up API and the
+ * wrapper's `sendHostChat` — forwards only the message text). That holds for
+ * both MCP App embeds: with the chat bridge, and direct, where the parent is
+ * the MCP host itself. Anywhere else the normal relay carries the keys to the
+ * chat that owns the run.
+ */
+function keepsApprovalInAppChat(
+  opts: Pick<AgentChatMessage, "approvedToolCalls">,
+): boolean {
+  if (!opts.approvedToolCalls?.length) return false;
+  return (
+    isInBuilderFrame() ||
+    isMcpAppChatBridgeEnabled() ||
+    isDirectMcpAppEmbedSession()
+  );
+}
+
+/**
+ * Whether this send goes to the code-editing frame rather than the app's own
+ * chat. A code request goes to its frame unless it is an approval
+ * continuation that must stay in the app's chat (see
+ * {@link keepsApprovalInAppChat}).
+ */
+export function routesToCodeFrame(
+  opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
+): boolean {
+  if (opts.type !== "code" && opts.requiresCode !== true) return false;
+  return !keepsApprovalInAppChat(opts);
+}
+
+/**
  * Send a message to the agent chat via postMessage.
  * Returns the stable tabId for tracking this chat run.
  */
@@ -1134,8 +1198,22 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
-  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
-  const localChatTarget = opts.chatTarget === "local";
+  const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
+  const hasMcpAppLocalPayload =
+    mcpBridgeEnabled &&
+    Boolean(
+      opts.attachments?.length ||
+      opts.images?.length ||
+      opts.referenceImagePaths?.length ||
+      opts.uploadedReferenceImages?.length ||
+      opts.usageLabel ||
+      actionScope,
+    );
+  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
+  const localChatTarget =
+    opts.chatTarget === "local" ||
+    keepsApprovalInAppChat(opts) ||
+    hasMcpAppLocalPayload;
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1171,16 +1249,10 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
-  if (
-    opts.submit !== false &&
-    !localChatTarget &&
-    isMcpAppChatBridgeEnabled()
-  ) {
-    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
-    // label. Use the normal wrapper transport when either needs to reach the
-    // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel || actionScope) {
+  if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
+    // MCP host follow-ups cannot address a specific chat tab, so a targeted
+    // send must use the wrapper transport to reach the thread it names.
+    if (opts.targetTabId) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",
@@ -1283,7 +1355,7 @@ export interface SendToAgentChatAndConfirmResult {
  */
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { timeoutMs?: number },
+  options?: { submitMessageId?: string; timeoutMs?: number },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
@@ -1294,8 +1366,7 @@ export function sendToAgentChatAndConfirm(
   // and cannot answer this window-local CustomEvent acknowledgement.
   if (
     opts.chatTarget !== "local" ||
-    opts.type === "code" ||
-    opts.requiresCode === true ||
+    routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
     return Promise.resolve({
@@ -1305,7 +1376,8 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateAgentChatSubmitMessageId();
+  const submitMessageId =
+    options?.submitMessageId ?? generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,

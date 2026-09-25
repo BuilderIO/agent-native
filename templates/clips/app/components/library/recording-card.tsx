@@ -315,6 +315,7 @@ export function RecordingCard({
                 className="h-full w-full object-cover"
                 draggable={false}
                 onError={() => setThumbnailFailed(true)}
+                loading="lazy"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">

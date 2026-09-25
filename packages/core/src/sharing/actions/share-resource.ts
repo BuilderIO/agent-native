@@ -1,7 +1,7 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
 import { isOrgMember } from "../../org/membership.js";
@@ -219,9 +219,9 @@ export default defineAction({
       );
     }
     if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
-      throw new Error(
-        "User shares must use an email address, not an internal user id.",
-      );
+      fail("User shares must use an email address, not an internal user id.", {
+        errorCode: "invalid_user_share_principal",
+      });
     }
     if (args.principalType === "group") {
       const resourceOrgId = access.resource?.orgId as string | undefined | null;

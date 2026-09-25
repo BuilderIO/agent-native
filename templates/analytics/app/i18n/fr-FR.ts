@@ -1338,6 +1338,7 @@ export default {
     app: "Application",
     unknownApp: "Application inconnue",
     lastSeen: "Dernière activité",
+    includeZeroMinuteSessions: "Inclure les sessions de 0 min",
     duration: "Durée",
     events: "Événements",
     chunks: "Fragments",

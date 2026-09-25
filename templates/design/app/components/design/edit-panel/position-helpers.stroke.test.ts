@@ -130,6 +130,13 @@ describe("whether a stroke row should exist at all", () => {
     expect(strokeIsVisible("0px", "solid")).toBe(false);
   });
 
+  it("does not count a width with no style at all, such as a scaled inert outline", () => {
+    expect(strokeIsVisible("5.68px", undefined)).toBe(false);
+    expect(strokeIsVisible("5.68px", "")).toBe(false);
+    expect(strokeIsVisible("2px", "none hidden none none")).toBe(false);
+    expect(strokeIsVisible("2px", "none solid none none")).toBe(true);
+  });
+
   it("counts a real stroke", () => {
     expect(strokeIsVisible("1px", "solid")).toBe(true);
     expect(strokeIsVisible("2px", "dashed")).toBe(true);

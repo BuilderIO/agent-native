@@ -798,6 +798,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
     suggestionsCount: "{{count}} सुझाव",
     acceptSuggestion: "स्वीकार करें",
@@ -840,6 +847,35 @@ const rawLiterals = {
     contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
+    removeFromRecent: "हाल ही में देखे गए से हटाएँ",
+    copyLink: "लिंक कॉपी करें",
+    openInNewTab: "नए टैब में खोलें",
+    rename: "नाम बदलें",
+    duplicate: "डुप्लिकेट करें",
+    moveTo: "यहाँ ले जाएँ",
+    moveToTrash: "ट्रैश में ले जाएँ",
+    lastEditedBy: "अंतिम बार {{name}} ने संपादित किया",
+    lastEdited: "अंतिम संपादन",
+    pageName: "पेज का नाम",
+    movePageTo: "“{{title}}” को यहाँ ले जाएँ",
+    topLevel: "शीर्ष स्तर",
+    noMatchingPages: "कोई मेल खाते पेज नहीं",
+    failedRenamePage: "पेज का नाम नहीं बदला जा सका",
+    failedDuplicatePage: "पेज डुप्लिकेट नहीं किया जा सका",
+    duplicatedFromLastSave:
+      "आख़िरी सहेजा गया संस्करण कॉपी किया गया; हाल के बिना सहेजे बदलाव शामिल नहीं हैं।",
+    chooseSpace: "वर्कस्पेस चुनें",
+    moveToSpaceTitle: "{{space}} में ले जाएँ?",
+    moveToSpaceWarningShared:
+      "{{space}} में सभी लोग “{{title}}” और इसके सब-पेज देख सकेंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    moveToSpaceWarningPrivate:
+      "{{space}} में “{{title}}” और इसके सब-पेज केवल आपके लिए निजी होंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    back: "वापस",
+    movePage: "ले जाएँ",
+    movedToSpace: "“{{title}}” को {{space}} में ले जाया गया",
+    failedRemoveFromRecent: "हाल ही में देखे गए से हटाया नहीं जा सका",
+    collapseItem: "{{title}} संक्षिप्त करें",
+    expandItem: "{{title}} का विस्तार करें",
     database: "संग्रह",
     collection: "संग्रह",
     databasePermanentlyDeleted: "संग्रह स्थायी रूप से हटाया गया",
@@ -980,6 +1016,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
@@ -1225,6 +1268,13 @@ const overrides = {
     genericError: "कुछ गलत हुआ",
   },
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     ...editor,
     sourceComponent: {
       defaultTitle: "स्रोत कंपोनेंट",

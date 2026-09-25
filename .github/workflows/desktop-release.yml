@@ -348,7 +348,7 @@ jobs:
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
           pnpm build:chrome-extension && pnpm build
-          npx electron-builder --win --config --publish always \
+          pnpm exec electron-builder --win --config --publish always \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"
 

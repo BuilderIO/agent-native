@@ -167,6 +167,7 @@ export {
   getJevContextCredentials,
   getOwnerActiveApiKey,
   getOwnerApiKeyForEngine,
+  getOwnerJevApiKey,
   resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
@@ -602,6 +603,8 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderEmbeddingsBaseUrl,
+  getBuilderVideoGenerationBaseUrl,
   getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
@@ -626,6 +629,7 @@ export {
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {

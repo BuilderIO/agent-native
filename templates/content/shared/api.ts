@@ -1,3 +1,5 @@
+import type { IconValue } from "@agent-native/core/icons";
+
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type { NfmFidelityReport } from "./nfm";
 import type {
@@ -28,7 +30,8 @@ export interface Document {
   title: string;
   content: string;
   description?: string;
-  icon: string | null;
+  /** Legacy emoji strings remain readable while new writes use IconValue. */
+  icon: IconValue | string | null;
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
@@ -139,7 +142,7 @@ export interface DocumentCreateRequest {
   parentId?: string | null;
   content?: string;
   description?: string;
-  icon?: string;
+  icon?: IconValue | string;
 }
 
 export interface DocumentUpdateRequest {
@@ -151,7 +154,7 @@ export interface DocumentUpdateRequest {
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
   description?: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
   isFavorite?: boolean;
   loadedUpdatedAt?: string;
   loadedContentWasEmpty?: boolean;
@@ -165,6 +168,8 @@ export interface DocumentUpdateResponse extends Document {
 export interface DocumentMoveRequest {
   parentId?: string | null;
   position?: number;
+  /** Destination Content space; moves the page and its sub-pages there. */
+  spaceId?: string;
 }
 
 export interface DocumentListResponse {
@@ -214,7 +219,7 @@ export interface DocumentTreeNode extends Document {
 export interface NotionSearchResult {
   id: string;
   title: string;
-  icon: string | null;
+  icon: IconValue | string | null;
   url: string;
   lastEditedTime: string | null;
 }
@@ -251,6 +256,7 @@ export interface DocumentPropertyDefinition {
   name: string;
   type: DocumentPropertyType;
   description?: string;
+  icon?: IconValue | null;
   visibility: DocumentPropertyVisibility;
   options: DocumentPropertyOptions;
   position: number;
@@ -285,6 +291,7 @@ export interface ConfigureDocumentPropertyRequest {
   name: string;
   type: DocumentPropertyType;
   description?: string;
+  icon?: IconValue | null;
   visibility?: DocumentPropertyVisibility;
   options?: DocumentPropertyOptions;
   naturalKey?: boolean;
@@ -413,6 +420,7 @@ export interface ContentDatabaseView {
   id: string;
   name: string;
   type: ContentDatabaseViewType;
+  icon?: IconValue | null;
   sorts: ContentDatabaseSort[];
   filters: ContentDatabaseFilter[];
   filterMode?: ContentDatabaseFilterMode;

@@ -1389,6 +1389,7 @@ export default {
     app: "App",
     unknownApp: "Unknown app",
     lastSeen: "Last seen",
+    includeZeroMinuteSessions: "Include 0m sessions",
     duration: "Duration",
     events: "Events",
     chunks: "Chunks",

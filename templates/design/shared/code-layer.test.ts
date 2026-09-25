@@ -436,6 +436,16 @@ describe("code-layer projection", () => {
     expect(tree.map((node) => node.children.length)).toEqual([0, 0, 0, 0, 0]);
   });
 
+  it("classifies an unmarked svg as a generic shape", () => {
+    const html = `
+      <div data-agent-native-node-id="icon" style="position:absolute;width:24px;height:24px">
+        <svg data-agent-native-node-id="v1" data-agent-native-layer-name="Vector" viewBox="0 0 20 20" style="position:absolute"><path d="M0 0 L20 20"/></svg>
+      </div>
+    `;
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    expect(tree[0]?.children.map((node) => node.type)).toEqual(["shape"]);
+  });
+
   it("does not project inline-SVG internals as child layers", () => {
     const html = `
       <div data-agent-native-node-id="logo" style="position:absolute">
@@ -760,6 +770,272 @@ describe("applyVisualEdit vector paint", () => {
     // element, so the stale `stroke="none"` alongside it is inert.
     expect(path).toContain(`style="stroke: #0000ff"`);
     expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+  });
+
+  it("materializes vector linear gradients as SVG paint servers and reads them back", () => {
+    const value =
+      "linear-gradient(45deg, rgba(255, 0, 0, 0.5) 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(gradient.content).toContain(
+      'style="stroke: url(#pen-1-stroke-gradient)"',
+    );
+    expect(gradient.content).toContain(
+      'stop-color="rgb(255, 0, 0)" stop-opacity="0.5"',
+    );
+    expect(gradient.content).toContain(`--an-vector-stroke-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-stroke-gradient"],
+    ).toBe(value);
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).toContain('cx="40" cy="30" r="50"');
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-stroke-gradient");
+    expect(solid.content).not.toContain("--an-vector-stroke-gradient");
+    expect(solid.content).toContain('style="stroke: #00ff00"');
+  });
+
+  it("materializes vector fill gradients as SVG paint servers and clears them on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('data-an-vector-fill-gradient=""');
+    expect(gradient.content).toContain(
+      'style="fill: url(#pen-1-fill-gradient)"',
+    );
+    expect(gradient.content).toContain(`--an-vector-fill-gradient: ${value}`);
+    expect(
+      buildCodeLayerProjection(gradient.content).nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "pen-1",
+      )?.style["--an-vector-fill-gradient"],
+    ).toBe(value);
+    expect(gradient.content).toContain('stroke="none"');
+    expect(gradient.content).not.toContain("data-an-vector-stroke-gradient");
+
+    const updated = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(updated.result.status).toBe("applied");
+    expect(updated.content).toContain("<radialGradient");
+    expect(updated.content).not.toContain("<linearGradient");
+
+    const solid = applyVisualEdit(updated.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain('id="pen-1-fill-gradient"');
+    expect(solid.content).toContain('style="fill: #00ff00"');
+    expect(solid.content).toContain('stroke="none"');
+  });
+
+  it("reuses the fill defs container without disturbing stroke or sibling gradients", () => {
+    const stroke = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(0deg, #111111 0%, #eeeeee 100%)",
+    });
+    const withFill = applyVisualEdit(stroke.content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(withFill.result.status).toBe("applied");
+    expect(
+      withFill.content.match(/data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(withFill.content).toContain('data-an-vector-stroke-gradient=""');
+    expect(withFill.content).toContain("stroke: url(#pen-1-stroke-gradient)");
+    expect(withFill.content).toContain("fill: url(#pen-1-fill-gradient)");
+
+    const multiShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /><path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></svg></body>';
+    const firstFill = applyVisualEdit(multiShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    const secondFill = applyVisualEdit(firstFill.content, {
+      kind: "style",
+      target: { nodeId: "shape-b" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #00ff00 0%, #ffffff 100%)",
+    });
+    expect(secondFill.result.status).toBe("applied");
+    expect(
+      secondFill.content.match(/<defs[^>]*data-an-vector-fill-gradient/g),
+    ).toHaveLength(1);
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient)");
+    expect(secondFill.content).toContain("fill: url(#pasted-fill-gradient-2)");
+    expect(secondFill.content).toContain("<linearGradient");
+    expect(secondFill.content).toContain("<radialGradient");
+  });
+
+  it("clears fill gradient metadata when a pasted vector changes from one shape to several and back", () => {
+    const oneShape =
+      '<body><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg" viewBox="0 0 100 60" style="width:100px;height:60px"><g><path data-agent-native-node-id="shape-a" d="M0 0h40v60z" fill="#aaa" /></g></svg></body>';
+    const rootOwned = applyVisualEdit(oneShape, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(rootOwned.result.status).toBe("applied");
+    expect(rootOwned.content).toContain(
+      "--an-vector-fill-gradient: linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    );
+
+    const nowMultiple = rootOwned.content.replace(
+      "</g></svg>",
+      '<path data-agent-native-node-id="shape-b" d="M60 0h40v60z" fill="#bbb" /></g></svg>',
+    );
+    const shapeOwned = applyVisualEdit(nowMultiple, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "radial-gradient(circle at center, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(shapeOwned.result.status).toBe("applied");
+    expect(shapeOwned.content).not.toMatch(
+      /<svg[^>]*--an-vector-fill-gradient:/,
+    );
+    expect(
+      shapeOwned.content.match(/--an-vector-fill-gradient:/g),
+    ).toHaveLength(1);
+
+    const backToOne = shapeOwned.content.replace(
+      /<path data-agent-native-node-id="shape-b"[^>]*\s*\/>/,
+      "",
+    );
+    const solid = applyVisualEdit(backToOne, {
+      kind: "style",
+      target: { nodeId: "shape-a" },
+      property: "fill",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-vector-fill-gradient");
+    expect(solid.content).not.toContain("data-an-vector-fill-gradient");
+  });
+
+  it("preserves CSS corner direction and interpolates omitted stop positions", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value:
+        "linear-gradient(to top right, #000000 0%, #ff0000, #00ff00 80%, #0000ff, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('x1="0" y1="60" x2="80" y2="0"');
+    expect(gradient.content).toContain('offset="40%"');
+    expect(gradient.content).toContain('offset="80%"');
+    expect(gradient.content).toContain('offset="90%"');
+  });
+
+  it("keeps an off-center radial gradient's farthest-corner geometry", () => {
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "radial-gradient(circle at right top, #000000 0%, #ffffff 100%)",
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain('cx="80" cy="0" r="100"');
+  });
+
+  it("refuses unsupported Oklab stroke interpolation without changing source", () => {
+    const result = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(45deg in oklab, red 0%, blue 100%)",
+    });
+
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(html);
+  });
+
+  it("does not mistake diamond or angular picker gradients for radial strokes", () => {
+    for (const value of [
+      "radial-gradient(ellipse closest-side at center, red 0%, blue 100%)",
+      "conic-gradient(from 90deg at center, red 0%, blue 100%)",
+    ]) {
+      const result = applyVisualEdit(html, {
+        kind: "style",
+        target: { nodeId: "pen-1" },
+        property: "stroke",
+        value,
+      });
+      expect(result.result.status).toBe("unsupported");
+      expect(result.content).toBe(html);
+    }
+  });
+
+  it("preserves vector opacity and authored SVG ids when adding a gradient", () => {
+    const styled = html
+      .replace("height:60px", "height:60px;opacity:0.7")
+      .replace('stroke="none"/>', 'stroke="none" stroke-opacity="0.4"/>')
+      .replace(
+        "</body>",
+        '<svg><defs><linearGradient id="pen-1-stroke-gradient"/></defs></svg></body>',
+      );
+    const result = applyVisualEdit(styled, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "stroke",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.content).toContain('id="pen-1-stroke-gradient-2"');
+    expect(result.content).toContain('id="pen-1-stroke-gradient"');
+    expect(result.content).toContain("opacity:0.7");
+    expect(result.content).toContain('stroke-opacity="0.4"');
   });
 
   it("persists inside and outside vector strokes with logical weight", () => {
@@ -1147,6 +1423,67 @@ describe("applyVisualEdit vector paint", () => {
     expect(patch.content.slice(patch.content.indexOf("<path"))).not.toContain(
       "left: 40px",
     );
+  });
+});
+
+describe("applyVisualEdit CSS border gradients", () => {
+  const html =
+    '<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;background:#fff;border-width:4px;border-style:solid;border-color:#111827"></div></body>';
+
+  it("persists a linear border gradient and restores the original color on solid paint", () => {
+    const value = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const gradient = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value,
+    });
+
+    expect(gradient.result.status).toBe("applied");
+    expect(gradient.content).toContain(`--an-css-border-gradient: ${value}`);
+    expect(gradient.content).toContain("--an-css-border-solid-color: #111827");
+    expect(gradient.content).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+    expect(gradient.content).toContain("border-image-slice: 1");
+    expect(gradient.content).toContain("border-color: transparent");
+    expect(
+      gradient.projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-node-id"] === "css-rect-1",
+      )?.style["--an-css-border-gradient"],
+    ).toBe(value);
+    expect(stripEditorOnlyAttributes(gradient.content)).toContain(
+      "border-image-source: var(--an-css-border-gradient)",
+    );
+
+    const solid = applyVisualEdit(gradient.content, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "#00ff00",
+    });
+    expect(solid.result.status).toBe("applied");
+    expect(solid.content).not.toContain("--an-css-border-gradient");
+    expect(solid.content).not.toContain("--an-css-border-solid-color");
+    expect(solid.content).not.toContain("border-image-source");
+    expect(solid.content).toContain("border-color: #00ff00");
+  });
+
+  it.each([
+    ["rounded corners", "border-radius:8px;"],
+    ["dashed border", "border-style:dashed;"],
+    ["per-side border", "border-left-color:#000;"],
+  ])("rejects %s without changing source", (_label, unsupportedStyle) => {
+    const source = `<body><div data-agent-native-node-id="css-rect-1" style="width:80px;height:60px;border-width:4px;border-style:solid;border-color:#111827;${unsupportedStyle}"></div></body>`;
+    const result = applyVisualEdit(source, {
+      kind: "style",
+      target: { nodeId: "css-rect-1" },
+      property: "border-color",
+      value: "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+    });
+    expect(result.result.status).toBe("unsupported");
+    expect(result.content).toBe(source);
   });
 });
 
@@ -4003,6 +4340,8 @@ describe("style edit property normalization for fill layers", () => {
   const html = `<button id="cta">Buy</button>`;
 
   it.each([
+    ["object-fit", "contain"],
+    ["objectFit", "cover"],
     ["background-size", "cover"],
     ["backgroundSize", "cover"],
     ["background-repeat", "no-repeat"],

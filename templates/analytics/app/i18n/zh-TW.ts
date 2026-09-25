@@ -1329,6 +1329,7 @@ export default {
     app: "應用",
     unknownApp: "未知應用",
     lastSeen: "最後出現",
+    includeZeroMinuteSessions: "包含 0 分鐘的工作階段",
     duration: "持續時間",
     events: "事件",
     chunks: "分塊",

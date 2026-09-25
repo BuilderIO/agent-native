@@ -1312,6 +1312,7 @@ export default {
     app: "アプリ",
     unknownApp: "不明なアプリ",
     lastSeen: "最終表示",
+    includeZeroMinuteSessions: "0分のセッションを含める",
     duration: "期間",
     events: "イベント",
     chunks: "チャンク",

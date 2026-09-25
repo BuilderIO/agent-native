@@ -258,6 +258,12 @@ export default {
       opacity: "العتامة",
       padding: "حشوة",
       margin: "هامِش",
+      marginTop: "الهامش العلوي",
+      marginRight: "الهامش الأيمن",
+      marginBottom: "الهامش السفلي",
+      marginLeft: "الهامش الأيسر",
+      linkMarginSides: "ربط جوانب الهامش",
+      unlinkMarginSides: "إلغاء ربط جوانب الهامش",
       radius: "نصف القطر",
       flexGrow: "تمدد",
       flexShrink: "انكماش",
@@ -318,6 +324,18 @@ export default {
       perspectiveHint: "المنظور (فارغ/0 = بلا)",
       customTransform: "تحويل مخصص — لا يمكن تعديله كدوران X/Y/Z",
       shaderEffectType: "التظليل",
+      imageScaleMode: "وضع تحجيم الصورة",
+      imageAdjustments: "تعديلات الصورة",
+      imageExposure: "التعريض",
+      imageContrast: "التباين",
+      imageSaturation: "التشبع",
+      imageScaleFill: "ملء",
+      imageScaleFit: "احتواء",
+      imageScaleCrop: "اقتصاص",
+      noMirroring: "بدون انعكاس",
+      vector: "متجه",
+      mirrorAngle: "عكس الزاوية",
+      mirrorAngleAndLength: "عكس الزاوية والطول",
     },
     shaders: {
       fillsTitle: "تعبئات التظليل",
@@ -538,6 +556,22 @@ export default {
         socialMedia: "وسائل التواصل الاجتماعي",
         adUnit: "وحدة إعلانية",
       },
+    },
+    scale: {
+      title: "تغيير الحجم",
+      exit: "إنهاء تغيير الحجم",
+      factor: "معامل التحجيم",
+      presets: "إعدادات التحجيم المسبقة",
+      anchor: "نقطة الارتكاز",
+      topLeft: "أعلى اليسار",
+      topCenter: "أعلى الوسط",
+      topRight: "أعلى اليمين",
+      middleLeft: "الوسط يسارًا",
+      center: "الوسط",
+      middleRight: "الوسط يمينًا",
+      bottomLeft: "أسفل اليسار",
+      bottomCenter: "أسفل الوسط",
+      bottomRight: "أسفل اليمين",
     },
   },
   designEditor: {
@@ -765,6 +799,8 @@ export default {
       figmaPasteTarget: "الصق في اللوحة",
       figmaPasteApiKeyHint:
         "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
+      figmaPasteAccessDenied:
+        'لا يمكن لرمز Figma المتصل الوصول إلى هذا الملف. تحقق من أذونات الملف ومن أن الرمز يتضمن نطاق "File content".',
       figmaPasteMatchGuidance:
         "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
       figmaPasteUnreadable:
@@ -906,6 +942,9 @@ export default {
     signUpToSaveDescription:
       "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
     signUpToShare: "سجل للمشاركة",
+    signUpToShareLiveCanvas: "سجّل لمشاركة لوحة مباشرة",
+    liveCanvasLink: "رابط اللوحة المباشرة",
+    liveCanvasWaitingForOwner: "بانتظار لقطة لوحة المالك المباشرة.",
     shareEditorLink: "رابط محرر التصميم",
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -1058,6 +1097,7 @@ export default {
         ungroup: "إلغاء التجميع",
         frameSelection: "تأطير التحديد",
         autoLayout: "تخطيط تلقائي",
+        imageVideo: "صورة/فيديو...",
       },
     },
     undo: "تراجع",
@@ -1175,12 +1215,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
+      applySharedEdits: "تطبيق التعديلات",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -1192,6 +1234,8 @@ export default {
       sourceCheckFailedToast:
         "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
       copiedToast: "تم نسخ موجه النمط",
+      copiedToastDescription:
+        "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
@@ -1255,6 +1299,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
@@ -1333,6 +1379,10 @@ export default {
       screenSourceUpdated: "تم تحديث مصدر الشاشة",
       screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
       vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
+      imageUploading: "جارٍ رفع الصورة…",
+      pasteReplaceFailed: "تعذر استبدال تلك الطبقة",
+      swapFillStrokeLayeredFill:
+        "لا يمكن نقل التعبئات المتعددة أو تعبئات الصور إلى حد بعد",
     },
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",

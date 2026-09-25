@@ -10,7 +10,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 const renderHtmlTemplates = vi.fn();
-vi.mock("./fig-file-to-html.js", () => ({ renderHtmlTemplates }));
+vi.mock("./fig-file-to-html.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./fig-file-to-html.js")>()),
+  renderHtmlTemplates,
+}));
 vi.mock("./fig-file-decoder.js", () => ({
   decodeFig: () => ({
     document: { nodeChanges: [] },

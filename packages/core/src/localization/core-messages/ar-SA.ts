@@ -32,6 +32,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "observability.viewDetails": "عرض التفاصيل",
+  "observability.hideDetails": "إخفاء التفاصيل",
+  "observability.input": "الإدخال",
+  "observability.output": "الإخراج",
+  "observability.error": "خطأ",
+  "observability.metadata": "بيانات وصفية",
+  "observability.notCaptured": "لم يتم الالتقاط",
+  "observability.openFullConversation": "فتح المحادثة الكاملة",
+  "observability.learnAboutTab": "تعرّف على علامة التبويب",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
@@ -48,8 +57,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
+  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -274,6 +283,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "صِف المهارة التي تريد إنشاءها...",
   "composer.documentTooLarge":
     'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لـ {{label}} هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
+  "composer.requestTooLarge":
+    "هذه الرسالة ومرفقاتها كبيرة جدًا بحيث يتعذر إرسالها. أزل مرفقًا أو اختصر الرسالة.",
   "composer.file": "ملف",
   "composer.imageModel": "نموذج الصور",
   "composer.imagePreview": "معاينة الصورة",
@@ -484,7 +495,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
-  "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
+  "errorMessages.addCreditsInBuilder": "إضافة أرصدة في Builder",
   "feedback.inaccurate": "غير دقيق",
   "feedback.keyboardHint": "{{shortcut}} Enter للإرسال",
   "feedback.notHelpful": "غير مفيد",
@@ -555,11 +566,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "إعادة إنشاء الرد",
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
+  "message.revertQuestion":
+    "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
+  "message.revertToBeginning": "الرجوع إلى البداية",
   "message.sentAt": "أُرسلت في {{time}}",
   "contextMeter.ariaLabel":
     "السياق {{percent}}%، {{totalTokens}}{{breakdown}}. افتح تحليل السياق.",
@@ -842,6 +856,21 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "تعذر إرسال التأكيد.",
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
+  "usage.builderCredits": "أرصدة Builder",
+  "usage.creditBalance": "رصيد مساحة العمل",
+  "usage.monthlyPlan": "الخطة الشهرية",
+  "usage.dailyFreeLimit": "الحد اليومي المجاني",
+  "usage.creditUsedOfLimit": "استخدام {{used}} من {{limit}}",
+  "usage.creditRemaining": "المتبقي {{amount}}",
+  "usage.creditUsageUnavailable": "تعذّر تحميل استخدام أرصدة Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} رصيد مقدّر",
+  "usage.otherUsdSpend": "{{amount}} دولار أمريكي أخرى",
+  "usage.noBuilderCredits": "0 من أرصدة Builder",
+  "usage.otherUnclassifiedSpend": "إنفاق آخر أو غير مصنّف بالدولار الأمريكي",
+  "usage.providerSpendDetail":
+    "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
+  "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
+  "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
 };
 
 export default messages;

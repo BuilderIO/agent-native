@@ -404,6 +404,7 @@ export default defineAction({
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,
+        trashedAt: rec.trashedAt,
       },
       transcript: transcript
         ? {

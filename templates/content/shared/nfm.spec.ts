@@ -402,31 +402,40 @@ describe("nfm converter — structural parsing", () => {
     expect(docToNfm(doc)).toContain("## Next \\| section");
   });
 
-  it("reports aligned pipe tables as unresolved instead of dropping alignment", () => {
+  it("promotes aligned pipe tables to editable cells without dropping alignment", () => {
     const source = "| Left | Right |\n| :--- | --- |\n| A | B |";
     const doc = nfmToDoc(source);
-    expect(doc.content[0].type).toBe("notionBlockAtom");
-    expect(docToNfm(doc)).toBe(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[0].content?.[0].attrs?.textAlign).toBe(
+      "left",
+    );
+    expect(docToNfm(doc)).toContain('<td align="left">Left</td>');
     expect(inspectNfmFidelity(source)).toMatchObject({
-      status: "unresolved",
-      unresolved: [{ kind: "gfm-table-alignment-not-representable", count: 1 }],
+      status: "transformed",
+      unresolved: [],
     });
   });
 
-  it("does not partially promote a ragged pipe table", () => {
+  it("promotes aligned ragged tables without losing extra cells", () => {
+    const source =
+      "| Name | Price |\n| :--- | ---: |\n| A | $1 | extra |\n| B |";
+    const doc = nfmToDoc(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(
+      doc.content[0].content?.every((row) => row.content?.length === 3),
+    ).toBe(true);
+    expect(docToNfm(doc)).toContain("extra");
+    expect(docToNfm(doc)).toContain('align="right"');
+  });
+
+  it("pads a ragged pipe table with editable blank cells", () => {
     const source = "| A | B |\n| --- | --- |\n| only one |";
     const doc = nfmToDoc(source);
-    expect(doc.content[0].type).toBe("notionBlockAtom");
-    expect(docToNfm(doc)).toBe(source);
+    expect(doc.content[0].type).toBe("table");
+    expect(doc.content[0].content?.[1].content).toHaveLength(2);
     expect(inspectNfmFidelity(source)).toMatchObject({
-      status: "unresolved",
-      conversions: [],
-      unresolved: [
-        {
-          kind: "gfm-table-ragged-rows-preserved-as-raw-source",
-          count: 1,
-        },
-      ],
+      status: "transformed",
+      unresolved: [],
     });
   });
 

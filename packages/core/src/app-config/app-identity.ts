@@ -18,6 +18,7 @@
  */
 
 import { getTemplate, TEMPLATES } from "../cli/templates-meta.js";
+import { normalizeWorkspaceAppHomePath } from "../shared/workspace-app-audience.js";
 import type { AppConfig } from "./schema.js";
 
 function titlecase(s: string): string {
@@ -56,8 +57,60 @@ export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   );
 }
 
-export function resolveAppHomePath(app: AppConfig["app"]): string {
+/**
+ * The home path the workspace deploy recorded for this app in its manifest.
+ *
+ * A workspace deploy infers `/` for an app that only has a root route (see
+ * `inferWorkspaceAppRootHomePath`), and the launcher links there. The app's own
+ * runtime cannot repeat that inference — its routes directory does not exist
+ * inside a serverless bundle — so it reads the same manifest entry instead.
+ * Without this, the launcher opens `/` while the app's root handoff bounces a
+ * signed-in visitor to a `/home` route the app never defined.
+ */
+let cachedManifestHomePaths:
+  | { appsJson: string; homePaths: Map<string, string> }
+  | undefined;
+
+function workspaceManifestHomePath(
+  workspaceId: string | undefined,
+  appsJson: string | undefined,
+): string | undefined {
+  if (!workspaceId || !appsJson?.trim()) return undefined;
+  if (cachedManifestHomePaths?.appsJson !== appsJson) {
+    const homePaths = new Map<string, string>();
+    try {
+      const parsed: unknown = JSON.parse(appsJson);
+      const entries = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object" && "apps" in parsed
+          ? (parsed as { apps?: unknown }).apps
+          : null;
+      if (Array.isArray(entries)) {
+        // Match the launcher (`parseWorkspaceAppLinks`): trimmed ids, and the
+        // first entry wins a duplicate id, so both always agree on one home.
+        for (const entry of entries) {
+          if (!entry || typeof entry !== "object") continue;
+          const record = entry as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id.trim() : "";
+          if (!id || homePaths.has(id)) continue;
+          homePaths.set(id, normalizeWorkspaceAppHomePath(record.homePath));
+        }
+      }
+    } catch {
+      // coercion-ok: a malformed manifest leaves the framework default in place.
+    }
+    cachedManifestHomePaths = { appsJson, homePaths };
+  }
+  return cachedManifestHomePaths.homePaths.get(workspaceId.trim());
+}
+
+export function resolveAppHomePath(
+  app: AppConfig["app"],
+  workspace?: AppConfig["workspace"],
+): string {
   const configured = app.homePath?.trim();
   if (configured) return configured;
-  return "/home";
+  return (
+    workspaceManifestHomePath(app.workspaceId, workspace?.appsJson) ?? "/home"
+  );
 }

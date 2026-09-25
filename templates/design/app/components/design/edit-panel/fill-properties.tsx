@@ -48,6 +48,7 @@ import {
   splitCssLayers,
   withLayerSizeMarker,
 } from "./fill-gradient-helpers";
+import { ImageElementFill } from "./image-element-fill";
 import {
   RowDragHandle,
   SectionIconButton,
@@ -296,9 +297,12 @@ export function FillProperties({
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
       : styles.backgroundColor || "";
-  const authoredFillValue = element.inlineStyles?.[fillProperty];
+  const authoredFillValue = isVectorFillElement
+    ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
+      element.inlineStyles?.[fillProperty])
+    : element.inlineStyles?.[fillProperty];
   const storedPaint = readGradientFillOpacity([
     { color: authoredFillValue ?? renderedFillValue },
   ]);
@@ -329,15 +333,17 @@ export function FillProperties({
     (isTextFillElement && isMixedValue(styles.backgroundClip));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
-  const authoredFill = element.inlineStyles?.[fillProperty]
-    ?.trim()
-    .toLowerCase();
-  const hasBaseFill =
-    isTextFillElement ||
-    colorHasVisibleAlpha(fillValue) ||
-    Boolean(
-      authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
-    );
+  const authoredFill = authoredFillValue?.trim().toLowerCase();
+  const isOpenPenPath =
+    element.tagName.toLowerCase() === "svg" &&
+    element.primitiveKind === "path" &&
+    element.vectorStrokeCanAlign === false;
+  const hasAuthoredFill = Boolean(
+    authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
+  );
+  const hasBaseFill = isOpenPenPath
+    ? hasAuthoredFill
+    : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
   const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
@@ -467,9 +473,80 @@ export function FillProperties({
     );
   };
 
+  const addFill = () => {
+    if (onAddFill) {
+      const added = onAddFill();
+      if (added === "base") {
+        setOpenFillPickerKey(fillStashKey + ":base");
+      } else if (added === "layer") {
+        const key = nextLayerKey();
+        pendingConvertedLayerRef.current = {
+          elementKey: fillStashKey,
+          key,
+          index: 0,
+          previousLayerCount: backgroundLayers.length,
+        };
+        setOpenFillPickerKey(fillStashKey + ":" + key);
+      }
+      return;
+    }
+    if (fillIsMixed) {
+      const replacement: Record<string, string> = isTextFillElement
+        ? {
+            color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
+            backgroundImage: "none",
+            backgroundClip: "border-box",
+          }
+        : {
+            color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
+            backgroundColor: "#ffffff", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
+            backgroundImage: "none",
+          };
+      commitStylePatch(replacement, onStyleChange, onStylesChange);
+      return;
+    }
+    if (isTextFillElement) {
+      onStyleChange(
+        "color",
+        cssColorOrFallback(
+          styles.color,
+          "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
+        ),
+      );
+      return;
+    }
+    if (isVectorFillElement) {
+      onStyleChange(
+        "fill",
+        cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
+      );
+      return;
+    }
+    const addFillPatch = addFillLayerPatch({
+      backgroundColor: styles.backgroundColor,
+      backgroundLayers,
+      backgroundSizeLayers,
+      backgroundRepeatLayers,
+      backgroundPositionLayers,
+    });
+    if (addFillPatch.backgroundImage !== undefined) {
+      layerKeysRef.current.keys = [
+        nextLayerKey(),
+        ...layerKeysRef.current.keys,
+      ];
+    }
+    commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
+  };
+
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
+      onEmptyTitleClick={
+        !hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed)
+          ? addFill
+          : undefined
+      }
+      emptyTitleActionLabel={t("editPanel.labels.addFill")}
       actions={
         <>
           {/* design color-styles affordance (grid icon) to the left of "+".
@@ -484,70 +561,7 @@ export function FillProperties({
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
             <SectionIconButton
               label={t("editPanel.labels.addFill")}
-              onClick={() => {
-                if (onAddFill) {
-                  const added = onAddFill();
-                  if (added === "base") {
-                    setOpenFillPickerKey(fillStashKey + ":base");
-                  } else if (added === "layer") {
-                    const key = nextLayerKey();
-                    pendingConvertedLayerRef.current = {
-                      elementKey: fillStashKey,
-                      key,
-                      index: 0,
-                      previousLayerCount: backgroundLayers.length,
-                    };
-                    setOpenFillPickerKey(fillStashKey + ":" + key);
-                  }
-                  return;
-                }
-                if (fillIsMixed) {
-                  const replacement: Record<string, string> = isTextFillElement
-                    ? {
-                        color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
-                        backgroundImage: "none",
-                        backgroundClip: "border-box",
-                      }
-                    : {
-                        color: "#000000", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundColor: "#ffffff", // guard:allow-raw-color — adding a fill to a mixed selection seeds real canvas paint.
-                        backgroundImage: "none",
-                      };
-                  commitStylePatch(replacement, onStyleChange, onStylesChange);
-                  return;
-                }
-                if (isTextFillElement) {
-                  onStyleChange(
-                    "color",
-                    cssColorOrFallback(
-                      styles.color,
-                      "#000000", // guard:allow-raw-color — restores a concrete authored text fill.
-                    ),
-                  );
-                  return;
-                }
-                if (isVectorFillElement) {
-                  onStyleChange(
-                    "fill",
-                    cssColorOrFallback(styles.fill, DEFAULT_SHAPE_FILL),
-                  );
-                  return;
-                }
-                const addFillPatch = addFillLayerPatch({
-                  backgroundColor: styles.backgroundColor,
-                  backgroundLayers,
-                  backgroundSizeLayers,
-                  backgroundRepeatLayers,
-                  backgroundPositionLayers,
-                });
-                if (addFillPatch.backgroundImage !== undefined) {
-                  layerKeysRef.current.keys = [
-                    nextLayerKey(),
-                    ...layerKeysRef.current.keys,
-                  ];
-                }
-                commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
-              }}
+              onClick={addFill}
             >
               <IconPlus className="size-3.5" />
             </SectionIconButton>
@@ -555,6 +569,13 @@ export function FillProperties({
         </>
       }
     >
+      {element.tagName.toLowerCase() === "img" ? (
+        <ImageElementFill
+          element={element}
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />
+      ) : null}
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
@@ -607,34 +628,38 @@ export function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
-                  // Text gradients are backgrounds clipped to glyphs; SVG
-                  // shapes continue to use their dedicated fill paint.
+                  // SVG fills can be gradients, but they are one native paint,
+                  // not an entry in the CSS background layer stack.
                   supportsLayeredFills={!isVectorFillElement}
+                  singlePaint={isVectorFillElement}
                   onBackgroundImageChange={
                     isVectorFillElement
                       ? undefined
                       : commitBackgroundImageChange
                   }
                   onSolidToGradientChange={
-                    isVectorFillElement || isTextFillElement
-                      ? undefined
-                      : (patch) => {
-                          const convertedLayerKey = nextLayerKey();
-                          pendingConvertedLayerRef.current = {
-                            elementKey: fillStashKey,
-                            key: convertedLayerKey,
-                            index: backgroundLayers.length,
-                            previousLayerCount: backgroundLayers.length,
-                          };
-                          setOpenFillPickerKey(
-                            `${fillStashKey}:${convertedLayerKey}`,
-                          );
-                          commitStylePatch(
-                            patch,
-                            onStyleChange,
-                            onStylesChange,
-                          );
-                        }
+                    isVectorFillElement
+                      ? (patch) =>
+                          onStyleChange(fillProperty, patch.backgroundImage)
+                      : isTextFillElement
+                        ? undefined
+                        : (patch) => {
+                            const convertedLayerKey = nextLayerKey();
+                            pendingConvertedLayerRef.current = {
+                              elementKey: fillStashKey,
+                              key: convertedLayerKey,
+                              index: backgroundLayers.length,
+                              previousLayerCount: backgroundLayers.length,
+                            };
+                            setOpenFillPickerKey(
+                              `${fillStashKey}:${convertedLayerKey}`,
+                            );
+                            commitStylePatch(
+                              patch,
+                              onStyleChange,
+                              onStylesChange,
+                            );
+                          }
                   }
                   // Layer-index-aware: ColorInput merges the edited image
                   // into the correct backgroundImage/backgroundSize/
@@ -650,7 +675,11 @@ export function FillProperties({
                       : commitImageFillPatch
                   }
                   supportedPaintTypes={
-                    isTextFillElement ? TEXT_BASE_PAINT_TYPES : undefined
+                    isVectorFillElement
+                      ? ["solid", "linear", "radial"]
+                      : isTextFillElement
+                        ? TEXT_BASE_PAINT_TYPES
+                        : undefined
                   }
                   documentColors={documentColors}
                   pickerKey={[

@@ -499,9 +499,13 @@ export interface AssistantChatHistoryConfig<
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
   TRestoreResult = unknown,
 > {
+  /** Flush host editor writes before an agent turn starts. */
+  beforeStart?: () => void | Promise<void>;
   list: {
     action: string;
-    args?: Record<string, unknown>;
+    args?:
+      | Record<string, unknown>
+      | ((threadId?: string) => Record<string, unknown>);
     getVersions: (result: TListResult) => readonly TVersion[];
   };
   restore: {
@@ -509,6 +513,7 @@ export interface AssistantChatHistoryConfig<
     args: (
       version: TVersion,
     ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    beforeRestore?: () => void | Promise<void>;
     onRestored?: (
       result: TRestoreResult,
       version: TVersion,
@@ -529,6 +534,8 @@ export interface AssistantChatHistoryConfig<
 }
 
 export interface AssistantChatHistoryContextValue {
+  beginningVersion: AssistantChatHistoryVersion | null;
+  isRestoring: boolean;
   findVersion: (
     message: AssistantChatHistoryMessage,
   ) => AssistantChatHistoryVersion | null;
@@ -619,7 +626,7 @@ export function findMatchingAssistantChatHistoryVersion<
     return null;
   }
   let match: TVersion | null = null;
-  let matchTime = Number.POSITIVE_INFINITY;
+  let matchTime = Number.NEGATIVE_INFINITY;
 
   for (const version of versions) {
     if (!isAssistantChatHistoryVersion(version)) continue;
@@ -627,6 +634,7 @@ export function findMatchingAssistantChatHistoryVersion<
       continue;
     }
     const chatContext = version.chatContext;
+    if (chatContext?.phase === "start") continue;
     const matchesChatTurn = Boolean(
       chatContext &&
       ((message.turnId && chatContext.turnId
@@ -642,12 +650,40 @@ export function findMatchingAssistantChatHistoryVersion<
     const matches = options.matchVersion
       ? options.matchVersion(version, message)
       : true;
-    if (!matches || versionTime >= matchTime) continue;
+    if (!matches || versionTime <= matchTime) continue;
     match = version;
     matchTime = versionTime;
   }
 
   return match;
+}
+
+export function findAssistantChatHistoryBeginningVersion<
+  TVersion extends AssistantChatHistoryVersion,
+>(
+  versions: readonly TVersion[],
+  threadId?: string,
+  isEditable?: (version: TVersion) => boolean,
+): TVersion | null {
+  if (!threadId) return null;
+  let beginning: TVersion | null = null;
+  let beginningTime = Number.POSITIVE_INFINITY;
+  for (const version of versions) {
+    if (
+      !isAssistantChatHistoryVersion(version) ||
+      version.editable === false ||
+      isEditable?.(version) === false ||
+      version.chatContext?.threadId !== threadId ||
+      version.chatContext.phase !== "start"
+    ) {
+      continue;
+    }
+    const versionTime = coerceMessageDate(version.createdAt)?.getTime();
+    if (versionTime == null || versionTime >= beginningTime) continue;
+    beginning = version;
+    beginningTime = versionTime;
+  }
+  return beginning;
 }
 
 /**
@@ -1160,11 +1196,18 @@ export function MessageActionsMenu({
 function AssistantChatHistoryRevertButton({
   onRestore,
   onRestored,
+  label,
+  persistent = false,
 }: {
   onRestore: () => Promise<void>;
-  onRestored: () => void;
+  onRestored?: () => void;
+  label?: string;
+  persistent?: boolean;
 }) {
   const t = useT();
+  const chatRunning = React.useContext(ChatRunningContext);
+  const history = React.useContext(AssistantChatHistoryContext);
+  const restoreInProgress = chatRunning || Boolean(history?.isRestoring);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"confirming" | "restoring" | "error">(
     "confirming",
@@ -1173,7 +1216,7 @@ function AssistantChatHistoryRevertButton({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && state === "restoring") return;
+      if (nextOpen && restoreInProgress) return;
       setOpen(nextOpen);
       if (nextOpen) {
         setState("confirming");
@@ -1182,16 +1225,21 @@ function AssistantChatHistoryRevertButton({
         setError(null);
       }
     },
-    [state],
+    [restoreInProgress],
   );
 
+  useEffect(() => {
+    if (restoreInProgress) setOpen(false);
+  }, [restoreInProgress]);
+
   const handleRestore = useCallback(async () => {
+    if (restoreInProgress) return;
     setState("restoring");
     setError(null);
     try {
       await onRestore();
       setOpen(false);
-      onRestored();
+      onRestored?.();
     } catch (restoreError) {
       const status = (restoreError as { status?: unknown } | undefined)?.status;
       const actionMessage = actionErrorMessage(restoreError);
@@ -1203,7 +1251,7 @@ function AssistantChatHistoryRevertButton({
       );
       setState("error");
     }
-  }, [onRestore, onRestored, t]);
+  }, [onRestore, onRestored, restoreInProgress, t]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1213,10 +1261,11 @@ function AssistantChatHistoryRevertButton({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label={t("agentChat.message.revertHere")}
+                aria-label={label ?? t("agentChat.message.revertHere")}
+                disabled={restoreInProgress}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
-                  messageFooterFadeClassName,
+                  !persistent && messageFooterFadeClassName,
                   open && "bg-accent text-foreground",
                 )}
               >
@@ -1225,7 +1274,7 @@ function AssistantChatHistoryRevertButton({
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            {t("agentChat.message.revertHere")}
+            {label ?? t("agentChat.message.revertHere")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -1238,7 +1287,7 @@ function AssistantChatHistoryRevertButton({
         {state === "confirming" ? (
           <div className="grid gap-2">
             <p className="text-xs font-medium text-foreground">
-              {t("agentChat.message.restoreQuestion")}
+              {t("agentChat.message.revertQuestion")}
             </p>
             <div className="flex justify-end gap-1.5">
               <button
@@ -1250,10 +1299,11 @@ function AssistantChatHistoryRevertButton({
               </button>
               <button
                 type="button"
+                disabled={restoreInProgress}
                 onClick={() => void handleRestore()}
                 className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >
-                {t("agentChat.message.revertHere")}
+                {label ?? t("agentChat.message.revertHere")}
               </button>
             </div>
           </div>
@@ -1278,6 +1328,23 @@ function AssistantChatHistoryRevertButton({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function AssistantChatHistoryBeginningRevertButton() {
+  const t = useT();
+  const history = React.useContext(AssistantChatHistoryContext);
+  const chatRunning = React.useContext(ChatRunningContext);
+  const version = history?.beginningVersion;
+  if (!history || !version || chatRunning) return null;
+  return (
+    <div className="flex justify-end">
+      <AssistantChatHistoryRevertButton
+        label={t("agentChat.message.revertToBeginning")}
+        onRestore={() => history.restoreVersion(version)}
+        persistent
+      />
+    </div>
   );
 }
 
@@ -2106,6 +2173,20 @@ export function shouldShowInlineRunError({
   return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
+export function withoutBanneredRunErrorSummary(
+  text: string,
+  runError: RunErrorInfo | null,
+  bannerRunErrorKey: string | null | undefined,
+): string | null {
+  if (!runError || runErrorKey(runError) !== bannerRunErrorKey) return text;
+  const summary = runError.message.trim();
+  for (const prefix of [`Error: ${summary}`, summary]) {
+    if (text === prefix) return null;
+    if (text.startsWith(`${prefix}\n\n`)) return text.slice(prefix.length + 2);
+  }
+  return text;
+}
+
 export function InlineRunErrorNotice({
   info,
   durationMs,
@@ -2410,11 +2491,11 @@ export function AssistantMessage() {
     [historyContext, historyMessage],
   );
   const showHistoryRevert =
-    isComplete && !historyReverted && historyVersion !== null;
+    !chatRunning && isComplete && !historyReverted && historyVersion !== null;
   const handleHistoryRestore = useCallback(async () => {
-    if (!historyContext || !historyVersion) return;
+    if (chatRunning || !historyContext || !historyVersion) return;
     await historyContext.restoreVersion(historyVersion);
-  }, [historyContext, historyVersion]);
+  }, [chatRunning, historyContext, historyVersion]);
   const cpCtx = React.useContext(CheckpointContext);
 
   useEffect(() => {
@@ -2623,7 +2704,12 @@ export function AssistantMessage() {
                       />
                     );
                   }
-                  return <MarkdownText />;
+                  const text = withoutBanneredRunErrorSummary(
+                    part.text,
+                    messageRunError,
+                    isUserStoppedRun ? null : messageActions?.bannerRunErrorKey,
+                  );
+                  return text === null ? null : <MarkdownText text={text} />;
                 case "reasoning":
                   return <ReasoningMessagePart />;
                 case "tool-call":

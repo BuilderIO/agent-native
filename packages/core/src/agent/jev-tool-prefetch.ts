@@ -67,15 +67,19 @@ export async function rankJevCandidates(
     1,
     Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_PREFETCH_LIMIT),
   );
-  if (candidates.length === 1) return [candidates[0]!.id];
 
   try {
+    let noMatchId = "__no_match__";
+    while (candidates.some((candidate) => candidate.id === noMatchId)) {
+      noMatchId += "_";
+    }
     const criteria = Object.fromEntries(
       candidates.map((candidate) => [
         candidate.id,
         candidate.description || candidate.id,
       ]),
     );
+    criteria[noMatchId] = "None of these candidates is relevant to the task.";
     const jevRequest = {
       model: JEV_MODEL,
       state: {
@@ -89,7 +93,7 @@ export async function rankJevCandidates(
       questions: {
         [options.answerKey]: {
           type: "choice" as const,
-          instructions: options.question,
+          instructions: `${options.question} Choose ${noMatchId} when no candidate is relevant.`,
           criteria,
         },
       },
@@ -103,15 +107,37 @@ export async function rankJevCandidates(
     });
 
     const answer = response.answers?.[options.answerKey];
+    if (answer?.choice === noMatchId) return [];
     const probabilities =
       answer?.probabilities && typeof answer.probabilities === "object"
         ? (answer.probabilities as Record<string, unknown>)
         : {};
-    const rankedNames = candidates
+    const noMatchProbability = probabilities[noMatchId];
+    if (
+      typeof noMatchProbability !== "number" ||
+      !Number.isFinite(noMatchProbability) ||
+      noMatchProbability < 0 ||
+      noMatchProbability > 1
+    ) {
+      return [];
+    }
+    for (const candidate of candidates) {
+      const probability = probabilities[candidate.id];
+      if (
+        probability !== undefined &&
+        (typeof probability !== "number" ||
+          !Number.isFinite(probability) ||
+          probability < 0 ||
+          probability > 1)
+      ) {
+        return [];
+      }
+    }
+    return candidates
       .filter(
         (candidate) =>
           typeof probabilities[candidate.id] === "number" &&
-          Number.isFinite(probabilities[candidate.id]),
+          (probabilities[candidate.id] as number) > noMatchProbability,
       )
       .map((candidate) => ({
         name: candidate.id,
@@ -120,21 +146,7 @@ export async function rankJevCandidates(
       .sort(
         (a, b) => b.probability - a.probability || a.name.localeCompare(b.name),
       )
-      .map((candidate) => candidate.name);
-    const chosenName =
-      typeof answer?.choice === "string" &&
-      candidates.some((candidate) => candidate.id === answer.choice)
-        ? answer.choice
-        : undefined;
-    const hasProbabilities = candidates.some(
-      (candidate) =>
-        typeof probabilities[candidate.id] === "number" &&
-        Number.isFinite(probabilities[candidate.id]),
-    );
-    if (!chosenName && !hasProbabilities) return [];
-    return [chosenName, ...rankedNames]
-      .filter((name): name is string => Boolean(name))
-      .filter((name, index, names) => names.indexOf(name) === index)
+      .map((candidate) => candidate.name)
       .slice(0, limit);
   } catch (error) {
     console.warn(

@@ -86,6 +86,17 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("min-w-0");
   });
 
+  it("does not highlight the current document in workspace trees while in Trash", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain(
+      'const sidebarActiveDocumentId = location.pathname.startsWith("/trash")',
+    );
+    expect(
+      sidebar.match(/activeDocumentId=\{sidebarActiveDocumentId\}/g),
+    ).toHaveLength(3);
+  });
+
   it("keeps row actions inside the visible sidebar at narrow widths", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const rowWidthBlock = treeItem.slice(
@@ -436,11 +447,17 @@ describe("document sidebar layout", () => {
 
   it("uses the full row width until right-side actions are revealed", () => {
     const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
     const reorder = readSidebarSource("./sidebar-reorder.tsx");
 
-    expect(databaseSidebar).toContain(
-      '"group-hover:pe-12 group-focus-within:pe-12"',
+    // Revealed actions fade the title's end instead of re-truncating it.
+    expect(rowActions).toContain(
+      "group-hover:[mask-image:linear-gradient(to_left,transparent_3rem,#000_4rem)]",
     );
+    expect(databaseSidebar).toContain(
+      "sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1)",
+    );
+    expect(databaseSidebar).not.toContain("group-hover:pe-12");
     expect(databaseSidebar).not.toContain(
       '(hasMenuActions || canCreateChild) && "pe-12"',
     );
@@ -451,11 +468,14 @@ describe("document sidebar layout", () => {
       '"touch-none cursor-pointer select-none"',
     );
     expect(databaseSidebar).toContain(
-      'className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"',
+      'className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"',
     );
-    expect(databaseSidebar).toContain(
-      "pointer-events-none absolute end-0 top-1/2",
+    // Nested rows keep the same 2px rhythm as roots.
+    expect(databaseSidebar).toMatch(
+      /key=\{navigationItem\.membershipId\}\s+className="grid min-w-0 gap-0\.5"/,
     );
+    expect(rowActions).toContain("pointer-events-none absolute end-0 top-1/2");
+    expect(databaseSidebar).toContain("<SidebarRowActions>");
     expect(reorder).toContain(
       'document.addEventListener("click", preventDraggedLinkNavigation, true)',
     );
@@ -536,7 +556,7 @@ describe("document sidebar layout", () => {
     expect(sections).not.toContain("IconGripVertical");
     expect(sections).toContain("onPointerDown={pointerDragListener}");
     expect(sections).toContain("onClick={onToggle}");
-    expect(sections).toContain("grid-cols-[minmax(0,1fr)_1.75rem]");
+    expect(sections).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(sections).toContain("grid-cols-[1.75rem_minmax(0,1fr)]");
     expect(sections).not.toContain("{...reorder.listeners}");
     expect(sections).toContain("data-sidebar-reorder-item-id={reorder.itemId}");
@@ -545,9 +565,10 @@ describe("document sidebar layout", () => {
     expect(sections).toContain("group-focus-visible/toggle:opacity-100");
     expect(sections).toContain("<SidebarNavigationRow");
     expect(sections).toContain("renderPinned(limits.pinned)");
-    expect(sections).toContain("grid-cols-[2.375rem_minmax(0,1fr)]");
-    expect(sections).toContain("min-h-[38px]");
-    expect(sections).toContain("hover:bg-transparent");
+    // Show more / less share the row height and the rows' icon column.
+    expect(sections).toContain("sidebarShowMoreClassName");
+    expect(sections).toContain("grid-cols-[0.25rem_1.75rem_minmax(0,1fr)]");
+    expect(sections).not.toContain("min-h-[38px]");
     expect(sections).toContain("text-muted-foreground");
     expect(sidebar).toContain("useContentDatabaseById(favoritesDatabaseId, {");
     expect(sidebar).toContain("favoritesData?.items ?? []");
@@ -570,14 +591,133 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
+  it("marks the current page with one filled row style everywhere", () => {
+    const row = readSidebarSource("./SidebarNavigationRow.tsx");
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(row).toContain(
+      '"bg-sidebar-accent font-medium text-sidebar-accent-foreground"',
+    );
+    expect(row).toContain('aria-current={active ? "page" : undefined}');
+    expect(row).not.toContain("text-foreground/85");
+    expect(sections).toContain("entry.target.documentId === activeDocumentId");
+    expect(databaseSidebar).toContain("active={active}");
+    expect(databaseSidebar).toContain("revealActiveSidebarRow(rowRef.current)");
+    expect(databaseSidebar).not.toContain('active && "font-semibold');
+    expect(sidebar).toContain("sidebarRowClassName(trashActive)");
+  });
+
+  it("gives Recent rows the shared row actions with personal-only items", () => {
+    const sections = readSidebarSource("./PersonalSidebarSections.tsx");
+    const recentRow = sections.slice(
+      sections.indexOf("function RecentSidebarRow"),
+      sections.indexOf("export function PersonalSidebarSections"),
+    );
+
+    expect(recentRow).toContain("<SidebarRowActions>");
+    expect(recentRow).toContain("<SidebarPageMenu");
+    expect(recentRow).toContain("onTogglePin=");
+    expect(recentRow).toContain("onRemoveFromRecent=");
+    // Recent is personal history: nothing that changes the Page or tree.
+    for (const shared of [
+      "onRename",
+      "onDuplicate",
+      "onMove=",
+      "onMoveToTrash",
+      "addChild",
+      "useSidebarReorderItem",
+    ]) {
+      expect(recentRow).not.toContain(shared);
+    }
+  });
+
+  it("builds every sidebar Page menu from one component and one order", () => {
+    const rowActions = readSidebarSource("./SidebarRowActions.tsx");
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const menu = rowActions.slice(
+      rowActions.indexOf("export function SidebarPageMenu"),
+    );
+
+    expect(databaseSidebar).toContain("<SidebarPageMenu");
+    expect(databaseSidebar).not.toContain("<SidebarRowMenu");
+    // Pin, then link/open, then page changes, then lifecycle, then activity.
+    const order = [
+      "<SidebarPinMenuItem",
+      't("sidebar.copyLink")',
+      't("sidebar.openInNewTab")',
+      't("sidebar.rename")',
+      't("sidebar.duplicate")',
+      't("sidebar.moveTo")',
+      't("sidebar.removeFromRecent")',
+      't("sidebar.moveToTrash")',
+      "<SidebarPageActivity",
+    ].map((needle) => menu.indexOf(needle));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Rename keeps focus in its input instead of returning to the trigger.
+    expect(menu).toContain("event.preventDefault()");
+    // Local-file Pages mirror disk, so they cannot be renamed, duplicated, or
+    // moved from the sidebar.
+    expect(databaseSidebar).toContain(
+      "canEdit && !isLocalFile && pageActions !== null",
+    );
+    // Reorderable rows (Pinned) stay inside the sidebar so their menu shows.
+    expect(databaseSidebar).toContain('className="relative min-w-0"');
+  });
+
+  it("asks before moving a Page into another space and never offers local folders", () => {
+    const dialog = readSidebarSource("./MovePageDialog.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    // Choosing a place in another space opens the access warning instead of
+    // moving; only its confirm button calls onMove.
+    expect(dialog).toContain("if (crossSpace) setPendingParentId(parentId);");
+    expect(dialog).toContain("else move(parentId);");
+    expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
+    expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
+    // The picker starts in the Page's own space, not the sidebar's selection.
+    expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
+    expect(sidebar).toContain('space.kind !== "source_backed"');
+    expect(sidebar).toContain('useActionMutation("duplicate-page"');
+  });
+
+  it("keeps Trash in a fixed group and Settings in the footer only", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const expandedBranch = sidebar.slice(
+      sidebar.lastIndexOf("<AppSidebarHeader"),
+    );
+
+    expect(expandedBranch.indexOf("</ScrollArea>")).toBeLessThan(
+      expandedBranch.indexOf("{renderTrashSection()}"),
+    );
+    expect(sidebar).not.toContain("renderSettingsNavButton");
+    expect(expandedBranch.match(/to="\/settings"/g)).toHaveLength(1);
+  });
+
+  it("names tree toggles after the item instead of the sidebar", () => {
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(databaseSidebar).toContain('t("sidebar.expandItem", { title })');
+    expect(databaseSidebar).toContain('t("sidebar.collapseItem", { title })');
+    expect(databaseSidebar).not.toContain('t("sidebar.expand")} ${title}');
+    expect(sidebar).toContain('t("sidebar.expandItem", { title: space.name })');
+    expect(databaseSidebar).toContain("<SidebarDepthGuides depth={depth} />");
+  });
+
   it("aligns the expanded sidebar controls to one trailing grid", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const sections = readSidebarSource("./PersonalSidebarSections.tsx");
 
+    // The space switcher and the Page/Collection `+` share one header row.
     expect(sidebar).toContain(
       "grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2",
     );
-    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_1.75rem]");
+    // Search is a quiet row whose icon and label line up with the tree rows.
+    expect(sidebar).toContain("grid-cols-[1.75rem_minmax(0,1fr)_auto]");
+    expect(sidebar).not.toContain('variant="outline"');
     expect(sidebar).toContain("w-[var(--radix-dropdown-menu-trigger-width)]");
     expect(sidebar).toContain("max-w-[calc(100vw-1rem)]");
     expect(sidebar).toContain('className="min-w-0 flex-1 truncate"');

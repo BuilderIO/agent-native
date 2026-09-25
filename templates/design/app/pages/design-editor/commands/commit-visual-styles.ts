@@ -402,13 +402,23 @@ export function runCommitVisualStyles(
   // up — so skip the runtime shortcut entirely for breakpoint-scoped writes
   // and fall through to the full content patch path below, which reflects
   // the actual persisted class/`@media` result.
-  // This property rebuilds SVG defs/use markup, so preview it through the
-  // committed document replacement below instead of layering a runtime copy.
+  // These rebuild SVG markup (defs/use, or a vector's rounded path data), so
+  // preview them through the committed document replacement below instead of
+  // layering a runtime copy.
+  const targetIsSvg =
+    (targetNode?.tag ?? targetInfo?.tagName)?.toLowerCase() === "svg";
   const runtimeStyleApplied =
     !entries.some(
       ([property]) =>
         property === "--an-vector-stroke-position" ||
-        isVectorEndpointProperty(property),
+        isVectorEndpointProperty(property) ||
+        (targetIsSvg &&
+          /^border(-[a-z]+)*-radius$|^border\w*Radius$/.test(property)) ||
+        // A Figma vector's first resize also adds preserveAspectRatio="none".
+        (targetIsSvg &&
+          (property === "width" || property === "height") &&
+          targetNode?.dataAttributes["data-figma-node-id"] !== undefined &&
+          targetNode.attributes["preserveaspectratio"] === undefined),
     ) &&
     !options.runtimeApplied &&
     activeBreakpointUpperBoundPx == null &&

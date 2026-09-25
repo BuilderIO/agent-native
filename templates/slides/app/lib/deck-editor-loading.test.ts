@@ -2,11 +2,30 @@ import { describe, expect, it } from "vitest";
 
 import {
   deckAccessCheckKey,
+  retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "./deck-editor-loading";
 
 describe("deck editor loading state", () => {
   const accessCheckKey = deckAccessCheckKey("deck-1", "org-1");
+
+  it("refreshes access status after organization and deck reloads on retry", async () => {
+    const calls: string[] = [];
+
+    await retryMissingDeck({
+      refetchOrg: async () => {
+        calls.push("org");
+      },
+      reloadDecks: async () => {
+        calls.push("decks");
+      },
+      refetchAccessStatus: async () => {
+        calls.push("access-status");
+      },
+    });
+
+    expect(calls).toEqual(["org", "decks", "access-status"]);
+  });
 
   it("keeps the skeleton visible through the org-scoped deck reload", () => {
     expect(
@@ -17,7 +36,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: null,
         retrying: false,
-        privateDeckAccessConfirmed: false,
+        deckAccessDeniedConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -31,7 +50,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: accessCheckKey,
         retrying: false,
-        privateDeckAccessConfirmed: false,
+        deckAccessDeniedConfirmed: false,
       }),
     ).toBe(false);
   });
@@ -45,7 +64,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: accessCheckKey,
         retrying: true,
-        privateDeckAccessConfirmed: false,
+        deckAccessDeniedConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -59,7 +78,7 @@ describe("deck editor loading state", () => {
         accessCheckKey: deckAccessCheckKey("deck-1", "org-2"),
         checkedAccessKey: accessCheckKey,
         retrying: false,
-        privateDeckAccessConfirmed: false,
+        deckAccessDeniedConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -73,12 +92,12 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: null,
         retrying: false,
-        privateDeckAccessConfirmed: false,
+        deckAccessDeniedConfirmed: false,
       }),
     ).toBe(false);
   });
 
-  it("shows the private access pane before protected deck loading settles", () => {
+  it("shows the access pane before the protected deck list settles", () => {
     expect(
       shouldShowDeckEditorSkeleton({
         deckFound: false,
@@ -87,7 +106,28 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: null,
         retrying: false,
-        privateDeckAccessConfirmed: true,
+        deckAccessDeniedConfirmed: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows an organization deck denial before the list request settles", () => {
+    const accessStatus = {
+      exists: true,
+      hasAccess: false,
+      visibility: "org",
+    };
+
+    expect(
+      shouldShowDeckEditorSkeleton({
+        deckFound: false,
+        decksLoading: true,
+        orgLoading: true,
+        accessCheckKey,
+        checkedAccessKey: null,
+        retrying: false,
+        deckAccessDeniedConfirmed:
+          accessStatus.exists && !accessStatus.hasAccess,
       }),
     ).toBe(false);
   });

@@ -1293,6 +1293,7 @@ export default {
     app: "앱",
     unknownApp: "알 수 없는 앱",
     lastSeen: "마지막 활동",
+    includeZeroMinuteSessions: "0분 세션 포함",
     duration: "지속 시간",
     events: "이벤트",
     chunks: "청크",

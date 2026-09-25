@@ -4,6 +4,8 @@ description: "Deploy an Agent-Native app to AWS Lambda with Nitro's aws-lambda p
 search: "AWS Lambda deployment Nitro preset serverless"
 ---
 
+<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
+
 # AWS Lambda
 
 Use Nitro's `aws-lambda` preset to build a Lambda-compatible server bundle.
@@ -19,7 +21,7 @@ export default defineConfig({
 Build the function bundle:
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 ```
 
 Publish the generated output with AWS SAM, CDK, Serverless Framework, or the

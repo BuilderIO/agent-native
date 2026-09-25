@@ -54,6 +54,7 @@ const messages = {
     emptyState: "プレゼンテーションについて何でも聞いてください",
     thisSlide: "このスライド",
     currentSelection: "現在の選択",
+    slideNumber: "スライド {{number}}",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",
@@ -698,6 +699,8 @@ const messages = {
       "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
     keepEditing: "編集を続ける",
     leaveWithoutSaving: "保存せずに終了",
+    editorMarkupNotSaved:
+      "この編集は、スライドにエディターのマークアップが追加されるため保存されませんでした。",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",

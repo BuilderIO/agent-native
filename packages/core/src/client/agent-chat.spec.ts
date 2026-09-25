@@ -170,6 +170,18 @@ describe("sendToAgentChat", () => {
     expect(parsed?.usageLabel).toBe("crm:enrich");
   });
 
+  it("carries an explicit existing chat target through the bridge", () => {
+    sendToAgentChat({
+      message: "Continue the original run",
+      targetTabId: "generation-tab",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.targetTabId).toBe("generation-tab");
+    expect(parsed?.targetTabId).toBe("generation-tab");
+  });
+
   it("carries a bounded action scope through the postMessage payload", () => {
     sendToAgentChat({
       message: "Draft a reply",
@@ -215,6 +227,39 @@ describe("sendToAgentChat", () => {
       },
     } as MessageEvent);
     expect(parsed?.usageLabel).toBeUndefined();
+  });
+
+  it("carries approvedToolCalls through the postMessage payload and back out", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    expect(parsed?.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps only non-empty string approval keys, capped, and verbatim", () => {
+    const parse = (approvedToolCalls: unknown) =>
+      parseSubmitChatMessage({
+        data: {
+          type: "agentNative.submitChat",
+          data: { message: "Approved.", approvedToolCalls },
+        },
+      } as MessageEvent)?.approvedToolCalls;
+
+    expect(parse(["a:{}", "", "   ", 7, null, { key: "b" }, " c:{} "])).toEqual(
+      ["a:{}", " c:{} "],
+    );
+    expect(
+      parse(Array.from({ length: 250 }, (_, index) => `k${index}`)),
+    ).toHaveLength(200);
+    expect(parse([])).toBeUndefined();
+    expect(parse(["", 1])).toBeUndefined();
+    expect(parse("a:{}")).toBeUndefined();
+    expect(parse(undefined)).toBeUndefined();
   });
 
   it("includes submitted image data in the postMessage payload", () => {
@@ -444,6 +489,51 @@ describe("sendToAgentChat", () => {
     });
   });
 
+  it("keeps a Builder-frame code approval continuation in the embedded app", () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    // builder.submitChat has no field for the keys and Builder holds none of
+    // this app's grants; the paused run belongs to the embedded AgentSidebar.
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
+  it("keeps code approval continuations on the code frame outside Builder", () => {
+    sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
+  });
+
   it("prepares the local sidebar for silent background sends without opening it", () => {
     sendToAgentChat({
       message: "refresh quietly",
@@ -492,7 +582,8 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).not.toHaveBeenCalled();
   });
 
-  it("uses the wrapper relay when MCP App attachments need to reach chat", () => {
+  it("routes MCP App attachments to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     const attachments = [
@@ -511,12 +602,63 @@ describe("sendToAgentChat", () => {
     });
 
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
-    expect(targetOrigin).toBe("*");
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.attachments).toEqual(attachments);
+  });
+
+  it.each([
+    ["type", { type: "code" as const }],
+    ["requiresCode", { requiresCode: true }],
+  ])("keeps rich MCP App %s requests in the local app chat", (_kind, code) => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const attachments = [
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ];
+    const images = ["data:image/png;base64,abc"];
+    const referenceImagePaths = ["https://cdn.example.test/reference.png"];
+    const uploadedReferenceImages = ["https://cdn.example.test/uploaded.png"];
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+
+    const tabId = sendToAgentChat({
+      message: "update this record from the references",
+      submit: true,
+      ...code,
+      attachments,
+      images,
+      referenceImagePaths,
+      uploadedReferenceImages,
+      usageLabel: "crm:enrich-record",
+      actionScope,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = selfPostMessageSpy.mock.calls[0];
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.attachments).toEqual(attachments);
+    expect(payload.data.images).toEqual(images);
+    expect(payload.data.referenceImagePaths).toEqual(referenceImagePaths);
+    expect(payload.data.uploadedReferenceImages).toEqual(
+      uploadedReferenceImages,
+    );
+    expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
   });
 
   it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {
@@ -569,22 +711,76 @@ describe("sendToAgentChat", () => {
     );
   });
 
-  it("uses the wrapper relay when an MCP App send carries a usage label", () => {
+  it("routes MCP App usage labels and action scopes to the local app chat", () => {
+    vi.useFakeTimers();
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
 
-    sendToAgentChat({
+    const actionScope = { kind: "record-enrichment", recordId: "record-1" };
+    const tabId = sendToAgentChat({
       message: "enrich this record",
       submit: true,
       usageLabel: "crm:enrich-record",
+      actionScope,
     });
 
-    // The host follow-up API has no field for the label, so taking that path
-    // would record the run as an ordinary chat turn.
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.usageLabel).toBe("crm:enrich-record");
+    expect(payload.data.actionScope).toEqual(actionScope);
+  });
+
+  it.each([
+    ["a chat", undefined],
+    ["a code", "code" as const],
+  ])(
+    "keeps %s approval continuation in the app chat inside an MCP App embed",
+    (_label, type) => {
+      vi.useFakeTimers();
+      window.location.search =
+        "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+      const tabId = sendToAgentChat({
+        message: "Approved.",
+        submit: true,
+        type,
+        approvedToolCalls: ["publish-release:{}"],
+      });
+
+      // Neither host transport can carry the keys: the direct follow-up API
+      // takes text only, and the wrapper's sendHostChat forwards only the
+      // message. The paused run lives in this app's own chat.
+      expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+      expect(parentPostMessageSpy).not.toHaveBeenCalled();
+      expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+      vi.runOnlyPendingTimers();
+
+      expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+      const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+      expect(targetOrigin).toBe("http://localhost:3000");
+      expect(payload.type).toBe("agentNative.submitChat");
+      expect(payload.data.tabId).toBe(tabId);
+      expect(
+        parseSubmitChatMessage({ data: payload } as MessageEvent)
+          ?.approvedToolCalls,
+      ).toEqual(["publish-release:{}"]);
+    },
+  );
+
+  it("still relays an MCP App send without approval keys to the host", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({ message: "summarize this", submit: true });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledOnce();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("can force MCP App embeds to use the local app chat", () => {
@@ -677,6 +873,35 @@ describe("sendToAgentChat", () => {
     expect(payload.data.context).toBe("Dashboard: traffic");
   });
 
+  it("keeps a direct MCP App embed code approval continuation in the app chat", () => {
+    vi.useFakeTimers();
+    window.location.search = "?embedded=1&__an_embed_token=signed-token";
+
+    const tabId = sendToAgentChat({
+      message: "Approved.",
+      submit: true,
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    // A direct embed's chat is this app's own chat, which owns the paused
+    // run; the parent is the MCP host, which has no field for the keys.
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)
+        ?.approvedToolCalls,
+    ).toEqual(["publish-release:{}"]);
+  });
+
   it("keeps MCP App prefill-only messages on the existing local path", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -718,6 +943,26 @@ describe("sendToAgentChat", () => {
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });
 
+  it("confirms a local submit with a caller-provided correlation id", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "continue the existing run",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "continuation-submit" },
+    );
+
+    vi.advanceTimersByTime(0);
+    expect(
+      selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data?.submitMessageId,
+    ).toBe("continuation-submit");
+    reportAgentChatSubmitResult("continuation-submit", true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
   it("preserves an explicit local rejection reason", async () => {
     vi.useFakeTimers();
     const resultPromise = sendToAgentChatAndConfirm({
@@ -734,6 +979,43 @@ describe("sendToAgentChat", () => {
       delivered: false,
       reason: "missing-engine",
     });
+  });
+
+  it("confirms a Builder-frame code approval continuation kept in the app chat", async () => {
+    vi.useFakeTimers();
+    frameState.inBuilderFrame = true;
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "Approved.",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+      approvedToolCalls: ["publish-release:{}"],
+    });
+
+    vi.advanceTimersByTime(0);
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload?.data?.approvedToolCalls).toEqual(["publish-release:{}"]);
+    reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("still rejects confirmation for a code request bound for Builder", async () => {
+    frameState.inBuilderFrame = true;
+    const result = await sendToAgentChatAndConfirm({
+      message: "change this app",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+    });
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(sendToBuilderChatMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("rejects non-local confirmation targets without sending", async () => {

@@ -493,7 +493,8 @@ interface KeyboardMessagesSource {
       | "rect"
       | "ellipse"
       | "line"
-      | "arrow",
+      | "arrow"
+      | "imageVideo",
       string
     >;
     undo: string;
@@ -606,6 +607,7 @@ export function attachLocalizedKeyboardShortcuts<
           ellipse: d.tools.ellipse,
           line: d.tools.line,
           arrow: d.tools.arrow,
+          imageVideo: d.tools.imageVideo,
           booleanSubtract: layers.subtract,
           selectAll: labels.selection,
           selectParent: `${labels.selection}: ${layers.title}`,

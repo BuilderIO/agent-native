@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-각 앱은 `APP_BASE_PATH=/<name>` 및 `VITE_APP_BASE_PATH=/<name>`로 제작되었으며 선택한 Nitro 사전 설정을 통해 방출됩니다. Cloudflare Pages는 기본 사전 설정이며 `dist/_worker.js` 및 `_routes.json`의 디스패처 작업자를 사용합니다. Netlify는 `npx @agent-native/core@latest deploy --preset netlify`에서 지원됩니다. `.netlify/functions-internal/<app>-server`에서 앱 기능을 내보내고 정적 자산을 강제로 적용하지 않는 리디렉션을 생성하여 CDN가 파일을 먼저 제공합니다. Vercel은 `npx @agent-native/core@latest deploy --preset vercel`에서 지원됩니다. Vercel의 빌드 출력 API를 사용하여 루트 `.vercel/output` 번들을 작성합니다.
+각 앱은 `APP_BASE_PATH=/<name>` 및 `VITE_APP_BASE_PATH=/<name>`로 빌드되며 선택한 Nitro 프리셋을 통해 배포됩니다. 통합 `deploy` 명령의 기본 프리셋은 **Netlify**입니다. `.netlify/functions-internal/<app>-server` 아래에 앱 함수를 내보내고 정적 자산을 강제로 적용하지 않는 리디렉션을 생성하여 CDN이 파일을 먼저 제공합니다. **Vercel**은 `npx @agent-native/core@latest deploy --preset vercel`로 지원되며 Vercel Build Output API를 사용해 루트 `.vercel/output` 번들을 작성합니다.
 
 <Diagram id="doc-block-1y0mlsh" title={"통합 배포: 하나의 원본, 앱당 하나의 경로"} summary={"모든 앱은 단일 원본으로 제공되므로 로그인 세션과 앱 간 A2A은 무료입니다."}>
 
@@ -352,10 +352,11 @@ npx @agent-native/core@latest deploy
 - **Zero-config 교차 앱 A2A.** `@mail` 태깅 `@calendar`는 동일한 출처 가져오기가 됩니다. 즉, CORS가 없고 형제 간 JWT 서명이 없습니다. 외부 A2A는 오늘날에도 여전히 JWT를 사용합니다.
 - **DNS 레코드 1개, 인증서 1개, CDN 캐시 1개.**
 
-`dist/` 출력 게시:
+플랫폼용 빌드를 게시:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 넷리파이의 경우:
@@ -401,7 +402,7 @@ Workspace 앱은 기본적으로 내부용입니다. 로그인 전용 관리 페
 
 ### 앱별 독립적 배포
 
-자체 도메인(`mail.company.com`, `calendar.company.com`)에 있는 각 앱을 선호하시나요? 작업 공간의 모든 앱은 여전히 ​​독립적으로 배포 가능합니다. `cd apps/mail && npx @agent-native/core@latest build`는 ​​독립형 스캐폴드처럼 정확하게 작동합니다. 그런 다음 크로스 앱 A2A는 공유 `A2A_SECRET`를 사용하여 표준 JWT 서명 경로를 통과합니다. 별도로 배포된 앱 간의 도메인 간 SSO는 Dispatch를 허브로 사용하는 ID 페더레이션에 의해 처리됩니다. [Cross-App SSO](/docs/cross-app-sso)를 참조하세요. 통합된 단일 원본 배포를 사용하면 필요하지 않습니다.
+자체 도메인(`mail.company.com`, `calendar.company.com`)에 있는 각 앱을 선호하시나요? 작업 공간의 모든 앱은 여전히 ​​독립적으로 배포 가능합니다. `cd apps/mail && pnpm build`는 ​​독립형 스캐폴드처럼 정확하게 작동합니다. 그런 다음 크로스 앱 A2A는 공유 `A2A_SECRET`를 사용하여 표준 JWT 서명 경로를 통과합니다. 별도로 배포된 앱 간의 도메인 간 SSO는 Dispatch를 허브로 사용하는 ID 페더레이션에 의해 처리됩니다. [Cross-App SSO](/docs/cross-app-sso)를 참조하세요. 통합된 단일 원본 배포를 사용하면 필요하지 않습니다.
 
 ### 공유 데이터베이스, 공유 자격 증명
 

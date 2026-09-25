@@ -9,7 +9,6 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -26,7 +25,6 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import type {
   ClipsAiRequestKind,
   ClipsAiRequestStatus,
@@ -152,7 +150,6 @@ import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-cou
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
-import { recordingShareUrl } from "@/lib/recording-link";
 import {
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
@@ -422,6 +419,46 @@ export function removePendingReaction(
   pendingId: string,
 ) {
   return pendingReactions.filter((reaction) => reaction.id !== pendingId);
+}
+
+export function buildRecordingBreadcrumbItems({
+  title,
+  trashedAt,
+  libraryLabel,
+  trashLabel,
+  spacesLabel,
+  space,
+  folder,
+}: {
+  title: string;
+  trashedAt?: string | null;
+  libraryLabel: string;
+  trashLabel: string;
+  spacesLabel: string;
+  space?: { id: string; name: string };
+  folder?: { id: string; name: string; spaceId?: string | null };
+}): PageBreadcrumbItem[] {
+  return [
+    ...(trashedAt
+      ? [{ label: trashLabel, to: "/trash" }]
+      : space
+        ? [
+            { label: spacesLabel, to: "/spaces" },
+            { label: space.name, to: `/spaces/${space.id}` },
+          ]
+        : [{ label: libraryLabel, to: "/library" }]),
+    ...(!trashedAt && folder
+      ? [
+          {
+            label: folder.name,
+            to: folder.spaceId
+              ? `/spaces/${folder.spaceId}/folder/${folder.id}`
+              : `/library/folder/${folder.id}`,
+          },
+        ]
+      : []),
+    { label: title },
+  ];
 }
 
 export function meta() {
@@ -1068,39 +1105,18 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
-  const recordingBreadcrumbItems: PageBreadcrumbItem[] = [
-    ...(recordingSpace
-      ? [
-          { label: t("navigation.spaces"), to: "/spaces" },
-          {
-            label: recordingSpace.name,
-            to: `/spaces/${recordingSpace.id}`,
-          },
-        ]
-      : [{ label: t("navigation.library"), to: "/library" }]),
-    ...(recordingFolder
-      ? [
-          {
-            label: recordingFolder.name,
-            to: recordingFolder.spaceId
-              ? `/spaces/${recordingFolder.spaceId}/folder/${recordingFolder.id}`
-              : `/library/folder/${recordingFolder.id}`,
-          },
-        ]
-      : []),
-    { label: visibleTitle },
-  ];
+  const recordingBreadcrumbItems = buildRecordingBreadcrumbItems({
+    title: visibleTitle,
+    trashedAt: recording?.trashedAt,
+    libraryLabel: t("navigation.library"),
+    trashLabel: t("trashRoute.title"),
+    spacesLabel: t("navigation.spaces"),
+    space: recordingSpace,
+    folder: recordingFolder,
+  });
   const recordingBreadcrumb = (
     <PageBreadcrumb items={recordingBreadcrumbItems} />
   );
-  // Attribution `via` must never point at someone who isn't the owner, so it
-  // is only tagged when the viewer is the owner (same rule as the share dialog).
-  const shareViaId =
-    role === "owner" ? (session?.userId ?? undefined) : undefined;
-  const pendingShareUrl = useMemo(() => {
-    if (!recordingId || typeof window === "undefined") return "";
-    return recordingShareUrl(recordingId, shareViaId);
-  }, [recordingId, shareViaId]);
   useEffect(() => {
     if (!recording?.id) return;
     const now = Date.now();
@@ -1919,9 +1935,7 @@ export default function RecordingPage() {
                 <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
                   {t("recordingPage.sharedWithYou")}
                 </span>
-              ) : (
-                renderShareControl()
-              )}
+              ) : null}
             </div>
           </PageHeader>
 
@@ -1949,14 +1963,6 @@ export default function RecordingPage() {
                   />
                 </div>
               ) : null}
-              <ShareCopyRow
-                value={pendingShareUrl}
-                label={t("shareDialog.shareLink")}
-                copyLabel={t("shareUi.copy")}
-                copiedLabel={t("bugReportRoute.copied")}
-                onCopy={writeClipboardText}
-                className="rounded-lg border border-border bg-muted/30 p-2 ps-3"
-              />
             </div>
           </main>
         </div>

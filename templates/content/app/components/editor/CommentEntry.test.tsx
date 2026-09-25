@@ -9,12 +9,16 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync } = vi.hoisted(() => ({
+const { reconcile, mutateAsync, createRetry } = vi.hoisted(() => ({
   reconcile: vi.fn(),
   mutateAsync: vi.fn(),
+  createRetry: vi.fn(),
 }));
 vi.mock("@/hooks/use-comments", () => ({
-  useCreateComment: () => ({ reconcileAmbiguous: reconcile }),
+  useCreateComment: () => ({
+    reconcileAmbiguous: reconcile,
+    mutateAsync: createRetry,
+  }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -132,9 +136,40 @@ async function click(label: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   reconcile.mockResolvedValue("confirmed");
+  createRetry.mockResolvedValue({ id: "saved-reply", threadId: "comment-1" });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+it("checks an uncertain reply before retrying with its original operation ID", async () => {
+  reconcile.mockResolvedValue("unresolved");
+  const entry: Comment = {
+    ...comment,
+    id: "optimistic-operation-1",
+    parent_id: "comment-1",
+    content: "Reply text",
+    mutation: {
+      operationId: "operation-1",
+      kind: "create",
+      status: "error",
+      ambiguous: true,
+    },
+  };
+  await act(async () => root.render(<Harness entry={entry} />));
+  expect(container.textContent).not.toContain("comments.retry");
+  await click("comments.checkSaved");
+  expect(reconcile).toHaveBeenCalledWith("doc-1", "operation-1");
+  await click("comments.retry");
+  expect(createRetry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      clientOperationId: "operation-1",
+      documentId: "doc-1",
+      threadId: "comment-1",
+      parentId: "comment-1",
+      content: "Reply text",
+    }),
+  );
 });
 afterEach(async () => {
   await act(async () => root.unmount());

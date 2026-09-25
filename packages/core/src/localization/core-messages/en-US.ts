@@ -30,6 +30,15 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "observability.viewDetails": "View details",
+  "observability.hideDetails": "Hide details",
+  "observability.input": "Input",
+  "observability.output": "Output",
+  "observability.error": "Error",
+  "observability.metadata": "Metadata",
+  "observability.notCaptured": "Not captured",
+  "observability.openFullConversation": "Open full conversation",
+  "observability.learnAboutTab": "Learn about this tab",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
@@ -46,8 +55,8 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
-  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -279,6 +288,8 @@ const messages = {
   "composer.describeSkill": "Describe the skill you want to create...",
   "composer.documentTooLarge":
     '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+  "composer.requestTooLarge":
+    "This message and its attachments are too large to send. Remove an attachment or shorten the message.",
   "composer.file": "file",
   "composer.imageModel": "Image model",
   "composer.imagePreview": "Image preview",
@@ -483,7 +494,7 @@ const messages = {
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
-  "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
+  "errorMessages.addCreditsInBuilder": "Add credits in Builder",
   "feedback.inaccurate": "Inaccurate",
   "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
@@ -547,11 +558,14 @@ const messages = {
   "message.regenerate": "Regenerate response",
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
+  "message.revertQuestion":
+    "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
+  "message.revertToBeginning": "Revert to beginning",
   "message.sentAt": "Sent {{time}}",
   "contextMeter.ariaLabel":
     "Context {{percent}}%, {{totalTokens}}{{breakdown}}. Open Context X-Ray.",
@@ -820,6 +834,21 @@ const messages = {
   "settings.emailChangeError": "Could not send confirmation.",
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
+  "usage.builderCredits": "Builder credits",
+  "usage.creditBalance": "Workspace balance",
+  "usage.monthlyPlan": "Monthly plan",
+  "usage.dailyFreeLimit": "Free daily limit",
+  "usage.creditUsedOfLimit": "{{used}} of {{limit}} used",
+  "usage.creditRemaining": "{{amount}} remaining",
+  "usage.creditUsageUnavailable": "Builder credit usage couldn’t be loaded.",
+  "usage.estimatedBuilderCredits": "~{{amount}} estimated credits",
+  "usage.otherUsdSpend": "{{amount}} other USD",
+  "usage.noBuilderCredits": "0 Builder credits",
+  "usage.otherUnclassifiedSpend": "Other or unclassified USD spend",
+  "usage.providerSpendDetail":
+    "Provider or older calls outside Builder billing",
+  "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 
 export default messages;

@@ -685,7 +685,9 @@ test.describe("groups", () => {
         await input.fill(String(value));
         await input.press("Enter");
         await page.keyboard.press("Escape");
-        await expect(fillButton).toContainText(`${value}%`);
+        await expect(
+          fillSection.getByRole("textbox", { name: "Paint opacity" }),
+        ).toHaveValue(String(value));
       };
 
       await setOpacity(50);
@@ -710,8 +712,8 @@ test.describe("groups", () => {
           has: page.getByRole("heading", { name: "Fill", exact: true }),
         })
         .first()
-        .getByRole("button", { name: "Open color picker" });
-      await expect(reloadedFill).toContainText("100%");
+        .getByRole("textbox", { name: "Paint opacity" });
+      await expect(reloadedFill).toHaveValue("100");
       await expect.poll(readFill).toBe("rgb(249, 115, 22)");
 
       await setOpacity(50);
@@ -721,7 +723,7 @@ test.describe("groups", () => {
       await expect
         .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
         .not.toMatch(/0\.5|50%/);
-      await expect(reloadedFill).toContainText("100%");
+      await expect(reloadedFill).toHaveValue("100");
       expect(viteUpdates).toEqual([]);
     } finally {
       await postAction(page, "delete-design", { id });
@@ -1655,8 +1657,11 @@ test.describe("groups", () => {
       const fillButton = fillSection.getByRole("button", {
         name: "Open color picker",
       });
+      const fillOpacity = fillSection.getByRole("textbox", {
+        name: "Paint opacity",
+      });
       await expect(fillButton).toBeVisible();
-      await expect(fillButton).toContainText("100%");
+      await expect(fillOpacity).toHaveValue("100");
       const selectionColors = page
         .locator("section")
         .filter({
@@ -1718,7 +1723,7 @@ test.describe("groups", () => {
       await opacity.fill("50");
       await opacity.press("Enter");
       await page.keyboard.press("Escape");
-      await expect(fillButton).toContainText("50%");
+      await expect(fillOpacity).toHaveValue("50");
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgba(249, 115, 22, 0.5)");
@@ -1746,7 +1751,7 @@ test.describe("groups", () => {
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgb(249, 115, 22)");
-      await expect(fillButton).toContainText("100%");
+      await expect(fillOpacity).toHaveValue("100");
 
       await fillButton.click();
       const hex = page.getByRole("textbox", { name: "Hex", exact: true });

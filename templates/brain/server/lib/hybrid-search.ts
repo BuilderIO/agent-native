@@ -202,6 +202,10 @@ export async function hybridSearchArtifacts(input: {
         namespace: SEARCH_NAMESPACE,
       });
       ftsRanks = new Map(fts.map((hit, index) => [hit.chunkId, index + 1]));
+    } catch {
+      ftsRanks = new Map();
+    }
+    try {
       const family = defaultEmbeddingFamily(await availableEmbeddingFamilies());
       if (family) {
         const [queryVector] = await family.embed(
@@ -273,7 +277,6 @@ export async function hybridSearchArtifacts(input: {
         }
       }
     } catch {
-      ftsRanks = new Map();
       semanticRanks = new Map();
     }
   }

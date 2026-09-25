@@ -833,6 +833,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionCreateFailed: "Impossible de créer la suggestion",
     suggestionsCount: "{{count}} suggestions",
     acceptSuggestion: "Accepter",
@@ -877,6 +884,35 @@ const rawLiterals = {
     contentSpace: "Espace Content",
     addChild: "Ajouter un enfant",
     addChildTo: "Ajouter un enfant à {{title}}",
+    collapseItem: "Réduire {{title}}",
+    removeFromRecent: "Retirer des Récents",
+    copyLink: "Copier le lien",
+    openInNewTab: "Ouvrir dans un nouvel onglet",
+    rename: "Renommer",
+    duplicate: "Dupliquer",
+    moveTo: "Déplacer vers",
+    moveToTrash: "Placer dans la corbeille",
+    lastEditedBy: "Dernière modification par {{name}}",
+    lastEdited: "Dernière modification",
+    pageName: "Nom de la page",
+    movePageTo: "Déplacer « {{title}} » vers",
+    topLevel: "Niveau supérieur",
+    noMatchingPages: "Aucune page correspondante",
+    failedRenamePage: "Impossible de renommer la page",
+    failedDuplicatePage: "Impossible de dupliquer la page",
+    duplicatedFromLastSave:
+      "La dernière version enregistrée a été copiée ; les modifications récentes non enregistrées n'ont pas été incluses.",
+    chooseSpace: "Choisir un espace de travail",
+    moveToSpaceTitle: "Déplacer vers {{space}} ?",
+    moveToSpaceWarningShared:
+      "Tout le monde dans {{space}} pourra voir « {{title}} » et ses sous-pages. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    moveToSpaceWarningPrivate:
+      "« {{title}} » et ses sous-pages seront privées pour vous dans {{space}}. Le partage actuel et le lien public sont supprimés, et vous en devenez propriétaire.",
+    back: "Retour",
+    movePage: "Déplacer",
+    movedToSpace: "« {{title}} » déplacée vers {{space}}",
+    failedRemoveFromRecent: "Impossible de retirer des Récents",
+    expandItem: "Développer {{title}}",
     database: "Collection",
     collection: "Collection",
     databasePermanentlyDeleted: "Collection supprimée définitivement",
@@ -1022,6 +1058,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
@@ -1287,6 +1330,13 @@ const overrides = {
     genericError: "Une erreur est survenue",
   },
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Composant source",

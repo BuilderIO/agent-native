@@ -11,6 +11,7 @@ import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
+import { readHostedHarnessBuildConfig } from "./hosted-harness-build-mode.js";
 
 export interface HostedHarnessPolicy {
   enabled: boolean;
@@ -30,6 +31,13 @@ export function isHostedHarnessEnvEnabled(
 export async function loadHostedHarnessConfig(
   cwd = process.cwd(),
 ): Promise<AgentNativeHarnessSetting | undefined> {
+  const build = readHostedHarnessBuildConfig();
+  if (build.recorded) return build.value;
+
+  // Not embedded: an older bundle, or a build that skipped the Vite/deploy
+  // config hook. Fall back to the disk read, which only succeeds when the
+  // config file is actually present (dev server, `agent-native start` from
+  // the app directory) — a deployed function ships neither config file.
   const production = process.env.NODE_ENV === "production";
   const config = await loadResolvedAgentNativeConfig(
     cwd,

@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
     thisSlide: "Esta diapositiva",
     currentSelection: "Selección actual",
+    slideNumber: "Diapositiva {{number}}",
     suggestionPitch: "Crea un pitch de 10 diapositivas desde este doc",
     suggestionBrand: "Aplica nuestra marca a este deck",
     suggestionHero: "Genera una imagen principal para esta diapositiva",
@@ -716,6 +717,8 @@ const messages = {
       "Si sales o recargas ahora, podrías perder los cambios que aún no se han guardado. ¿Seguro que quieres salir?",
     keepEditing: "Seguir editando",
     leaveWithoutSaving: "Salir sin guardar",
+    editorMarkupNotSaved:
+      "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

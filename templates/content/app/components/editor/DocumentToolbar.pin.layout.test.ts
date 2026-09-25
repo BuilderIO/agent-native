@@ -18,6 +18,11 @@ const databaseSidebarSource = readFileSync(
   new URL("../editor/database/sidebar.tsx", import.meta.url),
   "utf8",
 );
+// Files, Pinned, and Recent rows share one Page menu and its pin item.
+const sidebarRowActionsSource = readFileSync(
+  new URL("../sidebar/SidebarRowActions.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("page menu Pin/Unpin", () => {
   it("adds a Pin/Unpin item to the page menu near Copy page link and Info", () => {
@@ -45,11 +50,13 @@ describe("page menu Pin/Unpin", () => {
     for (const source of [
       toolbarSource,
       treeItemSource,
-      databaseSidebarSource,
+      sidebarRowActionsSource,
     ]) {
       expect(source).toContain("IconPin");
       expect(source).not.toContain("IconStar");
     }
+    expect(databaseSidebarSource).toContain("<SidebarPageMenu");
+    expect(databaseSidebarSource).not.toContain("IconStar");
   });
 
   it("only renders the item when a toggle handler is provided", () => {

@@ -23,6 +23,10 @@ import {
   mergePendingChangelog,
   parsePendingEntry,
 } from "../changelog/parse.js";
+import {
+  DEV_SERVER_RECOVERY_EXIT_CODE,
+  DEV_SERVER_SUPERVISOR_ENV,
+} from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
   inferAgentNativeDeploymentEnvironment,
@@ -83,6 +87,9 @@ import {
   loadAgentNativeConfigFile,
   loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
+  writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -1151,6 +1158,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/visual-style-controls",
   "@agent-native/core/client/feature-flags",
   "@agent-native/core/feature-flags/registry",
+  "@agent-native/core/client/launchdarkly",
   "@agent-native/core/client/hooks",
   "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
@@ -1700,6 +1708,10 @@ function getCoreSourceAliases(
       coreSrc,
       "feature-flags/registry.ts",
     ),
+    "@agent-native/core/client/launchdarkly": path.join(
+      coreSrc,
+      "client/launchdarkly/index.ts",
+    ),
     "@agent-native/core/client/hooks": path.join(
       coreSrc,
       "client/hooks/index.ts",
@@ -1887,7 +1899,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -3533,6 +3545,58 @@ function nitroStartupRecovery(): Plugin {
   };
 }
 
+function persistent5xxRecovery(
+  options: {
+    enabled?: boolean;
+    now?: () => number;
+    exit?: (code: number) => void;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-persistent-5xx-recovery",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      if (
+        !(options.enabled ?? process.env[DEV_SERVER_SUPERVISOR_ENV] === "1")
+      ) {
+        return;
+      }
+
+      const now = options.now ?? Date.now;
+      const exit = options.exit ?? ((code: number) => process.exit(code));
+      let hasServedHealthyResponse = false;
+      let first5xxAt: number | undefined;
+      server.middlewares.use((req, res, next) => {
+        if (!isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        res.once("finish", () => {
+          if ((res.statusCode ?? 500) < 500) {
+            hasServedHealthyResponse = true;
+            first5xxAt = undefined;
+            return;
+          }
+
+          const failedAt = now();
+          first5xxAt ??= failedAt;
+          if (!hasServedHealthyResponse || failedAt - first5xxAt <= 75_000) {
+            return;
+          }
+
+          console.error(
+            `[agent-native] Dev server kept returning HTTP ${res.statusCode} after recovery; restarting.`,
+          );
+          exit(DEV_SERVER_RECOVERY_EXIT_CODE);
+        });
+        next();
+      });
+    },
+  };
+}
+
 /**
  * Silence benign connection-reset noise from Vite's dev middleware.
  * Fires when a browser closes/reloads/navigates mid-request — the peer has
@@ -4134,6 +4198,7 @@ function createAgentNativePlugins(
       : [];
 
   return [
+    persistent5xxRecovery(),
     presetMarkerPlugin,
     // Stub packages from `options.ssrStubs` in the SSR bundle so they
     // don't bloat the edge worker. Opt-in per template — the framework
@@ -4295,6 +4360,19 @@ function createAgentNativeConfig(
           },
         }
       : appConfig;
+  const firstRunOnboardingMode = resolveFirstRunOnboardingBuildReplacement(
+    resolvedAppConfig,
+    runtimeEnv,
+  );
+  const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  if (command === "build") {
+    writeAgentNativeBuildConfigMarker(cwd, {
+      firstRunOnboarding: firstRunOnboardingMode,
+      harness: harnessMode,
+    });
+  }
+  const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
+  const harnessBuildMode = JSON.stringify(harnessMode);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   // The public framework route prefix is resolved exactly here, once. The
@@ -4400,6 +4478,19 @@ function createAgentNativeConfig(
     userConfig.optimizeDeps ?? {};
 
   return {
+    // Nitro builds the server separately with its own replacement map. Its
+    // `nitro:init` config hook reads `config.nitro` after this pre-enforced
+    // hook returns, so the server embeds the mode resolved from the same
+    // config, Vite mode and env files as the client. Do not also set this key
+    // in createNitroDevPlugin: Nitro's plugin options take precedence over
+    // `config.nitro`.
+    nitro: {
+      replace: {
+        "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+          firstRunOnboardingBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      },
+    },
     logLevel:
       options.logLevel ??
       userConfig.logLevel ??
@@ -4449,6 +4540,15 @@ function createAgentNativeConfig(
       [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
         resolveRecurringJobsBuildMarker(process.env),
       ),
+      // Same reason as the release owner above: org/context.ts's eligibility
+      // marker write must not read agent-native.json at runtime (not shipped
+      // into the deployed function), so embed the resolved mode here too.
+      "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
+        firstRunOnboardingBuildMode,
+      // hosted-harness-policy.ts's config read has the same problem: apps set
+      // `harness` only in agent-native.config.ts, which is not shipped into
+      // the deployed function either.
+      "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
@@ -4801,6 +4901,7 @@ export {
   getReactRouterAliases as _getReactRouterAliases,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
+  persistent5xxRecovery as _persistent5xxRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
   resolveNitroSsrServiceEntry as _resolveNitroSsrServiceEntry,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,

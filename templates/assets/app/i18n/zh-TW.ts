@@ -39,8 +39,12 @@ const messages = {
     setupDescription: "兩個要素：生成和持久儲存。",
     setupReady: "就緒",
     builderDescriptionReady: "連線管理一代。",
-    builderDescriptionManaged: "託管圖片生成和儲存，無需提供者金鑰。",
-    builderDescriptionDisabled: "對此部署停用。",
+    builderDescriptionManaged:
+      "連結 Builder 即可使用託管圖片生成與儲存。若你的空間已啟用影片生成功能，也可使用該功能。",
+    builderDescriptionDisabled:
+      "此處已停用圖像生成；Builder 影片生成功能仍可能可用。",
+    builderLookupFailed: "無法檢查 Builder 存取權。請重試以更新連線狀態。",
+    statusUnavailable: "狀態無法使用",
     optional: "Optional",
     reconnect: "Reconnect",
     generation: "Generation",
@@ -48,7 +52,7 @@ const messages = {
     generationNeedsSetup: "需要設定",
     manualGenerationKeys: "手動生成金鑰",
     manualGenerationDescription:
-      "新增 Gemini 用於影片生成，或 OpenAI/Gemini 作為圖片後備。",
+      "新增 Gemini 作為手動影片生成選項，或 OpenAI/Gemini 作為圖片後備選項。",
     storage: "Storage",
     storageReady: "原件、縮略圖、影片和匯出內容都有一個持久的家。",
     storageNeedsSetup: "為正式環境資產和匯出新增與 S3 相容的儲存。",
@@ -68,7 +72,8 @@ const messages = {
     saveKey: "儲存金鑰",
     saving: "Saving",
     noManualOptions: "該專案沒有可用的手動設定選項。",
-    builderManaged: "Builder 正在處理託管圖片產生。",
+    builderManaged:
+      "Builder 管理圖片生成。若你的空間已啟用影片生成功能，即可使用。",
     providerConfigured: "已設定 {{providers}}。",
     addGeminiOrOpenAI: "在生成新資產之前新增 Gemini 或 OpenAI。",
     addBuilderGeminiOrOpenAI:

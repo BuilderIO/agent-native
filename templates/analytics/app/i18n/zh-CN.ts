@@ -1246,6 +1246,7 @@ export default {
     app: "应用",
     unknownApp: "未知应用",
     lastSeen: "最后出现",
+    includeZeroMinuteSessions: "包含 0 分钟的会话",
     duration: "持续时间",
     events: "事件",
     chunks: "分块",

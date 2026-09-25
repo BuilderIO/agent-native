@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। Cloudflare Pages एक generated **dispatcher worker** के ज़रिए route करता है, जो `dist/_worker.js` पर एक छोटी script है जो incoming path को पढ़ती है और request को matching ऐप तक forward करती है। Netlify हर ऐप के लिए एक function और generated redirects का उपयोग करता है। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है।
+हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। **Netlify** डिफ़ॉल्ट है: हर ऐप के लिए एक function और generated redirects। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है।
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (डिफ़ॉल्ट)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (default)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -140,7 +129,7 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 
 हाथ से deploy करने के बजाय किसी provider का build command wire कर रहे हैं? उसी command में `--build-only` जोड़ें, उदाहरण के लिए `npx @agent-native/core@latest deploy --preset vercel --build-only`। यह आउटपुट सीधे लिखता है, इसलिए कार्यस्थान routing के लिए किसी `vercel.json` की ज़रूरत नहीं।
 
-एक shared origin के बजाय हर ऐप के लिए अलग domain पसंद करते हैं? कार्यस्थान का हर ऐप अब भी स्वतंत्र रूप से तैनात किया जा सकता है। एक standalone scaffold की तरह `cd apps/<name> && npx @agent-native/core@latest build` चलाएं।
+एक shared origin के बजाय हर ऐप के लिए अलग domain पसंद करते हैं? कार्यस्थान का हर ऐप अब भी स्वतंत्र रूप से तैनात किया जा सकता है। एक standalone scaffold की तरह `cd apps/<name> && pnpm build` चलाएं।
 
 </Callout>
 
@@ -217,7 +206,7 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 Base path client bundle के लिए एक build-time input है और server के लिए एक runtime input। हर ऐप को उसी path के साथ build करें जिस पर proxy उसे route करेगा:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

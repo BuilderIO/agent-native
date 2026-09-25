@@ -32,6 +32,7 @@ import {
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowInlineRunError,
+  withoutBanneredRunErrorSummary,
   shouldShowMissingFinalResponse,
   useSettledFlag,
   ThinkingIndicator,
@@ -45,7 +46,10 @@ import {
   ChatImageAttachmentPreview,
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
+  findAssistantChatHistoryBeginningVersion,
   findMatchingAssistantChatHistoryVersion,
+  AssistantChatHistoryBeginningRevertButton,
+  AssistantChatHistoryContext,
   AssistantMessage,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -238,7 +242,98 @@ describe("assistant request ID resolution", () => {
 });
 
 describe("assistant chat history matching", () => {
-  it("requires a completed side effect and picks the earliest version in the turn", () => {
+  it("hides beginning revert while a chat run is active", async () => {
+    const restoreVersion = vi.fn(async () => {});
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testRoot = createRoot(testContainer);
+    try {
+      await act(async () => {
+        testRoot.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <ChatRunningContext.Provider value>
+              <AssistantChatHistoryContext.Provider
+                value={{
+                  beginningVersion: {
+                    id: "beginning",
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                  },
+                  isRestoring: false,
+                  findVersion: () => null,
+                  restoreVersion,
+                }}
+              >
+                <AssistantChatHistoryBeginningRevertButton />
+              </AssistantChatHistoryContext.Provider>
+            </ChatRunningContext.Provider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      expect(testContainer.querySelector("button")).toBeNull();
+      expect(restoreVersion).not.toHaveBeenCalled();
+    } finally {
+      act(() => testRoot.unmount());
+      testContainer.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("disables history controls while another restore is active", async () => {
+    const restoreVersion = vi.fn(async () => {});
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const testContainer = document.createElement("div");
+    document.body.appendChild(testContainer);
+    const testRoot = createRoot(testContainer);
+    try {
+      await act(async () => {
+        testRoot.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <AssistantChatHistoryContext.Provider
+              value={{
+                beginningVersion: {
+                  id: "beginning",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+                isRestoring: true,
+                findVersion: () => null,
+                restoreVersion,
+              }}
+            >
+              <AssistantChatHistoryBeginningRevertButton />
+              <AssistantChatHistoryBeginningRevertButton />
+            </AssistantChatHistoryContext.Provider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const triggers = [...testContainer.querySelectorAll("button")];
+      expect(triggers).toHaveLength(2);
+      expect(
+        triggers.every((trigger) => (trigger as HTMLButtonElement).disabled),
+      ).toBe(true);
+      await act(async () => triggers.forEach((trigger) => trigger.click()));
+      expect(
+        testContainer.querySelector("[role='dialog'], [data-state='open']"),
+      ).toBeNull();
+      expect(restoreVersion).not.toHaveBeenCalled();
+    } finally {
+      act(() => testRoot.unmount());
+      testContainer.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("requires a completed side effect and picks the latest version in the turn", () => {
     const versions = [
       {
         id: "later",
@@ -261,7 +356,7 @@ describe("assistant chat history matching", () => {
     };
 
     expect(findMatchingAssistantChatHistoryVersion(versions, message)?.id).toBe(
-      "first",
+      "later",
     );
     expect(
       findMatchingAssistantChatHistoryVersion(versions, {
@@ -269,6 +364,33 @@ describe("assistant chat history matching", () => {
         hasCompletedSideEffect: false,
       }),
     ).toBeNull();
+  });
+
+  it("finds the earliest start checkpoint for the current thread", () => {
+    const versions = [
+      {
+        id: "later-start",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        chatContext: { threadId: "thread-1", phase: "start" as const },
+      },
+      {
+        id: "beginning",
+        createdAt: "2026-08-29T09:00:00.000Z",
+        chatContext: { threadId: "thread-1", phase: "start" as const },
+      },
+      {
+        id: "other-thread",
+        createdAt: "2026-08-29T08:00:00.000Z",
+        chatContext: { threadId: "thread-2", phase: "start" as const },
+      },
+    ];
+
+    expect(
+      findAssistantChatHistoryBeginningVersion(versions, "thread-1")?.id,
+    ).toBe("beginning");
+    expect(findAssistantChatHistoryBeginningVersion(versions, "thread-3")).toBe(
+      null,
+    );
   });
 
   it("honors host editability and custom matching", () => {
@@ -299,6 +421,26 @@ describe("assistant chat history matching", () => {
         },
       )?.id,
     ).toBe("selected");
+  });
+
+  it("matches legacy checkpoints without a phase", () => {
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [
+          {
+            id: "legacy",
+            createdAt: "2026-08-29T10:00:00.000Z",
+            chatContext: { runId: "run-1" },
+          },
+        ],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          hasCompletedSideEffect: true,
+        },
+      )?.id,
+    ).toBe("legacy");
   });
 
   it("rejects a checkpoint from a different scoped resource", () => {
@@ -1228,6 +1370,44 @@ describe("shouldShowInlineRunError", () => {
         bannerRunErrorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("withoutBanneredRunErrorSummary", () => {
+  const message =
+    "The model provider is rate-limiting this chat right now. Wait a moment, then retry.";
+  const runError = { message, errorCode: "provider_rate_limited" };
+
+  it("hides duplicate assistant text when the recovery banner is visible", () => {
+    expect(
+      withoutBanneredRunErrorSummary(
+        `Error: ${message}`,
+        runError,
+        runErrorKey(runError),
+      ),
+    ).toBe(null);
+  });
+
+  it("keeps recovery links after removing their repeated error summary", () => {
+    expect(
+      withoutBanneredRunErrorSummary(
+        `Error: ${message}\n\n[Retry in settings](https://example.com)`,
+        runError,
+        runErrorKey(runError),
+      ),
+    ).toBe("[Retry in settings](https://example.com)");
+  });
+
+  it("keeps error text when the banner belongs to another turn", () => {
+    expect(
+      withoutBanneredRunErrorSummary(`Error: ${message}`, runError, "other"),
+    ).toBe(`Error: ${message}`);
+  });
+
+  it("keeps older-turn text when there is no banner", () => {
+    expect(
+      withoutBanneredRunErrorSummary(`Error: ${message}`, runError, null),
+    ).toBe(`Error: ${message}`);
   });
 });
 

@@ -7,6 +7,11 @@ const boundary = vi.hoisted(() => ({
   select: vi.fn(),
   getSetting: vi.fn(),
   mutateSetting: vi.fn(),
+  favorites: vi.fn(),
+}));
+
+vi.mock("./_content-favorites.js", () => ({
+  favoriteDocumentIds: boundary.favorites,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -54,6 +59,7 @@ import {
 } from "./_content-recent.js";
 import getRecent from "./get-content-recent.js";
 import recordVisit from "./record-content-visit.js";
+import removeRecent from "./remove-content-recent.js";
 import updateSidebar from "./update-content-sidebar-state.js";
 
 const alice = { userEmail: "alice@example.test" };
@@ -74,6 +80,8 @@ function rowsOnce(rows: unknown[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   boundary.select.mockReset();
+  boundary.favorites.mockReset();
+  boundary.favorites.mockResolvedValue(new Set());
   boundary.orgId = null;
   boundary.spaceOrgId = null;
   stored.clear();
@@ -426,6 +434,71 @@ describe("Recent action persistence", () => {
       version: 2,
       entries: [{ target: { databaseId: "db", viewId: "board" } }],
     });
+  });
+
+  it("reports the requester's pinned state only for resolved rows", async () => {
+    stored.set(settingId(alice.userEmail, contentRecentSettingKey()), {
+      version: 2,
+      entries: [entry("pinned"), entry("plain"), entry("revoked")],
+    });
+    rowsOnce([
+      { id: "pinned", title: "Pinned page", icon: null },
+      { id: "plain", title: "Plain page", icon: null },
+    ]);
+    boundary.favorites.mockResolvedValueOnce(new Set(["pinned"]));
+    const result = await getRecent.run({}, alice);
+    expect(boundary.favorites).toHaveBeenCalledWith(
+      expect.anything(),
+      alice.userEmail,
+      ["pinned", "plain"],
+    );
+    expect(
+      result.entries.map(({ target, isFavorite }) => [
+        target.documentId,
+        isFavorite,
+      ]),
+    ).toEqual([
+      ["pinned", true],
+      ["plain", false],
+    ]);
+  });
+
+  it("skips the pinned lookup when nothing resolves", async () => {
+    expect(await getRecent.run({}, alice)).toMatchObject({ entries: [] });
+    expect(boundary.favorites).not.toHaveBeenCalled();
+  });
+
+  it("removes one destination for the requester only", async () => {
+    boundary.orgId = "org-a";
+    const key = contentRecentSettingKey();
+    stored.set(settingId(alice.userEmail, key), {
+      version: 2,
+      entries: [
+        entry("keep"),
+        entry("page", { databaseId: "db", viewId: "board" }),
+      ],
+    });
+    stored.set(settingId(bob.userEmail, key), {
+      version: 2,
+      entries: [entry("page", { databaseId: "db", viewId: "table" })],
+    });
+    // A different View of the same Database is the same Recent destination.
+    expect(
+      await removeRecent.run(
+        { documentId: "page", databaseId: "db", viewId: "table" },
+        alice,
+      ),
+    ).toMatchObject({ removed: true });
+    expect(stored.get(settingId(alice.userEmail, key))).toMatchObject({
+      entries: [{ target: { documentId: "keep" } }],
+    });
+    expect(stored.get(settingId(bob.userEmail, key))).toMatchObject({
+      entries: [{ target: { databaseId: "db" } }],
+    });
+    expect(
+      await removeRecent.run({ documentId: "missing" }, alice),
+    ).toMatchObject({ removed: false });
+    expect(boundary.select).not.toHaveBeenCalled();
   });
 
   it("records a newly created database's implicit default View", async () => {

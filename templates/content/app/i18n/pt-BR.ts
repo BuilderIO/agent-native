@@ -829,6 +829,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionCreateFailed: "Não foi possível criar a sugestão",
     suggestionsCount: "{{count}} sugestões",
     acceptSuggestion: "Aceitar",
@@ -872,6 +879,35 @@ const rawLiterals = {
     contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
+    collapseItem: "Recolher {{title}}",
+    removeFromRecent: "Remover de Recentes",
+    copyLink: "Copiar link",
+    openInNewTab: "Abrir em nova aba",
+    rename: "Renomear",
+    duplicate: "Duplicar",
+    moveTo: "Mover para",
+    moveToTrash: "Mover para a lixeira",
+    lastEditedBy: "Última edição por {{name}}",
+    lastEdited: "Última edição",
+    pageName: "Nome da página",
+    movePageTo: "Mover “{{title}}” para",
+    topLevel: "Nível superior",
+    noMatchingPages: "Nenhuma página correspondente",
+    failedRenamePage: "Não foi possível renomear a página",
+    failedDuplicatePage: "Não foi possível duplicar a página",
+    duplicatedFromLastSave:
+      "A última versão salva foi copiada; edições recentes não salvas não foram incluídas.",
+    chooseSpace: "Escolha um espaço de trabalho",
+    moveToSpaceTitle: "Mover para {{space}}?",
+    moveToSpaceWarningShared:
+      "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    back: "Voltar",
+    movePage: "Mover",
+    movedToSpace: "“{{title}}” movida para {{space}}",
+    failedRemoveFromRecent: "Não foi possível remover de Recentes",
+    expandItem: "Expandir {{title}}",
     database: "Coleção",
     collection: "Coleção",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
@@ -1013,6 +1049,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
@@ -1277,6 +1320,13 @@ const overrides = {
     genericError: "Algo deu errado",
   },
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origem",

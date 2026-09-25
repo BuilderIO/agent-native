@@ -458,6 +458,94 @@ test.describe("parity: right-click canvas context menu (§17)", () => {
     }
   });
 
+  test("clears stale system clipboard paste availability while a new read is pending", async ({
+    page,
+    request,
+  }) => {
+    await page.addInitScript(() => {
+      let deferNextRead = false;
+      let resolvePendingRead:
+        | ((
+            items: Array<{
+              types: string[];
+              getType(type: string): Promise<Blob>;
+            }>,
+          ) => void)
+        | undefined;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          read: () => {
+            if (deferNextRead) {
+              deferNextRead = false;
+              return new Promise((resolve) => {
+                resolvePendingRead = resolve;
+              });
+            }
+            return Promise.resolve([
+              {
+                types: ["image/png"],
+                getType: async () => new Blob(["image"], { type: "image/png" }),
+              },
+            ]);
+          },
+        },
+      });
+      Object.defineProperty(window, "__deferClipboardRead", {
+        value: () => {
+          deferNextRead = true;
+        },
+      });
+      Object.defineProperty(window, "__resolveClipboardRead", {
+        value: () => resolvePendingRead?.([]),
+      });
+    });
+
+    const designId = await createFixture(request, TWO_BOX_HTML);
+    try {
+      await gotoEditor(page, designId);
+      await enterDirectMode(page);
+      await installBridge(page);
+
+      await rightClickNode(page, "a");
+      const firstMenu = page.getByRole("menu").last();
+      const firstPaste = firstMenu.getByRole("menuitem", {
+        name: /Paste here/,
+      });
+      const firstReplace = firstMenu.getByRole("menuitem", {
+        name: /Paste to replace/,
+      });
+      await expect(firstPaste).toBeEnabled();
+      await expect(firstReplace).toBeEnabled();
+
+      await page.keyboard.press("Escape");
+      await expect(firstMenu).toBeHidden();
+      await page.evaluate(() => {
+        (
+          window as unknown as { __deferClipboardRead: () => void }
+        ).__deferClipboardRead();
+      });
+
+      await rightClickNode(page, "a");
+      const secondMenu = page.getByRole("menu").last();
+      await expect(
+        secondMenu.getByRole("menuitem", { name: /Paste here/ }),
+      ).toBeDisabled();
+      await expect(
+        secondMenu.getByRole("menuitem", { name: /Paste to replace/ }),
+      ).toBeDisabled();
+      await page.evaluate(() => {
+        (
+          window as unknown as { __resolveClipboardRead: () => void }
+        ).__resolveClipboardRead();
+      });
+    } finally {
+      await postAction(request, "delete-design", { id: designId }).catch(
+        () => {},
+      );
+    }
+  });
+
   test("right-click on empty canvas (no selection) shows only Paste here and Show/Hide UI/comments", async ({
     page,
     request,

@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "すべて",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -68,7 +69,8 @@ const messages = {
       renameTab: "タブ名を変更",
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
-      help: "チェックした項目はタブとして表示されます。ラベル付きメールは受信トレイから分離されます。",
+      allTab: "すべてタブ",
+      help: "すべてには受信トレイの全スレッドが含まれます。選択したラベルで受信トレイが分割されます。",
     },
     accounts: {
       remove: "削除",
@@ -528,6 +530,7 @@ const messages = {
       previewButton: "プレビューを実行",
       previewRunning: "最近の受信トレイを確認中…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev の一致確率 {{percent}}%",
       feedbackLabel: "含めない一致を選択",
       notSpamShort: "スパムではない",
       notMatchShort: "一致しない",

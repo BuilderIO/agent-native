@@ -63,6 +63,14 @@ test("a screen and its document are one object", async ({ page }, testInfo) => {
   await expect(page.locator(sectionTitle("Fill"))).toBeVisible();
   await expect(page.locator(sectionTitle("Stroke"))).toBeVisible();
   await expect(page.locator(sectionTitle("Effects"))).toBeVisible();
-  await expect(page.getByText("0F1115").first()).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .getByRole("textbox", { name: "Color" })
+        .evaluateAll((inputs) =>
+          inputs.map((input) => (input as HTMLInputElement).value),
+        ),
+    )
+    .toContain("0F1115");
   await cdpScreenshot(page, testInfo.outputPath("merged-inspector.png"));
 });

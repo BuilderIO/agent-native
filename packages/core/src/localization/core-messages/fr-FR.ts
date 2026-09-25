@@ -36,6 +36,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
+  "observability.viewDetails": "Afficher les détails",
+  "observability.hideDetails": "Masquer les détails",
+  "observability.input": "Entrée",
+  "observability.output": "Sortie",
+  "observability.error": "Erreur",
+  "observability.metadata": "Métadonnées",
+  "observability.notCaptured": "Non capturé",
+  "observability.openFullConversation": "Ouvrir la conversation complète",
+  "observability.learnAboutTab": "En savoir plus sur cet onglet",
   "onboarding.back": "Retour",
   "onboarding.chooseRole": "Choisissez votre rôle",
   "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",
@@ -53,10 +62,9 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
-  "onboarding.builderActivateCredits":
-    "Activer les crédits gratuits Builder.io",
-  "onboarding.builderConnectCredits":
-    "Connecter les crédits gratuits Builder.io",
+  "onboarding.builderCreateAccount": "Créer un compte Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Se connecter avec un compte Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -305,11 +313,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Régénérer la réponse",
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
+  "message.revertQuestion":
+    "Revenir à ce point ? Les modifications ultérieures seront perdues.",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
   "message.threadNotFound":
     "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
+  "message.revertToBeginning": "Revenir au début",
   "message.sentAt": "Envoyé à {{time}}",
   "plan.act": "Agir",
   "plan.implement": "Implémenter",
@@ -501,6 +512,8 @@ const messages: AgentChatTranslation = {
     "Décrivez la compétence que vous souhaitez créer...",
   "composer.documentTooLarge":
     "« {{name}} » fait {{size}} MB. {{label}} sont limités à {{maxSize}} MB afin de respecter la taille maximale des messages. Réduisez la taille du fichier ou divisez-le en plusieurs parties.",
+  "composer.requestTooLarge":
+    "Ce message et ses pièces jointes sont trop volumineux pour être envoyés. Supprimez une pièce jointe ou raccourcissez le message.",
   "composer.file": "fichier",
   "composer.imageModel": "Modèle d'image",
   "composer.imagePreview": "Aperçu de l'image",
@@ -735,7 +748,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Le fournisseur d'IA a temporairement refusé cette demande. Cela se résout généralement en moins d'une minute : réessayez.",
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
-  "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
+  "errorMessages.addCreditsInBuilder": "Ajouter des crédits dans Builder",
   "feedback.inaccurate": "Inexact",
   "feedback.keyboardHint": "{{shortcut}} Entrée pour envoyer",
   "feedback.notHelpful": "Peu utile",
@@ -875,6 +888,23 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Impossible d’envoyer la confirmation.",
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
+  "usage.builderCredits": "Crédits Builder",
+  "usage.creditBalance": "Solde de l’espace de travail",
+  "usage.monthlyPlan": "Forfait mensuel",
+  "usage.dailyFreeLimit": "Limite quotidienne gratuite",
+  "usage.creditUsedOfLimit": "{{used}} sur {{limit}} utilisés",
+  "usage.creditRemaining": "{{amount}} restants",
+  "usage.creditUsageUnavailable":
+    "Impossible de charger l’utilisation des crédits Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} crédits estimés",
+  "usage.otherUsdSpend": "{{amount}} USD supplémentaires",
+  "usage.noBuilderCredits": "0 crédit Builder",
+  "usage.otherUnclassifiedSpend": "Dépenses USD autres ou non classées",
+  "usage.providerSpendDetail":
+    "Utilisation du fournisseur ou anciens appels hors facturation Builder",
+  "usage.providerSpendToday":
+    "Autre utilisation ou non classée aujourd’hui : {{amount}}",
+  "usage.driverCreditsAndUsd": "Crédits Builder / USD",
 };
 
 export default messages;

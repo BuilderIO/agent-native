@@ -9,6 +9,188 @@ governingArtifactRevision: content-suggested-edits-shape-r7
 
 # Content Suggested Edits parity
 
+## September 22: comment paste and optimistic review follow-up
+
+This addendum shapes Alice's two reported failures on branch
+`t3code/fix-comment-paste-optimism`, inspected at `5c5db870bf`. Alice's
+subsequent `$work` invocation authorized implementation and verification on the
+current branch. On September 23, she invoked `$land` for a PR and explicitly
+excluded merging. Earlier non-conflicting acceptance assertions remain in force;
+this addendum does not reopen the historical Work envelopes below. This existing
+brief is the governing checkpoint.
+
+### September 22 Work result
+
+The current branch now transfers submitted comment and reply drafts into one
+operation-identified optimistic entry and clears the matching composer
+immediately. Definite failures restore the submitted text without overwriting a
+newer draft; ambiguous outcomes retain the optimistic entry for reconciliation.
+Content's anchored pending-comment handoff uses the same operation identity as
+Core review create/reply, and Core create/reply retries are idempotent for an
+exact actor, resource, thread and payload. The shared Core review hooks now
+project create, reply, edit, resolve/reopen, delete and suggestion decisions
+locally with operation-scoped rollback. Content suggestion decisions gate only
+the affected suggestion.
+
+Focused Content draft/sidebar coverage passes 77 tests. Focused Core review
+client, panel, store and action coverage passes, including delayed responses,
+out-of-order rollback, safe retry and delete-restore generation. Core and
+Content typechecks and the affected package builds pass. The Content changelog
+and Core changeset record the user-visible and publishable-package changes.
+Independent bounded review found and closed a consecutive-mutation callback
+race by moving panel and suggestion-decision cleanup to per-invocation
+`mutateAsync` `finally` blocks. Its final pass found no remaining material
+correctness issue. A manually reused reply operation UUID with a changed routing
+target remains a non-blocking hardening case; the UI creates a unique UUID and
+retries the same variables for one logical submission.
+
+CO-02 through CO-05 have focused automated evidence at the changed boundaries.
+Alice reproduced the paste failure on another website and explicitly removed
+CO-01 from this Content PR's acceptance on September 23. Content uses a native
+textarea and does not intercept Cmd+V or `paste`; the Agent-Native desktop host
+also leaves V unhandled. T3's host-level shortcut behavior remains separate.
+A local preview replay was attempted on September 22, but the collaborative
+preview client could not navigate to the restarted local server. The passing
+component interaction tests remain the UI evidence from that Work pass; final
+real-interface Content QA is still required before PR readiness.
+
+### Evidence and remaining reproduction
+
+- Alice's September 22 screenshot shows one pending reply with **Saving...**
+  and the same submitted text still in the disabled composer. It does not show
+  two persisted comments.
+- `CommentsSidebar.tsx:1022-1053` and `:1063-1094` retain the root/reply draft
+  until `createComment.mutateAsync` resolves. `use-comments.ts:420-460` already
+  inserts an optimistic comment before persistence. The composer remains bound
+  to the original draft (`CommentsSidebar.tsx:2636-2658`). These lifecycles
+  explain the pictured duplicate presentation and unnecessary wait.
+- Ordinary edit has the same delayed editor completion in
+  `CommentEntry.tsx:228-254`. Ordinary resolve/reopen already have operation
+  overlays and rollback in `use-comments.ts`; preserve that machinery.
+- Suggestion replies share `ThreadView` and `CommentComposer` with ordinary
+  comments, but use `useReplyReviewComment` and clear on success
+  (`CommentsSidebar.tsx:2118,2200-2223`). Core `use-review.ts` create/reply,
+  update, resolve, delete and suggestion decision hooks do not supply optimistic
+  overlays. The generic action hook invalidates every action query on success
+  (`packages/core/src/client/use-action.ts:1100-1110`).
+- The usable suggestion donor in this checkout is the local draft-to-saved
+  presentation in `DocumentEditor.tsx:3883-3954`: local operations stay visible
+  while durable identities arrive. The current decision handler still waits
+  for the action and globally gates decisions (`:4949-4998`). Do not assume the
+  user's more recent suggestion fixes are present here: identify their exact
+  revision before porting, and reuse them if available.
+- `CommentComposer` is a controlled native textarea with no paste override or
+  Cmd+V interception. Its keyboard handler consumes mention/navigation/submit
+  keys, not V. The separate Agent-Native Desktop webview also lets V pass
+  through; it is not evidence about T3's host. T3's Mac clipboard/keyboard
+  forwarding is the leading hypothesis, not a reproduced cause.
+- Browser discovery found no CUA surfaces. T3's separate preview tools were
+  available, but there was no attached Content tab or authenticated session;
+  opening the candidate localhost URL produced a browser error. No real
+  document was edited or commented on. Physical Mac Cmd+V remains unverified.
+- Vitest could not start because dependencies are absent (`vitest` not found).
+  The disposable deferred-mutation component diagnostic is under root `.tmp/`;
+  an unexecuted test is not reproduction evidence. Required UI proof below
+  remains open regardless of source-level diagnostics.
+- Executed source-control-flow reproduction:
+  `node --experimental-strip-types .tmp/comment-handler-deferred.repro.ts`.
+  It extracts the actual root/reply handlers, strips TypeScript with Node and
+  executes them with deferred mutation dependencies. Both retain their draft
+  after the mocked optimistic insertion and clear it only after resolution:
+  reply `"Reply text" -> ""`, root `"Root text" -> ""`. This confirms handler
+  ordering; it is not a rendered-UI or real-network reproduction. The command,
+  harness and output are recorded in `.tmp/comment-reply-optimism.repro.md`.
+
+### Proposed repair and shared ownership
+
+Operate / document reviewers / submit feedback and continue / type the next
+reply or review the next change.
+
+1. Give the existing comment draft store one operation-aware submission
+   lifecycle, used by root comments, ordinary replies/edits and suggestion
+   replies. Capture text, mentions, draft revision, document/thread identity
+   and operation ID; transfer the submitted draft to one optimistic entry and
+   clear or close its composer in the same local transition. Target 100 ms,
+   maximum 400 ms, independent of server response time. Preserve focus and
+   anchors; a new root switches from its pending anchor to the optimistic thread
+   without two cards or an identity jump.
+2. Keep submitted snapshots separate from the next editable draft. A late
+   success must never clear newer typing or another document/account's draft.
+   A definite failure rolls back only that operation and exposes its retained
+   text for recovery without overwriting newer work. Unknown save outcomes stay
+   visibly unconfirmed and reconcile/retry using the same operation ID.
+   Repeated Enter must not issue duplicate writes; pending work in one thread
+   must not freeze other threads. Release completed snapshot state.
+3. Share operation identity, pending overlays, reconciliation and recovery
+   helpers at the existing Core review client boundary, with small adapters for
+   Content's `document_comments` and Core review comments. Keep their existing
+   actions, access rules and storage ownership. Reuse Content's proven overlay
+   behavior instead of building a second independent implementation. Add a
+   compatible operation/idempotency key to Core create/reply actions if needed;
+   body-text matching cannot identify server echoes or safe retries.
+4. Continue using one thread shell and reply composer in inline, compact and
+   history presentations. Adapt the shared Core `ReviewThreadPanel` submission
+   lifecycle where it consumes the changed hooks; share behavior without
+   replacing Content's anchored layout with a separate panel. Preserve mentions,
+   author attribution, keyboard selection and responsive draft continuity.
+5. Apply local completion and operation-scoped rollback to create/reply/edit,
+   resolve/reopen/delete, suggestion creation/amendment and accept/reject.
+   Retain immediate local suggestion previews, and let unrelated decisions
+   proceed. Render a reversible local decision projection; only the validated
+   server result may commit canonical document/Yjs changes. Stale/conflict
+   results restore discoverable pending/conflict state and never overwrite new
+   document text. Preserve idempotency and observed revision checks.
+6. Include existing reaction, unread and mute controls in the review-flow
+   consistency check; move their local mutation-variable projections into the
+   shared state where needed so inline/history views agree. Scope invalidation
+   to affected resources and dependent review data. Copy-link and AI generation
+   retain truthful completion: an acknowledgement must not claim a clipboard
+   write, generated reply, or saved edit succeeded before it did.
+7. Superseded for this Content PR by Alice's September 23 cross-site
+   reproduction and decision to leave the T3 shortcut issue aside. The
+   original diagnostic plan was to compare physical Mac Cmd+V,
+   context-menu Paste, and an ordinary input in the same embedded browser while
+   observing focus, keydown, paste and input events. If T3 drops paste, repair
+   its focused-browser clipboard forwarding in the owning T3 source. If paste
+   reaches Content but fails there, repair the demonstrated shared input
+   boundary. Do not add per-comment clipboard readers or request new clipboard
+   permissions to compensate for an event that never arrives. The T3 source
+   location and deployable Mac build must be identified before that edit.
+
+This is a contract repair for `content.comment.page-owned` and
+`content.revision.suggestions`, under `content.feature.collaborate-in-context`
+and `content.feature.review-changes-in-place`. No table migration to unify the
+two comment models, new feature flag, rich-comment redesign, or unrelated app
+rollout is proposed. Shared Core consumers receive focused regression checks.
+Do not mark either broad product capability verified from this bounded repair.
+
+### Cumulative acceptance for this follow-up
+
+| ID    | Observable result                                                                                                                                                                                                                                                          |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CO-01 | Superseded for this Content PR on September 23 after Alice reproduced the shortcut failure on another website and elected to leave the T3 issue aside. The original Mac paste assertion remains a separate T3 concern.                                                     |
+| CO-02 | With the save response held for several seconds, Enter on a root comment or a second reply immediately shows exactly one submitted entry and clears/closes the matching composer. No duplicate text, disabled submitted draft, card jump or duplicate persistence appears. |
+| CO-03 | Ordinary and suggestion replies use the same submission behavior in inline, compact and history views. New typing remains editable during a save; late success preserves that typing through view/thread switches.                                                         |
+| CO-04 | Edit, resolve, reopen, delete, suggestion create/amend and accept/reject acknowledge locally within 400 ms. Only conflicting controls are gated; another thread or independent suggestion stays usable. Reactions/unread/mute agree across views.                          |
+| CO-05 | Rejection, offline state and timeout preserve recoverable submitted text and newer drafts. Retry/reconciliation does not duplicate a committed comment; stale fetches and out-of-order acknowledgements do not resurrect, erase or duplicate entries.                      |
+| CO-06 | Suggestion conflict leaves canonical text intact and the affected proposal discoverable. Successful decisions reconcile without flashing old content or clobbering concurrent typing; reload and a second client show the durable result.                                  |
+| CO-07 | Enter submits once, Shift+Enter adds a line, mention selection and IME composition do not submit accidentally, and Escape/focus/selection survive responsive remounts. Author, mentions, target, access and agent action behavior remain intact.                           |
+
+Work should first identify/reuse the newer suggestion fix revision, run the
+deferred-response repro on current code, then implement the shared lifecycle
+and its adapters. Run existing draft/composer/sidebar/CommentEntry/mutation
+tests plus focused Core review/action idempotency and suggestion tests. Add
+meaningful delayed-response, stale-refetch, failure and identity regressions;
+format source, typecheck affected packages, add a Core changeset if applicable,
+and record the Content changelog. Any new UI copy includes configured locales
+and both i18n guards; include the Content product-impact check.
+
+Final real-interface Content QA uses a private task-owned fixture, including
+desktop/compact/history and delayed, failed, stale and warm-peer cases above.
+Independence is preferred with same-context custody. Bind evidence to the actual
+build and clean up fixtures. The separate T3 shortcut concern is excluded by
+Alice's September 23 correction.
+
 ## September 12 beta repair plan
 
 ### September 14 reconciliation: follow-up recovery repair

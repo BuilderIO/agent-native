@@ -415,6 +415,10 @@ const messages = {
     agentEmptyTitle: "बातचीत में शामिल हों",
     agentEmptyDescription:
       "इस क्लिप पर टिप्पणी करने, प्रतिक्रिया देने और सवाल पूछने के लिए मुफ़्त Clips खाता बनाएं।",
+    commentSignupTitle: "अपने AI एजेंट को पूरी जानकारी दें",
+    commentSignupContext: "ट्रांसक्रिप्ट और टाइमस्टैम्प वाले फ़्रेम एक ही लिंक में साझा करें",
+    commentSignupFeedback: "रिकॉर्ड किए गए फ़ीडबैक को स्पष्ट अगले कदमों में बदलें",
+    commentSignupDebug: "कंसोल की त्रुटियाँ और विफल अनुरोध कैप्चर करें",
     agentEmptySignInPrompt: "क्या आपके पास पहले से खाता है?",
     signUp: "साइन अप करें",
     ownerInsights: "स्वामी इनसाइट्स",
@@ -1197,6 +1201,7 @@ const messages = {
     transcript: "प्रतिलेख",
     comment: "टिप्पणी",
     titleOrDescription: "शीर्षक या विवरण",
+    matchAt: "वीडियो में {{time}} पर मिलान",
   },
   organizationSwitcher: {
     noOrganization: "कोई संगठन नहीं",

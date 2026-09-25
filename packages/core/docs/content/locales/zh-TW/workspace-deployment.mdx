@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。Cloudflare Pages 透過一個產生出來的**調度工作器**進行路由，這是一個位於 `dist/_worker.js` 的小型指令碼，會讀取傳入的路徑並將請求轉送給對應的應用程式。Netlify 為每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
+在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。**Netlify** 是預設選項：每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare（預設）",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（預設）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -140,7 +129,7 @@ npx @agent-native/core@latest deploy
 
 要接上提供者自己的建置指令，而不是手動部署嗎？在同一個指令後面加上 `--build-only`，例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它會直接寫入輸出結果，因此工作區路由不需要 `vercel.json`。
 
-想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && npx @agent-native/core@latest build` 即可。
+想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && pnpm build` 即可。
 
 </Callout>
 
@@ -217,7 +206,7 @@ npx @agent-native/core@latest deploy
 基本路徑對用戶端封裝來說是建置時期的輸入，對伺服器來說則是執行時期的輸入。請使用代理將要路由到它的相同路徑來建置每個應用程式：
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

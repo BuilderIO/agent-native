@@ -155,41 +155,42 @@ describe("deck list loading states", () => {
     queryClient.clear();
   });
 
-  it("never flashes the error pane when a cold first read recovers on retry", async () => {
+  it("keeps the initial load pending when a cold first read recovers on retry", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a"), deck("deck-b")]);
-    api.failNextListReads(1);
+    // Exhaust the shared retry budget, then recover on the bounded follow-up
+    // read without rendering either the error or empty state in between.
+    api.failNextListReads(4, 503);
 
     const { result, seen } = renderDeckListStates();
-    await waitFor(() => expect(result.current.decks).toHaveLength(2));
+    await waitFor(() => expect(result.current.decks).toHaveLength(2), {
+      timeout: 15_000,
+    });
 
     expect(seen).toEqual(["loading", "decks"]);
-  });
+  }, 20_000);
 
-  it("surfaces the error pane only after every retry of the first read fails", async () => {
+  it("surfaces the error pane when the bounded initial recovery read also fails", async () => {
     const api = setupFetch();
-    api.setServerDecks([deck("deck-a")]);
-    api.failNextListReads(10);
+    api.failNextListReads(100, 500);
 
     const { seen } = renderDeckListStates();
-    await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
+    await waitFor(() => expect(seen).toContain("error"), { timeout: 10_000 });
 
     expect(seen).toEqual(["loading", "error"]);
-  });
+  }, 15_000);
 
-  it("surfaces a deterministic action failure without spending the retry budget", async () => {
+  it("surfaces a repeated deterministic action failure", async () => {
     const api = setupFetch();
-    api.setServerDecks([deck("deck-a")]);
-    // 500 is what an action's own unhandled throw becomes: deterministic about
-    // this request, so the shared policy refuses to retry it. One failure is
-    // enough to settle on the error pane.
-    api.failNextListReads(1, 500);
+    // 500 is what an action's own unhandled throw becomes, so each read fails
+    // once without spending the shared transport retry budget.
+    api.failNextListReads(2, 500);
 
     const { seen } = renderDeckListStates();
-    await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
+    await waitFor(() => expect(seen).toContain("error"), { timeout: 10_000 });
 
     expect(seen.slice(0, 2)).toEqual(["loading", "error"]);
-  });
+  }, 15_000);
 
   it("reports the empty state only once the server confirms zero decks", async () => {
     setupFetch();
@@ -203,10 +204,10 @@ describe("deck list loading states", () => {
   it("does not pass through 'no decks yet' while an explicit reload rehydrates", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a")]);
-    api.failNextListReads(10, "network");
+    api.failNextListReads(4, "network");
 
     const { result, seen } = renderDeckListStates();
-    await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
+    await waitFor(() => expect(seen).toContain("error"), { timeout: 10_000 });
 
     api.failNextListReads(0);
     await act(async () => {
@@ -219,7 +220,7 @@ describe("deck list loading states", () => {
     // recovery never renders "no decks yet" on its way to the decks.
     expect(seen).not.toContain("empty");
     expect(seen[seen.length - 1]).toBe("decks");
-  });
+  }, 15_000);
 });
 
 describe("deck list recovery through the fallback poll", () => {
@@ -242,12 +243,63 @@ describe("deck list recovery through the fallback poll", () => {
     queryClient.clear();
   });
 
+  it("retries a failed home list sooner than the normal poll interval", async () => {
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.failNextListReads(100, 500);
+
+    const { result, seen } = renderDeckListStates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(true));
+    expect(seen).toEqual(["loading", "error"]);
+
+    api.failNextListReads(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await waitFor(() => expect(result.current.decks).toHaveLength(1));
+
+    expect(seen).not.toContain("empty");
+    expect(seen[seen.length - 1]).toBe("decks");
+  });
+
+  it("fast-retries a later poll failure and clears it after list reconciliation", async () => {
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+
+    const { result } = renderDeckListStates();
+    await waitFor(() => expect(result.current.decks).toHaveLength(1));
+
+    api.failNextListReads(1, 500);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(true));
+
+    const listCallCount = () =>
+      api.fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/list-decks"),
+      ).length;
+    const failedPollCallCount = listCallCount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await waitFor(() => expect(result.current.loadError).toBe(false));
+    expect(listCallCount()).toBeGreaterThan(failedPollCallCount);
+    expect(result.current.decks).toHaveLength(1);
+  });
+
   it("keeps the error when the list names decks whose bodies cannot be read back", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a")]);
     api.failNextListReads(10, "network");
 
     const { result, seen } = renderDeckListStates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
 
     // The light list recovers and names deck-a, but its body never reads back.
@@ -270,6 +322,9 @@ describe("deck list recovery through the fallback poll", () => {
     api.failNextListReads(10, "network");
 
     const { result, seen } = renderDeckListStates();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
     expect(seen).toEqual(["loading", "error"]);
 

@@ -169,4 +169,214 @@ describe("cross-screen drag identity provenance", () => {
       }),
     );
   });
+
+  it("uses the source frame geometry from drag start after a Hug screen grows", async () => {
+    const onCrossScreenElementDrop = vi.fn();
+    const render = (sourceHeight: number) => (
+      <MultiScreenCanvas
+        screens={[
+          { id: "source", filename: "source.html", content: "<html></html>" },
+          { id: "target", filename: "target.html", content: "<html></html>" },
+        ]}
+        zoom={100}
+        activeId="source"
+        activeTool="move"
+        geometryById={{
+          source: { x: 0, y: 0, width: 400, height: sourceHeight },
+          target: { x: 600, y: 300, width: 400, height: 300 },
+        }}
+        renderScreenContent={(screen) => (
+          <iframe
+            data-design-preview-iframe=""
+            data-screen-iframe-id={screen.id}
+          />
+        )}
+        onPick={() => {}}
+        onCrossScreenElementDrop={onCrossScreenElementDrop}
+      />
+    );
+
+    await act(async () => root.render(render(300)));
+    const sourceIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="source"]',
+    );
+    const targetIframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="target"]',
+    );
+    expect(sourceIframe?.contentWindow).toBeTruthy();
+    expect(targetIframe?.contentWindow).toBeTruthy();
+    const targetWindow = targetIframe!.contentWindow!;
+    const targetPostMessage = vi
+      .spyOn(targetWindow, "postMessage")
+      .mockImplementation(((message: { correlationId: string }) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:hit-test-result",
+              correlationId: message.correlationId,
+              targetAnchorProvenance: {
+                versionHash: "target-document",
+                uniqueNodeId: "target-anchor",
+              },
+              anchorNodeId: "target-anchor",
+            },
+            source: targetWindow as unknown as Window,
+          }),
+        );
+      }) as typeof targetWindow.postMessage);
+    const sendDrag = (data: Record<string, unknown>) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:cross-screen-drag", ...data },
+          source: sourceIframe!.contentWindow as unknown as Window,
+        }),
+      );
+
+    await act(async () => {
+      sendDrag({
+        phase: "start",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        iframeX: 200,
+        iframeY: 150,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      root.render(render(500));
+    });
+    await act(async () => {
+      sendDrag({
+        phase: "move",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        iframeX: 650,
+        iframeY: 350,
+        viewportW: 400,
+        viewportH: 500,
+      });
+      await Promise.resolve();
+    });
+    expect(targetPostMessage).toHaveBeenCalled();
+
+    await act(async () => {
+      sendDrag({
+        phase: "end",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        iframeX: 650,
+        iframeY: 350,
+        viewportW: 400,
+        viewportH: 500,
+      });
+    });
+
+    expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceScreenId: "source",
+        targetScreenId: "target",
+      }),
+    );
+  });
+
+  it("finalizes a release the source frame never saw and ends its gesture", async () => {
+    const onCrossScreenElementDrop = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "source", filename: "source.html", content: "<html></html>" },
+            { id: "target", filename: "target.html", content: "<html></html>" },
+          ]}
+          zoom={100}
+          activeId="source"
+          activeTool="move"
+          geometryById={{
+            source: { x: 0, y: 0, width: 400, height: 300 },
+            target: { x: 600, y: 0, width: 400, height: 300 },
+          }}
+          renderScreenContent={(screen) => (
+            <iframe
+              data-design-preview-iframe=""
+              data-screen-iframe-id={screen.id}
+            />
+          )}
+          onPick={() => {}}
+          onCrossScreenElementDrop={onCrossScreenElementDrop}
+        />,
+      );
+    });
+    const sourceWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="source"]',
+    )!.contentWindow!;
+    const targetWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="target"]',
+    )!.contentWindow!;
+    vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+      correlationId: string;
+    }) => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:hit-test-result",
+            correlationId: message.correlationId,
+            anchorNodeId: "target-anchor",
+          },
+          source: targetWindow as unknown as Window,
+        }),
+      );
+    }) as typeof targetWindow.postMessage);
+    const sourcePostMessage = vi
+      .spyOn(sourceWindow, "postMessage")
+      .mockImplementation(() => {});
+    const sendDrag = (data: Record<string, unknown>) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:cross-screen-drag", ...data },
+          source: sourceWindow as unknown as Window,
+        }),
+      );
+    const sourceCloneHtml =
+      '<button data-agent-native-node-id="source-node">Move me</button>';
+
+    await act(async () => {
+      sendDrag({
+        phase: "start",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="source-node"]',
+        sourceId: "source-node",
+        sourceCloneHtml,
+      });
+      sendDrag({
+        phase: "move",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="source-node"]',
+        sourceId: "source-node",
+        iframeX: 650,
+        iframeY: 100,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      window.dispatchEvent(
+        new MouseEvent("mouseup", { clientX: 1150, clientY: 400 }),
+      );
+    });
+
+    expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        sourceCloneHtml,
+      }),
+    );
+    expect(sourcePostMessage).toHaveBeenCalledWith(
+      {
+        type: "agent-native:cancel-active-drag",
+        pressedAt: expect.any(Number),
+      },
+      "*",
+    );
+  });
 });

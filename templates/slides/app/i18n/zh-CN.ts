@@ -50,6 +50,7 @@ const messages = {
     emptyState: "可以询问我任何关于演示文稿的问题",
     thisSlide: "此幻灯片",
     currentSelection: "当前选择",
+    slideNumber: "第 {{number}} 张幻灯片",
     suggestionPitch: "根据这份文档制作 10 页推介幻灯片",
     suggestionBrand: "将我们的品牌应用到这份幻灯片",
     suggestionHero: "为这页幻灯片生成主视觉图片",
@@ -683,6 +684,7 @@ const messages = {
       "如果现在离开或刷新，可能会丢失尚未保存的更改。确定要退出吗？",
     keepEditing: "继续编辑",
     leaveWithoutSaving: "不保存退出",
+    editorMarkupNotSaved: "此编辑未保存，因为它会向幻灯片添加编辑器标记。",
   },
   designSystemSetup: {
     importedBrand: "导入的品牌",

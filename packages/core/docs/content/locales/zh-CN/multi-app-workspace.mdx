@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-每个应用程序均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 构建，并通过选定的 Nitro 预设发出。 Cloudflare Pages 是默认预设，并使用 `dist/_worker.js` 和 `_routes.json` 的调度程序工作人员。 `npx @agent-native/core@latest deploy --preset netlify` 支持 Netlify；它在 `.netlify/functions-internal/<app>-server` 下发出应用程序功能，并生成重定向，使静态资产不受强制，因此 CDN 首先提供文件。 `npx @agent-native/core@latest deploy --preset vercel` 支持 Vercel；它使用 Vercel 的构建输出 API 编写根 `.vercel/output` 包。
+每个应用都使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 构建，并通过选定的 Nitro 预设输出。统一 `deploy` 命令的默认预设是 **Netlify**；它会在 `.netlify/functions-internal/<app>-server` 下输出应用函数，并生成重定向，使静态资源不被强制处理，从而让 CDN 优先提供文件。**Vercel** 可通过 `npx @agent-native/core@latest deploy --preset vercel` 使用；它使用 Vercel 的 Build Output API 写入根级 `.vercel/output` 包。
 
 <Diagram id="doc-block-1ncqr0k" title={"统一部署：一个源，每个应用一个路径"} summary={"每个应用程序都遵循单一来源，因此登录会话和跨应用程序 A2A 是免费的。"}>
 
@@ -352,10 +352,11 @@ npx @agent-native/core@latest deploy
 - **零配置跨应用程序 A2A。** `@mail` 标记 `@calendar` 成为同源获取 - 兄弟之间没有 CORS，没有 JWT 签名。外部A2A仍沿用至今的JWT。
 - **一条 DNS 记录，一个证书，一个 CDN 缓存。**
 
-发布 `dist/` 输出：
+发布平台构建：
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 对于 Netlify：
@@ -401,7 +402,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 每个应用独立部署
 
-更喜欢每个应用程序在自己的域中（`mail.company.com`、`calendar.company.com`）？工作区中的每个应用程序仍然是独立可部署的 - `cd apps/mail && npx @agent-native/core@latest build` 的行为与独立脚手架完全相同。然后，跨应用程序 A2A 通过具有共享 `A2A_SECRET` 的标准 JWT 签名路径。单独部署的应用程序之间的跨域 SSO 由以 Dispatch 作为中心的身份联合处理 - 请参阅 [Cross-App SSO](/docs/cross-app-sso)；统一的单源部署避免了需要它。
+更喜欢每个应用程序在自己的域中（`mail.company.com`、`calendar.company.com`）？工作区中的每个应用程序仍然是独立可部署的 - `cd apps/mail && pnpm build` 的行为与独立脚手架完全相同。然后，跨应用程序 A2A 通过具有共享 `A2A_SECRET` 的标准 JWT 签名路径。单独部署的应用程序之间的跨域 SSO 由以 Dispatch 作为中心的身份联合处理 - 请参阅 [Cross-App SSO](/docs/cross-app-sso)；统一的单源部署避免了需要它。
 
 ### 共享数据库、共享凭证
 

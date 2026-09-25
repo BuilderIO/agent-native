@@ -5,7 +5,7 @@ description: "انشر تطبيق agent-native على Netlify باستخدام �
 
 # Netlify
 
-يعمل إعداد `netlify` المسبق لـ Nitro بشكل جيد، وقد منحنا عمليًا بدايات باردة أسرع بكثير من Cloudflare Pages (حوالي 200 مللي ثانية TTFB مقابل حوالي 9 ثوانٍ) للقوالب التي تتواصل مع Postgres خارجي (Neon). إما أن تضبط الإعداد المسبق في `vite.config.ts`:
+يعمل إعداد `netlify` المسبق لـ Nitro بشكل جيد، وقد منحنا عمليًا بدايات باردة سريعة (حوالي 200 مللي ثانية TTFB) للقوالب التي تتواصل مع Postgres خارجي (Neon). لإعداد أدنى خارج القالب المُنشأ، اضبط الإعداد المسبق في `vite.config.ts`:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({

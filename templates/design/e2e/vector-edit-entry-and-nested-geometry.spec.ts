@@ -180,6 +180,23 @@ async function overlayCapturesAnchor(
   );
 }
 
+async function penNodes(frame: FrameLocator, nodeId: string) {
+  const serialized = await frame
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .getAttribute("data-an-pen-nodes");
+  if (!serialized) throw new Error(`${nodeId} has no serialized Pen nodes`);
+  type PenNodeTuple = [
+    number,
+    number,
+    number | null,
+    number | null,
+    number | null,
+    number | null,
+    number | null,
+  ];
+  return JSON.parse(serialized) as [number, ...PenNodeTuple[]];
+}
+
 test.use({ viewport: { width: 1440, height: 1000 } });
 
 test("nested Pen edits stay in the screen coordinate space and preserve authored SVG styles", async ({
@@ -236,6 +253,75 @@ test("nested Pen edits stay in the screen coordinate space and preserve authored
     expect(Number.parseFloat(result.top)).toBeLessThan(20.5);
     expect(result.opacity).toBe("0.5");
     expect(result.filter).toContain("drop-shadow");
+  } finally {
+    await postAction(request, "delete-design", { id: designId });
+  }
+});
+
+test("selected Pen anchors round independently and survive undo, redo, and reload", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request);
+  try {
+    await openDesign(page, designId);
+    await selectLayer(page, "Nested path");
+    const { frame } = await selectedFrame(page);
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+
+    const selectAnchor = async (index: number) => {
+      const anchor = page.locator("[data-vector-anchor]").nth(index);
+      const box = await anchor.boundingBox();
+      if (!box) throw new Error(`vector anchor ${index} has no bounds`);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(anchor).toHaveClass(/ring-2/);
+    };
+    const radiusField = page.getByRole("textbox", { name: "Corner radius" });
+    const setRadius = async (index: number, radius: number) => {
+      await selectAnchor(index);
+      await radiusField.fill(String(radius));
+      await radiusField.press("Enter");
+      await expect(radiusField).toHaveValue(String(radius));
+    };
+
+    await setRadius(1, 12);
+    await setRadius(3, 18);
+    const rounded = await penNodes(frame, "nested-path");
+    expect(rounded[2]?.[6]).toBe(12);
+    expect(rounded[4]?.[6]).toBe(18);
+    expect(
+      rounded.slice(1).filter((node) => Array.isArray(node) && node[6] != null),
+    ).toHaveLength(2);
+    await selectAnchor(1);
+    await expect(radiusField).toHaveValue("12");
+    await selectAnchor(3);
+    await expect(radiusField).toHaveValue("18");
+
+    await page.keyboard.press("Escape");
+    const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redoShortcut =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undoShortcut);
+    await expect
+      .poll(async () => (await penNodes(frame, "nested-path"))[4]?.[6])
+      .toBeNull();
+    expect((await penNodes(frame, "nested-path"))[2]?.[6]).toBe(12);
+
+    await page.keyboard.press(redoShortcut);
+    await expect
+      .poll(async () => (await penNodes(frame, "nested-path"))[4]?.[6])
+      .toBe(18);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await openDesign(page, designId);
+    await selectLayer(page, "Nested path");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    await selectAnchor(1);
+    await expect(radiusField).toHaveValue("12");
+    await selectAnchor(3);
+    await expect(radiusField).toHaveValue("18");
   } finally {
     await postAction(request, "delete-design", { id: designId });
   }

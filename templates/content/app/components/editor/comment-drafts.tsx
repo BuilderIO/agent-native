@@ -41,6 +41,14 @@ interface CommentDraftContextValue {
   ) => void;
   clearIfUnchanged: (key: string, submittedDraft: CommentDraftRevision) => void;
   submittedDrafts: Map<string, CommentDraftRevision>;
+  beginSubmission: (
+    key: string,
+    operationId: string,
+    submittedDraft: CommentDraftRevision,
+  ) => CommentDraftRevision;
+  restoreSubmittedDraft: (key: string, operationId: string) => void;
+  finishSubmission: (operationId: string) => void;
+  isSubmittingDraft: (key: string) => boolean;
   resolutionVersion: number;
   isResolving: (threadId: string) => boolean;
   startResolution: (threadId: string) => boolean;
@@ -90,6 +98,8 @@ function CommentDraftStore({
   const submittedDrafts = useRef(
     new Map<string, CommentDraftRevision>(),
   ).current;
+  const submittingDrafts = useRef(new Map<string, string>()).current;
+  const [submissionVersion, setSubmissionVersion] = useState(0);
 
   const resolvingThreads = useRef(new Set<string>());
   const [resolutionVersion, setResolutionVersion] = useState(0);
@@ -143,6 +153,53 @@ function CommentDraftStore({
       return next;
     });
   }, []);
+  const beginSubmission = useCallback<
+    CommentDraftContextValue["beginSubmission"]
+  >((key, operationId, submittedDraft) => {
+    const existing = submittedDrafts.get(operationId);
+    if (existing) return existing;
+    submittedDrafts.set(operationId, submittedDraft);
+    submittingDrafts.set(key, operationId);
+    setDrafts((current) => {
+      if (!current.has(key)) return current;
+      const next = new Map(current);
+      next.delete(key);
+      return next;
+    });
+    setSubmissionVersion((version) => version + 1);
+    return submittedDraft;
+  }, []);
+  const restoreSubmittedDraft = useCallback<
+    CommentDraftContextValue["restoreSubmittedDraft"]
+  >((key, operationId) => {
+    const submitted = submittedDrafts.get(operationId);
+    if (!submitted) return;
+    setDrafts((current) => {
+      // A newly-created entry, including an intentionally empty one, is newer
+      // typing and must remain recoverable instead of being overwritten.
+      if (current.has(key)) return current;
+      const next = new Map(current);
+      next.set(key, {
+        ...submitted,
+        mentions: submitted.mentions.map((mention) => ({ ...mention })),
+        revision: ++revision.current,
+      });
+      return next;
+    });
+  }, []);
+  const finishSubmission = useCallback<
+    CommentDraftContextValue["finishSubmission"]
+  >((operationId) => {
+    submittedDrafts.delete(operationId);
+    for (const [key, currentOperationId] of submittingDrafts) {
+      if (currentOperationId === operationId) submittingDrafts.delete(key);
+    }
+    setSubmissionVersion((version) => version + 1);
+  }, []);
+  const isSubmittingDraft = useCallback(
+    (key: string) => submittingDrafts.has(key),
+    [submittingDrafts, submissionVersion],
+  );
 
   const value = useMemo<CommentDraftContextValue>(
     () => ({
@@ -155,6 +212,10 @@ function CommentDraftStore({
       updateDraft,
       clearIfUnchanged,
       discard,
+      beginSubmission,
+      restoreSubmittedDraft,
+      finishSubmission,
+      isSubmittingDraft,
       panelSession: { ...panelSession, historyStatus },
       setHistoryStatus,
       setPanelSession,
@@ -169,6 +230,10 @@ function CommentDraftStore({
       updateDraft,
       clearIfUnchanged,
       discard,
+      beginSubmission,
+      restoreSubmittedDraft,
+      finishSubmission,
+      isSubmittingDraft,
       panelSession,
       historyStatus,
       setHistoryStatus,
@@ -267,6 +332,10 @@ export function useCommentDraft(
     context.submittedDrafts.set(operationId, draft);
     return draft;
   };
+  const beginSubmission = (operationId: string) =>
+    context.beginSubmission(key, operationId, draft);
+  const restoreSubmittedDraft = (operationId: string) =>
+    context.restoreSubmittedDraft(key, operationId);
   const getSubmittedDraft = (operationId: string) =>
     context.submittedDrafts.get(operationId);
 
@@ -278,6 +347,9 @@ export function useCommentDraft(
     clearOnSuccess,
     discard,
     markSubmitted,
+    beginSubmission,
+    restoreSubmittedDraft,
+    finishSubmission: context.finishSubmission,
     getSubmittedDraft,
   };
 }

@@ -444,7 +444,7 @@ async function rewriteMountedResponse(
             frameworkSessionHintCookieName(
               resolveAuthCookieNamespace().frameworkCookieName,
             ),
-            resolveAppHomePath(getAppConfig().app),
+            resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
             getFrameworkRoutePrefix(),
           )
         : null,

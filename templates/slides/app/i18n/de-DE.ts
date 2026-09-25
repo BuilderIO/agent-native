@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Frag mich alles zu deinen Präsentationen",
     thisSlide: "Diese Folie",
     currentSelection: "Aktuelle Auswahl",
+    slideNumber: "Folie {{number}}",
     suggestionPitch:
       "Erstelle aus diesem Dokument ein Pitch-Deck mit 10 Folien",
     suggestionBrand: "Wende unsere Marke auf dieses Deck an",
@@ -712,6 +713,8 @@ const messages = {
       "Wenn du jetzt gehst oder neu lädst, können noch nicht gespeicherte Änderungen verloren gehen. Möchtest du wirklich beenden?",
     keepEditing: "Weiter bearbeiten",
     leaveWithoutSaving: "Ohne Speichern beenden",
+    editorMarkupNotSaved:
+      "Diese Änderung wurde nicht gespeichert, weil sie der Folie Editor-Markup hinzugefügt hätte.",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",

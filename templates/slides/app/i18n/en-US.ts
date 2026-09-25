@@ -54,6 +54,7 @@ const messages = {
     emptyState: "Ask me anything about your presentations",
     thisSlide: "This Slide",
     currentSelection: "Current Selection",
+    slideNumber: "Slide {{number}}",
     suggestionPitch: "Build a 10-slide pitch from this doc",
     suggestionBrand: "Apply our brand to this deck",
     suggestionHero: "Generate a hero image for this slide",
@@ -698,6 +699,8 @@ const messages = {
       "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
     keepEditing: "Keep editing",
     leaveWithoutSaving: "Exit without saving",
+    editorMarkupNotSaved:
+      "This edit wasn't saved because it would have added editor markup to the slide.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",

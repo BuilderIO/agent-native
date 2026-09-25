@@ -110,6 +110,21 @@ async function collectBridgeMessages(page: Page): Promise<void> {
       (window as Window & { __messages?: unknown[] }).__messages?.push(
         event.data,
       );
+      if (
+        event.source === window &&
+        (event.data as { type?: string } | null)?.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request"
+      ) {
+        const request = event.data as { requestId?: number };
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: request.requestId,
+            reservationToken: `test-reservation-${request.requestId}`,
+          },
+          "*",
+        );
+      }
     });
   });
 }

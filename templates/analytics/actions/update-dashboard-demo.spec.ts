@@ -45,6 +45,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
+  DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
 vi.mock("../server/lib/bigquery", () => ({

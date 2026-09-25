@@ -434,6 +434,13 @@ const messages = {
     agentEmptyTitle: "Rejoignez la conversation",
     agentEmptyDescription:
       "Créez un compte Clips gratuit pour commenter, réagir et poser des questions sur ce clip.",
+    commentSignupTitle: "Donnez tout le contexte à votre agent IA",
+    commentSignupContext:
+      "Partagez la transcription et les images horodatées dans un seul lien",
+    commentSignupFeedback:
+      "Transformez les retours enregistrés en prochaines étapes concrètes",
+    commentSignupDebug:
+      "Capturez les erreurs de console et les requêtes échouées",
     agentEmptySignInPrompt: "Vous avez déjà un compte ?",
     signUp: "S’inscrire",
     ownerInsights: "Insights du propriétaire",
@@ -1242,6 +1249,7 @@ const messages = {
     transcript: "Transcription",
     comment: "Commentaire",
     titleOrDescription: "Titre ou description",
+    matchAt: "Correspondance à {{time}} dans la vidéo",
   },
   organizationSwitcher: {
     noOrganization: "Aucune organisation",

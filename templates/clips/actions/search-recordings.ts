@@ -1,6 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -141,6 +141,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
@@ -176,6 +177,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -209,6 +211,7 @@ export default defineAction({
             schema.recordingViewers,
             recordingAccess,
           ),
+          isNull(schema.recordings.trashedAt),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

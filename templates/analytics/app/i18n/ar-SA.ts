@@ -1293,6 +1293,7 @@ export default {
     app: "التطبيق",
     unknownApp: "تطبيق غير معروف",
     lastSeen: "آخر ظهور",
+    includeZeroMinuteSessions: "تضمين الجلسات التي مدتها 0 دقيقة",
     duration: "المدة",
     events: "الأحداث",
     chunks: "المقاطع",

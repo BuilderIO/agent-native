@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-تم إنشاء كل تطبيق باستخدام `APP_BASE_PATH=/<name>` و`VITE_APP_BASE_PATH=/<name>` ويتم إصداره من خلال الإعداد المسبق المحدد Nitro. يعد Cloudflare Pages هو الإعداد المسبق الافتراضي ويستخدم عامل إرسال في `dist/_worker.js` بالإضافة إلى `_routes.json`. Netlify مدعوم مع `npx @agent-native/core@latest deploy --preset netlify`؛ فهو يصدر وظائف التطبيق ضمن `.netlify/functions-internal/<app>-server` ويقوم بإنشاء عمليات إعادة توجيه تترك الأصول الثابتة غير قسرية بحيث يخدم CDN الملفات أولاً. Vercel مدعوم بـ `npx @agent-native/core@latest deploy --preset vercel`؛ فهو يكتب حزمة `.vercel/output` الجذرية باستخدام Vercel’s Build Output API.
+يُبنى كل تطبيق باستخدام `APP_BASE_PATH=/<name>` و`VITE_APP_BASE_PATH=/<name>` ويُصدَر عبر إعداد Nitro المحدد. **Netlify** هو الإعداد المسبق الافتراضي لأمر `deploy` الموحد؛ فهو يصدر وظائف التطبيق ضمن `.netlify/functions-internal/<app>-server` وينشئ عمليات إعادة توجيه تترك الأصول الثابتة غير قسرية بحيث يخدم CDN الملفات أولاً. **Vercel** مدعوم بـ `npx @agent-native/core@latest deploy --preset vercel`؛ فهو يكتب حزمة `.vercel/output` الجذرية باستخدام Build Output API من Vercel.
 
 <Diagram id="doc-block-1huoqdg" title={"النشر الموحد: أصل واحد ومسار واحد لكل تطبيق"} summary={"يأتي كل تطبيق من مصدر واحد، لذا فإن جلسات تسجيل الدخول والتطبيقات المشتركة A2A مجانية."}>
 
@@ -352,13 +352,14 @@ npx @agent-native/core@latest deploy
 - **A2A عبر التطبيقات ذات التكوين الصفري.** يصبح وضع علامات `@mail` على `@calendar` جلبًا من نفس المصدر — بدون CORS، ولا يوجد توقيع JWT بين الأشقاء. لا يزال A2A الخارجي يستخدم JWT كما هو الحال اليوم.
 - **سجل DNS واحد، وشهادة واحدة، وذاكرة تخزين مؤقت CDN واحدة.**
 
-انشر مخرجات `dist/`:
+انشر مخرجات البناء لمنصتك:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-بالنسبة لـ Netlify:
+لـ Netlify:
 
 ```bash
 npx @agent-native/core@latest deploy --preset netlify --build-only
@@ -401,7 +402,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### النشر المستقل لكل تطبيق
 
-هل تفضل كل تطبيق في نطاقه الخاص (`mail.company.com`، `calendar.company.com`)؟ لا يزال كل تطبيق في مساحة العمل قابلاً للنشر بشكل مستقل — يتصرف `cd apps/mail && npx @agent-native/core@latest build` تمامًا مثل السقالة المستقلة. يمر A2A عبر التطبيق بعد ذلك عبر المسار القياسي الموقع بـ JWT مع `A2A_SECRET` المشترك. تتم معالجة SSO عبر المجال بين التطبيقات المنشورة بشكل منفصل عن طريق اتحاد الهوية مع Dispatch كمحور - راجع [Cross-App SSO](/docs/cross-app-sso)؛ يتجنب النشر الموحد ذو الأصل الواحد الحاجة إليه.
+هل تفضل كل تطبيق في نطاقه الخاص (`mail.company.com`، `calendar.company.com`)؟ لا يزال كل تطبيق في مساحة العمل قابلاً للنشر بشكل مستقل — يتصرف `cd apps/mail && pnpm build` تمامًا مثل السقالة المستقلة. يمر A2A عبر التطبيق بعد ذلك عبر المسار القياسي الموقع بـ JWT مع `A2A_SECRET` المشترك. تتم معالجة SSO عبر المجال بين التطبيقات المنشورة بشكل منفصل عن طريق اتحاد الهوية مع Dispatch كمحور - راجع [Cross-App SSO](/docs/cross-app-sso)؛ يتجنب النشر الموحد ذو الأصل الواحد الحاجة إليه.
 
 ### قاعدة بيانات مشتركة، بيانات اعتماد مشتركة
 

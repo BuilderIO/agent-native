@@ -17,9 +17,9 @@ import {
   DefaultSpinner,
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import {
   IconAlertTriangle,
-  IconArrowLeft,
   IconDeviceDesktop,
   IconDownload,
   IconLayoutSidebarRightCollapse,
@@ -28,7 +28,7 @@ import {
   IconLogin2,
   IconMoodSmile,
 } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
 import {
   useCallback,
@@ -56,6 +56,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -366,6 +367,8 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
+const MISSING_SHARE_RETRY_LIMIT = 8;
+const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
 function AgentDiscovery({
   recording,
@@ -541,7 +544,10 @@ export default function ShareRoute() {
   // viewer. Its own tab strip is the only panel navigation; the page toolbar
   // stays focused on recording actions.
   const [panel, setPanel] = useState<SharePanel>("comments");
-  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: "clips:share-sidebar-collapsed",
+    });
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -553,7 +559,7 @@ export default function ShareRoute() {
         block: "start",
       });
     });
-  }, []);
+  }, [setSidePanelCollapsed]);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -574,6 +580,7 @@ export default function ShareRoute() {
     return query ? `${path}?${query}` : path;
   }, [attribution, recordingId, startAt, panelParam]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
+  const queryClient = useQueryClient();
 
   const submitAccessRequest = useCallback(
     (email?: string) => {
@@ -632,14 +639,15 @@ export default function ShareRoute() {
     [requesterEmail, submitAccessRequest, t],
   );
 
+  const shareQueryKey = [
+    "public-recording",
+    shareId,
+    password,
+    agentAccessToken,
+    session?.email ?? null,
+  ] as const;
   const dataQ = useQuery({
-    queryKey: [
-      "public-recording",
-      shareId,
-      password,
-      agentAccessToken,
-      session?.email ?? null,
-    ],
+    queryKey: shareQueryKey,
     queryFn: async () => {
       const url = new URL(
         `${appBasePath()}/api/public-recording`,
@@ -659,6 +667,12 @@ export default function ShareRoute() {
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
+      const status = (q.state.data as { status?: number } | undefined)?.status;
+      const updateCount =
+        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
+      if (status === 404 && updateCount < MISSING_SHARE_RETRY_LIMIT) {
+        return MISSING_SHARE_RETRY_INTERVAL_MS[updateCount - 1] ?? 2000;
+      }
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -854,6 +868,10 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : t("sharePage.untitledClip");
+  const shareBreadcrumbItems = [
+    { label: t("navigation.library"), to: "/library" },
+    { label: visibleTitle },
+  ];
   const ownerEmail =
     (typeof recording?.ownerEmail === "string"
       ? recording.ownerEmail.trim()
@@ -904,30 +922,6 @@ export default function ShareRoute() {
     });
     if (target) void navigate(target, { replace: true });
   }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
-
-  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
-  // agent mounted in the side panel has no navigation context. Write it
-  // explicitly for signed-in viewers so view-screen grounds the chat to this
-  // clip instead of falling back to a generic library view.
-  useEffect(() => {
-    if (!session || !recording?.id) return;
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
-      {
-        method: "PUT",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          view: "share",
-          shareId: recording.id,
-          recordingId: recording.id,
-          path: `/share/${recording.id}`,
-        }),
-      },
-    ).catch(() => {});
-  }, [session, recording?.id]);
 
   useEffect(() => {
     if (!recording) {
@@ -1151,7 +1145,16 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
+  const retryingMissingShare =
+    dataQ.data?.status === 404 &&
+    (queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0) <
+      MISSING_SHARE_RETRY_LIMIT;
+
+  if (
+    dataQ.isLoading ||
+    retryingMissingShare ||
+    (sessionNeedsRetry && shareNeedsSession)
+  ) {
     return (
       <>
         {agentDiscovery}
@@ -1440,6 +1443,28 @@ export default function ShareRoute() {
   // download), so they're exempt from the enableDownloads gate here.
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
+  const shareControl =
+    viewerCanEdit || canReshareLink ? (
+      <ShareRecordingPopover
+        recordingId={recording.id}
+        pendingRedactions={pendingRedactions}
+        recordingTitle={recording.title}
+        initialVisibility={recording.visibility}
+        initialRole={viewerIsOwner ? "owner" : undefined}
+        videoUrl={shareVideoUrl}
+        thumbnailUrl={recording.thumbnailUrl}
+        animatedThumbnailUrl={recording.animatedThumbnailUrl}
+        isLoomRecording={isLoomEmbedBacked}
+        hasPassword={Boolean(recording.hasPassword)}
+        expiresAt={recording.expiresAt}
+        viewerReshareOnly={viewerReshareOnly}
+      >
+        <ClipsShareTrigger
+          label={t("sharePage.share")}
+          className={session ? undefined : "border-0 shadow-none"}
+        />
+      </ShareRecordingPopover>
+    ) : null;
 
   return (
     <div
@@ -1450,47 +1475,44 @@ export default function ShareRoute() {
       )}
     >
       {agentDiscovery}
-      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
-        {session ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            aria-label={t("sharePage.backToHome")}
-          >
-            <Link to={appPath("/")}>
-              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+      {session ? (
+        <PageHeader>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <PageBreadcrumb items={shareBreadcrumbItems} />
+            </div>
+            {shareControl}
+          </div>
+        </PageHeader>
+      ) : (
+        <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Link
+              to={appPath("/")}
+              aria-label={t("navigation.brand")}
+              className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {brandLogoUrl ? (
+                <img
+                  src={brandLogoUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-5 w-5 shrink-0 object-contain"
+                />
+              ) : (
+                <AgentNativeIcon
+                  aria-hidden="true"
+                  className="h-3.5 w-6 shrink-0 text-foreground"
+                />
+              )}
+              <span className="truncate text-sm font-semibold text-foreground">
+                {t("navigation.brand")}
+              </span>
             </Link>
-          </Button>
-        ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Link
-            to={appPath("/")}
-            aria-label={t("navigation.brand")}
-            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {brandLogoUrl ? (
-              <img
-                src={brandLogoUrl}
-                alt=""
-                aria-hidden="true"
-                className="h-5 w-5 shrink-0 object-contain"
-              />
-            ) : (
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-3.5 w-6 shrink-0 text-foreground"
-              />
-            )}
-            <span className="truncate text-sm font-semibold text-foreground">
-              {t("navigation.brand")}
-            </span>
-          </Link>
-          <EnvironmentBadge placement="inline" />
-        </div>
+            <EnvironmentBadge placement="inline" />
+          </div>
 
-        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
-          {session ? null : (
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
             <SignedOutShareActions
               recordingId={recording.id}
               startAt={startAt}
@@ -1498,30 +1520,10 @@ export default function ShareRoute() {
               onCtaClick={fireShareCtaClick}
               onSignup={() => openCreateAccount("continue")}
             />
-          )}
-          {viewerCanEdit || canReshareLink ? (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              pendingRedactions={pendingRedactions}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={viewerIsOwner ? "owner" : undefined}
-              videoUrl={shareVideoUrl}
-              thumbnailUrl={recording.thumbnailUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-              isLoomRecording={isLoomEmbedBacked}
-              hasPassword={Boolean(recording.hasPassword)}
-              expiresAt={recording.expiresAt}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger
-                label={t("sharePage.share")}
-                className="border-0 shadow-none"
-              />
-            </ShareRecordingPopover>
-          ) : null}
-        </div>
-      </header>
+            {shareControl}
+          </div>
+        </header>
+      )}
 
       <div className="flex w-full min-w-0 flex-none flex-col overflow-visible lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:flex-1 lg:overflow-y-hidden">
         <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden">
@@ -1763,33 +1765,39 @@ export default function ShareRoute() {
         <RecordingSidePanel
           className={cn(
             "lg:col-start-2 lg:row-start-2",
-            sidePanelCollapsed && "h-10 lg:me-0 lg:h-10 lg:w-10",
+            sidePanelCollapsed &&
+              "lg:me-0 lg:h-10 lg:w-10 lg:border-0 lg:bg-transparent lg:shadow-none",
           )}
           tabs={
-            <div className="flex min-w-0 items-center border-b border-border">
-              {!sidePanelCollapsed ? (
-                <ViewerTabsList>
-                  {recording.enableComments ? (
-                    <ViewerTabsTrigger
-                      value="comments"
-                      className="px-0 data-[state=active]:after:inset-x-0"
-                    >
-                      {t("sharePage.comments")}
-                    </ViewerTabsTrigger>
-                  ) : null}
-                  <ViewerTabsTrigger value="transcript">
-                    {t("sharePage.transcript")}
+            <div
+              className={cn(
+                "flex min-w-0 items-center border-b border-border",
+                sidePanelCollapsed && "lg:border-0",
+              )}
+            >
+              <ViewerTabsList
+                className={sidePanelCollapsed ? "lg:hidden" : undefined}
+              >
+                {recording.enableComments ? (
+                  <ViewerTabsTrigger
+                    value="comments"
+                    className="px-0 data-[state=active]:after:inset-x-0"
+                  >
+                    {t("sharePage.comments")}
                   </ViewerTabsTrigger>
-                  <ViewerTabsTrigger value="agent">
-                    {t("sharePage.agent")}
-                  </ViewerTabsTrigger>
-                </ViewerTabsList>
-              ) : null}
+                ) : null}
+                <ViewerTabsTrigger value="transcript">
+                  {t("sharePage.transcript")}
+                </ViewerTabsTrigger>
+                <ViewerTabsTrigger value="agent">
+                  {t("sharePage.agent")}
+                </ViewerTabsTrigger>
+              </ViewerTabsList>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <ViewerIconButton
                     variant="ghost"
-                    className="ms-auto me-1 size-8 shrink-0"
+                    className="ms-auto me-1 hidden size-8 shrink-0 border-0 shadow-none lg:inline-flex"
                     aria-label={t(
                       sidePanelCollapsed
                         ? "navigation.expandSidebar"
@@ -1821,7 +1829,7 @@ export default function ShareRoute() {
         >
           <div
             id="clip-share-side-panel-content"
-            className={sidePanelCollapsed ? "hidden" : "contents"}
+            className={cn("contents", sidePanelCollapsed && "lg:hidden")}
           >
             {recording.enableComments ? (
               <TabsContent
@@ -1833,32 +1841,49 @@ export default function ShareRoute() {
                   ref={commentsSectionRef}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
                 >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={playbackMs}
-                    getCurrentMs={resolvePlaybackMs}
-                    currentUserEmail={session?.email}
-                    currentUserName={session?.name}
-                    enableComments={recording.enableComments}
-                    canComment={viewerCanComment}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onUnauthenticated={requireSignIn}
-                    queryKey={[
-                      "public-recording",
-                      shareId,
-                      password,
-                      agentAccessToken,
-                      session?.email ?? null,
-                    ]}
-                    selectComments={(d: any) => d?.data?.comments}
-                    applyComments={(d: any, next) =>
-                      d
-                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
-                        : d
-                    }
-                    presentation="inline"
-                  />
+                  {!session &&
+                  sessionStatus !== "loading" &&
+                  sessionStatus !== "signing-out" &&
+                  comments.length === 0 ? (
+                    <PublicCommentsEmptyState
+                      signInHref={signInHref}
+                      onSignUp={() => {
+                        fireShareCtaClick("signup");
+                        openCreateAccount("comment");
+                      }}
+                      onSignIn={() => fireShareCtaClick("signin")}
+                    />
+                  ) : (
+                    <CommentsPanel
+                      recordingId={recording.id}
+                      comments={comments}
+                      currentMs={playbackMs}
+                      getCurrentMs={resolvePlaybackMs}
+                      currentUserEmail={session?.email}
+                      currentUserName={session?.name}
+                      enableComments={recording.enableComments}
+                      canComment={viewerCanComment}
+                      onSeek={(ms) => playerRef.current?.seek(ms)}
+                      onUnauthenticated={requireSignIn}
+                      queryKey={[
+                        "public-recording",
+                        shareId,
+                        password,
+                        agentAccessToken,
+                        session?.email ?? null,
+                      ]}
+                      selectComments={(d: any) => d?.data?.comments}
+                      applyComments={(d: any, next) =>
+                        d
+                          ? {
+                              ...d,
+                              data: { ...(d.data ?? {}), comments: next },
+                            }
+                          : d
+                      }
+                      presentation="inline"
+                    />
+                  )}
                 </section>
               </TabsContent>
             ) : null}
@@ -2004,6 +2029,67 @@ function formatRecordedOn(
     dateStyle: "medium",
     ...(stable ? { timeZone: "UTC" } : {}),
   }).format(date);
+}
+
+function PublicCommentsEmptyState({
+  signInHref,
+  onSignUp,
+  onSignIn,
+}: {
+  signInHref: string;
+  onSignUp: () => void;
+  onSignIn: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col justify-center gap-5 overflow-y-auto px-5 py-6">
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <IconDeviceDesktop aria-hidden="true" className="size-5" />
+      </div>
+      <h2 className="text-base font-semibold tracking-tight">
+        {t("sharePage.commentSignupTitle")}
+      </h2>
+      <ul className="space-y-3 text-sm leading-5 text-muted-foreground">
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupContext")}</span>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupFeedback")}</span>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="mt-2 size-1.5 shrink-0 rounded-full bg-primary"
+          />
+          <span>{t("sharePage.commentSignupDebug")}</span>
+        </li>
+      </ul>
+      <div className="space-y-3">
+        <Button type="button" className="w-full" onClick={onSignUp}>
+          {t("signInPrompt.createAccount")}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          {t("sharePage.agentEmptySignInPrompt")}{" "}
+          <a
+            href={signInHref}
+            onClick={onSignIn}
+            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
+          >
+            {t("signInPrompt.signIn")}
+          </a>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function PublicAgentEmptyState({

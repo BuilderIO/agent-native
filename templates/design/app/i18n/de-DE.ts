@@ -263,6 +263,12 @@ export default {
       opacity: "Opazität",
       padding: "Polsterung",
       margin: "Marge",
+      marginTop: "Oberer Außenabstand",
+      marginRight: "Rechter Außenabstand",
+      marginBottom: "Unterer Außenabstand",
+      marginLeft: "Linker Außenabstand",
+      linkMarginSides: "Außenabstände verknüpfen",
+      unlinkMarginSides: "Außenabstände lösen",
       radius: "Radius",
       flexGrow: "Wachsen",
       flexShrink: "Schrumpfen",
@@ -324,6 +330,18 @@ export default {
       customTransform:
         "Benutzerdefinierte Transformation — kann nicht als X/Y/Z-Rotation bearbeitet werden",
       shaderEffectType: "Shader",
+      imageScaleMode: "Bildskalierungsmodus",
+      imageAdjustments: "Bildanpassungen",
+      imageExposure: "Belichtung",
+      imageContrast: "Kontrast",
+      imageSaturation: "Sättigung",
+      imageScaleFill: "Füllen",
+      imageScaleFit: "Einpassen",
+      imageScaleCrop: "Zuschneiden",
+      noMirroring: "Keine Spiegelung",
+      vector: "Vektor",
+      mirrorAngle: "Winkel spiegeln",
+      mirrorAngleAndLength: "Winkel und Länge spiegeln",
     },
     shaders: {
       fillsTitle: "Shader-Füllungen",
@@ -549,6 +567,22 @@ export default {
         socialMedia: "Soziale Medien",
         adUnit: "Anzeigenformat",
       },
+    },
+    scale: {
+      title: "Skalieren",
+      exit: "Skalieren beenden",
+      factor: "Skalierungsfaktor",
+      presets: "Skalierungsvorgaben",
+      anchor: "Ankerpunkt",
+      topLeft: "Oben links",
+      topCenter: "Oben Mitte",
+      topRight: "Oben rechts",
+      middleLeft: "Mitte links",
+      center: "Mitte",
+      middleRight: "Mitte rechts",
+      bottomLeft: "Unten links",
+      bottomCenter: "Unten Mitte",
+      bottomRight: "Unten rechts",
     },
   },
   designEditor: {
@@ -785,6 +819,8 @@ export default {
       figmaPasteTarget: "In die Leinwand einfügen",
       figmaPasteApiKeyHint:
         "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
+      figmaPasteAccessDenied:
+        'Der verbundene Figma-Zugriffstoken kann nicht auf diese Datei zugreifen. Prüfe deine Dateiberechtigung und ob der Token den Bereich "File content" enthält.',
       figmaPasteMatchGuidance:
         "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
       figmaPasteUnreadable:
@@ -931,6 +967,11 @@ export default {
     signUpToSaveDescription:
       "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
     signUpToShare: "Zum Teilen registrieren",
+    signUpToShareLiveCanvas:
+      "Registriere dich, um eine Live-Arbeitsfläche zu teilen",
+    liveCanvasLink: "Link zur Live-Arbeitsfläche",
+    liveCanvasWaitingForOwner:
+      "Warte auf den Live-Snapshot der Arbeitsfläche des Besitzers.",
     shareEditorLink: "Design-Editor-Link",
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
@@ -1084,6 +1125,7 @@ export default {
         ungroup: "Gruppierung aufheben",
         frameSelection: "Auswahl rahmen",
         autoLayout: "Auto-Layout",
+        imageVideo: "Bild/Video...",
       },
     },
     undo: "Rückgängig machen",
@@ -1205,12 +1247,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
+      applySharedEdits: "Änderungen anwenden",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -1223,6 +1267,8 @@ export default {
       sourceCheckFailedToast:
         "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
       copiedToast: "Stil-Prompt kopiert",
+      copiedToastDescription:
+        "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
@@ -1287,6 +1333,8 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      visualEditPendingConflict:
+        "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",
@@ -1381,6 +1429,10 @@ export default {
         "Screen-Quelle konnte nicht aktualisiert werden",
       vectorEditUnsupported:
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
+      imageUploading: "Bild wird hochgeladen…",
+      pasteReplaceFailed: "Diese Ebene konnte nicht ersetzt werden",
+      swapFillStrokeLayeredFill:
+        "Mehrere Füllungen oder Bildfüllungen können noch nicht zur Kontur werden",
     },
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",

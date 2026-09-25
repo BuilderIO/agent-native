@@ -33,6 +33,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
+  "observability.viewDetails": "詳細を表示",
+  "observability.hideDetails": "詳細を非表示",
+  "observability.input": "入力",
+  "observability.output": "出力",
+  "observability.error": "エラー",
+  "observability.metadata": "メタデータ",
+  "observability.notCaptured": "未取得",
+  "observability.openFullConversation": "会話全体を開く",
+  "observability.learnAboutTab": "このタブの詳細を見る",
   "onboarding.back": "戻る",
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",
@@ -50,8 +59,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
-  "onboarding.builderConnectCredits": "Builder.io 無料クレジットに接続",
+  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -287,6 +296,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "作成したいスキルを説明してください...",
   "composer.documentTooLarge":
     "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、{{label}} は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
+  "composer.requestTooLarge":
+    "このメッセージと添付ファイルは大きすぎて送信できません。添付ファイルを削除するか、メッセージを短くしてください。",
   "composer.file": "ファイル",
   "composer.imageModel": "画像モデル",
   "composer.imagePreview": "画像プレビュー",
@@ -495,7 +506,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
-  "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
+  "errorMessages.addCreditsInBuilder": "Builderでクレジットを追加",
   "feedback.inaccurate": "不正確",
   "feedback.keyboardHint": "{{shortcut}} Enter で送信",
   "feedback.notHelpful": "役に立たない",
@@ -557,11 +568,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "応答を再生成",
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
+  "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
+  "message.revertToBeginning": "最初に戻す",
   "message.sentAt": "{{time}} に送信",
   "contextMeter.ariaLabel":
     "コンテキスト {{percent}}%、合計 {{totalTokens}}{{breakdown}}。コンテキスト X-Ray を開きます。",
@@ -828,6 +841,22 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "確認メールを送信できませんでした。",
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
+  "usage.builderCredits": "Builder クレジット",
+  "usage.creditBalance": "ワークスペース残高",
+  "usage.monthlyPlan": "月間プラン",
+  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
+  "usage.creditRemaining": "残り {{amount}}",
+  "usage.creditUsageUnavailable":
+    "Builder クレジットの使用状況を読み込めませんでした。",
+  "usage.estimatedBuilderCredits": "~{{amount}} 推定クレジット",
+  "usage.otherUsdSpend": "{{amount}} その他の USD",
+  "usage.noBuilderCredits": "Builder クレジット 0",
+  "usage.otherUnclassifiedSpend": "その他または未分類の USD 利用額",
+  "usage.providerSpendDetail":
+    "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
+  "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder クレジット / USD",
 };
 
 export default messages;

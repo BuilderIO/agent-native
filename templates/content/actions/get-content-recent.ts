@@ -7,6 +7,7 @@ import { readContentRecentState } from "../shared/content-personal-navigation.js
 import {
   contentRecentSettingKey,
   resolveContentRecentEntries,
+  withRecentPinnedState,
 } from "./_content-recent.js";
 
 export default defineAction({
@@ -46,13 +47,14 @@ export default defineAction({
         ),
       );
     }
+    const entries = await resolveContentRecentEntries(
+      ctx.userEmail,
+      state.entries,
+      args.spaceId,
+    );
     return {
       scopeKey,
-      entries: await resolveContentRecentEntries(
-        ctx.userEmail,
-        state.entries,
-        args.spaceId,
-      ),
+      entries: await withRecentPinnedState(ctx.userEmail, entries),
     };
   },
 });

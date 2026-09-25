@@ -1,5 +1,6 @@
 import {
   alphaToOpacity,
+  defaultGradientEndColor,
   parseCssColor,
   rgbaToCss,
   withColorOpacity,
@@ -395,6 +396,9 @@ export function imageFillChangePatch(
  * opposite of what "+" is supposed to do, and it reintroduced the exact
  * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
  */
+// guard:allow-raw-color — Figma's new-fill paint; hex because solid layers need a parseable colour.
+const NEW_FILL_COLOR = "#d9d9d9";
+
 export function addFillLayerPatch(params: {
   backgroundColor: string | undefined;
   backgroundLayers: string[];
@@ -411,13 +415,15 @@ export function addFillLayerPatch(params: {
   } = params;
 
   if (!colorHasVisibleAlpha(backgroundColor) && backgroundLayers.length === 0) {
-    return { backgroundColor: cssColorOrFallback(backgroundColor, "#ffffff") };
+    return {
+      backgroundColor: cssColorOrFallback(backgroundColor, NEW_FILL_COLOR),
+    };
   }
 
   const fillColor =
     colorHasVisibleAlpha(backgroundColor) && backgroundColor
       ? backgroundColor
-      : "#ffffff"; // guard:allow-raw-color — new fills start with an opaque canvas paint.
+      : NEW_FILL_COLOR;
   const nextLayer = buildSolidFillLayer(fillColor);
   if (backgroundLayers.length === 0) {
     return { backgroundImage: nextLayer };
@@ -608,6 +614,14 @@ function gradientTypeFromCss(
   return "linear";
 }
 
+/** Figma's paint-row label: the gradient kind alone. */
+export function gradientShortLabel(type: DesignGradientType): string {
+  if (type === "radial") return "Radial"; // i18n-ignore design inspector paint row
+  if (type === "angular") return "Angular"; // i18n-ignore design inspector paint row
+  if (type === "diamond") return "Diamond"; // i18n-ignore design inspector paint row
+  return "Linear"; // i18n-ignore design inspector paint row
+}
+
 export function gradientLabel(type: DesignGradientType): string {
   if (type === "radial") {
     return "Radial gradient"; // i18n-ignore design inspector paint row
@@ -625,7 +639,7 @@ function defaultGradientPrefix(type: DesignGradientType): string {
   if (type === "radial") return "circle at 50% 50%";
   if (type === "angular") return "from 0deg at 50% 50%";
   if (type === "diamond") return "closest-corner at 50% 50%";
-  return "90deg";
+  return "180deg";
 }
 
 export function buildGradientLayer(
@@ -665,14 +679,15 @@ export function defaultGradientStops(colorValue: string): DesignGradientStop[] {
   const parsed =
     parseCssColor(cssColorOrFallback(colorValue, "#000000")) ??
     parseCssColor("#000000");
-  const start = parsed ? rgbaToCss(withColorOpacity(parsed, 100)) : "#000000";
-  const end = parsed
-    ? rgbaToCss(withColorOpacity(parsed, 0))
-    : "rgba(0, 0, 0, 0)";
-
+  const opaque = withColorOpacity(parsed ?? { r: 0, g: 0, b: 0, a: 1 }, 100);
   return [
-    { id: "stop-0", color: start, position: 0, opacity: 100 },
-    { id: "stop-1", color: end, position: 100, opacity: 0 },
+    { id: "stop-0", color: rgbaToCss(opaque), position: 0, opacity: 100 },
+    {
+      id: "stop-1",
+      color: rgbaToCss(defaultGradientEndColor(opaque)),
+      position: 100,
+      opacity: 100,
+    },
   ];
 }
 

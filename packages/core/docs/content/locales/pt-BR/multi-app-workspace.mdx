@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Cada aplicativo é construído com `APP_BASE_PATH=/<name>` e `VITE_APP_BASE_PATH=/<name>` e emitido por meio da predefinição Nitro selecionada. Cloudflare Pages é a predefinição padrão e usa um expedidor de trabalho em `dist/_worker.js` mais `_routes.json`. Netlify é compatível com `npx @agent-native/core@latest deploy --preset netlify`; ele emite funções de aplicativo em `.netlify/functions-internal/<app>-server` e gera redirecionamentos que deixam ativos estáticos não forçados para que o CDN sirva os arquivos primeiro. Vercel é compatível com `npx @agent-native/core@latest deploy --preset vercel`; ele grava um pacote raiz `.vercel/output` usando Build Output API do Vercel.
+Cada aplicativo é construído com `APP_BASE_PATH=/<name>` e `VITE_APP_BASE_PATH=/<name>` e emitido por meio do preset Nitro selecionado. **Netlify** é o preset padrão para o comando unificado `deploy`; ele emite funções de aplicativo em `.netlify/functions-internal/<app>-server` e gera redirecionamentos que deixam ativos estáticos não forçados para que o CDN sirva os arquivos primeiro. **Vercel** é compatível com `npx @agent-native/core@latest deploy --preset vercel`; ele grava um pacote raiz `.vercel/output` usando a Build Output API do Vercel.
 
 <Diagram id="doc-block-1l5ncko" title={"Implantação unificada: uma origem, um caminho por aplicativo"} summary={"Cada aplicativo é fornecido com uma única origem, portanto, as sessões de login e o A2A entre aplicativos são gratuitos."}>
 
@@ -352,10 +352,11 @@ Estar na **mesma origem** é onde reside a verdadeira recompensa:
 - **A2A de aplicativo cruzado com configuração zero.** A marcação `@mail` de `@calendar` se torna uma busca de mesma origem — sem CORS, sem assinatura de JWT entre irmãos. A2A externo ainda usa JWT como hoje.
 - **Um registro DNS, um certificado, um cache CDN.**
 
-Publique a saída `dist/`:
+Publique o build para sua plataforma:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 Para Netlify:
@@ -401,7 +402,7 @@ Essas configurações afetam apenas a navegação da página somente leitura. Fe
 
 ### Implantação independente por aplicativo
 
-Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && npx @agent-native/core@latest build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
+Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && pnpm build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
 
 ### Banco de dados compartilhado, credenciais compartilhadas
 

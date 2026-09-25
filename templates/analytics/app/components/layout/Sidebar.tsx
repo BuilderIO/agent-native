@@ -2665,8 +2665,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3">
-              <nav className="flex min-w-0 flex-col space-y-0.5">
+            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3">
+              <nav className="flex min-w-0 flex-col space-y-0.5 px-2">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;
@@ -2694,8 +2694,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 collapsed={false}
                 collapsible={false}
                 feedback={footerFeedback}
+                className="space-y-1 px-2"
                 orgSwitcher={
-                  <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+                  <OrgSwitcher className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                 }
                 footerExtras={
                   <>

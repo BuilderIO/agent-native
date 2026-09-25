@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、選択した Nitro プリセットを通じて出力されます。 Cloudflare Pages がデフォルトのプリセットで、`dist/_worker.js` と `_routes.json` でディスパッチャー ワーカーを使用します。 Netlify は `npx @agent-native/core@latest deploy --preset netlify` でサポートされています。 `.netlify/functions-internal/<app>-server` の下でアプリ関数を発行し、静的アセットを強制されないままにするリダイレクトを生成するため、CDN が最初にファイルを提供します。 Vercel は `npx @agent-native/core@latest deploy --preset vercel` でサポートされています。 Vercel のビルド出力 API を使用して、ルート `.vercel/output` バンドルを書き込みます。
+各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、選択した Nitro プリセットを通じて出力されます。統合 `deploy` コマンドのデフォルトプリセットは **Netlify** です。`.netlify/functions-internal/<app>-server` の下でアプリ関数を発行し、静的アセットを強制されないままにするリダイレクトを生成するため、CDN が最初にファイルを提供します。**Vercel** は `npx @agent-native/core@latest deploy --preset vercel` でサポートされています。Vercel の Build Output API を使用して、ルート `.vercel/output` バンドルを書き込みます。
 
 <Diagram id="doc-block-yfp58s" title={"統合デプロイ: アプリごとに 1 つのオリジン、1 つのパス"} summary={"すべてのアプリは単一のオリジンで出荷されるため、ログイン セッションとアプリ間の A2A は無料です。"}>
 
@@ -352,13 +352,14 @@ npx @agent-native/core@latest deploy
 - **ゼロ構成クロスアプリ A2A.** `@mail` タグ付け `@calendar` は同一オリジンフェッチになります — 兄弟間での CORS や JWT 署名はありません。外部 A2A は、現在と同様に JWT を使用します。
 - **1 つの DNS レコード、1 つの証明書、1 つの CDN キャッシュ。**
 
-`dist/` 出力を公開します:
+プラットフォーム向けにビルドを公開します:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Netlifyの場合:
+Netlify の場合:
 
 ```bash
 npx @agent-native/core@latest deploy --preset netlify --build-only
@@ -401,7 +402,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### アプリごとに独立したデプロイ
 
-独自のドメイン (`mail.company.com`、`calendar.company.com`) 上の各アプリを好みますか?ワークスペース内のすべてのアプリは依然として独立して展開可能です。`cd apps/mail && npx @agent-native/core@latest build` はスタンドアロンの足場とまったく同じように動作します。次に、クロスアプリ A2A は、共有 `A2A_SECRET` を使用して、標準の JWT 署名付きパスを通過します。個別にデプロイされたアプリ間のクロスドメイン SSO は、ハブとして Dispatch を使用する ID フェデレーションによって処理されます。「[Cross-App SSO](/docs/cross-app-sso)」を参照してください。統合されたシングルオリジンのデプロイにより、その必要がなくなります。
+独自のドメイン (`mail.company.com`、`calendar.company.com`) 上の各アプリを好みますか?ワークスペース内のすべてのアプリは依然として独立して展開可能です。`cd apps/mail && pnpm build` はスタンドアロンの足場とまったく同じように動作します。次に、クロスアプリ A2A は、共有 `A2A_SECRET` を使用して、標準の JWT 署名付きパスを通過します。個別にデプロイされたアプリ間のクロスドメイン SSO は、ハブとして Dispatch を使用する ID フェデレーションによって処理されます。「[Cross-App SSO](/docs/cross-app-sso)」を参照してください。統合されたシングルオリジンのデプロイにより、その必要がなくなります。
 
 ### 共有データベース、共有資格情報
 

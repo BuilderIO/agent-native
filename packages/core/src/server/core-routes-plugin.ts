@@ -51,6 +51,8 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
+  type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -67,6 +69,10 @@ import {
   type DatabaseSchemaHealthResult,
 } from "../db/runtime-diagnostics.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import {
+  BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+  registerFeatureFlags,
+} from "../feature-flags/registry.js";
 import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
@@ -1638,6 +1644,14 @@ export interface CoreRoutesPluginOptions {
   googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /**
+   * Let anonymous visitors keep application state under the owner that
+   * `anonymousOwner` resolves, instead of answering them 401. For apps whose
+   * chat or pages run for visitors without a session (a guest chat): the
+   * client's navigation, URL and composer preference sync then works for them
+   * too. Off by default, since every anonymous visitor then gets state rows.
+   */
+  anonymousApplicationState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
   /** Disable the /_agent-native/embed/start iframe session launcher. */
@@ -2017,10 +2031,20 @@ export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
   app: H3AppShim = getH3App(nitroApp),
+  options: { anonymousOwner?: AppStateAnonymousOwnerResolver } = {},
 ): void {
+  // Hand the handlers the app's anonymous owner resolver; they consult it only
+  // when the request has no session.
+  const withAnonymousOwner = (event: H3Event) => {
+    if (options.anonymousOwner && event.context) {
+      event.context[APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY] =
+        options.anonymousOwner;
+    }
+  };
   app.use(
     `${routePrefix}/application-state/compose`,
     defineEventHandler(async (event: H3Event) => {
+      withAnonymousOwner(event);
       const id =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (event.context) {
@@ -2046,6 +2070,7 @@ export function mountApplicationStateRoutes(
       const key =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (key === "compose") return;
+      withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
         return;
@@ -2080,6 +2105,7 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
+    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
@@ -2140,7 +2166,11 @@ export function createCoreRoutesPlugin(
         // Application state is part of the client bootstrap contract. Register
         // it before optional plugin/bootstrap work so the first localization
         // write cannot fall through to the template router on a cold start.
-        mountApplicationStateRoutes(nitroApp, P);
+        mountApplicationStateRoutes(nitroApp, P, undefined, {
+          anonymousOwner: options.anonymousApplicationState
+            ? options.anonymousOwner
+            : undefined,
+        });
       }
 
       // This response is a side-effect-free static contract used by the SSR
@@ -4902,6 +4932,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              authUserId: session.authUserId,
               sessionId: readBrowserSessionIdHeader(event),
               telemetryOrigin: "client",
             });

@@ -1,4 +1,5 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
+import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,6 +77,7 @@ import {
 // Type-only: erased at build time, so declaring app roles pulls no server or
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
+import { isFreeEmailProvider } from "../../org/free-email-providers.js";
 import { canInviteOrgMembers } from "../../org/permissions.js";
 import type { DomainMatchOrg, OrgRole } from "../../org/types.js";
 import { docsUrl } from "../../shared/docs-url.js";
@@ -98,13 +100,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
+import { useIconPickerLabels, useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   useShareOrgMemberSearch,
 } from "../sharing/share-controller-helpers.js";
+import { uploadEditorImage } from "../uploads/index.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
@@ -113,6 +116,7 @@ import {
   useOrgInvitations,
   useCreateOrg,
   useUpdateOrg,
+  useSetOrgVisualIdentity,
   useBulkInviteMembers,
   useChangeMemberRole,
   useAcceptInvitation,
@@ -884,6 +888,7 @@ export function WorkspaceGroupsCard({
 
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
+  const iconPickerLabels = useIconPickerLabels();
   const { data: org } = useOrg();
   const [memberOffset, setMemberOffset] = useState(0);
   const [memberSearchInput, setMemberSearchInput] = useState("");
@@ -904,6 +909,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const { data: organizationMembersData } = useOrgMembers(0);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+  const setVisualIdentity = useSetOrgVisualIdentity();
   const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
   const groupsQuery = useActionQuery<WorkspaceUserGroup[]>(
     "list-workspace-user-groups",
@@ -979,7 +985,89 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
           id="organization"
           label={
             <span className="flex items-center gap-2">
-              <IconUsersGroup className="size-4 text-muted-foreground" />
+              {isOwnerOrAdmin ? (
+                <ResourceIconPicker
+                  value={org.icon}
+                  onValueChange={async (icon) => {
+                    await setVisualIdentity.mutateAsync(icon);
+                  }}
+                  onUpload={async (file) => {
+                    const uploaded = await uploadEditorImage(file);
+                    return {
+                      version: 1,
+                      kind: "image",
+                      authority: "url",
+                      assetId: uploaded.src,
+                      alt: uploaded.alt || file.name,
+                    };
+                  }}
+                  resolveImageUrl={(image) =>
+                    image.authority === "url" ? image.assetId : undefined
+                  }
+                  disabled={setVisualIdentity.isPending}
+                  labels={{
+                    ...iconPickerLabels,
+                    trigger: t("org.workspaceIcon", {
+                      defaultValue: "Workspace icon",
+                    }),
+                    iconsTab: t("org.icons", { defaultValue: "Icons" }),
+                    emojiTab: t("org.emoji", { defaultValue: "Emoji" }),
+                    uploadTab: t("org.upload", { defaultValue: "Upload" }),
+                    search: t("org.searchIcons", {
+                      defaultValue: "Search icons",
+                    }),
+                    noResults: t("org.noIconsFound", {
+                      defaultValue: "No icons found",
+                    }),
+                    recents: t("org.recentIcons", {
+                      defaultValue: "Recent icons",
+                    }),
+                    colors: t("org.iconColors", { defaultValue: "Colors" }),
+                    defaultColor: t("org.defaultColor", {
+                      defaultValue: "Default",
+                    }),
+                    remove: t("org.removeIcon", {
+                      defaultValue: "Remove icon",
+                    }),
+                    upload: t("org.uploadIcon", {
+                      defaultValue: "Upload icon",
+                    }),
+                    uploading: t("org.uploadingIcon", {
+                      defaultValue: "Uploading…",
+                    }),
+                  }}
+                >
+                  <Button
+                    type="button"
+                    className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("org.workspaceIcon", {
+                      defaultValue: "Workspace icon",
+                    })}
+                  >
+                    <ResourceIcon
+                      value={org.icon}
+                      size={16}
+                      resolveImageUrl={(image) =>
+                        image.authority === "url" ? image.assetId : undefined
+                      }
+                      fallback={
+                        <IconUsersGroup className="size-4 text-muted-foreground" />
+                      }
+                    />
+                  </Button>
+                </ResourceIconPicker>
+              ) : (
+                <ResourceIcon
+                  value={org.icon}
+                  size={16}
+                  resolveImageUrl={(image) =>
+                    image.authority === "url" ? image.assetId : undefined
+                  }
+                  fallback={
+                    <IconUsersGroup className="size-4 text-muted-foreground" />
+                  }
+                />
+              )}
               <OrgNameDisplay
                 name={org.orgName ?? ""}
                 canEdit={isOwnerOrAdmin}
@@ -1012,6 +1100,14 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
             ) : undefined
           }
         />
+        <ErrorText error={setVisualIdentity.error} />
+        {setVisualIdentity.data?.syncPending && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {t("org.workspaceIconSyncPending", {
+              defaultValue: "Saved here. Other apps may take longer to update.",
+            })}
+          </p>
+        )}
 
         {isOwnerOrAdmin && (
           <>
@@ -2845,18 +2941,23 @@ function BulkInviteForm({
   );
 }
 
-function DomainSettingsSection({
+export function DomainSettingsSection({
   domain,
   ownerEmail,
 }: {
   domain: string | null;
   ownerEmail: string;
 }) {
+  const t = useT();
   const setOrgDomain = useSetOrgDomain();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(domain ?? "");
 
   const ownDomain = ownerEmail.split("@")[1]?.toLowerCase() ?? "";
+  // The server only ever accepts the caller's own domain (handlers.ts
+  // setDomainHandler), so a free-text field has exactly one legal value here.
+  // Skip the typing ceremony and enable it directly when that value is usable.
+  const canEnableOwnDomain = !!ownDomain && !isFreeEmailProvider(ownDomain);
 
   function save() {
     const trimmed = draft.trim().toLowerCase();
@@ -2924,21 +3025,23 @@ function DomainSettingsSection({
                   <TooltipContent>Remove domain</TooltipContent>
                 </Tooltip>
               </>
-            ) : (
+            ) : canEnableOwnDomain ? (
               <Button
                 type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={() => {
-                  setDraft(ownDomain);
-                  setEditing(true);
-                }}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+                intent="primary"
+                emphasis="solid"
+                disabled={setOrgDomain.isPending}
+                onClick={() => setOrgDomain.mutate(ownDomain)}
+                className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                <IconAt size={14} />
-                Set domain
+                {setOrgDomain.isPending ? (
+                  <IconLoader2 size={14} className="animate-spin" />
+                ) : (
+                  <IconAt size={14} />
+                )}
+                {t("org.enableDomainJoin", { domain: ownDomain })}
               </Button>
-            )}
+            ) : null}
           </div>
         ) : (
           <div className="flex items-center gap-2">

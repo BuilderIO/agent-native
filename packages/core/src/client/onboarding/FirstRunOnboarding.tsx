@@ -28,7 +28,6 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
@@ -160,6 +159,9 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
   } | null>(null);
+  const completionInFlightRef = useRef(false);
+  const onboardingTerminalRef = useRef(false);
+  const abandonmentTrackedRef = useRef(false);
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
@@ -168,16 +170,20 @@ export function FirstRunOnboarding({
       completionAttemptRef.current = completedScreen
         ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
         : { screen: null, extensionIndex: completedExtensionIndex };
+      completionInFlightRef.current = true;
       try {
         await completeFirstRun();
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
+        onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
+      } finally {
+        completionInFlightRef.current = false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -191,6 +197,33 @@ export function FirstRunOnboarding({
     if (previewMode || !firstRun || loading || !profile) return;
     const step = firstRunStepProperties(screen, extensions, extensionIndex);
     trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionInFlightRef.current
+      )
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(screen, extensions, extensionIndex),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
   }, [
     extensionIndex,
     extensions,
@@ -226,15 +259,6 @@ export function FirstRunOnboarding({
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
-  const dismissOnboarding = useCallback(() => {
-    if (!previewMode) {
-      trackOnboardingEvent("onboarding_dismissed", {
-        ...firstRunStepProperties(screen, extensions, extensionIndex),
-        reason: "user_action",
-      });
-    }
-    void finishOnboarding(null);
-  }, [extensionIndex, extensions, finishOnboarding, previewMode, screen]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -254,7 +278,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
@@ -374,7 +397,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="extension"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <Extension
@@ -397,7 +419,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-9">
@@ -489,29 +510,26 @@ export function FirstRunOnboarding({
                     </div>
                   ))}
                 </div>
-                <DeferredBuilderConnectPopover
-                  flow={connectFlow}
-                  onConnect={(provisionAccount) =>
-                    handleBuilder(provisionAccount)
-                  }
-                  defaultProvisionAccount
-                  contentTestId="first-run-builder-consent"
-                  primaryTestId="first-run-builder-create-and-activate"
-                  secondaryTestId="first-run-builder-existing-account"
-                >
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
-                    data-testid="first-run-connect-builder"
+                    data-testid="first-run-builder-create-account"
                     className={cn(primaryButtonClass, "w-full")}
+                    onClick={() => handleBuilder(true)}
+                    disabled={connectFlow.connecting}
                   >
-                    {t(
-                      canActivateBuilderFreeCredits
-                        ? "agentChat.onboarding.builderActivateCredits"
-                        : "agentChat.onboarding.builderConnectCredits",
-                    )}
-                    <IconArrowRight size={15} />
+                    {t("agentChat.onboarding.builderCreateAccount")}
                   </button>
-                </DeferredBuilderConnectPopover>
+                  <button
+                    type="button"
+                    data-testid="first-run-builder-sign-in"
+                    className={cn(mutedButtonClass, "w-full")}
+                    onClick={() => handleBuilder(false)}
+                    disabled={connectFlow.connecting}
+                  >
+                    {t("agentChat.onboarding.builderSignInWithAccount")}
+                  </button>
+                </div>
                 {connectFlow.error && !connectFlow.statusResolved && (
                   <p
                     role="status"
@@ -587,7 +605,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="role"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div
@@ -703,7 +720,6 @@ export function FirstRunOnboarding({
     <OnboardingShell
       profile={profile}
       screen="connecting"
-      onDismiss={dismissOnboarding}
       {...completionErrorProps}
     >
       <div
@@ -757,6 +773,16 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
+            {connectFlow.connecting && (
+              <button
+                type="button"
+                data-testid="first-run-cancel-builder"
+                className={cn(secondaryButtonClass, "mt-4")}
+                onClick={connectFlow.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
             {connectFlow.error && (
               <div className="mt-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-destructive">{connectFlow.error}</p>
@@ -780,7 +806,6 @@ function OnboardingShell({
   profile,
   screen,
   footer,
-  onDismiss,
   completionError,
   onRetry,
   children,
@@ -788,12 +813,10 @@ function OnboardingShell({
   profile: OnboardingAppProfile | null;
   screen: FirstRunScreen;
   footer?: React.ReactNode;
-  onDismiss?: () => void;
   completionError?: string | null;
   onRetry?: () => void;
   children: React.ReactNode;
 }) {
-  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -802,17 +825,6 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
-      {onDismiss ? (
-        <button
-          type="button"
-          data-testid="first-run-dismiss"
-          aria-label={t("agentChat.common.dismiss")}
-          onClick={onDismiss}
-          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconX size={17} />
-        </button>
-      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -1038,6 +1050,9 @@ function FirstRunCompletionError({
     </div>
   );
 }
+
+const mutedButtonClass =
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-muted px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 const secondaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";

@@ -173,7 +173,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     if (!runId) return;
     refreshingRunIds.current.add(runId);
     refreshGeneration.mutate(
-      { runId },
+      { runId, threadId },
       {
         onSettled: () => {
           window.setTimeout(() => {

@@ -161,6 +161,8 @@ export interface RequestContext {
   /** Stable MCP request key used to make transport retries idempotent. */
   mcpRequestId?: string;
   userEmail?: string;
+  /** Canonical id set only from a validated Better Auth session. */
+  authUserId?: string;
   userName?: string;
   orgId?: string;
   /** An authenticated caller explicitly selected Personal instead of an organization. */

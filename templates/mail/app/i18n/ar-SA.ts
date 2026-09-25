@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "الكل",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -67,7 +68,8 @@ const messages = {
       renameTab: "إعادة تسمية علامة التبويب",
       savedFilters: "الفلاتر المحفوظة",
       combinedInbox: "صندوق وارد موحد",
-      help: "تظهر العناصر المحددة كعلامات تبويب. رسائل التصنيفات تنفصل عن صندوق الوارد.",
+      allTab: "تبويب الكل",
+      help: "يعرض الكل جميع سلاسل الرسائل في صندوق الوارد. تؤدي التصنيفات المحددة إلى تقسيم صندوق الوارد.",
     },
     accounts: {
       remove: "إزالة",
@@ -524,6 +526,7 @@ const messages = {
       previewButton: "تشغيل المعاينة",
       previewRunning: "جارٍ فحص بريد الوارد الأخير…",
       jevBadge: "Jev",
+      jevMatchProbability: "احتمال مطابقة Jev: {{percent}}%",
       feedbackLabel: "حدد المطابقات التي لا ينبغي تضمينها",
       notSpamShort: "ليس مزعجًا",
       notMatchShort: "ليس مطابقًا",

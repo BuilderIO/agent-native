@@ -1,5 +1,37 @@
 # @agent-native/dispatch
 
+## 0.38.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.21.1
+
+## 0.38.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+
+## 0.38.7
+
+### Patch Changes
+
+- a10ae73: Limit Dispatch app launchers to apps connected to the current workspace and clarify that usage alerts notify at a threshold without limiting spend.
+- fbd85b3: Allow hosts to customize the Dispatch sidebar name and icon through the exported `Layout` and `NavContent` components while preserving the existing Dispatch branding by default.
+- Release all public npm packages with a patch version bump.
+- 973e7d5: Stop deleting workspace app registry rows when an app is missing from the current deployment's manifest. Deployments that share one database (production, beta, local development) each see a different app list, so this removed access for apps that were still live elsewhere. Removing an app from the registry is now only done by archiving it.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.9
+
 ## 0.38.6
 
 ### Patch Changes
@@ -984,35 +1016,5 @@
 ### Patch Changes
 
 - 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
-
-## 0.23.1
-
-### Patch Changes
-
-- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
-- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-  - @agent-native/toolkit@0.13.9
-
-## 0.23.0
-
-### Minor Changes
-
-- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
-
-### Patch Changes
-
-- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
-- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
-- Updated dependencies [c41fd16]
-  - @agent-native/toolkit@0.13.8
-
-## 0.22.1
-
-### Patch Changes
-
-- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

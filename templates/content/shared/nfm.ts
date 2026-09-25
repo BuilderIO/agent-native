@@ -1309,7 +1309,13 @@ function serializeTable(node: PMNode, ind: number): string[] {
     for (const cell of row.content || []) {
       const cellColor = isColor(cell.attrs?.color) ? cell.attrs?.color : null;
       const inline = serializeCellInline(cell);
-      const cellAttrStr = serializeAttrs([["color", cellColor]]);
+      const cellAttrStr = serializeAttrs([
+        ["color", cellColor],
+        [
+          "align",
+          isTableAlignment(cell.attrs?.textAlign) ? cell.attrs.textAlign : null,
+        ],
+      ]);
       out.push(indentStr(ind) + `<td${cellAttrStr}>${inline}</td>`);
     }
     out.push(indentStr(ind) + "</tr>");
@@ -1557,6 +1563,12 @@ function isAlignedGfmDelimiterCell(value: string): boolean {
   return /^:?-{3,}:?$/.test(value.trim()) && value.includes(":");
 }
 
+function isTableAlignment(
+  value: unknown,
+): value is "left" | "center" | "right" {
+  return value === "left" || value === "center" || value === "right";
+}
+
 function parseGfmPipeTable(
   lines: string[],
   start: number,
@@ -1582,50 +1594,29 @@ function parseGfmPipeTable(
 
   const rows = [header];
   let end = start + 2;
-  let ragged = false;
   while (end < lines.length) {
     if (lines[end].trim() === "" || leadingTabs(lines[end]) !== indent) break;
     if (/^ {0,3}#{1,6}(?:\s|$)/.test(lines[end].slice(indent))) break;
     const row = splitGfmPipeRow(lines[end].slice(indent));
     if (!row) break;
-    if (row.length !== header.length) ragged = true;
     rows.push(row);
     end++;
   }
 
-  const hasAlignment = delimiter.some(isAlignedGfmDelimiterCell);
-  if (hasAlignment || ragged) {
-    // Content's table grammar cannot represent column alignment or a ragged
-    // row without losing meaning. Keep the entire source construct together
-    // as one inspectable raw atom rather than escaping or partially promoting
-    // its lines into plausible-looking paragraphs.
-    return {
-      nodes: [
-        {
-          type: "notionBlockAtom",
-          attrs: {
-            tagName: "unknown",
-            attrsJson: JSON.stringify({ sourceFormat: "gfm-table" }),
-            label: "Unresolved GFM table",
-            __raw: lines
-              .slice(start, end)
-              .map((line) => line.slice(indent))
-              .join("\n"),
-            ...(rel > 0 ? { indent: rel } : {}),
-          },
-        },
-      ],
-      end,
-    };
-  }
-
+  const columnCount = Math.max(header.length, ...rows.map((row) => row.length));
+  const alignments = delimiter.map((cell) => {
+    if (cell.startsWith(":") && cell.endsWith(":")) return "center";
+    if (cell.endsWith(":")) return "right";
+    if (cell.startsWith(":")) return "left";
+    return null;
+  });
   const tableRows = rows.map((row, rowIndex) => ({
     type: "tableRow",
     attrs: { color: null },
-    content: row.map((cell) => ({
+    content: Array.from({ length: columnCount }, (_, index) => ({
       type: rowIndex === 0 ? "tableHeader" : "tableCell",
-      attrs: { color: null },
-      content: [{ type: "paragraph", content: parseInline(cell) }],
+      attrs: { color: null, textAlign: alignments[index] ?? null },
+      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
     })),
   }));
   const attrs: Record<string, unknown> = {
@@ -2489,7 +2480,10 @@ function parseTable(
             (headerColumn && cells.length === 0);
           cells.push({
             type: isHeader ? "tableHeader" : "tableCell",
-            attrs: { color: isColor(ca.color) ? ca.color : null },
+            attrs: {
+              color: isColor(ca.color) ? ca.color : null,
+              textAlign: isTableAlignment(ca.align) ? ca.align : null,
+            },
             content: [
               { type: "paragraph", content: parseInline(cellMatch[2]) },
             ],
@@ -2626,45 +2620,6 @@ function countGfmPipeTables(
   return count;
 }
 
-function countRaggedGfmPipeTables(source: string): number {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
-  const fencedCodeLines = fencedCodeLineMask(lines);
-  let count = 0;
-  for (let i = 0; i + 2 < lines.length; i++) {
-    if (fencedCodeLines[i] || fencedCodeLines[i + 1]) continue;
-    const indent = leadingTabs(lines[i]);
-    if (leadingTabs(lines[i + 1]) !== indent) continue;
-    const header = splitGfmPipeRow(lines[i].slice(indent));
-    const delimiter = splitGfmPipeRow(lines[i + 1].slice(indent));
-    if (
-      !header ||
-      !delimiter ||
-      header.length === 0 ||
-      header.length !== delimiter.length ||
-      !delimiter.every(isGfmDelimiterCell)
-    ) {
-      continue;
-    }
-    for (let rowIndex = i + 2; rowIndex < lines.length; rowIndex++) {
-      if (fencedCodeLines[rowIndex]) break;
-      if (
-        lines[rowIndex].trim() === "" ||
-        leadingTabs(lines[rowIndex]) !== indent
-      ) {
-        break;
-      }
-      const row = splitGfmPipeRow(lines[rowIndex].slice(indent));
-      if (!row) break;
-      if (row.length !== header.length) {
-        count++;
-        break;
-      }
-    }
-    i++;
-  }
-  return count;
-}
-
 function fencedCodeLineMask(lines: string[]): boolean[] {
   const mask = lines.map(() => false);
   let fence: { indent: number; length: number } | undefined;
@@ -2700,18 +2655,10 @@ export function inspectNfmFidelity(
   try {
     const document = nfmToDoc(source);
     const normalized = canonicalizeNfm(source);
-    const raggedPipeTableCount = countRaggedGfmPipeTables(source);
-    const pipeTableCount = Math.max(
-      0,
-      countGfmPipeTables(source, (cells) => cells.every(isGfmDelimiterCell)) -
-        raggedPipeTableCount,
-    );
-    const alignedPipeTableCount = countGfmPipeTables(
-      source,
-      (cells) =>
-        cells.every(
-          (cell) => isGfmDelimiterCell(cell) || isAlignedGfmDelimiterCell(cell),
-        ) && cells.some(isAlignedGfmDelimiterCell),
+    const pipeTableCount = countGfmPipeTables(source, (cells) =>
+      cells.every(
+        (cell) => isGfmDelimiterCell(cell) || isAlignedGfmDelimiterCell(cell),
+      ),
     );
     const unsupportedMdxCount = countLocalMdxNodes(
       document,
@@ -2730,18 +2677,6 @@ export function inspectNfmFidelity(
     }
 
     const unresolved: NfmFidelityReport["unresolved"] = [];
-    if (alignedPipeTableCount > 0) {
-      unresolved.push({
-        kind: "gfm-table-alignment-not-representable",
-        count: alignedPipeTableCount,
-      });
-    }
-    if (raggedPipeTableCount > 0) {
-      unresolved.push({
-        kind: "gfm-table-ragged-rows-preserved-as-raw-source",
-        count: raggedPipeTableCount,
-      });
-    }
     if (unsupportedMdxCount > 0) {
       unresolved.push({
         kind: "mdx-component-props-preserved-as-raw-source",

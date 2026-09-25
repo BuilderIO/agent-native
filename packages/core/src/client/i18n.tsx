@@ -938,6 +938,35 @@ export function useT() {
   );
 }
 
+export function useIconPickerLabels() {
+  const t = useT();
+  return {
+    allCategories: t("iconPicker.allCategories"),
+    loadError: t("iconPicker.loadError"),
+    saveError: t("iconPicker.saveError"),
+    uploadTooLarge: t("iconPicker.uploadTooLarge"),
+    retry: t("iconPicker.retry"),
+    uploadHint: t("iconPicker.uploadHint"),
+    colorNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.colorNames).map((color) => [
+        color,
+        t(`iconPicker.colorNames.${color}`),
+      ]),
+    ),
+    categoryNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.categoryNames).map(
+        (category) => [category, t(`iconPicker.categoryNames.${category}`)],
+      ),
+    ),
+    groupNames: Object.fromEntries(
+      Object.keys(defaultEnglishMessages.iconPicker.groupNames).map((group) => [
+        group,
+        t(`iconPicker.groupNames.${group}`),
+      ]),
+    ),
+  };
+}
+
 export function useFormatters() {
   const context = useContext(LocaleContext);
   const locale = context?.locale ?? DEFAULT_LOCALE;

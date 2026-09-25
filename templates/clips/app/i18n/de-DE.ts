@@ -440,6 +440,12 @@ const messages = {
     agentEmptyTitle: "Mach bei der Unterhaltung mit",
     agentEmptyDescription:
       "Erstelle ein kostenloses Clips-Konto, um zu kommentieren, zu reagieren und Fragen zu diesem Clip zu stellen.",
+    commentSignupTitle: "Gib deinem KI-Agenten das vollständige Bild",
+    commentSignupContext:
+      "Teile Transkript und zeitgestempelte Einzelbilder über einen Link",
+    commentSignupFeedback:
+      "Wandle aufgezeichnetes Feedback in klare nächste Schritte um",
+    commentSignupDebug: "Erfasse Konsolenfehler und fehlgeschlagene Anfragen",
     agentEmptySignInPrompt: "Du hast bereits ein Konto?",
     signUp: "Registrieren",
     ownerInsights: "Eigentümer-Einblicke",
@@ -1250,6 +1256,7 @@ const messages = {
     transcript: "Transkript",
     comment: "Kommentar",
     titleOrDescription: "Titel oder Beschreibung",
+    matchAt: "Treffer bei {{time}} im Video",
   },
   organizationSwitcher: {
     noOrganization: "Keine Organisation",

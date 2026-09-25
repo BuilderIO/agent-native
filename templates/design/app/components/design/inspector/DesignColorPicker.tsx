@@ -37,6 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -126,6 +127,8 @@ export interface DesignGradientStopPatch {
 export interface DesignColorPickerLabels {
   trigger: string;
   hex: string;
+  rowHex: string;
+  rowOpacity: string;
   red: string;
   green: string;
   blue: string;
@@ -283,6 +286,8 @@ const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
   hex: "Hex", // i18n-ignore fallback component label
+  rowHex: "Color", // i18n-ignore fallback component label
+  rowOpacity: "Paint opacity", // i18n-ignore fallback component label
   red: "R", // i18n-ignore fallback component label
   green: "G", // i18n-ignore fallback component label
   blue: "B", // i18n-ignore fallback component label
@@ -636,10 +641,18 @@ export function DesignColorPicker({
   const hexDraftRef = useRef(hexDraft);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
+  // A colour picked here joins the document palette; letting the swatch grid
+  // grow while open re-wraps it and the popover slides under the cursor.
+  const documentColorsAtOpenRef = useRef(documentColors);
+  if (!open) documentColorsAtOpenRef.current = documentColors;
+  const shownDocumentColors = documentColorsAtOpenRef.current;
   const handleOpenChange = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onControlledOpenChange?.(nextOpen);
   };
+  // A tooltip left open under the pointer is the topmost layer and would take
+  // the Escape meant for this picker.
+  const closeFromTooltipEscape = () => handleOpenChange(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
   // Preserve the last non-zero hue so dragging through an achromatic point
@@ -1183,33 +1196,96 @@ export function DesignColorPicker({
   return (
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={handleOpenChange}>
-        <PopoverTrigger asChild>
-          {trigger ?? (
-            /* Trigger: compact swatch + hex + opacity% — matches the design editor's fill row */
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label={copy.trigger}
+        {trigger ? (
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        ) : (
+          /* Figma row: the swatch opens the picker; solid hex and opacity edit inline. */
+          <PopoverAnchor asChild>
+            <div
               className={cn(
                 "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
-                "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                "hover:bg-[var(--design-editor-panel-raised-bg)]",
                 disabled && "pointer-events-none opacity-50",
               )}
             >
-              {/* Flat swatch chip — no shadow-inner (the design editor uses a flat chip) */}
-              <span
-                className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                style={triggerSwatchStyle(value, color)}
-              />
-              <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
-                {triggerLabel(effectivePaintType, color)}
-              </span>
-              <span className="tabular-nums text-muted-foreground !text-[11px]">
-                {effectiveOpacity}%
-              </span>
-            </button>
-          )}
-        </PopoverTrigger>
+              {effectivePaintType === "solid" ? (
+                <>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      aria-label={copy.trigger}
+                      className="size-4 shrink-0 rounded-[3px] border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      style={triggerSwatchStyle(value, color)}
+                    />
+                  </PopoverTrigger>
+                  <InlinePaintField
+                    ariaLabel={copy.rowHex}
+                    value={toDisplayHex(color)}
+                    disabled={disabled}
+                    className="min-w-0 flex-1 uppercase"
+                    parse={(draft) => {
+                      const hex = expandHexShorthand(draft.trim());
+                      return parseCssColor(`#${hex.replace(/^#/, "")}`)
+                        ? hex
+                        : null;
+                    }}
+                    onCommit={(hex) => {
+                      const parsed = parseCssColor(`#${hex.replace(/^#/, "")}`);
+                      if (!parsed) return;
+                      const nextOpacity = hasHexAlpha(hex)
+                        ? alphaToOpacity(parsed.a)
+                        : effectiveOpacity;
+                      if (hasHexAlpha(hex) && onOpacityChange)
+                        onOpacityChange(nextOpacity);
+                      emitColor(parsed, nextOpacity, "commit");
+                    }}
+                  />
+                  <InlinePaintField
+                    ariaLabel={copy.rowOpacity}
+                    value={String(effectiveOpacity)}
+                    disabled={disabled}
+                    className="w-7 shrink-0 text-right"
+                    parse={(draft) => {
+                      const next = Number.parseFloat(draft.replace(/%$/, ""));
+                      return Number.isFinite(next)
+                        ? String(Math.round(Math.min(100, Math.max(0, next))))
+                        : null;
+                    }}
+                    onCommit={(next) => {
+                      const nextOpacity = Number(next);
+                      if (onOpacityChange) onOpacityChange(nextOpacity);
+                      emitColor(color, nextOpacity, "commit");
+                    }}
+                  />
+                  <span className="-ml-1 tabular-nums text-muted-foreground !text-[11px]">
+                    %
+                  </span>
+                </>
+              ) : (
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-label={copy.trigger}
+                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-none"
+                  >
+                    <span
+                      className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                      style={triggerSwatchStyle(value, color)}
+                    />
+                    <span className="min-w-0 flex-1 truncate tabular-nums !text-[11px]">
+                      {triggerLabel(effectivePaintType, color)}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground !text-[11px]">
+                      {effectiveOpacity}%
+                    </span>
+                  </button>
+                </PopoverTrigger>
+              )}
+            </div>
+          </PopoverAnchor>
+        )}
 
         {/* design popover: ~240px wide, uniform 12px padding, tight controls */}
         <PopoverContent
@@ -1241,6 +1317,13 @@ export function DesignColorPicker({
           // re-projection can't close the popover. Genuine pointer clicks
           // outside still close it via the default onInteractOutside behavior.
           onFocusOutside={(e) => e.preventDefault()}
+          // Figma focuses the picker panel, not its first tab; focusing the
+          // Solid tab popped its tooltip over the "Solid" caption.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
+          tabIndex={-1}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" && glslShaderContext ? (
@@ -1326,6 +1409,7 @@ export function DesignColorPicker({
                             <TooltipContent
                               side="bottom"
                               className="z-[10010] text-[10px]"
+                              onEscapeKeyDown={closeFromTooltipEscape}
                             >
                               {label}
                             </TooltipContent>
@@ -1490,7 +1574,10 @@ export function DesignColorPicker({
                               <IconColorPicker className="size-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent className="z-[10010]">
+                          <TooltipContent
+                            className="z-[10010]"
+                            onEscapeKeyDown={closeFromTooltipEscape}
+                          >
                             {
                               hasEyeDropper
                                 ? "Pick color" // i18n-ignore browser eyedropper label
@@ -1674,8 +1761,8 @@ export function DesignColorPicker({
 
                   {/* Swatch grid: document palette when available, else current color */}
                   <div className="grid grid-cols-8 gap-1">
-                    {(documentColors && documentColors.length > 0
-                      ? documentColors
+                    {(shownDocumentColors && shownDocumentColors.length > 0
+                      ? shownDocumentColors
                       : [rgbaToCss(color)]
                     ).map((docColor) => {
                       const currentHex = rgbaToHex(
@@ -1709,7 +1796,10 @@ export function DesignColorPicker({
                               }}
                             />
                           </TooltipTrigger>
-                          <TooltipContent className="z-[10010]">
+                          <TooltipContent
+                            className="z-[10010]"
+                            onEscapeKeyDown={closeFromTooltipEscape}
+                          >
                             {currentHex}
                           </TooltipContent>
                         </Tooltip>
@@ -1895,6 +1985,10 @@ function SaturationBrightnessField({
       aria-disabled={disabled}
       onPointerDown={(event) => {
         if (disabled) return;
+        // A default press starts a text selection over the picker, and the
+        // next press inside it becomes a native drag that cancels this one.
+        event.preventDefault();
+        event.currentTarget.focus();
         draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
         updateFromPointer(event);
@@ -2041,10 +2135,12 @@ function ColorTrack({
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         if (disabled) return;
+        // Same native-drag hazard as the saturation field above.
+        event.preventDefault();
+        event.currentTarget.focus();
         gestureStartValueRef.current = value;
         draggingRef.current = startPointerGesture();
         event.currentTarget.setPointerCapture(event.pointerId);
-        if (onCancel) event.currentTarget.focus();
         updateFromPointer(event);
       }}
       onPointerMove={(event) => {
@@ -2434,6 +2530,79 @@ export function resolveActivePaint(
   };
 }
 
+function InlinePaintField({
+  ariaLabel,
+  value,
+  disabled,
+  className,
+  parse,
+  onCommit,
+}: {
+  ariaLabel: string;
+  value: string;
+  disabled: boolean;
+  className?: string;
+  parse: (draft: string) => string | null;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const focusedRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value);
+  }, [value]);
+  const commit = () => {
+    const next = parse(draft);
+    if (next === null || next.toUpperCase() === value.toUpperCase()) {
+      setDraft(value);
+      return;
+    }
+    setDraft(next.toUpperCase());
+    onCommit(next);
+  };
+  return (
+    <input
+      type="text"
+      aria-label={ariaLabel}
+      value={draft}
+      disabled={disabled}
+      spellCheck={false}
+      autoComplete="off"
+      className={cn(
+        "h-full min-w-0 bg-transparent p-0 tabular-nums !text-[11px] outline-none",
+        className,
+      )}
+      onFocus={(event) => {
+        focusedRef.current = true;
+        event.currentTarget.select();
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          skipBlurCommitRef.current = true;
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setDraft(value);
+          skipBlurCommitRef.current = true;
+          event.currentTarget.blur();
+        }
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        if (skipBlurCommitRef.current) {
+          skipBlurCommitRef.current = false;
+          return;
+        }
+        commit();
+      }}
+    />
+  );
+}
+
 function toCssColor(color: RgbaColor): string {
   return rgbaToCss(color);
 }
@@ -2451,7 +2620,7 @@ function triggerLabel(type: DesignPaintType, color: RgbaColor): string {
   if (type === "shader") return "Shader";
   if (type === "noise") return "Noise";
   if (type === "pattern") return "Pattern";
-  return `${type[0].toUpperCase()}${type.slice(1)} gradient`;
+  return `${type[0].toUpperCase()}${type.slice(1)}`;
 }
 
 function triggerSwatchStyle(

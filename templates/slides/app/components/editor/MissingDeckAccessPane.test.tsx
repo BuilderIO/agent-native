@@ -98,6 +98,29 @@ describe("MissingDeckAccessPane", () => {
     expect(onRequestAccess).toHaveBeenCalledOnce();
   });
 
+  it("explains organization deck access denial without offering private-deck requests", () => {
+    renderPane({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: true,
+        viewerEmail: "viewer@example.com",
+        viewerName: null,
+        role: null,
+        visibility: "org",
+      },
+      accessStatusError: false,
+      accessStatusLoading: false,
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Deck unavailable" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Deck unavailable.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Request access" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
   it("keeps Login primary and Request access secondary when signed out", () => {
     const onSignIn = vi.fn();
     const onRequestAccess = vi.fn();

@@ -374,6 +374,27 @@ describe("get-recording-player-data view count", () => {
     expect(result.recording.folderId).toBe("folder-1");
   });
 
+  it("includes a trashed recording's timestamp in the player payload", async () => {
+    const trashedAt = "2026-09-22T12:00:00.000Z";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        trashedAt,
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.trashedAt).toBe(trashedAt);
+  });
+
   it("exposes pending seekable repair state to the player", async () => {
     mockIsSeekableRepairPending.mockResolvedValue(true);
 

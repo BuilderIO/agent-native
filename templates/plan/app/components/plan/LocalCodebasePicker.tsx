@@ -348,6 +348,7 @@ export function LocalCodebasePicker() {
                   size="icon"
                   className="size-8 rounded-md"
                   onClick={clearSelection}
+                  disabled={syncState.kind === "syncing"}
                   aria-label={t("raw.localCodebase.clearCodebase")}
                 >
                   <IconX className="size-4" />

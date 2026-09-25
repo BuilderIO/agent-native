@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-每個應用程式均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 建置，並透過選定的 Nitro 預設發出。 Cloudflare Pages 是預設預設，並使用 `dist/_worker.js` 和 `_routes.json` 的調度程式工作人員。 `npx @agent-native/core@latest deploy --preset netlify` 支援 Netlify；它在 `.netlify/functions-internal/<app>-server` 下發出應用程式功能，並生成重新導向，使靜態資產不受強制，因此 CDN 首先提供檔案。 `npx @agent-native/core@latest deploy --preset vercel` 支援 Vercel；它使用 Vercel 的建置輸出 API 編寫根 `.vercel/output` 包。
+每個應用程式都使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 建置，並透過選定的 Nitro 預設輸出。統一 `deploy` 命令的預設預設是 **Netlify**；它會在 `.netlify/functions-internal/<app>-server` 下輸出應用程式函式，並產生重新導向，使靜態資源不被強制處理，從而讓 CDN 優先提供檔案。**Vercel** 可透過 `npx @agent-native/core@latest deploy --preset vercel` 使用；它使用 Vercel 的 Build Output API 寫入根層級 `.vercel/output` 包。
 
 <Diagram id="doc-block-6uxdox" title={"統一部署：一個來源，每個應用一個路徑"} summary={"每個應用程式都遵循單一來源，因此登入工作階段和跨應用程式 A2A 是免費的。"}>
 
@@ -352,10 +352,11 @@ npx @agent-native/core@latest deploy
 - **零設定跨應用程式 A2A。** `@mail` 標記 `@calendar` 成為同來源取得 - 兄弟之間沒有 CORS，沒有 JWT 簽名。外部 A2A 仍沿用至今的 JWT。
 - **一條 DNS 紀錄，一個證書，一個 CDN 快取。**
 
-發布 `dist/` 輸出：
+發布平台建置：
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 對於 Netlify：
@@ -401,7 +402,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 每個應用獨立部署
 
-更喜歡每個應用程式在自己的域中（`mail.company.com`、`calendar.company.com`）？工作區中的每個應用程式仍然是獨立可部署的 - `cd apps/mail && npx @agent-native/core@latest build` 的行為與獨立腳手架完全相同。然後，跨應用程式 A2A 透過具有共用 `A2A_SECRET` 的標準 JWT 簽名路徑。單獨部署的應用程式之間的跨域 SSO 由以 Dispatch 作為中心的身分聯合處理 - 請參閱 [Cross-App SSO](/docs/cross-app-sso)；統一的單來源部署避免了需要它。
+更喜歡每個應用程式在自己的域中（`mail.company.com`、`calendar.company.com`）？工作區中的每個應用程式仍然是獨立可部署的 - `cd apps/mail && pnpm build` 的行為與獨立腳手架完全相同。然後，跨應用程式 A2A 透過具有共用 `A2A_SECRET` 的標準 JWT 簽名路徑。單獨部署的應用程式之間的跨域 SSO 由以 Dispatch 作為中心的身分聯合處理 - 請參閱 [Cross-App SSO](/docs/cross-app-sso)；統一的單來源部署避免了需要它。
 
 ### 共用資料庫、共用憑證
 

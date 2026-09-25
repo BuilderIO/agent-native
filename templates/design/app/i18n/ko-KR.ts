@@ -259,7 +259,13 @@ export default {
       height: "키",
       opacity: "불투명",
       padding: "심",
-      margin: "여유",
+      margin: "여백",
+      marginTop: "위쪽 여백",
+      marginRight: "오른쪽 여백",
+      marginBottom: "아래쪽 여백",
+      marginLeft: "왼쪽 여백",
+      linkMarginSides: "여백 연결",
+      unlinkMarginSides: "여백 연결 해제",
       radius: "반지름",
       flexGrow: "확장",
       flexShrink: "축소",
@@ -320,6 +326,18 @@ export default {
       perspectiveHint: "원근감 (비어 있음/0 = 없음)",
       customTransform: "사용자 지정 변환 — X/Y/Z 회전으로 편집할 수 없음",
       shaderEffectType: "셰이더",
+      imageScaleMode: "이미지 크기 조정 모드",
+      imageAdjustments: "이미지 조정",
+      imageExposure: "노출",
+      imageContrast: "대비",
+      imageSaturation: "채도",
+      imageScaleFill: "채우기",
+      imageScaleFit: "맞춤",
+      imageScaleCrop: "자르기",
+      noMirroring: "미러링 없음",
+      vector: "벡터",
+      mirrorAngle: "각도 미러링",
+      mirrorAngleAndLength: "각도 및 길이 미러링",
     },
     shaders: {
       fillsTitle: "셰이더 채우기",
@@ -540,6 +558,22 @@ export default {
         socialMedia: "소셜 미디어",
         adUnit: "광고 단위",
       },
+    },
+    scale: {
+      title: "크기 조정",
+      exit: "크기 조정 종료",
+      factor: "배율",
+      presets: "배율 프리셋",
+      anchor: "기준점",
+      topLeft: "왼쪽 위",
+      topCenter: "가운데 위",
+      topRight: "오른쪽 위",
+      middleLeft: "왼쪽 가운데",
+      center: "가운데",
+      middleRight: "오른쪽 가운데",
+      bottomLeft: "왼쪽 아래",
+      bottomCenter: "가운데 아래",
+      bottomRight: "오른쪽 아래",
     },
   },
   designEditor: {
@@ -771,6 +805,8 @@ export default {
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+      figmaPasteAccessDenied:
+        '연결된 Figma 토큰으로 이 파일에 액세스할 수 없습니다. 파일 권한과 토큰에 "File content" 범위가 포함되어 있는지 확인하세요.',
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:
@@ -914,6 +950,10 @@ export default {
     signUpToSaveDescription:
       "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
     signUpToShare: "가입하고 공유",
+    signUpToShareLiveCanvas: "실시간 캔버스를 공유하려면 가입하세요",
+    liveCanvasLink: "실시간 캔버스 링크",
+    liveCanvasWaitingForOwner:
+      "소유자의 실시간 캔버스 스냅샷을 기다리는 중입니다.",
     shareEditorLink: "디자인 편집기 링크",
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -1066,6 +1106,7 @@ export default {
         ungroup: "그룹 해제",
         frameSelection: "선택 영역 프레임화",
         autoLayout: "자동 레이아웃",
+        imageVideo: "이미지/동영상...",
       },
     },
     undo: "끄르다",
@@ -1183,12 +1224,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
+      applySharedEdits: "편집 내용 적용",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
       sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
@@ -1200,6 +1243,8 @@ export default {
       sourceCheckFailedToast:
         "연결된 소스 파일을 확인할 수 없습니다. 다시 시도하거나 실행 취소할 수 있도록 미리보기를 유지했습니다.",
       copiedToast: "스타일 프롬프트가 복사되었습니다",
+      copiedToastDescription:
+        "코딩 에이전트에 붙여넣고 시각적 변경 사항을 적용해 달라고 요청하세요.",
       abortedToast: "보류 중인 미리보기를 버렸습니다",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
@@ -1263,6 +1308,8 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      visualEditPendingConflict:
+        "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",
@@ -1347,6 +1394,10 @@ export default {
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
         "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
+      imageUploading: "이미지 업로드 중…",
+      pasteReplaceFailed: "해당 레이어를 바꿀 수 없습니다",
+      swapFillStrokeLayeredFill:
+        "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
     },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",

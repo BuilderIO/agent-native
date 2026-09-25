@@ -258,7 +258,9 @@ export default defineAction({
           has_transcript: true,
           transcription_source: args.source ?? "native",
         },
-        context,
+        context
+          ? { ...context, userEmail: context.userEmail ?? ownerEmail }
+          : { userId: ownerEmail },
       );
     }
 

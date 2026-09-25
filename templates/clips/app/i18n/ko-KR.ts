@@ -423,6 +423,11 @@ const messages = {
     agentEmptyTitle: "대화에 참여하세요",
     agentEmptyDescription:
       "무료 Clips 계정을 만들어 이 클립에 댓글을 달고, 반응하고, 질문해 보세요.",
+    commentSignupTitle: "AI 에이전트에 전체 맥락을 전달하세요",
+    commentSignupContext:
+      "전사본과 타임스탬프가 표시된 프레임을 하나의 링크로 공유하세요",
+    commentSignupFeedback: "녹화된 피드백을 명확한 다음 단계로 바꿔 보세요",
+    commentSignupDebug: "콘솔 오류와 실패한 요청을 캡처하세요",
     agentEmptySignInPrompt: "이미 계정이 있나요?",
     signUp: "가입",
     ownerInsights: "소유자 인사이트",
@@ -1208,6 +1213,7 @@ const messages = {
     transcript: "전사",
     comment: "댓글",
     titleOrDescription: "제목 또는 설명",
+    matchAt: "동영상 내 {{time}}에서 일치",
   },
   organizationSwitcher: {
     noOrganization: "조직 없음",

@@ -232,21 +232,37 @@ async function autosaveDesignAfterAgentTurn(
   },
 ): Promise<void> {
   if (scope.type !== "design" || !(await hasDesignEdit(run, scope.id))) return;
+  if (!run.threadId || !run.runId) return;
 
   const { createDesignVersionSnapshot } =
     await import("../lib/design-versions.js");
   await createDesignVersionSnapshot(scope.id, {
     label: "Chat autosave",
     chatContext: {
-      ...(run.threadId ? { threadId: run.threadId } : {}),
-      ...(run.runId ? { runId: run.runId } : {}),
+      threadId: run.threadId,
+      runId: run.runId,
       ...(run.turnId ? { turnId: run.turnId } : {}),
+      phase: "end",
     },
+  });
+}
+
+async function autosaveDesignBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "design" || !run.threadId || !run.runId) return;
+  const { createDesignChatBeginningSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignChatBeginningSnapshot(scope.id, {
+    threadId: run.threadId,
+    runId: run.runId,
   });
 }
 
 export default createAgentChatPlugin({
   appId: "design",
+  onAgentTurnStart: autosaveDesignBeforeAgentTurn,
   onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),

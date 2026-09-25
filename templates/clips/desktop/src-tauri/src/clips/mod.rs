@@ -251,6 +251,10 @@ fn clamp_existing_bubble_window(app: &AppHandle, window: &WebviewWindow) {
 /// yield to it.
 static BUBBLE_DRAGGING: AtomicBool = AtomicBool::new(false);
 
+pub fn is_bubble_dragging() -> bool {
+    BUBBLE_DRAGGING.load(Ordering::SeqCst)
+}
+
 /// Anchor captured at the start of a hand-drag: the global cursor position and
 /// the bubble window's top-left, both in physical px with a desktop top-left
 /// origin (the same space `cursor_position()` / `outer_position()` report in).
@@ -3067,6 +3071,8 @@ pub async fn bubble_drag_start(app: AppHandle) -> Result<(), String> {
         win_y: pos.y,
     });
     BUBBLE_DRAGGING.store(true, Ordering::SeqCst);
+    // Invalidate a blur dismissal delivered before the drag command reached Rust.
+    mark_popover_shown(&app);
     Ok(())
 }
 
@@ -3118,6 +3124,7 @@ pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         clamp_existing_bubble_window(&app, &window);
     }
+    crate::schedule_popover_dismissal(&app);
     Ok(())
 }
 

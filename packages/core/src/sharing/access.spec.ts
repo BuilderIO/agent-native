@@ -1043,7 +1043,11 @@ describe("shareable resource access helpers", () => {
           principalId: "opaque-user-id",
           role: "viewer",
         }),
-      ).rejects.toThrow(/email address/);
+      ).rejects.toMatchObject({
+        errorCode: "invalid_user_share_principal",
+        statusCode: 400,
+        message: expect.stringMatching(/email address/),
+      });
     });
 
     const shares = await db

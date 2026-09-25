@@ -1224,6 +1224,11 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_preview_draft_settlements_document_idx
           ON document_preview_draft_settlements (owner_email, org_id, document_id)`,
     },
+    {
+      version: 102,
+      name: "content-property-icons",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS icon TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -260,6 +260,12 @@ export default {
       opacity: "अस्पष्टता",
       padding: "पैडिंग",
       margin: "अंतर",
+      marginTop: "ऊपरी मार्जिन",
+      marginRight: "दायाँ मार्जिन",
+      marginBottom: "निचला मार्जिन",
+      marginLeft: "बायाँ मार्जिन",
+      linkMarginSides: "मार्जिन के किनारे लिंक करें",
+      unlinkMarginSides: "मार्जिन के किनारे अनलिंक करें",
       radius: "RADIUS",
       flexGrow: "बढ़ना",
       flexShrink: "सिकुड़ना",
@@ -321,6 +327,18 @@ export default {
       customTransform:
         "कस्टम ट्रांसफ़ॉर्म — इसे X/Y/Z रोटेशन के रूप में संपादित नहीं किया जा सकता",
       shaderEffectType: "शेडर",
+      imageScaleMode: "छवि स्केल मोड",
+      imageAdjustments: "छवि समायोजन",
+      imageExposure: "एक्सपोज़र",
+      imageContrast: "कंट्रास्ट",
+      imageSaturation: "संतृप्ति",
+      imageScaleFill: "भरें",
+      imageScaleFit: "फ़िट करें",
+      imageScaleCrop: "क्रॉप करें",
+      noMirroring: "कोई मिररिंग नहीं",
+      vector: "वेक्टर",
+      mirrorAngle: "कोण मिरर करें",
+      mirrorAngleAndLength: "कोण और लंबाई मिरर करें",
     },
     shaders: {
       fillsTitle: "शेडर फ़िल",
@@ -541,6 +559,22 @@ export default {
         socialMedia: "सोशल मीडिया",
         adUnit: "विज्ञापन इकाई",
       },
+    },
+    scale: {
+      title: "स्केल",
+      exit: "स्केल से बाहर निकलें",
+      factor: "स्केल गुणक",
+      presets: "स्केल प्रीसेट",
+      anchor: "एंकर पॉइंट",
+      topLeft: "ऊपर बाएँ",
+      topCenter: "ऊपर बीच",
+      topRight: "ऊपर दाएँ",
+      middleLeft: "बीच बाएँ",
+      center: "केंद्र",
+      middleRight: "बीच दाएँ",
+      bottomLeft: "नीचे बाएँ",
+      bottomCenter: "नीचे बीच",
+      bottomRight: "नीचे दाएँ",
     },
   },
   designEditor: {
@@ -770,6 +804,8 @@ export default {
       figmaPasteTarget: "canvas में paste करें",
       figmaPasteApiKeyHint:
         "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
+      figmaPasteAccessDenied:
+        'कनेक्ट किया गया Figma टोकन इस फ़ाइल तक नहीं पहुँच सकता। अपनी फ़ाइल अनुमतियाँ जाँचें और सुनिश्चित करें कि टोकन में "File content" स्कोप हो।',
       figmaPasteMatchGuidance:
         "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
       figmaPasteUnreadable:
@@ -912,6 +948,10 @@ export default {
     signUpToSaveDescription:
       "designs, screen layouts सहेजने और नए options generate करने के लिए free account बनाएं।",
     signUpToShare: "साझा करने के लिए sign up करें",
+    signUpToShareLiveCanvas: "लाइव कैनवास साझा करने के लिए साइन अप करें",
+    liveCanvasLink: "लाइव कैनवास लिंक",
+    liveCanvasWaitingForOwner:
+      "मालिक के लाइव कैनवास स्नैपशॉट की प्रतीक्षा की जा रही है।",
     shareEditorLink: "design editor link",
     shareEditorLinkDescription:
       "access वाला कोई भी व्यक्ति इस design को editor में खोल सकता है।",
@@ -1064,6 +1104,7 @@ export default {
         ungroup: "समूह हटाएं",
         frameSelection: "चयन को फ़्रेम करें",
         autoLayout: "ऑटो लेआउट",
+        imageVideo: "छवि/वीडियो...",
       },
     },
     undo: "पूर्ववत",
@@ -1181,12 +1222,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "लंबित visual style edits लागू करें",
       applyButton: "Styles लागू करें",
+      applySharedEdits: "संपादन लागू करें",
       previewLabel: "लंबित visual preview",
       applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
       applying: "लागू किया जा रहा है…",
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
       sentToast: "Design updates agent को भेजे गए",
@@ -1198,6 +1241,8 @@ export default {
       sourceCheckFailedToast:
         "Connected source files सत्यापित नहीं हो सके। Retry या undo के लिए preview रखा गया है।",
       copiedToast: "Style prompt कॉपी हुआ",
+      copiedToastDescription:
+        "इसे अपने कोडिंग एजेंट में पेस्ट करें और उससे विज़ुअल बदलाव लागू करने को कहें।",
       abortedToast: "लंबित preview हटा दिया गया",
       interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
       leaveTitle: "छोड़ने से पहले design updates लागू करें?",
@@ -1260,6 +1305,8 @@ export default {
       annotationSendError:
         "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
       codingHandoffError: "कोडिंग हैंडऑफ़ नहीं बनाया जा सका",
+      visualEditPendingConflict:
+        "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
@@ -1339,6 +1386,10 @@ export default {
       screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
       screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
       vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
+      imageUploading: "छवि अपलोड हो रही है…",
+      pasteReplaceFailed: "उस परत को बदला नहीं जा सका",
+      swapFillStrokeLayeredFill:
+        "एक से ज़्यादा फ़िल या इमेज फ़िल अभी स्ट्रोक में नहीं बदल सकते",
     },
     commenterRoleLabel: "टिप्पणीकार",
     commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",

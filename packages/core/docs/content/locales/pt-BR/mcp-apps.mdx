@@ -227,7 +227,7 @@ O shell de recursos possui o tamanho do host externo. O padrão `embedApp({ heig
 
 Claude usa o caminho de transplante de quadro único por padrão. Você também pode forçá-lo em outros hosts com `embedMode: "transplant"` ou `frame: "transplant"` ao depurar o comportamento de carregamento do módulo do host. Você pode forçar o iframe de diagnóstico aninhado com `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` ou `frame: "iframe"`. Se o iframe estiver bloqueado, `embedApp()` o substitui por um substituto de aplicativo aberto: o usuário pode tentar novamente in-line, abrir uma sessão de incorporação recém-criada por meio do host ou usar a rota visível URL. Mantenha o alvo `link` da ação útil por si só, porque ele ainda é a saída de emergência universal.
 
-Ao testar Claude por meio do ngrok, use uma compilação de produção (`npx @agent-native/core@latest build` e depois `npx @agent-native/core@latest start`) ou uma visualização/produção implantada URL. O caminho de transplante de quadro único do Claude funciona com pedaços de ativos de produção; módulos de desenvolvimento Vite brutos, como `/app/root.tsx`, podem ser protegidos pela autenticação do aplicativo e falhar nas importações dinâmicas da origem do recurso Claude.
+Ao testar Claude por meio do ngrok, use uma compilação de produção (`pnpm build` e depois `npx @agent-native/core@latest start`) ou uma visualização/produção implantada URL. O caminho de transplante de quadro único do Claude funciona com pedaços de ativos de produção; módulos de desenvolvimento Vite brutos, como `/app/root.tsx`, podem ser protegidos pela autenticação do aplicativo e falhar nas importações dinâmicas da origem do recurso Claude.
 
 ## Ponte de host API {#host-bridge}
 

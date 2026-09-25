@@ -52,6 +52,7 @@ const messages = {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
     thisSlide: "هذه الشريحة",
     currentSelection: "التحديد الحالي",
+    slideNumber: "الشريحة {{number}}",
     suggestionPitch: "أنشئ عرضا من 10 شرائح من هذا المستند",
     suggestionBrand: "طبّق علامتنا على هذا العرض",
     suggestionHero: "أنشئ صورة رئيسية لهذه الشريحة",
@@ -716,6 +717,8 @@ const messages = {
       "إذا غادرت أو أعدت التحميل الآن، فقد تفقد التغييرات التي لم تُحفظ بعد. هل أنت متأكد من رغبتك في الخروج؟",
     keepEditing: "متابعة التحرير",
     leaveWithoutSaving: "الخروج دون حفظ",
+    editorMarkupNotSaved:
+      "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
   },
   designSystemSetup: {
     importedBrand: "علامة تجارية مستوردة",

@@ -25,6 +25,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -83,6 +84,7 @@ export interface TextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
@@ -124,6 +126,7 @@ export function runTextContentChange(
     originalValue?: string;
     originalHtml?: string;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";
@@ -149,7 +152,12 @@ export function runTextContentChange(
   const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === activeFile.id
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
   // An x-text row shows a value from the collection, so its text has one home:
   // the item. A markup edit changes nothing — the next render puts the data
@@ -350,6 +358,9 @@ export function runTextContentChange(
           selector: selectedNode
             ? preferredCodeLayerSelector(selectedNode)
             : selector,
+          sourceLayerIdentity: selectedNode
+            ? { screenId: activeFile.id, nodeId: selectedNode.id }
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }
