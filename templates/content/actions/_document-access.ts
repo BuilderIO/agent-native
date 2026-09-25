@@ -3,11 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import {
-  accessFilter,
-  currentAccess,
-  resolveAccess,
-} from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -20,53 +16,106 @@ export async function accessibleDocumentIds(
   ids: string[],
   authorizedOrgIds?: string[],
   db: ReturnType<typeof getDb> = getDb(),
+  transaction?: DbExec,
 ) {
   if (ids.length === 0) return new Set<string>();
   const userEmail = getRequestUserEmail();
+  const accessible = new Set<string>();
+  const queryAccessible = async (
+    remaining: string[],
+    contexts: Array<{ userEmail?: string; orgId?: string }>,
+    spaceId?: string,
+  ) => {
+    if (!remaining.length || !contexts.length) return;
+    const rows = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, remaining),
+          isNull(schema.documents.trashedAt),
+          spaceId ? eq(schema.documents.spaceId, spaceId) : undefined,
+          or(
+            ...contexts.map((context) =>
+              accessFilter(
+                schema.documents,
+                schema.documentShares,
+                context,
+                "viewer",
+                { includePublic: true },
+              ),
+            ),
+          ),
+        ),
+      );
+    for (const row of rows) accessible.add(row.id);
+  };
+  const remaining = () => [...new Set(ids)].filter((id) => !accessible.has(id));
+  await queryAccessible(remaining(), [{ userEmail: userEmail ?? undefined }]);
+  if (!remaining().length) return accessible;
+
   const orgIds = authorizedOrgIds ?? [
     ...new Set([
       ...(userEmail
-        ? (await listContentOrganizationMemberships(userEmail)).map(
-            (membership) => membership.orgId,
-          )
+        ? (
+            await listContentOrganizationMemberships(userEmail, transaction)
+          ).map((membership) => membership.orgId)
         : []),
       ...(!userEmail && getRequestOrgId() ? [getRequestOrgId()!] : []),
     ]),
   ];
-  const contexts = [
-    { userEmail: userEmail ?? undefined },
-    ...orgIds.map((orgId) => ({ userEmail: userEmail ?? undefined, orgId })),
-  ];
-  const rows = await db
-    .select({ id: schema.documents.id })
+  await queryAccessible(
+    remaining(),
+    orgIds.map((orgId) => ({ userEmail: userEmail ?? undefined, orgId })),
+  );
+  if (!remaining().length || !userEmail) return accessible;
+
+  const references = await db
+    .select({ spaceId: schema.documents.spaceId })
     .from(schema.documents)
     .where(
       and(
-        inArray(schema.documents.id, [...new Set(ids)]),
+        inArray(schema.documents.id, remaining()),
         isNull(schema.documents.trashedAt),
-        or(
-          ...contexts.map((context) =>
-            accessFilter(
-              schema.documents,
-              schema.documentShares,
-              context,
-              "viewer",
-              { includePublic: true },
-            ),
-          ),
-        ),
       ),
     );
-  return new Set(rows.map((row) => row.id));
+  const spaceIds = [
+    ...new Set(
+      references
+        .map((row) => row.spaceId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  for (const spaceId of spaceIds) {
+    let spaceAccess;
+    try {
+      spaceAccess = await resolveContentSpaceAccess(spaceId, "viewer", { db });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("not found") ||
+          error.message.includes("Not authorized"))
+      ) {
+        continue;
+      }
+      throw error;
+    }
+    await queryAccessible(
+      remaining(),
+      [
+        {
+          userEmail: spaceAccess.authority.userEmail,
+          orgId: spaceAccess.authority.orgId ?? undefined,
+        },
+      ],
+      spaceId,
+    );
+  }
+  return accessible;
 }
 
-export async function resolveDocumentAccess(
-  id: string,
-  transaction?: DbExec,
-  db: ReturnType<typeof getDb> = getDb(),
-) {
-  const context = transaction ? { ...currentAccess(), transaction } : undefined;
-  const current = await resolveAccess("document", id, context);
+export async function resolveDocumentAccess(id: string) {
+  const current = await resolveAccess("document", id);
   if (current) {
     return {
       ...current,
@@ -76,7 +125,7 @@ export async function resolveDocumentAccess(
       },
     };
   }
-  const [reference] = await db
+  const [reference] = await getDb()
     .select({ spaceId: schema.documents.spaceId })
     .from(schema.documents)
     .where(eq(schema.documents.id, id))
@@ -84,9 +133,7 @@ export async function resolveDocumentAccess(
   if (!reference?.spaceId) return null;
   let spaceAccess;
   try {
-    spaceAccess = await resolveContentSpaceAccess(reference.spaceId, "viewer", {
-      db,
-    });
+    spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
   } catch (error) {
     if (
       error instanceof Error &&
@@ -98,10 +145,8 @@ export async function resolveDocumentAccess(
     throw error;
   }
   const granted = await resolveAccess("document", id, {
-    ...currentAccess(),
     userEmail: spaceAccess.authority.userEmail,
     orgId: spaceAccess.authority.orgId ?? undefined,
-    transaction,
   });
   if (!granted) return null;
   return {

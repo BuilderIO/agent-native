@@ -19,10 +19,7 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
-import {
-  accessibleDocumentIds,
-  resolveDocumentAccess,
-} from "../../actions/_document-access.js";
+import { accessibleDocumentIds } from "../../actions/_document-access.js";
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
@@ -415,19 +412,11 @@ async function assertSuggestionBodyTarget(
   const identityDb = drizzleTransactionForExec(transaction);
   const accessibleIds = await accessibleDocumentIds(
     eligibleDocumentIds,
-    [],
+    undefined,
     identityDb,
+    transaction,
   );
-  const remainingIds = eligibleDocumentIds.filter(
-    (id) => !accessibleIds.has(id),
-  );
-  const spaceAccess = await Promise.all(
-    remainingIds.map((id) =>
-      resolveDocumentAccess(id, transaction, identityDb),
-    ),
-  );
-  let hasAccessiblePrimary =
-    accessibleIds.size > 0 || spaceAccess.some(Boolean);
+  let hasAccessiblePrimary = accessibleIds.size > 0;
   if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
     hasAccessiblePrimary = memberships.some(
       (membership) =>

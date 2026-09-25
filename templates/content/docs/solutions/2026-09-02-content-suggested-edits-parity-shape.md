@@ -1433,8 +1433,12 @@ The final review pass also identified sequential membership access during
 proposal and acceptance, a membership insert race during acceptance, and a
 soft-deleted collection Page that could appear standalone. Eligibility now
 batches direct access checks within the transaction and uses transaction-aware
-resolution for remaining Content-space cases. Acceptance locks the Page before
+organization membership checks and Content-space resolution for remaining
+collection Pages. The same batch resolver supplies Page reads and suggestions,
+including access through a non-active organization and a validated Content
+space, while excluding an unrelated user. Acceptance locks the Page before
 capturing the memberships whose primary fields it reconciles, while proposal
 and acceptance both exclude soft-deleted collection containers. A targeted
-database regression covers the deleted-container case; the three affected
-Content database suites pass (68 tests), along with Content typechecking.
+database regression covers deleted containers and another covers non-active
+organization access. The affected Content database suites and document
+discovery suite pass locally (88 tests), along with Content typechecking.

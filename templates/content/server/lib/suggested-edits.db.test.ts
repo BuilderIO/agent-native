@@ -41,6 +41,14 @@ beforeAll(async () => {
   commentThreadDigest = (await import("./comment-ai.js")).commentThreadDigest;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL,
+    federation_removal_pending_at INTEGER
+  )`);
 }, 60_000);
 
 afterAll(() => {
@@ -274,6 +282,93 @@ async function accept(
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("honors collection access through a non-active organization", async () => {
+    const { documentId, ordinaryPropertyIds } = await seedSystemDatabasePage(1);
+    const collaborator = "another-org-member@example.com";
+    const organizationId = `suggestion-other-org-${sequence}`;
+    const db = getDb();
+    const [collection] = await db
+      .select({ documentId: schema.contentDatabases.documentId })
+      .from(schema.contentDatabases)
+      .where(
+        eq(
+          schema.contentDatabases.primaryBlocksPropertyId,
+          ordinaryPropertyIds[0]!,
+        ),
+      );
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [organizationId, "Other organization", ownerEmail, 1],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: [
+        `suggestion-other-member-${sequence}`,
+        organizationId,
+        collaborator,
+        "member",
+        1,
+      ],
+    });
+    await db
+      .update(schema.documents)
+      .set({ orgId: organizationId, visibility: "org" })
+      .where(eq(schema.documents.id, collection!.documentId));
+
+    await expect(
+      getDbExec().transaction!(async (tx) =>
+        runWithRequestContext(
+          { userEmail: collaborator, orgId: "another-active-org" },
+          () =>
+            adapter.validateProposal({
+              resourceType: "document",
+              resourceId: documentId,
+              baseRevision: "rev-1",
+              operations: [operation],
+              ctx: { transaction: tx },
+            }),
+        ),
+      ),
+    ).resolves.toEqual([operation]);
+
+    const spaceId = `suggestion-other-space-${sequence}`;
+    const now = new Date().toISOString();
+    await db.insert(schema.contentSpaces).values({
+      id: spaceId,
+      name: "Other organization",
+      kind: "organization",
+      ownerEmail,
+      orgId: organizationId,
+      filesDatabaseId: `suggestion-other-files-${sequence}`,
+      createdBy: ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.documents)
+      .set({ spaceId })
+      .where(eq(schema.documents.id, collection!.documentId));
+    const { accessibleDocumentIds } =
+      await import("../../actions/_document-access.js");
+    await runWithRequestContext({ userEmail: collaborator }, async () => {
+      const accessible = await accessibleDocumentIds(
+        [collection!.documentId],
+        [],
+      );
+      expect(accessible.has(collection!.documentId)).toBe(true);
+    });
+    await runWithRequestContext(
+      { userEmail: "unrelated@example.com" },
+      async () => {
+        const accessible = await accessibleDocumentIds(
+          [collection!.documentId],
+          [],
+        );
+        expect(accessible.has(collection!.documentId)).toBe(false);
+      },
+    );
+  });
+
   it("keeps a soft-deleted collection Page excluded at proposal and acceptance", async () => {
     const { databaseId, databaseDocumentId } =
       await seedMetadataOnlyDatabasePage();
