@@ -486,7 +486,7 @@ describe("listOutputReviews", () => {
     expect(mockGetSuccessfulToolSpansForReview).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed structured tool output instead of dropping its evidence", async () => {
+  it("keeps malformed tool output from failing the rest of the thread review", async () => {
     mockGetTraceSummary.mockResolvedValueOnce({
       runId: "run-1",
       threadId: "thread-1",
@@ -521,7 +521,13 @@ describe("listOutputReviews", () => {
 
     await expect(
       getOutputReviewSummarySource({ runId: "run-1", orgId: "org-a" }),
-    ).rejects.toThrow("Unable to parse observability thread data");
+    ).resolves.toMatchObject({
+      found: true,
+      threadEvidenceAvailable: true,
+      toolEvidenceAvailable: false,
+      malformedThreadToolOutput: true,
+      toolEvidence: [],
+    });
   });
 
   it("redacts prefixed secrets across the bounded thread history", async () => {

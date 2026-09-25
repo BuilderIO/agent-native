@@ -3,7 +3,10 @@ import { useEffect, useRef, useState } from "react";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { useT } from "../i18n.js";
-import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import {
+  createReadOnlyMcpAppSrcDoc,
+  McpAppRenderer,
+} from "../mcp-apps/McpAppRenderer.js";
 import { useActionQuery } from "../use-action.js";
 
 type ChartPoint = { label: string; value: number };
@@ -94,6 +97,11 @@ function ReviewPreviewFrame({
   const releaseRef = useRef<(() => void) | null>(null);
   const [mounted, setMounted] = useState(!compact);
   const [loaded, setLoaded] = useState(false);
+  const [safePreview, setSafePreview] = useState<{
+    source: string;
+    document: string;
+  }>();
+  const [rejectedPreviewSource, setRejectedPreviewSource] = useState<string>();
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const designQuery = useActionQuery<Record<string, unknown>>(
     "get-design",
@@ -194,6 +202,32 @@ function ReviewPreviewFrame({
     typeof artifactHtml === "string" && artifactHtml.trim()
       ? artifactHtml
       : undefined;
+  const safeSrcDoc =
+    safePreview && safePreview.source === srcDoc
+      ? safePreview.document
+      : undefined;
+  const srcDocRejected = Boolean(srcDoc && rejectedPreviewSource === srcDoc);
+
+  useEffect(() => {
+    if (!srcDoc) {
+      setSafePreview(undefined);
+      setRejectedPreviewSource(undefined);
+      return;
+    }
+    let active = true;
+    setSafePreview(undefined);
+    setRejectedPreviewSource(undefined);
+    void createReadOnlyMcpAppSrcDoc(srcDoc)
+      .then((safeDocument) => {
+        if (active) setSafePreview({ source: srcDoc, document: safeDocument });
+      })
+      .catch(() => {
+        if (active) setRejectedPreviewSource(srcDoc);
+      });
+    return () => {
+      active = false;
+    };
+  }, [srcDoc]);
   const artifactError =
     artifactAppId === "design"
       ? designQuery.isError || designFileQuery.isError
@@ -203,7 +237,8 @@ function ReviewPreviewFrame({
       ? designQuery.isSuccess && (!designFileId || designFileQuery.isSuccess)
       : deckQuery.isSuccess && (!activeSlideId || selectedSlideQuery.isSuccess);
   const unavailable =
-    artifactAppId && (artifactError || (artifactLoaded && !srcDoc));
+    artifactAppId &&
+    (artifactError || srcDocRejected || (artifactLoaded && !srcDoc));
 
   useEffect(() => {
     if (!compact) return;
@@ -237,7 +272,7 @@ function ReviewPreviewFrame({
     };
   }, [compact]);
 
-  useEffect(() => setLoaded(false), [url, srcDoc]);
+  useEffect(() => setLoaded(false), [url, safeSrcDoc]);
 
   useEffect(() => setSelectedSlideId(null), [artifactId]);
 
@@ -268,7 +303,7 @@ function ReviewPreviewFrame({
             : "loading"
           : unavailable
             ? "unavailable"
-            : artifactAppId && !srcDoc
+            : artifactAppId && !safeSrcDoc
               ? "loading"
               : "ready"
       }
@@ -324,7 +359,7 @@ function ReviewPreviewFrame({
               {unavailable ? t("observability.reviewPreviewUnavailable") : null}
             </div>
           )}
-          {mounted && (!artifactAppId || srcDoc) && (
+          {mounted && (!artifactAppId || safeSrcDoc) && (
             <iframe
               aria-hidden="true"
               className={
@@ -337,8 +372,8 @@ function ReviewPreviewFrame({
               loading="lazy"
               onLoad={() => setLoaded(true)}
               referrerPolicy="no-referrer"
-              sandbox="allow-scripts"
-              {...(artifactAppId ? { srcDoc } : { src: url })}
+              sandbox={artifactAppId ? "" : "allow-scripts"}
+              {...(artifactAppId ? { srcDoc: safeSrcDoc } : { src: url })}
               tabIndex={-1}
               title={previewLabel}
             />

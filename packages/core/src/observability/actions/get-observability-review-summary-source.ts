@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "Read a bounded, org-scoped full chat thread, attached artifact refs, and redacted successful tool-result evidence for one review row. Use only artifact IDs present in this evidence; never infer or invent IDs. Tool evidence is explicitly marked unavailable when absent.",
+    "Read a bounded, org-scoped full chat thread, attached artifact refs, and redacted successful tool-result evidence for one review row. Use only artifact IDs present in this evidence; never infer or invent IDs. Tool evidence is explicitly marked unavailable when absent, and malformedThreadToolOutput warns that persisted thread output could not be parsed.",
   schema: z.object({
     runId: z
       .string()

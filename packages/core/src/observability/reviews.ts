@@ -61,19 +61,32 @@ function inlineMcpApp(value: unknown): AgentMcpAppPayload | null {
   return value as AgentMcpAppPayload;
 }
 
-function parseToolOutput(value: unknown): Record<string, unknown> | null {
-  if (record(value)) return record(value);
-  if (typeof value !== "string" || value.length > MAX_THREAD_DATA_CHARS)
-    return null;
+type ParsedToolOutput =
+  | { kind: "parsed"; output: Record<string, unknown> }
+  | { kind: "unavailable" }
+  | { kind: "malformed" };
+
+function parseToolOutput(value: unknown): ParsedToolOutput {
+  const directOutput = record(value);
+  if (directOutput) return { kind: "parsed", output: directOutput };
+  if (typeof value !== "string") return { kind: "unavailable" };
+  if (value.length > MAX_THREAD_DATA_CHARS) return { kind: "malformed" };
   const trimmed = value.trimStart();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-  const parsed: unknown = JSON.parse(value);
-  return record(parsed);
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+    return { kind: "unavailable" };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const output = record(parsed);
+    return output ? { kind: "parsed", output } : { kind: "unavailable" };
+  } catch {
+    return { kind: "malformed" };
+  }
 }
 
 interface ReviewToolCall {
   name: string;
   output?: Record<string, unknown>;
+  outputMalformed?: true;
 }
 
 function toolOutputArtifacts(
@@ -282,12 +295,12 @@ function readThreadMessages(threadData: string): Array<{
                   ? tool.name
                   : undefined;
             if (!name) return [];
-            const output =
+            const outputResult =
               tool.isError === true
-                ? undefined
-                : (parseToolOutput(
+                ? { kind: "unavailable" as const }
+                : parseToolOutput(
                     tool.result ?? tool.resultText ?? tool.content,
-                  ) ?? undefined);
+                  );
             return [
               {
                 name,
@@ -296,7 +309,12 @@ function readThreadMessages(threadData: string): Array<{
                   : typeof tool.id === "string"
                     ? { id: tool.id }
                     : {}),
-                ...(output ? { output } : {}),
+                ...(outputResult.kind === "parsed"
+                  ? { output: outputResult.output }
+                  : {}),
+                ...(outputResult.kind === "malformed"
+                  ? { outputMalformed: true as const }
+                  : {}),
               },
             ];
           })
@@ -314,9 +332,10 @@ function readThreadMessages(threadData: string): Array<{
               text,
               runId: messageRunId(message),
               inlineApps,
-              toolCalls: toolCalls.map(({ name, output }) => ({
+              toolCalls: toolCalls.map(({ name, output, outputMalformed }) => ({
                 name,
                 ...(output ? { output } : {}),
+                ...(outputMalformed ? { outputMalformed } : {}),
               })),
               toolCallIds: toolCalls.flatMap((tool, index) =>
                 tool.id ? [{ id: tool.id, index }] : [],
@@ -345,13 +364,18 @@ function readThreadMessages(threadData: string): Array<{
         if (!matched || matched.message.toolCalls[matched.index]?.output) {
           continue;
         }
-        const output =
-          parseToolOutput(tool.result ?? tool.resultText ?? tool.content) ??
-          undefined;
-        if (output)
+        const outputResult = parseToolOutput(
+          tool.result ?? tool.resultText ?? tool.content,
+        );
+        if (outputResult.kind === "parsed")
           matched.message.toolCalls[matched.index] = {
             ...matched.message.toolCalls[matched.index]!,
-            output,
+            output: outputResult.output,
+          };
+        else if (outputResult.kind === "malformed")
+          matched.message.toolCalls[matched.index] = {
+            ...matched.message.toolCalls[matched.index]!,
+            outputMalformed: true,
           };
       }
     }
@@ -861,6 +885,7 @@ export async function getOutputReviewSummarySource(opts: {
         output?: unknown;
       }>;
       toolEvidenceAvailable: boolean;
+      malformedThreadToolOutput: boolean;
     }
 > {
   const summary = await getTraceSummary(opts.runId, { orgId: opts.orgId });
@@ -874,6 +899,7 @@ export async function getOutputReviewSummarySource(opts: {
     status: "success";
     output: unknown;
   }> = [];
+  let malformedThreadToolOutput = false;
   if (summary.threadId && summary.userId) {
     const threads = await getOrgScopedReviewThreads(opts.orgId, [
       { ownerEmail: summary.userId, threadId: summary.threadId },
@@ -903,6 +929,9 @@ export async function getOutputReviewSummarySource(opts: {
         : messageRunIds.size === 0
           ? threadMessages
           : [];
+      malformedThreadToolOutput = runMessages.some((message) =>
+        message.toolCalls.some((call) => call.outputMalformed),
+      );
       const recentMessages = threadMessages.slice(
         -(MAX_SOURCE_MESSAGES - (firstAsk ? 1 : 0)),
       );
@@ -999,6 +1028,7 @@ export async function getOutputReviewSummarySource(opts: {
     messages,
     toolEvidence,
     toolEvidenceAvailable: toolEvidence.length > 0,
+    malformedThreadToolOutput,
   };
 }
 

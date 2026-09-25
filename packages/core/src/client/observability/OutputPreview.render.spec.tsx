@@ -233,7 +233,7 @@ describe("OutputPreview artifact reads", () => {
     container.remove();
   });
 
-  it("loads Design metadata first and only the selected HTML file", () => {
+  it("loads Design metadata first and only the selected HTML file", async () => {
     mockUseActionQuery.mockImplementation(
       (name: string, args: Record<string, unknown>) => {
         if (name === "get-design" && args.includeFileContent === false) {
@@ -245,7 +245,14 @@ describe("OutputPreview artifact reads", () => {
         }
         if (name === "get-design" && args.fileId === "file-1") {
           return {
-            data: { files: [{ content: "<main>Real design</main>" }] },
+            data: {
+              files: [
+                {
+                  content:
+                    '<html><head><script>window.leak = true</script><style>.design { color: red; }</style></head><body><main class="design" onclick="window.leak = true"><img src="https://tracker.example/image.png">Real design</main></body></html>',
+                },
+              ],
+            },
             isError: false,
             isSuccess: true,
           };
@@ -280,10 +287,20 @@ describe("OutputPreview artifact reads", () => {
       },
       expect.objectContaining({ enabled: true }),
     );
-    expect(container.querySelector("iframe")?.srcdoc).toContain("Real design");
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")?.srcdoc).toContain(
+        "Real design",
+      ),
+    );
+    expect(container.querySelector("iframe")?.srcdoc).not.toContain(
+      "window.leak",
+    );
+    expect(container.querySelector("iframe")?.srcdoc).not.toContain(
+      "tracker.example",
+    );
   });
 
-  it("loads only one Slides HTML document and lets admins choose another slide", () => {
+  it("loads only one Slides HTML document and lets admins choose another slide", async () => {
     mockUseActionQuery.mockImplementation(
       (name: string, args: Record<string, unknown>) => {
         if (name === "get-deck" && args.compact === "true") {
@@ -337,7 +354,9 @@ describe("OutputPreview artifact reads", () => {
     expect(
       container.querySelectorAll("[data-review-slide-strip] button"),
     ).toHaveLength(2);
-    expect(container.querySelector("iframe")?.srcdoc).toContain("Slide");
+    await vi.waitFor(() =>
+      expect(container.querySelector("iframe")?.srcdoc).toContain("Slide"),
+    );
   });
 });
 
@@ -414,9 +433,11 @@ describe("OutputPreview authenticated artifact frames", () => {
     const iframe = preview?.querySelector("iframe");
     expect(iframe?.getAttribute("src")).toBeNull();
     expect(iframe?.srcdoc).toContain("Actual saved Design");
+    expect(iframe?.srcdoc).toContain("connect-src 'none'");
+    expect(iframe?.srcdoc).toContain("script-src 'none'");
     expect(iframe?.getAttribute("loading")).toBe("lazy");
     expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("");
     expect(iframe?.className).toContain("h-[600%]");
     expect(iframe?.className).toContain("w-[600%]");
     expect(preview?.className).toContain("overflow-hidden");
@@ -447,7 +468,7 @@ describe("OutputPreview authenticated artifact frames", () => {
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("src")).toBeNull();
     expect(iframe?.srcdoc).toContain("Saved slide");
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("");
     expect(
       mockUseActionQuery.mock.calls.some(
         ([actionName, params]) =>
