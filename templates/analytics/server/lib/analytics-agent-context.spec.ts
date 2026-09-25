@@ -84,6 +84,8 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [candidates[1], candidates[0], candidates[2]],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      searchedDictionaryEntryCount: 1,
+      dictionarySearchTruncated: false,
     });
     mocks.availableEmbeddingFamilies.mockResolvedValue([
       {
@@ -190,6 +192,8 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [weaker, stronger],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      searchedDictionaryEntryCount: 0,
+      dictionarySearchTruncated: false,
     });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(() => [1, 0]),
@@ -224,6 +228,8 @@ describe("retrieveAnalyticsPromptReferences", () => {
       candidates: [ordinary, certified],
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      searchedDictionaryEntryCount: 0,
+      dictionarySearchTruncated: false,
     });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(({ text }) => (text?.includes("Certified") ? [0, 1] : [1, 0])),

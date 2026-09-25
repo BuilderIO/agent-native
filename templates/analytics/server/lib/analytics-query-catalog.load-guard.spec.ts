@@ -168,6 +168,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     });
     expect(state.listSettingsByPrefix).toHaveBeenCalledWith(
       "u:alice@example.com:data-dict-",
+      { limit: 201 },
     );
     expect(state.getUserSetting).toHaveBeenCalledWith(
       "alice@example.com",
@@ -207,6 +208,58 @@ describe("searchAnalyticsQueryCatalog", () => {
     expect(warn).toHaveBeenCalledWith(
       "[analytics] Dashboard reference search truncated.",
       { searchedDashboardCount: 200, dashboardSearchTruncated: true },
+    );
+  });
+
+  it("bounds org and personal dictionary reads and reports truncation", async () => {
+    state.listOrgSettings.mockResolvedValueOnce(
+      Object.fromEntries(
+        Array.from({ length: 201 }, (_, index) => [
+          `data-dict-org-${String(index + 1).padStart(3, "0")}`,
+          {
+            id: `org-${index + 1}`,
+            metric:
+              index === 200 ? "Dictionary cap match" : `Org metric ${index}`,
+          },
+        ]),
+      ),
+    );
+    state.userSettings = Array.from({ length: 201 }, (_, index) => ({
+      key: `u:alice@example.com:data-dict-user-${String(index + 1).padStart(3, "0")}`,
+      value: {
+        id: `user-${index + 1}`,
+        metric: index === 200 ? "Dictionary cap match" : `User metric ${index}`,
+      },
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "dictionary cap match",
+      email: "alice@example.com",
+      orgId: "org-analytics",
+      limit: 6,
+    });
+
+    expect(state.listOrgSettings).toHaveBeenCalledWith(
+      "org-analytics",
+      "data-dict-",
+      { limit: 201 },
+    );
+    expect(state.listSettingsByPrefix).toHaveBeenCalledWith(
+      "u:alice@example.com:data-dict-",
+      { limit: 201 },
+    );
+    expect(result.searchedDictionaryEntryCount).toBe(400);
+    expect(result.dictionarySearchTruncated).toBe(true);
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({ id: "org-201" }),
+    );
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({ id: "user-201" }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[analytics] Data dictionary search truncated.",
+      { searchedDictionaryEntryCount: 400, dictionarySearchTruncated: true },
     );
   });
 

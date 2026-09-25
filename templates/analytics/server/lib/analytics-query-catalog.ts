@@ -21,6 +21,7 @@ const MAX_QUERY_LENGTH = 12_000;
 const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 // ponytail: scan the 200 most recently updated summaries; a search-backed index is the upgrade path if larger workspaces need older references.
 const MAX_CATALOG_DASHBOARD_SUMMARIES = 200;
+const MAX_CATALOG_DICTIONARY_ENTRIES = 200;
 const RETIRED_CATALOG_STATES = new Set([
   "deprecated",
   "obsolete",
@@ -137,6 +138,8 @@ export type AnalyticsQueryCatalogSearchResult = {
   candidates: AnalyticsQueryCatalogCandidate[];
   searchedDashboardCount: number;
   dashboardSearchTruncated: boolean;
+  searchedDictionaryEntryCount: number;
+  dictionarySearchTruncated: boolean;
 };
 
 function text(value: unknown): string {
@@ -640,7 +643,11 @@ export function rankAnalyticsQueryCatalog(args: {
 async function listDictionaryEntries(args: {
   email: string;
   orgId: string | null;
-}): Promise<DictionaryEntry[]> {
+}): Promise<{
+  entries: DictionaryEntry[];
+  searchedEntryCount: number;
+  truncated: boolean;
+}> {
   const entries: DictionaryEntry[] = [];
   const seen = new Set<string>();
   const collect = (raw: unknown) => {
@@ -655,12 +662,22 @@ async function listDictionaryEntries(args: {
   const userPrefix = `u:${args.email}:${DATA_DICTIONARY_KEY_PREFIX}`;
   const [orgResult, userResult] = await Promise.allSettled([
     args.orgId
-      ? listOrgSettings(args.orgId, DATA_DICTIONARY_KEY_PREFIX)
+      ? listOrgSettings(args.orgId, DATA_DICTIONARY_KEY_PREFIX, {
+          limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
+        })
       : Promise.resolve(null),
-    listSettingsByPrefix(userPrefix),
+    listSettingsByPrefix(userPrefix, {
+      limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
+    }),
   ]);
   if (orgResult.status === "fulfilled" && orgResult.value) {
-    for (const value of Object.values(orgResult.value)) collect(value);
+    const orgEntries = Object.entries(orgResult.value);
+    for (const [, value] of orgEntries.slice(
+      0,
+      MAX_CATALOG_DICTIONARY_ENTRIES,
+    )) {
+      collect(value);
+    }
   } else if (orgResult.status === "rejected") {
     console.warn(
       "[analytics-query-catalog] Organization dictionary lookup failed:",
@@ -668,14 +685,31 @@ async function listDictionaryEntries(args: {
     );
   }
   if (userResult.status === "fulfilled") {
-    for (const { value } of userResult.value) collect(value);
+    for (const { value } of userResult.value.slice(
+      0,
+      MAX_CATALOG_DICTIONARY_ENTRIES,
+    )) {
+      collect(value);
+    }
   } else {
     console.warn(
       "[analytics-query-catalog] User dictionary lookup failed:",
       userResult.reason,
     );
   }
-  return entries;
+  const orgCount =
+    orgResult.status === "fulfilled"
+      ? Object.keys(orgResult.value ?? {}).length
+      : 0;
+  const userCount =
+    userResult.status === "fulfilled" ? userResult.value.length : 0;
+  return {
+    entries,
+    searchedEntryCount: entries.length,
+    truncated:
+      orgCount > MAX_CATALOG_DICTIONARY_ENTRIES ||
+      userCount > MAX_CATALOG_DICTIONARY_ENTRIES,
+  };
 }
 
 function warnCatalogReadFailure(source: string, error: unknown): void {
@@ -737,7 +771,21 @@ export async function searchAnalyticsQueryCatalog(args: {
     });
   }
   const dictionaryEntries =
-    dictionaryResult.status === "fulfilled" ? dictionaryResult.value : [];
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.entries
+      : [];
+  const searchedDictionaryEntryCount =
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.searchedEntryCount
+      : 0;
+  const dictionarySearchTruncated =
+    dictionaryResult.status === "fulfilled" && dictionaryResult.value.truncated;
+  if (dictionarySearchTruncated) {
+    console.warn("[analytics] Data dictionary search truncated.", {
+      searchedDictionaryEntryCount,
+      dictionarySearchTruncated,
+    });
+  }
   const favoriteIds =
     favoritesResult.status === "fulfilled"
       ? favoritesResult.value
@@ -815,5 +863,7 @@ export async function searchAnalyticsQueryCatalog(args: {
     }),
     searchedDashboardCount: searchedSummaries.length,
     dashboardSearchTruncated,
+    searchedDictionaryEntryCount,
+    dictionarySearchTruncated,
   };
 }
