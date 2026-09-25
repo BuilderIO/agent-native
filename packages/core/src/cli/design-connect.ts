@@ -1784,6 +1784,7 @@ function sameLiveEditPendingPayload(
 
 function storeLiveEditPendingEntry(
   entries: Map<string, LiveEditPendingEntry>,
+  revisionHighWaterMarks: Map<string, number>,
   designId: string,
   revision: number,
   pending: Record<string, unknown> | null,
@@ -1791,14 +1792,17 @@ function storeLiveEditPendingEntry(
 ): "stored" | "stale" | "conflict" {
   pruneLiveEditPendingEntries(entries, now);
   const existing = entries.get(designId);
-  if (existing && revision < existing.revision) return "stale";
-  if (existing && revision === existing.revision) {
+  const highWaterMark = revisionHighWaterMarks.get(designId);
+  if (highWaterMark !== undefined && revision < highWaterMark) return "stale";
+  if (highWaterMark === revision) {
+    if (!existing) return "stale";
     if (!sameLiveEditPendingPayload(existing.pending, pending))
       return "conflict";
     entries.delete(designId);
     entries.set(designId, { ...existing, updatedAt: now });
     return "stored";
   }
+  revisionHighWaterMarks.set(designId, revision);
   entries.delete(designId);
   entries.set(designId, { revision, pending, updatedAt: now });
   while (entries.size > MAX_LIVE_EDIT_PENDING_DESIGNS) {
@@ -2693,6 +2697,9 @@ export async function startDesignConnectBridge(
   );
   let liveEditBridgeScript = "";
   const pendingVisualEditPayloads = new Map<string, LiveEditPendingEntry>();
+  // Payloads are TTL/cap evicted, but a lower revision must never become
+  // current again during this bridge process's lifetime.
+  const pendingVisualEditRevisionHighWaterMarks = new Map<string, number>();
   // One bridge process serves every URL-backed screen in an overview. The
   // editor script carries screen-specific state (notably screenId), so a
   // single global slot lets parallel iframe registrations overwrite each
@@ -3032,6 +3039,7 @@ export async function startDesignConnectBridge(
               }
               const stored = storeLiveEditPendingEntry(
                 pendingVisualEditPayloads,
+                pendingVisualEditRevisionHighWaterMarks,
                 pendingDesignId,
                 revision,
                 null,
@@ -3108,6 +3116,7 @@ export async function startDesignConnectBridge(
             };
             const stored = storeLiveEditPendingEntry(
               pendingVisualEditPayloads,
+              pendingVisualEditRevisionHighWaterMarks,
               candidate.designId,
               revision,
               publishedPending,

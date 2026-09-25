@@ -645,6 +645,22 @@ describe("design connect bridge endpoints", () => {
         auth,
       );
       expect(unregisteredRead.status).toBe(403);
+      const unregisteredWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-3",
+          revision: 1,
+          pending: {
+            designId: "design-3",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt:
+              "A registered design's token must not write an unregistered design.",
+          },
+        },
+        auth,
+      );
+      expect(unregisteredWrite.status).toBe(403);
       await expect(
         runDesign([
           "pending",
@@ -997,6 +1013,93 @@ describe("design connect bridge endpoints", () => {
           )
         ).body.pending,
       ).toMatchObject({ designId: "design-cap-32" });
+      const staleAfterCapacityEviction = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-cap-0",
+          revision: 1,
+          pending: {
+            designId: "design-cap-0",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A payload evicted by the capacity limit must not return.",
+          },
+        },
+        auth,
+      );
+      expect(staleAfterCapacityEviction.status).toBe(409);
+
+      const ttlDesignId = "design-ttl-expired";
+      const ttlRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-ttl-expired",
+          designId: ttlDesignId,
+        },
+        auth,
+      );
+      expect(ttlRegistration.status).toBe(200);
+      let now = Date.now();
+      const systemTime = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const ttlPublish = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 7,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "This payload will expire.",
+            },
+          },
+          auth,
+        );
+        expect(ttlPublish.status).toBe(200);
+        now += 7 * 24 * 60 * 60 * 1_000;
+        expect(
+          (
+            await getJson(
+              `${base}/live-edit-pending?designId=${ttlDesignId}`,
+              auth,
+            )
+          ).body.pending,
+        ).toBeNull();
+        const staleAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 6,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "An expired payload's older revision must not return.",
+            },
+          },
+          auth,
+        );
+        expect(staleAfterTtlExpiry.status).toBe(409);
+        const newerAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 8,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "A newer edit remains publishable after expiry.",
+            },
+          },
+          auth,
+        );
+        expect(newerAfterTtlExpiry.status).toBe(200);
+      } finally {
+        systemTime.mockRestore();
+      }
     } finally {
       log.mockRestore();
       error.mockRestore();
