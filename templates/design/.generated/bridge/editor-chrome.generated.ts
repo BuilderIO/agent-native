@@ -3697,8 +3697,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
-    function portableSizeIsLayoutResolved(el, property, cs) {
+    function gridItemDimensionIsStretched(el, property, cs, parentStyle) {
+      var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+      if (alignment === "auto") {
+        alignment = property === "width" ? parentStyle.justifyItems : parentStyle.alignItems;
+      }
+      if (alignment === "stretch") return true;
+      if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+      return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+        el.tagName.toLowerCase()
+      );
+    }
+    function portableSizeIsLayoutResolved(el, property, cs, typedSize) {
       if (el.style?.getPropertyValue(property)) return false;
+      if (typedSize !== cs[property]) return false;
       if (property !== "width" || cs.position !== "static") return false;
       var parent = el.parentElement;
       if (!parent) return false;
@@ -3707,7 +3719,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
       }
       if (/^(inline-)?grid$/.test(parentStyle.display)) {
-        return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+        return gridItemDimensionIsStretched(el, property, cs, parentStyle);
       }
       if (cs.display !== "block" && cs.display !== "flow-root") return false;
       var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
@@ -3760,7 +3772,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var preservesSizingMode = /%|calc\\(|clamp\\(|(?:min|max)\\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
             size
           );
-          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && (!portableSizeIsLayoutResolved(el, property, cs) || preservesSizingMode)) {
+          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && (!portableSizeIsLayoutResolved(el, property, cs, size) || preservesSizingMode)) {
             styles[property] = size;
           }
         }
@@ -11419,8 +11431,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!styles || typeof styles !== "object") return void 0;
       var resolvedByAutoLayout = function(property) {
         if (isGrid) {
-          var alignment = property === "width" ? computed.justifySelf : computed.alignSelf;
-          return alignment === "stretch";
+          return gridItemDimensionIsStretched(
+            el,
+            property,
+            computed,
+            parentStyle
+          );
         }
         var mainAxis = /^column/.test(parentStyle.flexDirection) ? "height" : "width";
         if (property === mainAxis) {

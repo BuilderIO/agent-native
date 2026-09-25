@@ -307,6 +307,57 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
   );
 
   it(
+    "preserves a fixed width when flex-basis controls the used width",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.item{width:200px}</style></head><body style="margin:0">
+        <div style="display:flex;width:400px">
+          <div class="item" data-agent-native-node-id="child" style="flex:0 0 100px;height:50px"></div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="child"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("200px");
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "captures default Grid stretch sizing when a static item is dropped as absolute",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;height:100px;grid-template-columns:300px;grid-template-rows:100px">
+          <div data-agent-native-node-id="stretched"></div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBeUndefined();
+      expect(sourceComputedSize).toEqual({ width: 300, height: 100 });
+    },
+  );
+
+  it(
+    "does not capture Grid dimensions when inherited alignment avoids stretching",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;height:100px;grid-template-columns:300px;grid-template-rows:100px;justify-items:center;align-items:center">
+          <div data-agent-native-node-id="centered">Intrinsic content</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="centered"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
     "does not freeze intrinsic Grid sizing when normal alignment is not a proven stretch",
     { timeout: 30_000 },
     async () => {
