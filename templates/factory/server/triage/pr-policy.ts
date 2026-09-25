@@ -645,6 +645,10 @@ const NEGATED_HTML_EVENT_HANDLER_COOKIE_PATTERN = new RegExp(
   String.raw`\bno\s+(?:${HTML_TAINT_SOURCE_PATTERN}\s+)?${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_COOKIE_ACTION_PATTERN}(?=\s*(?:to\s+(?:an?\s+)?(?:attacker|external|remote)\s+(?:endpoint|url))?(?:[,.;!?]|\b(?:and|but|however|while)\b|$))`,
   "i",
 );
+const NEGATED_HTML_EVENT_HANDLER_LOCATION_PATTERN = new RegExp(
+  String.raw`\bno\s+(?:${HTML_TAINT_SOURCE_PATTERN}\s+)?${HTML_EVENT_HANDLER_REFERENCE_PATTERN}.{0,50}\b${HTML_EVENT_HANDLER_LOCATION_ACTION_PATTERN}(?=\s*(?:to\s+(?:an?\s+)?(?:attacker|external|remote|untrusted)(?:[- ]controlled)?\s+(?:page|url|site|domain|origin))?(?:[,.;!?]|\b(?:and|but|however|while)\b|$))`,
+  "i",
+);
 const SAFE_HTML_HANDLER_REMOVAL_PATTERN =
   /\b(?:on[a-z]+\s+(?:handler|attribute)|event[- ]handler)\b.{0,80}\b(?:removed|stripped|sanitized|sanitised|set\s+to\s+(?:null|undefined))\b.{0,40}\b(?:before|prior\s+to)\s+(?:insertion|rendering|execution)\b/i;
 const NON_FINDING_PATTERN =
@@ -721,6 +725,9 @@ export function hasActiveCredibleSafetyFinding(
         ...sentence.matchAll(new RegExp(NEGATED_FINDING_PATTERN.source, "gi")),
         ...sentence.matchAll(
           new RegExp(NEGATED_HTML_EVENT_HANDLER_COOKIE_PATTERN.source, "gi"),
+        ),
+        ...sentence.matchAll(
+          new RegExp(NEGATED_HTML_EVENT_HANDLER_LOCATION_PATTERN.source, "gi"),
         ),
         ...sentence.matchAll(
           new RegExp(SAFE_HTML_HANDLER_REMOVAL_PATTERN.source, "gi"),
