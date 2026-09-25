@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     options?: { limit?: number };
   }>,
   queryLimit: null as number | null,
+  orderBy: [] as unknown[],
   insert: vi.fn(),
   accessFilter: vi.fn(),
 }));
@@ -49,6 +50,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
+  asc: (value: unknown) => ({ kind: "asc", value }),
   desc: (value: unknown) => ({ kind: "desc", value }),
   eq: (target: unknown, value: unknown) => ({ kind: "eq", target, value }),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
@@ -110,12 +112,15 @@ vi.mock("../db/index.js", () => {
             state.where = where;
             const result = Promise.resolve(state.rows);
             Object.assign(result, {
-              orderBy: () => ({
-                limit: (limit: number) => {
-                  state.queryLimit = limit;
-                  return Promise.resolve(state.rows.slice(0, limit));
-                },
-              }),
+              orderBy: (...ordering: unknown[]) => {
+                state.orderBy = ordering;
+                return {
+                  limit: (limit: number) => {
+                    state.queryLimit = limit;
+                    return Promise.resolve(state.rows.slice(0, limit));
+                  },
+                };
+              },
             });
             return result;
           },
@@ -143,6 +148,7 @@ beforeEach(() => {
   state.settingsError = null;
   state.settingsPrefixCalls = [];
   state.queryLimit = null;
+  state.orderBy = [];
   state.insert.mockReset();
   state.accessFilter.mockReset();
   state.accessFilter.mockReturnValue({ kind: "access" });
@@ -307,6 +313,10 @@ describe("listDashboardSummaries", () => {
     });
 
     expect(state.queryLimit).toBe(1);
+    expect(state.orderBy).toEqual([
+      { kind: "desc", value: { name: "updatedAt" } },
+      { kind: "asc", value: { name: "id" } },
+    ]);
     expect(result.map((row) => row.id)).toEqual(["legacy-user"]);
     expect(state.settingsPrefixCalls).toEqual([
       {

@@ -31,6 +31,7 @@ import {
 } from "@agent-native/core/sharing";
 import {
   and,
+  asc,
   desc,
   eq,
   inArray,
@@ -1039,7 +1040,9 @@ export async function listDashboardSummaries(
     .where(where);
   const rows = await (summaryLimit === undefined
     ? rowsQuery
-    : rowsQuery.orderBy(desc(schema.dashboards.updatedAt)).limit(summaryLimit));
+    : rowsQuery
+        .orderBy(desc(schema.dashboards.updatedAt), asc(schema.dashboards.id))
+        .limit(summaryLimit));
   const out: DashboardSummaryRecord[] = rows.map((row: any) => {
     const certification = parseDashboardCertification(row.certification);
     const { certification: _rawCertification, ...summaryRow } = row;
