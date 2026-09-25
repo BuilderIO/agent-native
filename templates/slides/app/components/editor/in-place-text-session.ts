@@ -1295,15 +1295,23 @@ export function startInPlaceTextSession(
    * Pasted list items stay list items where the caret can hold them: in a
    * list item they become items at their own depth, and in a container that
    * may hold a list they arrive as one. A paragraph or heading cannot hold a
-   * list, so there they are lines like any other paste.
+   * list, so there they are lines like any other paste. A paste with nothing
+   * left to insert (an image the allowlist drops) changes nothing, not even
+   * the selection it would have replaced.
    */
-  function insertClipboard(data: DataTransfer, at: Range) {
+  function insertClipboard(data: DataTransfer, at: Range): boolean {
     const html = data.getData("text/html");
     const normalized = html ? normalizeSlideClipboardHtml(html) : null;
+    const text = data.getData("text/plain");
     const lines =
+      normalized !== null ? pastedHtmlLines(normalized) : plainTextLines(text);
+    if (
       normalized !== null
-        ? pastedHtmlLines(normalized)
-        : plainTextLines(data.getData("text/plain"));
+        ? lines.every(({ fragment }) => !hasRenderedContent(fragment))
+        : !text
+    ) {
+      return false;
+    }
     const start = at.startContainer;
     const link = (
       start instanceof Element ? start : start.parentElement
@@ -1331,7 +1339,7 @@ export function startInPlaceTextSession(
       const last = lists.lastChild!;
       caret.insertNode(lists);
       placeCaret(...textPoint(last, Infinity));
-      return;
+      return true;
     }
     let depth = lines[0]?.lists.length ?? 0;
     lines.forEach((line, index) => {
@@ -1353,6 +1361,7 @@ export function startInPlaceTextSession(
       }
       insertFragment(line.fragment);
     });
+    return true;
   }
 
   function applyMarkdownShortcut() {
@@ -1581,10 +1590,9 @@ export function startInPlaceTextSession(
       const at =
         (type === "insertFromDrop" ? targetRange(event) : null) ?? range;
       if (dropJoins) {
-        insertClipboard(data, at);
-        notify();
+        if (insertClipboard(data, at)) notify();
       } else {
-        edit("command", () => insertClipboard(data, at));
+        command(() => insertClipboard(data, at));
       }
     } else if (FORMAT_INPUTS[type]) {
       commands[FORMAT_INPUTS[type]]();
@@ -1659,7 +1667,7 @@ export function startInPlaceTextSession(
     const data = event.clipboardData;
     if (!data) throw new Error("in-place text session: paste has no data");
     const range = selectionRange();
-    if (range) edit("command", () => insertClipboard(data, range));
+    if (range) command(() => insertClipboard(data, range));
   }
 
   /**
