@@ -284,6 +284,15 @@ describe("pull-request governance", () => {
         [],
       ),
     ).toBe(false);
+    for (const body of [
+      "No HTML sanitization vulnerability was found.",
+      "No sanitizer vulnerability was found.",
+      "The sanitizer vulnerability was fixed.",
+    ]) {
+      expect(
+        hasActiveCredibleSafetyFinding([{ state: "commented", body }], []),
+      ).toBe(false);
+    }
     expect(
       hasActiveCredibleSafetyFinding(
         [{ state: "commented", body: "The authentication bypass is safe." }],
