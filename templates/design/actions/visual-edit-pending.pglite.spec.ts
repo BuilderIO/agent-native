@@ -91,4 +91,30 @@ describe("visual-edit pending revision migration", () => {
       revision,
     });
   });
+
+  it("reads legacy-worker writes from the same widened revision column", async () => {
+    await publishPendingAction.run(
+      {
+        designId: "design_legacy_worker_revision",
+        revision: 1,
+        pending: {
+          designId: "design_legacy_worker_revision",
+          pendingEditCount: 1,
+          status: "ready",
+          prompt: "Keep this handoff available across a rolling deploy.",
+        },
+      },
+      { caller: "frontend", requestHeaders: new Headers() },
+    );
+
+    await getDbExec().execute({
+      sql: `UPDATE design_visual_edit_pending
+            SET revision = 1750000000000
+            WHERE design_id = 'design_legacy_worker_revision'`,
+    });
+
+    await expect(
+      getPendingAction.run({ designId: "design_legacy_worker_revision" }),
+    ).resolves.toMatchObject({ revision: 1750000000000 });
+  });
 });
