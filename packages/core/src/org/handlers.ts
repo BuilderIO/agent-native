@@ -745,13 +745,15 @@ async function inviteOne(
   // runtime doesn't freeze the function before the dynamic import resolves.
   try {
     const inviteSentPromise = import("../tracking/registry.js")
-      .then(({ track }) => {
+      .then(async ({ track, flushTracking }) => {
         const app = getAppConfig().app.slug ?? "unknown";
         track(
           "invite_sent",
           { app, template: app, org_id: ctx.orgId, role },
           { userId: ctx.email },
         );
+        // `track()` only dispatches; hold `waitUntil` until providers deliver.
+        await flushTracking();
       })
       .catch(() => {});
     // coercion-ok: telemetry must never block or fail an invite.

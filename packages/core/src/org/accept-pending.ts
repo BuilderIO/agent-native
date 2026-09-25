@@ -193,10 +193,10 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   if (telemetryPromises.length > 0) {
-    // One bounded wait total, not one per invitation: gives telemetry a
-    // chance to finish on a warm instance without letting N accepted
-    // invitations add up to N * 250ms of signup latency.
-    await Promise.race([Promise.all(telemetryPromises), sleep(250)]);
+    // One bounded wait total, not one per invitation, capped like
+    // `flushSignupTracking`. Each promise includes the provider flush; a cap
+    // cannot guarantee delivery, it only bounds what signup pays for it.
+    await Promise.race([Promise.all(telemetryPromises), sleep(1500)]);
   }
 
   // Set active-org-id to the most recent invite so the user lands in a

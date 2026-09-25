@@ -78,8 +78,10 @@ vi.mock("../server/email.js", () => ({
 }));
 
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockFlushTracking = vi.hoisted(() => vi.fn(async () => []));
 vi.mock("../tracking/registry.js", () => ({
   track: (...args: any[]) => mockTrack(...args),
+  flushTracking: () => mockFlushTracking(),
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -365,6 +367,40 @@ describe("org handlers", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+  });
+
+  it("keeps invite_sent background work pending until providers flush", async () => {
+    let releaseFlush!: () => void;
+    mockFlushTracking.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseFlush = () => resolve([]))),
+    );
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const waitUntil = vi.fn();
+    await createInvitationHandler({
+      ...makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+      waitUntil,
+    });
+    let settled = false;
+    const registered = (waitUntil.mock.calls[0][0] as Promise<void>).then(
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.waitFor(() => expect(mockFlushTracking).toHaveBeenCalled());
+    expect(mockTrack).toHaveBeenCalledWith(
+      "invite_sent",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(settled).toBe(false);
+
+    releaseFlush();
+    await registered;
+    expect(settled).toBe(true);
   });
 
   it("waits for federated invitation approval before inserting local membership", async () => {
