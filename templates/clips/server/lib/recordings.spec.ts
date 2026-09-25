@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
+  getSession: vi.fn(),
   getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
   implicitServiceOrgRole: vi.fn(),
@@ -63,7 +64,9 @@ vi.mock("@agent-native/core/org", () => ({
     mocks.resolveOrgIdForEmail(...args),
 }));
 
-vi.mock("@agent-native/core/server", () => ({ getSession: vi.fn() }));
+vi.mock("@agent-native/core/server", () => ({
+  getSession: (...args: unknown[]) => mocks.getSession(...args),
+}));
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
@@ -83,10 +86,27 @@ vi.mock("../db/index.js", () => ({
 import {
   countedViewCondition,
   countRecordingViews,
+  getEventOwnerContext,
   getActiveOrganizationId,
   getDefaultRecordingVisibility,
   requireActiveOrganizationId,
 } from "./recordings.js";
+
+describe("getEventOwnerContext", () => {
+  it("returns the canonical auth id from the verified session", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "Owner@Example.test",
+      authUserId: "better-auth-user-1",
+      orgId: "org-1",
+    });
+
+    await expect(getEventOwnerContext({} as any)).resolves.toEqual({
+      userEmail: "Owner@Example.test",
+      orgId: "org-1",
+      authUserId: "better-auth-user-1",
+    });
+  });
+});
 
 /**
  * Two counts come back per call — one per table — so the fake resolves each

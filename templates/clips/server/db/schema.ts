@@ -191,6 +191,10 @@ export const recordings = table("recordings", {
   // provider handle and buffered scratch that the restart replaces.
   uploadGenerationId: text("upload_generation_id"),
   failureReason: text("failure_reason"),
+  failureCode: text("failure_code"),
+  recordingPlatform: text("recording_platform", {
+    enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
+  }),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
 

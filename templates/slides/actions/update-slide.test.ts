@@ -334,8 +334,44 @@ describe("update-slide", () => {
     );
 
     expect(result).toMatchObject({ ok: true, applied: true });
+    // The edit left the slide root alone, so no padding is added to it.
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide" style="padding: 64px 80px;"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+      '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+    );
+  });
+
+  it("refuses content that adds editor-rendered markup, but saves content that already had it", async () => {
+    const stored =
+      '<div class="fmd-slide" style="padding: 40px"><style>[data-slide-content-scope="slide-a"] .x { color: red; }</style><p class="x">Old</p></div>';
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: stored }],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: stored.replace(
+          '<p class="x">',
+          '<p class="x" data-builder-id="b-1" data-src-i="slide-r1.s:3">',
+        ),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "render_artifact_in_slide_content",
+      details: { markers: ["data-src-i", "data-builder-id"] },
+    });
+    expect(lastUpdateSet).toBeUndefined();
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: stored.replace("Old", "New"),
+    });
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      stored.replace("Old", "New"),
     );
   });
 

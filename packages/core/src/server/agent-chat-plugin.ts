@@ -486,6 +486,59 @@ export async function runPostAgentTurnAutosave(
   }
 }
 
+export async function runPostAgentRunComplete(
+  callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-run-observer",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+      },
+    });
+    console.error("[agent-chat] post-agent-run observer failed:", error);
+  }
+}
+
+export async function runPreAgentTurnAutosave(
+  callback: AgentChatPluginOptions["onAgentTurnStart"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: Pick<ActiveRun, "threadId" | "runId">,
+): Promise<void> {
+  if (!callback || !scope) return;
+
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "pre-agent-turn-autosave",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+        scopeType: scope.type,
+        scopeId: scope.id,
+      },
+    });
+    console.error("[agent-chat] pre-agent-turn autosave failed:", error);
+  }
+}
+
 /**
  * The model this mount runs with, when the caller does not pass one per request.
  *
@@ -3386,6 +3439,11 @@ export function createAgentChatPlugin(
           chatScope,
           run,
         );
+        await runPostAgentRunComplete(
+          options?.onAgentRunComplete,
+          chatScope,
+          run,
+        );
 
         // Event triggers and local git checkpoints remain best effort and do
         // not extend the durable chat persistence gate.
@@ -4327,6 +4385,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          await runPreAgentTurnAutosave(
+            options?.onAgentTurnStart,
+            runCtx?.chatScope,
+            { threadId, runId },
+          );
         },
         onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -4662,6 +4725,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            await runPreAgentTurnAutosave(
+              options?.onAgentTurnStart,
+              runCtx?.chatScope,
+              { threadId, runId },
+            );
           },
           onRunComplete: async (
             run: ActiveRun,
@@ -7422,6 +7490,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const appSweepHandlers = await runRecurringSweepHandlers();
             const triggerAvailability = scheduledTriggerAvailability();
             if (unclaimedBackgroundRuns === null) {
               setResponseStatus(event, 500);
@@ -7430,16 +7501,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
             if (!triggerAvailability.available) {
+              if (appSweepHandlers.failed.length > 0) {
+                setResponseStatus(event, 500);
+              }
               return {
-                ok: true,
+                ok: appSweepHandlers.failed.length === 0,
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: triggerAvailability.reason,
               };
@@ -7450,11 +7526,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
+              if (appSweepHandlers.failed.length > 0) {
+                setResponseStatus(event, 500);
+                return {
+                  ok: false,
+                  staleRunsReaped,
+                  chatHealth,
+                  unclaimedBackgroundRuns,
+                  appSweepHandlers,
+                };
+              }
               return {
                 ok: true,
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
@@ -7464,6 +7551,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             }
           }),

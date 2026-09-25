@@ -386,6 +386,12 @@ export default defineAction({
         seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
+        ...(canEditRecording
+          ? {
+              uploadAttemptId: rec.uploadAttemptId ?? null,
+              uploadGenerationId: rec.uploadGenerationId ?? null,
+            }
+          : {}),
         // Don't leak the password to clients (especially to MCP hosts that
         // surface action results to third-party agents); just indicate
         // whether one was set. The videoUrl above already carries a

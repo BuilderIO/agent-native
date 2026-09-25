@@ -113,7 +113,7 @@ Bring a senior engineer's judgment, arrived at through attention not premature c
 3. **Navigate the UI** — On "show me", "go to", "open", or similar, use \`navigate\` first, then fetch/display data.
 4. **Application state** — Ephemeral UI state lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\`.
 5. **Screen refresh is automatic** — The UI re-fetches itself after mutating tool calls, so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.
-6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
+6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context. At the end of a meaningful multi-turn task, review the thread for durable new learnings and save only what should help future conversations.
 7. **Security** — ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}

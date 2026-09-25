@@ -89,6 +89,29 @@ export function useDeleteAutomation() {
   });
 }
 
+export function useConsolidateAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      id: string;
+      duplicateIds: string[];
+      expectedRules: {
+        id: string;
+        name: string;
+        condition: string;
+        actions: AutomationAction[];
+      }[];
+      name: string;
+      condition: string;
+      actions: AutomationAction[];
+    }) =>
+      callAction("consolidate-ai-filter-rules", data, {
+        method: "PUT",
+      }) as Promise<{ saved: boolean }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
 export function useTriggerAutomations() {
   return useMutation({
     mutationFn: () =>

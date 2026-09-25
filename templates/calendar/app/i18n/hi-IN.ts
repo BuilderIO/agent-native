@@ -244,6 +244,32 @@ export default {
     weekStartLabel: "सप्ताह की शुरुआत",
     weekStartSunday: "रविवार - शनिवार",
     weekStartMonday: "सोमवार - रविवार",
+    eventRules: "निमंत्रण नियम",
+    eventRuleAccept: "अपने-आप स्वीकार करें",
+    eventRuleDecline: "अपने-आप अस्वीकार करें",
+    eventRuleHide: "अपने-आप छिपाएँ",
+    eventRulePlaceholderAccept:
+      "उदाहरण: अपनी टीम के साथ आमने-सामने की बैठकें स्वीकार करें",
+    eventRulePlaceholderDecline:
+      "उदाहरण: विक्रेता डेमो और काम के घंटों के बाद के कार्यक्रम अस्वीकार करें",
+    eventRulePlaceholderHide: "उदाहरण: फ़ोकस समय और रिमाइंडर छिपाएँ",
+    eventRulesSave: "नियम सहेजें",
+    eventRulesRecentActivity: "हाल की गतिविधि",
+    eventRulesNoActivity: "अभी कोई गतिविधि नहीं",
+    eventRuleActivityAccepted: "स्वीकार किया",
+    eventRuleActivityDeclined: "अस्वीकार किया",
+    eventRuleActivityHidden: "छिपाया",
+    eventRuleUndoDone: "कार्रवाई पूर्ववत की गई",
+    eventRuleUndoFailed: "यह कार्रवाई पूर्ववत नहीं हो सकी",
+    eventRulesActive: "नियम हर 5 मिनट में जुड़े खातों के प्राथमिक कैलेंडर पर चलते हैं।",
+    eventRulesDisabled:
+      "लंबे समय तक चलने वाले Calendar worker पर RUN_BACKGROUND_JOBS=1 चालू करें।",
+    eventRulesDeploymentDisabled:
+      "इस deployment के लिए scheduled automation बंद है।",
+    eventRulesChecking: "ऑटोमेशन स्थिति जाँची जा रही है…",
+    eventRulesConflict:
+      "स्वीकार और अस्वीकार दोनों नियम मेल खाने से एक निमंत्रण छोड़ दिया गया।",
+    eventRulesUnregistered: "इस सर्वर पर Calendar ऑटोमेशन पंजीकृत नहीं है।",
   },
   eventDialog: {
     eventUpdated: "इवेंट अपडेट हो गया",

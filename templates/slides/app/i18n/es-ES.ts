@@ -718,6 +718,10 @@ const messages = {
       "Si sales o recargas ahora, podrías perder los cambios que aún no se han guardado. ¿Seguro que quieres salir?",
     keepEditing: "Seguir editando",
     leaveWithoutSaving: "Salir sin guardar",
+    editorMarkupNotSaved:
+      "Esta edición no se guardó porque habría añadido marcado del editor a la diapositiva.",
+    textEditConflictNotSaved:
+      "Tu edición de texto no se guardó porque el mismo texto se cambió en otro lugar al mismo tiempo.",
   },
   designSystemSetup: {
     importedBrand: "Marca importada",

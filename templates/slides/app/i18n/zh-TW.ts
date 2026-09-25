@@ -679,6 +679,9 @@ const messages = {
       "如果現在離開或重新載入，可能會遺失尚未儲存的變更。確定要退出嗎？",
     keepEditing: "繼續編輯",
     leaveWithoutSaving: "不儲存並退出",
+    editorMarkupNotSaved: "此編輯未儲存，因為它會在投影片中加入編輯器標記。",
+    textEditConflictNotSaved:
+      "你的文字編輯未儲存，因為同一段文字同時在其他地方被變更。",
   },
   designSystemSetup: {
     importedBrand: "匯入的品牌",

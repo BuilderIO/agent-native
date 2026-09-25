@@ -1391,8 +1391,7 @@ Options:
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier
   --describe <text>             With migrate, describe URL/prose-only sources
-  --preset <name>               Workspace deploy preset:
-                                cloudflare_pages (default), netlify, or vercel
+  --preset <name>               Workspace deploy preset: netlify (default) or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background

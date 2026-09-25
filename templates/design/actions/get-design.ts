@@ -127,6 +127,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
+      liveCollaborationEnabled: row.liveCollaborationEnabled === true,
       designSystem,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
