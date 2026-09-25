@@ -28,6 +28,12 @@ export const IPC = {
 
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
+  /** OAuth popup closed in the main process (main → originating webview) */
+  OAUTH_POPUP_CLOSED: "oauth:popup:closed",
+  /** Close an OAuth popup opened by this webview for the given attempt */
+  OAUTH_POPUP_CANCEL: "oauth:popup:cancel",
+  /** System-browser OAuth returned focus to the app (main → originating webview) */
+  OAUTH_SYSTEM_BROWSER_RETURNED: "oauth:system-browser:returned",
 
   /** Desktop workspace identity (renderer intent/status only; no secrets) */
   IDENTITY_STATUS_GET: "identity:status:get",

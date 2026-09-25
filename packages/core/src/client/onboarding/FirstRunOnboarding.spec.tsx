@@ -220,6 +220,49 @@ describe("FirstRunOnboarding", () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
+  it("lets users cancel a direct Builder connect during first run", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-create-account']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const cancelButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-cancel-builder']",
+    );
+    expect(cancelButton?.textContent).toBe("Cancel");
+    act(() => cancelButton?.click());
+    expect(flow.cancel).toHaveBeenCalledOnce();
+  });
+
   it("creates a Builder account from the primary button and shows its loading state", () => {
     const flow = {
       hasFetchedStatus: true,

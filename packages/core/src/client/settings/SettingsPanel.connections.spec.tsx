@@ -4,13 +4,30 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WORKSPACE_SETTINGS_SECTIONS } from "./agent-settings-search.js";
 import {
   AgentSettingsContent,
   ConnectionsSettingsContent,
 } from "./SettingsPanel.js";
+
+const chatgptLab = vi.hoisted(() => ({ enabled: false }));
+const callActionMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../labs/use-lab.js", () => ({
+  useLabState: () => ({
+    enabled: chatgptLab.enabled,
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+  }),
+}));
+
+vi.mock("../use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-action.js")>()),
+  callAction: (...args: unknown[]) => callActionMock(...args),
+}));
 
 // The integrations panel that owns the Builder row is behind
 // `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
@@ -26,9 +43,21 @@ async function flushLazyImport(isReady: () => boolean) {
 }
 
 describe("ConnectionsSettingsContent", () => {
+  beforeEach(() => {
+    chatgptLab.enabled = false;
+    callActionMock.mockImplementation((actionName: string) =>
+      actionName === "get-chatgpt-subscription-status"
+        ? Promise.resolve({ connected: false, reconnectRequired: false })
+        : Promise.resolve({ engines: [], current: { engine: "anthropic" } }),
+    );
+  });
+
   afterEach(() => {
+    chatgptLab.enabled = false;
+    callActionMock.mockReset();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.useRealTimers();
     document.body.innerHTML = "";
   });
 
@@ -361,5 +390,71 @@ describe("ConnectionsSettingsContent", () => {
     act(() => root.unmount());
     delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
       .__AGENT_NATIVE_CONFIG__;
+  });
+
+  it("stops waiting after the ChatGPT subscription popup is cancelled", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    chatgptLab.enabled = true;
+    callActionMock.mockImplementation((actionName: string) =>
+      actionName === "get-chatgpt-subscription-status"
+        ? Promise.resolve({ connected: false, reconnectRequired: false })
+        : Promise.resolve({
+            engines: [],
+            current: { engine: "anthropic", model: "" },
+          }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}")),
+    );
+
+    const popup = { closed: false } as Window;
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Connect ChatGPT");
+    });
+    const connectButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "Connect ChatGPT");
+    expect(connectButton).toBeDefined();
+    vi.useFakeTimers();
+    await act(async () => {
+      connectButton?.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Connecting…");
+
+    popup.closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(container.textContent).not.toContain("Connecting…");
+    expect(
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.trim() === "Connect ChatGPT",
+      )?.disabled,
+    ).toBe(false);
+
+    act(() => root.unmount());
   });
 });
