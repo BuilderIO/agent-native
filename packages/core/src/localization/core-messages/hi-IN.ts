@@ -878,6 +878,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.retry": "फिर से कोशिश करें",
   "settings.storage.adminOnly":
     "सिर्फ़ संगठन के मालिक और एडमिन फ़ाइल स्टोरेज बदल सकते हैं।",
+  "accountMenu.label": "खाता",
+  "accountMenu.loading": "खाता लोड हो रहा है",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, डेमो मोड",
+  "accountMenu.personal": "व्यक्तिगत",
+  "accountMenu.demoMode": "डेमो मोड",
+  "accountMenu.demoModeOn": "डेमो मोड चालू है",
+  "accountMenu.demoModeDescription":
+    "दिखाए गए ईमेल और समर्थित चार्ट प्रस्तुतियों के लिए समायोजित किए जाते हैं। आपका खाता और अनुमतियाँ नहीं बदलतीं।",
+  "accountMenu.turnOffDemoMode": "डेमो मोड बंद करें",
+  "accountMenu.invitations": "आमंत्रण",
+  "accountMenu.joinYourTeam": "अपनी टीम से जुड़ें",
+  "accountMenu.join": "जुड़ें",
+  "accountMenu.yourWorkspace": "आपका वर्कस्पेस",
+  "accountMenu.createOrganization": "संगठन बनाएँ",
+  "accountMenu.organizationName": "संगठन का नाम",
+  "accountMenu.create": "बनाएँ",
+  "accountMenu.usage": "उपयोग",
+  "accountMenu.getApps": "ऐप्स और एक्सटेंशन पाएँ",
+  "accountMenu.back": "वापस",
 };
 
 export default messages;

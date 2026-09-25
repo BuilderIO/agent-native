@@ -913,6 +913,27 @@ const messages: AgentChatTranslation = {
   "settings.storage.retry": "إعادة المحاولة",
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
+  "accountMenu.label": "الحساب",
+  "accountMenu.loading": "جارٍ تحميل الحساب",
+  "accountMenu.triggerLabel": "{{name}}، {{organization}}",
+  "accountMenu.triggerLabelDemo":
+    "{{name}}، {{organization}}، وضع العرض التوضيحي",
+  "accountMenu.personal": "شخصي",
+  "accountMenu.demoMode": "وضع العرض التوضيحي",
+  "accountMenu.demoModeOn": "وضع العرض التوضيحي مفعّل",
+  "accountMenu.demoModeDescription":
+    "يتم تعديل عناوين البريد الإلكتروني المعروضة والمخططات المدعومة للعروض التقديمية. لا يتغير حسابك ولا أذوناتك.",
+  "accountMenu.turnOffDemoMode": "إيقاف وضع العرض التوضيحي",
+  "accountMenu.invitations": "الدعوات",
+  "accountMenu.joinYourTeam": "انضم إلى فريقك",
+  "accountMenu.join": "انضمام",
+  "accountMenu.yourWorkspace": "مساحة عملك",
+  "accountMenu.createOrganization": "إنشاء مؤسسة",
+  "accountMenu.organizationName": "اسم المؤسسة",
+  "accountMenu.create": "إنشاء",
+  "accountMenu.usage": "الاستخدام",
+  "accountMenu.getApps": "الحصول على التطبيقات والإضافات",
+  "accountMenu.back": "رجوع",
 };
 
 export default messages;

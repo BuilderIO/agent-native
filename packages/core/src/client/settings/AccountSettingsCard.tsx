@@ -22,7 +22,6 @@ import {
   IconExternalLink,
   IconLock,
   IconShieldLock,
-  IconLogout,
   IconPencil,
   IconShieldCheck,
   IconTrash,
@@ -52,7 +51,6 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { signOut } from "../sign-out.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useSession } from "../use-session.js";
@@ -1053,22 +1051,6 @@ export function AccountSettingsForm({
       <TwoFactorSettings />
       <PasswordSettings />
       {email && <PrivacySettings />}
-      <SettingsRow
-        id="sign-out"
-        label={t("agentChat.auth.logOut")}
-        icon={<IconLogout className="size-4" />}
-        control={
-          <ActionButton
-            type="button"
-            intent="danger"
-            emphasis="outline"
-            size="compact"
-            onPress={() => void signOut()}
-          >
-            {t("agentChat.auth.logOut")}
-          </ActionButton>
-        }
-      />
     </SettingsGroup>
   );
 }

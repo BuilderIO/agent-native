@@ -947,6 +947,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.retry": "Erneut versuchen",
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
+  "accountMenu.label": "Konto",
+  "accountMenu.loading": "Konto wird geladen",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, Demo-Modus",
+  "accountMenu.personal": "Persönlich",
+  "accountMenu.demoMode": "Demo-Modus",
+  "accountMenu.demoModeOn": "Demo-Modus ist aktiv",
+  "accountMenu.demoModeDescription":
+    "Angezeigte E-Mail-Adressen und unterstützte Diagramme werden für Präsentationen angepasst. Dein Konto und deine Berechtigungen bleiben unverändert.",
+  "accountMenu.turnOffDemoMode": "Demo-Modus ausschalten",
+  "accountMenu.invitations": "Einladungen",
+  "accountMenu.joinYourTeam": "Deinem Team beitreten",
+  "accountMenu.join": "Beitreten",
+  "accountMenu.yourWorkspace": "Dein Workspace",
+  "accountMenu.createOrganization": "Organisation erstellen",
+  "accountMenu.organizationName": "Name der Organisation",
+  "accountMenu.create": "Erstellen",
+  "accountMenu.usage": "Nutzung",
+  "accountMenu.getApps": "Apps und Erweiterungen holen",
+  "accountMenu.back": "Zurück",
 };
 
 export default messages;

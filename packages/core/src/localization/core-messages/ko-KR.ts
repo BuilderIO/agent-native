@@ -885,6 +885,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.retry": "다시 시도",
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
+  "accountMenu.label": "계정",
+  "accountMenu.loading": "계정을 불러오는 중",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, 데모 모드",
+  "accountMenu.personal": "개인",
+  "accountMenu.demoMode": "데모 모드",
+  "accountMenu.demoModeOn": "데모 모드가 켜져 있습니다",
+  "accountMenu.demoModeDescription":
+    "표시되는 이메일과 지원되는 차트가 프레젠테이션에 맞게 조정됩니다. 계정과 권한은 변경되지 않습니다.",
+  "accountMenu.turnOffDemoMode": "데모 모드 끄기",
+  "accountMenu.invitations": "초대",
+  "accountMenu.joinYourTeam": "팀에 참여",
+  "accountMenu.join": "참여",
+  "accountMenu.yourWorkspace": "내 워크스페이스",
+  "accountMenu.createOrganization": "조직 만들기",
+  "accountMenu.organizationName": "조직 이름",
+  "accountMenu.create": "만들기",
+  "accountMenu.usage": "사용량",
+  "accountMenu.getApps": "앱 및 확장 프로그램 받기",
+  "accountMenu.back": "뒤로",
 };
 
 export default messages;

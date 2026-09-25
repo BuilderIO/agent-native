@@ -845,6 +845,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.loadFailed": "无法加载文件存储设置。",
   "settings.storage.retry": "重试",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
+  "accountMenu.label": "账户",
+  "accountMenu.loading": "正在加载账户",
+  "accountMenu.triggerLabel": "{{name}}，{{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}，{{organization}}，演示模式",
+  "accountMenu.personal": "个人",
+  "accountMenu.demoMode": "演示模式",
+  "accountMenu.demoModeOn": "演示模式已开启",
+  "accountMenu.demoModeDescription":
+    "显示的电子邮件和支持的图表已针对演示进行调整。你的账户和权限保持不变。",
+  "accountMenu.turnOffDemoMode": "关闭演示模式",
+  "accountMenu.invitations": "邀请",
+  "accountMenu.joinYourTeam": "加入你的团队",
+  "accountMenu.join": "加入",
+  "accountMenu.yourWorkspace": "你的工作区",
+  "accountMenu.createOrganization": "创建组织",
+  "accountMenu.organizationName": "组织名称",
+  "accountMenu.create": "创建",
+  "accountMenu.usage": "用量",
+  "accountMenu.getApps": "获取应用和扩展",
+  "accountMenu.back": "返回",
 };
 
 export default messages;

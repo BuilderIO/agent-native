@@ -816,7 +816,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   ? "!size-9 !p-0 [&>svg]:!size-4"
                   : "min-w-0 flex-1",
               )}
-              settingsPath="/settings/organization"
               currentAppId="clips"
               utilityLinks={workspaceUtilityLinks}
             />

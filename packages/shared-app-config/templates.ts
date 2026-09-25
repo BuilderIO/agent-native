@@ -22,11 +22,11 @@ export interface TemplateMeta {
   description?: string;
   /**
    * Internal icon-alias key (NOT a raw @tabler/icons-react export name).
-   * Resolved to a Tabler icon by the ICON_MAP in
-   * packages/desktop-app/src/renderer/components/CodeAgentsAppIcon.tsx (and the parallel
-   * maps in packages/core/src/client/org/OrgSwitcher.tsx and the mobile
-   * AppCard). Unmapped keys fall back to a generic icon (IconStack2), so when
-   * adding a template you must add a mapping in those ICON_MAP(s) too.
+   * Resolved to a Tabler icon by `APP_ICON_MAP` in
+   * packages/desktop-app/src/renderer/components/CodeAgentsAppIcon.tsx and by
+   * `ICON_MAP` in packages/mobile-app/components/AppCard.tsx. Unmapped keys
+   * fall back to a generic icon (IconStack2), so when adding a template you
+   * must add a mapping in both maps too.
    */
   icon: string;
   /** Hex accent color */

@@ -849,6 +849,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.loadFailed": "無法載入檔案儲存空間設定。",
   "settings.storage.retry": "重試",
   "settings.storage.adminOnly": "只有組織擁有者和管理員可以變更檔案儲存空間。",
+  "accountMenu.label": "帳戶",
+  "accountMenu.loading": "正在載入帳戶",
+  "accountMenu.triggerLabel": "{{name}}，{{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}，{{organization}}，示範模式",
+  "accountMenu.personal": "個人",
+  "accountMenu.demoMode": "示範模式",
+  "accountMenu.demoModeOn": "示範模式已開啟",
+  "accountMenu.demoModeDescription":
+    "顯示的電子郵件和支援的圖表已針對簡報調整。你的帳戶和權限不會改變。",
+  "accountMenu.turnOffDemoMode": "關閉示範模式",
+  "accountMenu.invitations": "邀請",
+  "accountMenu.joinYourTeam": "加入你的團隊",
+  "accountMenu.join": "加入",
+  "accountMenu.yourWorkspace": "你的工作區",
+  "accountMenu.createOrganization": "建立組織",
+  "accountMenu.organizationName": "組織名稱",
+  "accountMenu.create": "建立",
+  "accountMenu.usage": "用量",
+  "accountMenu.getApps": "取得應用程式和擴充功能",
+  "accountMenu.back": "返回",
 };
 
 export default messages;

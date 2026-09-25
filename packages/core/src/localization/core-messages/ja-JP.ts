@@ -906,6 +906,26 @@ const messages: AgentChatTranslation = {
   "settings.storage.retry": "再試行",
   "settings.storage.adminOnly":
     "ファイルストレージを変更できるのは組織のオーナーと管理者だけです。",
+  "accountMenu.label": "アカウント",
+  "accountMenu.loading": "アカウントを読み込み中",
+  "accountMenu.triggerLabel": "{{name}}、{{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}、{{organization}}、デモモード",
+  "accountMenu.personal": "個人",
+  "accountMenu.demoMode": "デモモード",
+  "accountMenu.demoModeOn": "デモモードがオンです",
+  "accountMenu.demoModeDescription":
+    "表示されるメールアドレスと対応するグラフはプレゼンテーション用に調整されます。アカウントと権限は変わりません。",
+  "accountMenu.turnOffDemoMode": "デモモードをオフにする",
+  "accountMenu.invitations": "招待",
+  "accountMenu.joinYourTeam": "チームに参加",
+  "accountMenu.join": "参加",
+  "accountMenu.yourWorkspace": "あなたのワークスペース",
+  "accountMenu.createOrganization": "組織を作成",
+  "accountMenu.organizationName": "組織名",
+  "accountMenu.create": "作成",
+  "accountMenu.usage": "使用状況",
+  "accountMenu.getApps": "アプリと拡張機能を入手",
+  "accountMenu.back": "戻る",
 };
 
 export default messages;

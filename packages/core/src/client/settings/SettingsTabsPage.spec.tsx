@@ -136,7 +136,7 @@ describe("SettingsTabsPage", () => {
     ).toBe(true);
   });
 
-  it("finds the account tab for sign-out aliases and localized labels", async () => {
+  it("finds the account tab by profile terms but not by Log out, which lives in the account menu", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -153,7 +153,7 @@ describe("SettingsTabsPage", () => {
     );
     expect(searchInput).not.toBeNull();
 
-    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
+    const search = async (term: string) => {
       await act(async () => {
         const valueSetter = Object.getOwnPropertyDescriptor(
           HTMLInputElement.prototype,
@@ -162,9 +162,12 @@ describe("SettingsTabsPage", () => {
         valueSetter?.call(searchInput, term);
         searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      expect(
-        container.querySelector('[role="listbox"]')?.textContent,
-      ).toContain("Account");
+      return container.querySelector('[role="listbox"]')?.textContent ?? "";
+    };
+
+    expect(await search("avatar")).toContain("Account");
+    for (const term of [...SIGN_OUT_SEARCH_TERMS, "Cerrar sesión"]) {
+      expect(await search(term)).not.toContain("Account");
     }
   });
 

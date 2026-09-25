@@ -892,6 +892,26 @@ const messages = {
   "settings.storage.retry": "Retry",
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
+  "accountMenu.label": "Account",
+  "accountMenu.loading": "Loading account",
+  "accountMenu.triggerLabel": "{{name}}, {{organization}}",
+  "accountMenu.triggerLabelDemo": "{{name}}, {{organization}}, Demo mode",
+  "accountMenu.personal": "Personal",
+  "accountMenu.demoMode": "Demo mode",
+  "accountMenu.demoModeOn": "Demo mode is on",
+  "accountMenu.demoModeDescription":
+    "Displayed emails and supported charts are adjusted for presentations. Your account and permissions are unchanged.",
+  "accountMenu.turnOffDemoMode": "Turn off demo mode",
+  "accountMenu.invitations": "Invitations",
+  "accountMenu.joinYourTeam": "Join your team",
+  "accountMenu.join": "Join",
+  "accountMenu.yourWorkspace": "Your workspace",
+  "accountMenu.createOrganization": "Create organization",
+  "accountMenu.organizationName": "Organization name",
+  "accountMenu.create": "Create",
+  "accountMenu.usage": "Usage",
+  "accountMenu.getApps": "Get apps and extensions",
+  "accountMenu.back": "Back",
 } as const;
 
 export default messages;

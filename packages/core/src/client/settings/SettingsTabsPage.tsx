@@ -29,7 +29,6 @@ import {
 } from "../../navigation/index.js";
 import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
-import { SIGN_OUT_SEARCH_TERMS } from "../sign-out.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -386,11 +385,7 @@ function SettingsTabsPageContent({
         label: accountLabel,
         icon: IconUserCircle,
         content: account,
-        keywords: [
-          "profile photo avatar identity signed in email name",
-          ...SIGN_OUT_SEARCH_TERMS,
-          t("agentChat.auth.logOut"),
-        ].join(" "),
+        keywords: "profile photo avatar identity signed in email name",
       });
     }
     next.push(...inlineTabs);

@@ -133,6 +133,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("searchButton");
     expect(layoutSource).not.toContain("IconSearch");
     expect(layoutSource).toContain('currentAppId="clips"');
+    expect(layoutSource).not.toContain("settingsPath=");
     expect(layoutSource).toContain("utilityLinks={workspaceUtilityLinks}");
     expect(layoutSource).toContain('id: "chrome-extension"');
     expect(layoutSource).toContain('id: "desktop-app"');

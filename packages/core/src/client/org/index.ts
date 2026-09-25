@@ -63,7 +63,10 @@ export type {
 export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
 export {
+  AccountMenu,
   OrgSwitcher,
+  type AccountMenuProps,
+  type AccountMenuUtilityLink,
   type OrgSwitcherProps,
   type OrgSwitcherUtilityLink,
 } from "./OrgSwitcher.js";
