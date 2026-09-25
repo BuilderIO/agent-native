@@ -315,13 +315,87 @@ function setOwnDecorationLine(element: HTMLElement, line: string, on: boolean) {
   );
 }
 
-function containsOnlySelectedText(element: HTMLElement, selected: Set<Node>) {
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = node as Text;
-    if (!selected.has(text) && text.data && isStylableText(text)) return false;
+/** Stops `element` drawing `line`, writing `none` only when a rule would still draw it. */
+function clearOwnDecorationLine(element: HTMLElement, line: string) {
+  const lines = new Set(ownDecorationLines(element));
+  lines.delete(line);
+  const rest = lines.size ? [...lines].join(" ") : "none";
+  // Its own `text-decoration` shorthand stays one declaration.
+  if (element.style.getPropertyValue("text-decoration")) {
+    element.style.setProperty("text-decoration-line", rest);
+    return;
   }
-  return true;
+  element.style.removeProperty("text-decoration-line");
+  const drawn = ownDecorationLines(element);
+  if (
+    drawn.length !== lines.size ||
+    drawn.some((drawnLine) => !lines.has(drawnLine))
+  ) {
+    element.style.setProperty("text-decoration-line", rest);
+  }
+  if (element.style.length === 0) element.removeAttribute("style");
+}
+
+const DECORATION_LOOK = [
+  "text-decoration-color",
+  "text-decoration-style",
+  "text-decoration-thickness",
+] as const;
+
+/**
+ * Removes `line` from the selected runs. A line is drawn over all the text
+ * of the element declaring it and nothing inside can cancel it, so every
+ * element drawing it over the selection stops, and each unselected run those
+ * elements covered draws it again with the look it had.
+ */
+function removeDecorationLine(
+  editable: HTMLElement,
+  texts: Text[],
+  format: "underline" | "strike",
+) {
+  const line = DECORATION_LINE[format];
+  const selected = new Set<Node>(texts);
+  const drawing = new Set<HTMLElement>();
+  for (const text of texts) {
+    for (
+      let ancestor = text.parentElement;
+      ancestor && editable.contains(ancestor);
+      ancestor = ancestor.parentElement
+    ) {
+      if (ownDecorationLines(ancestor).includes(line)) drawing.add(ancestor);
+    }
+  }
+  const redraw: [Text, [string, string][]][] = [];
+  for (const element of drawing) {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      if (selected.has(text) || !text.data || !isStylableText(text)) continue;
+      let source = text.parentElement!;
+      while (!drawing.has(source)) source = source.parentElement!;
+      if (source !== element) continue;
+      const computed = window.getComputedStyle(source);
+      redraw.push([
+        text,
+        DECORATION_LOOK.map((property) => [
+          property,
+          computed.getPropertyValue(property),
+        ]),
+      ]);
+    }
+  }
+  for (const element of drawing) clearOwnDecorationLine(element, line);
+  for (const [text, look] of redraw) {
+    if (isFormatActive(text, format, editable)) continue;
+    const span = innermostStyleSpan(text);
+    setOwnDecorationLine(span, line, true);
+    const computed = window.getComputedStyle(span);
+    for (const [property, value] of look) {
+      if (value && computed.getPropertyValue(property) !== value) {
+        span.style.setProperty(property, value);
+      }
+    }
+  }
 }
 
 const FORMAT_DECLARATION = {
@@ -334,9 +408,9 @@ const FORMAT_DECLARATION = {
  * own declaration is dropped first and the explicit value (700/400,
  * italic/normal) is written only when what it inherits differs, so bold on
  * then off leaves no markup, while un-bolding a heading made bold by its class
- * still works without touching the class. A line drawn by an author ancestor
- * can only be switched off on that ancestor when all of its text is selected;
- * a partly selected ancestor would have to be split.
+ * still works without touching the class. A line is switched off where it is
+ * drawn, on the author element itself (see `removeDecorationLine`), never by
+ * splitting that element.
  */
 export function toggleInlineTextFormat(
   editable: HTMLElement,
@@ -345,33 +419,28 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
-    const selected = new Set<Node>(texts);
+    if (format === "underline" || format === "strike") {
+      if (!on) {
+        removeDecorationLine(editable, texts, format);
+        return;
+      }
+      for (const text of texts) {
+        setOwnDecorationLine(
+          innermostStyleSpan(text),
+          DECORATION_LINE[format],
+          true,
+        );
+      }
+      return;
+    }
+    const [property, onValue, offValue] = FORMAT_DECLARATION[format];
     for (const text of texts) {
       const span = innermostStyleSpan(text);
-      if (format === "bold" || format === "italic") {
-        const [property, onValue, offValue] = FORMAT_DECLARATION[format];
-        span.style.removeProperty(property);
-        if (isFormatActive(text, format, editable) !== on) {
-          span.style.setProperty(property, on ? onValue : offValue);
-        }
-        if (span.style.length === 0) span.removeAttribute("style");
-        continue;
+      span.style.removeProperty(property);
+      if (isFormatActive(text, format, editable) !== on) {
+        span.style.setProperty(property, on ? onValue : offValue);
       }
-      const line = DECORATION_LINE[format];
-      setOwnDecorationLine(span, line, on);
-      if (on) continue;
-      for (
-        let ancestor = span.parentElement;
-        ancestor && editable.contains(ancestor);
-        ancestor = ancestor.parentElement
-      ) {
-        if (
-          ownDecorationLines(ancestor).includes(line) &&
-          containsOnlySelectedText(ancestor, selected)
-        ) {
-          setOwnDecorationLine(ancestor, line, false);
-        }
-      }
+      if (span.style.length === 0) span.removeAttribute("style");
     }
   });
 }
