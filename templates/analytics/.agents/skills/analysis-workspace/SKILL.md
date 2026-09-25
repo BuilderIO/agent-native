@@ -92,6 +92,16 @@ Inside `run-code`, use the workspace helper functions:
   download must appear in chat; do not answer with only a path or navigation
   instructions.
 
+## CSV and XLSX Exports
+
+- For a compact result, use `query-agent-native-analytics` and its Download
+  CSV control. For a durable CSV, use `run-code` with `workspaceWrite` in a
+  normal Resources folder, then call `show-workspace-file` with that path. If
+  `run-code` is not available, discover it once with tool search.
+- For an explicit `.xlsx` request, call `docs-search` once for `xlsx export`
+  and follow the returned workflow. The QuickJS `run-code` sandbox has no Node
+  imports; do not try to load `xlsx` or `exceljs` there.
+
 ## Chunked Batch Analysis (30+ items)
 
 For large fan-outs (account deep dives, Gong call reviews, deal cohorts):

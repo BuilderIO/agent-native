@@ -17,8 +17,8 @@ Read the relevant skill before deeper work:
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
   mutation and sharing.
-- `adhoc-analysis` and `analysis-workspace` for one-off answers and large
-  multi-source work.
+- `adhoc-analysis` for one-off answers; `analysis-workspace` for large work and
+  CSV/XLSX exports.
 - `provider-api` and `data-programs` for the escape hatch and durable,
   refreshable data sources.
 - `creative-context` for governed contexts and immutable dashboard revisions.
@@ -26,13 +26,13 @@ Read the relevant skill before deeper work:
 
 ## How To Answer A Data Question
 
-1. **Search existing work first.** For a metric question, call
-   `search-analytics-query-catalog`; for dashboard replication or adaptation,
-   call `search-dashboard-references` first. Inspect each returned reference
-   with `get-sql-dashboard` or `get-explorer-dashboard` by its `kind`; a match
-   is context, not authoritative source data. Then adapt the closest saved SQL
-   to the requested filters/window, run it once, and stop. Prefer a current
-   `certified` dashboard result; a dashboard starred by you is a weaker
+1. **Use the closest query example.** For a metric question, adapt a relevant
+   preloaded reference; if none fits, call `search-analytics-query-catalog`.
+   For dashboard replication or adaptation, call `search-dashboard-references`
+   first and inspect each result with `get-sql-dashboard` or
+   `get-explorer-dashboard` by its `kind`. A match is context, not live data.
+   Adapt the closest saved SQL to the requested filters/window, run it once,
+   and stop. Prefer a current `certified` dashboard; a favorite is a weaker
    relevance signal. Certification becomes stale after a dashboard edit.
 2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
    or one server-side `run-code` script; never page or fan out per item.
@@ -66,9 +66,8 @@ certified ones); label figures "Unverified" when no live query ran.
   absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
   or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
   provider and hosted-endpoint boundaries.
-- Create dashboards, panels, or saved artifacts only when explicitly asked;
-  suggest and wait otherwise. Scope them to the question, avoid decorative
-  metrics, and never modify existing dashboards without a directive.
+- Create dashboards or saved artifacts only when asked; keep them focused and
+  never modify existing dashboards without direction.
 - For named account/deal deep dives, call `account-deep-dive` first.
 - For named account health, read `account-health` before querying.
 - When the user challenges coverage or asks why records are missing, rerun from
@@ -84,16 +83,6 @@ certified ones); label figures "Unverified" when no live query ran.
   allowlisted mutations. Use `ask_app` for interpretation, source selection,
   multi-step work, unavailable actions, or unsupported writes.
 - Reports/alerts use SQL actions; cap at five recipients.
-
-## Actions
-
-| Action | Use |
-| --- | --- |
-| `search-analytics-query-catalog` | Search saved metric examples first. |
-| `search-dashboard-references` | Find dashboards to replicate. |
-| `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
-| `certify-dashboard` | Admin-only approval of its current version. |
-| DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
 
 ## Application State
 

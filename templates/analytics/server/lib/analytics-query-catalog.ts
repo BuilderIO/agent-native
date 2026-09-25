@@ -118,6 +118,14 @@ export type AnalyticsQueryCatalogCandidate =
       columnsUsed?: string;
       queryTemplate?: string;
       knownGotchas?: string;
+      commonQuestions?: string;
+      cuts?: string;
+      joinPattern?: string;
+      updateFrequency?: string;
+      dataLag?: string;
+      dependencies?: string;
+      validDateRange?: string;
+      owner?: string;
       approved?: boolean;
       aiGenerated?: boolean;
       sourceUrl?: string;
@@ -452,8 +460,18 @@ function dictionaryCandidates(
   entries: DictionaryEntry[],
   search: string,
 ): AnalyticsQueryCatalogCandidate[] {
+  const hasHumanOrApprovedEntries = entries.some(
+    (entry) => entry.approved === true || entry.aiGenerated !== true,
+  );
   return entries.flatMap((entry) => {
-    if (isRetiredCatalogReference(entry)) return [];
+    if (
+      isRetiredCatalogReference(entry) ||
+      (hasHumanOrApprovedEntries &&
+        entry.aiGenerated === true &&
+        entry.approved !== true)
+    ) {
+      return [];
+    }
     const { score, matchedTerms } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },
@@ -493,6 +511,24 @@ function dictionaryCandidates(
         ...(text(entry.knownGotchas)
           ? { knownGotchas: text(entry.knownGotchas) }
           : {}),
+        ...(text(entry.commonQuestions)
+          ? { commonQuestions: text(entry.commonQuestions) }
+          : {}),
+        ...(text(entry.cuts) ? { cuts: text(entry.cuts) } : {}),
+        ...(text(entry.joinPattern)
+          ? { joinPattern: text(entry.joinPattern) }
+          : {}),
+        ...(text(entry.updateFrequency)
+          ? { updateFrequency: text(entry.updateFrequency) }
+          : {}),
+        ...(text(entry.dataLag) ? { dataLag: text(entry.dataLag) } : {}),
+        ...(text(entry.dependencies)
+          ? { dependencies: text(entry.dependencies) }
+          : {}),
+        ...(text(entry.validDateRange)
+          ? { validDateRange: text(entry.validDateRange) }
+          : {}),
+        ...(text(entry.owner) ? { owner: text(entry.owner) } : {}),
         ...(typeof entry.approved === "boolean"
           ? { approved: entry.approved }
           : {}),
@@ -641,32 +677,19 @@ export async function searchAnalyticsQueryCatalog(args: {
   orgId: string | null;
   limit: number;
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedSummariesResult, dictionaryEntriesResult, favoriteIdsResult] =
-    await Promise.allSettled([
-      listDashboardSummaries(
-        { email: args.email, orgId: args.orgId },
-        {
-          kind: "sql",
-          archived: "active",
-          hidden: "visible",
-          includeCatalogMetadata: true,
-        },
-      ),
-      listDictionaryEntries({ email: args.email, orgId: args.orgId }),
-      listFavoriteDashboardIds(args.email),
-    ]);
-  const favoriteIds =
-    favoriteIdsResult.status === "fulfilled"
-      ? favoriteIdsResult.value
-      : new Set<string>();
-  const savedSummaries =
-    savedSummariesResult.status === "fulfilled"
-      ? savedSummariesResult.value
-      : [];
-  const dictionaryEntries =
-    dictionaryEntriesResult.status === "fulfilled"
-      ? dictionaryEntriesResult.value
-      : [];
+  const [savedSummaries, dictionaryEntries, favoriteIds] = await Promise.all([
+    listDashboardSummaries(
+      { email: args.email, orgId: args.orgId },
+      {
+        kind: "sql",
+        archived: "active",
+        hidden: "visible",
+        includeCatalogMetadata: true,
+      },
+    ),
+    listDictionaryEntries({ email: args.email, orgId: args.orgId }),
+    listFavoriteDashboardIds(args.email),
+  ]);
   const savedSummaryIds = new Set(
     savedSummaries.map((dashboard) => dashboard.id),
   );

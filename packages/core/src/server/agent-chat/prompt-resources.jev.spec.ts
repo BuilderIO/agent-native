@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rankJevCandidates: vi.fn(),
+  track: vi.fn(),
   loadAgentsBundle: vi.fn(),
   getRuntimeSkills: vi.fn(),
   requestOrgId: vi.fn(() => null),
@@ -9,10 +10,18 @@ const mocks = vi.hoisted(() => ({
   resourceGetByPath: vi.fn(),
   resourceList: vi.fn(),
   resourceListAccessible: vi.fn(),
+  requestRunContext: vi.fn((): Record<string, unknown> | null => null),
 }));
 
 vi.mock("../../agent/jev-tool-prefetch.js", () => ({
   rankJevCandidates: (...args: unknown[]) => mocks.rankJevCandidates(...args),
+  rankJevCandidatesWithStatus: async (...args: unknown[]) => {
+    const ids = (await mocks.rankJevCandidates(...args)) as string[];
+    return {
+      status: ids.length > 0 ? "selected" : "no-match",
+      ids,
+    };
+  },
 }));
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
@@ -38,11 +47,13 @@ vi.mock("../../resources/store.js", () => ({
 vi.mock("../../framework-tools.js", () => ({
   frameworkGroupEnabled: () => true,
 }));
+vi.mock("../../tracking/registry.js", () => ({ track: mocks.track }));
 vi.mock("../agent-discovery.js", () => ({
   discoverAgents: vi.fn(async () => []),
 }));
 vi.mock("../request-context.js", () => ({
   getRequestOrgId: () => mocks.requestOrgId(),
+  getRequestRunContext: () => mocks.requestRunContext(),
 }));
 
 import {
@@ -69,6 +80,7 @@ describe("preloadJevContextForPrompt", () => {
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.requestRunContext.mockReturnValue(null);
   });
 
   it("does nothing without a Jev key", async () => {
@@ -97,7 +109,8 @@ describe("preloadJevContextForPrompt", () => {
     expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
       expect.objectContaining({
         request: "draft launch copy",
-        answerKey: "best_context",
+        answerKey: "best_skill",
+        candidateStateKey: "candidate_skill",
         candidates: [
           expect.objectContaining({
             id: "context-0",
@@ -123,8 +136,298 @@ describe("preloadJevContextForPrompt", () => {
       expect.objectContaining({
         apiKey: undefined,
         personalApiKey: "user-jev-key",
+        answerKey: "best_skill",
       }),
     );
+  });
+
+  it("includes RAG fallback references when Jev is not connected", async () => {
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Analytics dictionary entry; retrieval rank 1.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("<resource");
+    expect(result).toContain("Metric: active users");
+    expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+  });
+
+  it("keeps a high-similarity reference when Jev selects only a skill", async () => {
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: { candidateStateKey: string }) =>
+        options.candidateStateKey === "candidate_skill" ? ["context-0"] : [],
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.82" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content:
+            "Metric: active users. Query: SELECT COUNT(DISTINCT user_id).",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("# Launch messaging");
+    expect(result).toContain("Metric: active users");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a high-similarity reference when Jev returns no match", async () => {
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "What is the weather?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "An unrelated Analytics definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.74" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+  });
+
+  it("honors a no-match for references below the similarity floor", async () => {
+    mocks.rankJevCandidates.mockResolvedValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "What is the weather?",
+      apiKey: "jev-test-key",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "An unrelated Analytics definition.",
+          metadata: { kind: "analytics-reference", similarity: "0.1" },
+          name: "Unrelated definition",
+          scope: "analytics-catalog",
+          content: "Metric: unrelated.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toBe("");
+  });
+
+  it("loads only the selected memory body and ranks its short index summary", async () => {
+    const owner = "user@example.test";
+    const memoryIndex = [
+      "# Memory Index",
+      ...Array.from(
+        { length: 7 },
+        (_, index) =>
+          `- [unrelated-${index}](unrelated-${index}.md) — Unrelated note ${index}.`,
+      ),
+      "- [selected-memory](selected-memory.md) — Prefer the verified Analytics dictionary and BigQuery source dialect.",
+    ].join("\n");
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) =>
+        resourceOwner === owner && path === "memory/MEMORY.md"
+          ? { content: memoryIndex }
+          : resourceOwner === owner && path === "memory/selected-memory.md"
+            ? {
+                content:
+                  "---\ntype: feedback\ndescription: query style\n---\nRead the verified data dictionary, then run the live query.",
+              }
+            : null,
+    );
+    mocks.rankJevCandidates.mockImplementation(
+      async (options: {
+        candidates: Array<{ id: string; description: string }>;
+      }) => {
+        const selected = options.candidates.find((candidate) =>
+          candidate.description.includes("verified Analytics dictionary"),
+        );
+        return selected ? [selected.id] : [];
+      },
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How do we query Analytics data?",
+      apiKey: "jev-test-key",
+      owner,
+      orgId: "org-test",
+      appId: "analytics",
+    });
+
+    expect(result).toContain("Read the verified data dictionary");
+    expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: expect.arrayContaining([
+          expect.objectContaining({
+            id: expect.stringMatching(/^personal-memory-/),
+            description:
+              "Personal memory: Prefer the verified Analytics dictionary and BigQuery source dialect.",
+          }),
+        ]),
+      }),
+    );
+    expect(mocks.rankJevCandidates.mock.calls[0]?.[0]).not.toMatchObject({
+      candidates: expect.arrayContaining([
+        expect.objectContaining({
+          description: expect.stringContaining(
+            "Read the verified data dictionary",
+          ),
+        }),
+      ]),
+    });
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      owner,
+      "memory/MEMORY.md",
+      {
+        orgId: "org-test",
+      },
+    );
+    expect(
+      mocks.resourceGetByPath.mock.calls
+        .map(([, path]) => path)
+        .filter((path) => path !== "memory/MEMORY.md"),
+    ).toEqual(["memory/selected-memory.md"]);
+    const rankedCandidates = mocks.rankJevCandidates.mock.calls.flatMap(
+      ([options]) =>
+        (options as { candidates: Array<{ description: string }> }).candidates,
+    );
+    expect(JSON.stringify(rankedCandidates)).not.toContain(
+      "Read the verified data dictionary",
+    );
+  });
+
+  it.each(["internalContinuation", "dispatchToBackground"] as const)(
+    "skips Jev and memory retrieval for %s",
+    async (flag) => {
+      await expect(
+        preloadJevContextForPrompt({
+          request: "How do we query Analytics data?",
+          apiKey: "jev-test-key",
+          owner: "user@example.test",
+          appId: "analytics",
+          [flag]: true,
+        }),
+      ).resolves.toBe("");
+
+      expect(mocks.resourceGetByPath).not.toHaveBeenCalled();
+      expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    },
+  );
+
+  it("injects Analytics references and records their count in a worker prompt", async () => {
+    const requestRunContext: Record<string, unknown> = {};
+    mocks.requestRunContext.mockReturnValue(requestRunContext);
+    mocks.getRuntimeSkills.mockReturnValue([]);
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      appId: "analytics",
+      dispatchToBackground: false,
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+    expect(requestRunContext.analyticsJevPrefetch).toEqual({
+      preloadedReferenceCount: 1,
+    });
+  });
+
+  it("uses lexical reference fallbacks when Jev outlives the shared budget", async () => {
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.rankJevCandidates.mockImplementation(
+      () => new Promise<string[]>(() => {}),
+    );
+
+    const result = await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      contextPrefetchDeadlineAt: Date.now() + 10,
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          description: "Approved active users definition.",
+          metadata: { kind: "analytics-reference" },
+          name: "Active users",
+          scope: "analytics-catalog",
+          content: "Metric: active users.",
+        },
+      ],
+      fallbackCandidateIds: ["analytics-reference-1"],
+    });
+
+    expect(result).toContain("Metric: active users.");
+  });
+
+  it("records privacy-safe Analytics Jev selection counts", async () => {
+    mocks.rankJevCandidates.mockResolvedValue(["analytics-reference-1"]);
+
+    await preloadJevContextForPrompt({
+      request: "How many active users last month?",
+      apiKey: "jev-test-key",
+      appId: "analytics",
+      candidates: [
+        {
+          id: "analytics-reference-1",
+          kind: "analytics-reference",
+          description: "A private metric label",
+          metadata: { kind: "analytics-reference" },
+          name: "Private dashboard name",
+          scope: "analytics-catalog",
+          content: "Private SQL body",
+        },
+      ],
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.track).toHaveBeenCalledWith(
+        "jev_context_prefetch",
+        expect.objectContaining({
+          jev_configured: true,
+          jev_status: "selected",
+          selection_source: "jev",
+          candidate_analytics_reference_count: 1,
+          selected_analytics_reference_count: 1,
+        }),
+      ),
+    );
+    const trackedProperties = mocks.track.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(trackedProperties)).not.toContain("Private");
+    expect(JSON.stringify(trackedProperties)).not.toContain("SQL");
   });
 
   it("keeps access-scoped workspace skill metadata out of Jev", async () => {

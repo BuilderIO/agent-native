@@ -6,12 +6,25 @@ import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-header
 import type { EngineTool } from "./engine/types.js";
 import type { ActionEntry, JevContextCredentials } from "./production-agent.js";
 import { searchToolRegistry, TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+  AgentMessage,
+} from "./types.js";
 
 const MAX_JEV_CANDIDATES = 128;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
 const JEV_TIMEOUT_MS = 750;
 const JEV_MODEL = "jev-latest";
+const MAX_JEV_THREAD_CONTEXT_CHARS = 6_000;
+const MAX_JEV_PRIOR_USER_MESSAGES = 4;
+const MAX_JEV_PRIOR_MESSAGE_CHARS = 1_100;
+const MAX_JEV_ASSISTANT_CONTEXT_CHARS = 300;
+const MAX_JEV_CURRENT_MESSAGE_CHARS = 3_600;
+const MAX_RETRIEVAL_CONTEXT_CHARS = 3_600;
+const MAX_RETRIEVAL_PRIOR_USER_MESSAGES = 2;
+const MAX_RETRIEVAL_PRIOR_MESSAGE_CHARS = 900;
 
 type JevChoiceAnswer = {
   choice?: unknown;
@@ -35,6 +48,7 @@ export interface JevRankCandidatesOptions {
   apiKey?: string;
   personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
+  /** IDs, descriptions, and metadata are sent to Jev; callers provide summaries only. */
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
   answerKey: string;
@@ -42,14 +56,151 @@ export interface JevRankCandidatesOptions {
   limit?: number;
 }
 
+export interface JevCandidateRanking {
+  status: "selected" | "no-match" | "unavailable";
+  ids: string[];
+}
+
+function compactJevText(value: string, maxChars: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  const ellipsis = " … ";
+  const startChars = Math.ceil((maxChars - ellipsis.length) * 0.75);
+  return `${text.slice(0, startChars)}${ellipsis}${text.slice(
+    -(maxChars - startChars - ellipsis.length),
+  )}`;
+}
+
+type VisiblePriorMessage = { role: "user" | "assistant"; content: string };
+
+function visiblePriorMessages(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): VisiblePriorMessage[] {
+  const structured = Array.isArray(input.structuredHistory)
+    ? input.structuredHistory.flatMap((message) => {
+        if (
+          !message ||
+          (message.role !== "user" && message.role !== "assistant") ||
+          !Array.isArray(message.content)
+        ) {
+          return [];
+        }
+        const text = message.content
+          .flatMap((part: AgentChatStructuredContentPart) =>
+            part?.type === "text" && typeof part.text === "string"
+              ? [part.text]
+              : [],
+          )
+          .join(" ")
+          .trim();
+        return text ? [{ role: message.role, content: text }] : [];
+      })
+    : [];
+  return structured.length
+    ? structured
+    : (Array.isArray(input.history) ? input.history : []).flatMap((message) =>
+        message &&
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string" &&
+        message.content.trim()
+          ? [{ role: message.role, content: message.content }]
+          : [],
+      );
+}
+
+/** Keep JEV grounded in recent visible conversation, without replaying tools or results. */
+export function buildJevRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): string {
+  const priorMessages = visiblePriorMessages(input);
+  const current = compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS);
+  const currentBlock = `Current request:\n${current}`;
+  let remaining = MAX_JEV_THREAD_CONTEXT_CHARS - currentBlock.length - 40;
+  const recentLines: string[] = [];
+  const priorUsers = priorMessages.filter((message) => message.role === "user");
+  const selectedIndexes = new Set(
+    priorUsers
+      .slice(-MAX_JEV_PRIOR_USER_MESSAGES)
+      .map((message) => priorMessages.indexOf(message)),
+  );
+  const latestAssistantIndex = priorMessages.findLastIndex(
+    (message) => message.role === "assistant",
+  );
+  if (latestAssistantIndex >= 0) selectedIndexes.add(latestAssistantIndex);
+  const selectedMessages = [...selectedIndexes]
+    .sort((a, b) => a - b)
+    .map((index) => priorMessages[index]!);
+  for (const message of selectedMessages.reverse()) {
+    if (remaining < 80) break;
+    const maxChars =
+      message.role === "assistant"
+        ? MAX_JEV_ASSISTANT_CONTEXT_CHARS
+        : MAX_JEV_PRIOR_MESSAGE_CHARS;
+    const content = compactJevText(
+      message.content,
+      Math.min(maxChars, remaining - 16),
+    );
+    const line = `${message.role === "user" ? "User" : "Assistant"}: ${content}`;
+    if (line.length > remaining) break;
+    recentLines.push(line);
+    remaining -= line.length + 1;
+  }
+  const recent = recentLines.reverse();
+  return recent.length
+    ? `Recent conversation:\n${recent.join("\n")}\n\n${currentBlock}`
+    : currentBlock;
+}
+
+/** Current request plus the last two user turns for semantic/catalog retrieval. */
+export function buildRecentUserRequestContext(input: {
+  request: string;
+  history?: readonly AgentMessage[];
+  structuredHistory?: readonly AgentChatStructuredMessage[];
+}): string {
+  const priorUsers = visiblePriorMessages(input)
+    .filter((message) => message.role === "user")
+    .slice(-MAX_RETRIEVAL_PRIOR_USER_MESSAGES);
+  const current = compactJevText(input.request, MAX_JEV_CURRENT_MESSAGE_CHARS);
+  const currentBlock = `Current request:\n${current}`;
+  let remaining = MAX_RETRIEVAL_CONTEXT_CHARS - currentBlock.length - 32;
+  const recentLines: string[] = [];
+  for (const message of priorUsers.reverse()) {
+    if (remaining < 80) break;
+    const content = compactJevText(
+      message.content,
+      Math.min(MAX_RETRIEVAL_PRIOR_MESSAGE_CHARS, remaining - 12),
+    );
+    const line = `User: ${content}`;
+    if (line.length > remaining) break;
+    recentLines.push(line);
+    remaining -= line.length + 1;
+  }
+  const recent = recentLines.reverse();
+  return recent.length
+    ? `Recent user requests:\n${recent.join("\n")}\n\n${currentBlock}`
+    : currentBlock;
+}
+
 /**
- * Rank a bounded metadata-only catalog with Jev. A missing key, malformed
- * response, timeout, or provider failure returns no ranking so callers keep
- * their existing deterministic fallback.
+ * Rank a bounded metadata-only catalog with Jev. Direct keys send bounded
+ * request text and candidate IDs, descriptions, and metadata to a third party;
+ * callers must omit paths, raw bodies, SQL, tool inputs/results, and row data.
+ * A missing key, malformed response, timeout, or provider failure returns no
+ * ranking so callers keep their existing deterministic fallback.
  */
 export async function rankJevCandidates(
   options: JevRankCandidatesOptions,
 ): Promise<string[]> {
+  return (await rankJevCandidatesWithStatus(options)).ids;
+}
+
+export async function rankJevCandidatesWithStatus(
+  options: JevRankCandidatesOptions,
+): Promise<JevCandidateRanking> {
   const request = options.request.trim();
   const apiKey = options.personalApiKey?.trim();
   const builderAuth = options.builderAuth;
@@ -58,11 +209,11 @@ export async function rankJevCandidates(
     (!apiKey && !builderAuth) ||
     options.candidates.length === 0
   ) {
-    return [];
+    return { status: "unavailable", ids: [] };
   }
 
   const candidates = shortlistJevCandidates(request, options.candidates);
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { status: "unavailable", ids: [] };
   const limit = Math.max(
     1,
     Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_PREFETCH_LIMIT),
@@ -107,7 +258,9 @@ export async function rankJevCandidates(
     });
 
     const answer = response.answers?.[options.answerKey];
-    if (answer?.choice === noMatchId) return [];
+    if (answer?.choice === noMatchId) {
+      return { status: "no-match", ids: [] };
+    }
     const probabilities =
       answer?.probabilities && typeof answer.probabilities === "object"
         ? (answer.probabilities as Record<string, unknown>)
@@ -119,7 +272,7 @@ export async function rankJevCandidates(
       noMatchProbability < 0 ||
       noMatchProbability > 1
     ) {
-      return [];
+      return { status: "unavailable", ids: [] };
     }
     for (const candidate of candidates) {
       const probability = probabilities[candidate.id];
@@ -130,10 +283,10 @@ export async function rankJevCandidates(
           probability < 0 ||
           probability > 1)
       ) {
-        return [];
+        return { status: "unavailable", ids: [] };
       }
     }
-    return candidates
+    const ids = candidates
       .filter(
         (candidate) =>
           typeof probabilities[candidate.id] === "number" &&
@@ -148,12 +301,15 @@ export async function rankJevCandidates(
       )
       .map((candidate) => candidate.name)
       .slice(0, limit);
+    return ids.length > 0
+      ? { status: "selected", ids }
+      : { status: "no-match", ids: [] };
   } catch (error) {
     console.warn(
       "[agent] Jev context prefetch unavailable; continuing with the existing context.",
       error instanceof Error ? error.message : "unknown error",
     );
-    return [];
+    return { status: "unavailable", ids: [] };
   }
 }
 
@@ -186,6 +342,8 @@ export function shortlistJevCandidates<T extends JevCandidate>(
 
 export interface JevToolPrefetchOptions {
   request: string;
+  skip?: boolean;
+  deadlineAt?: number;
   apiKey?: string;
   personalApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
@@ -205,6 +363,7 @@ export interface JevToolPrefetchOptions {
 export async function preloadJevTools(
   options: JevToolPrefetchOptions,
 ): Promise<EngineTool[]> {
+  if (options.skip) return options.initialTools;
   const request = options.request.trim();
   const apiKey = options.personalApiKey?.trim();
   const builderAuth = options.builderAuth;
@@ -250,22 +409,36 @@ export async function preloadJevTools(
     1,
     Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_PREFETCH_LIMIT),
   );
-  const selectedNames = await rankJevCandidates({
-    request,
-    apiKey,
-    personalApiKey: options.personalApiKey,
-    candidates: candidates.map((candidate) => ({
-      id: candidate.name,
-      description: candidate.description,
-      metadata: { kind: "tool" },
-    })),
-    candidateStateKey: "candidate_tools",
-    answerKey: "best_tool",
-    builderAuth,
-    question:
-      "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
-    limit: prefetchLimit,
-  });
+  const remaining = Math.min(
+    JEV_TIMEOUT_MS,
+    options.deadlineAt === undefined
+      ? JEV_TIMEOUT_MS
+      : options.deadlineAt - Date.now(),
+  );
+  if (remaining <= 0) return options.initialTools;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const selectedNames = await Promise.race([
+    rankJevCandidates({
+      request,
+      apiKey,
+      personalApiKey: options.personalApiKey,
+      candidates: candidates.map((candidate) => ({
+        id: candidate.name,
+        description: candidate.description,
+        metadata: { kind: "tool" },
+      })),
+      candidateStateKey: "candidate_tools",
+      answerKey: "best_tool",
+      builderAuth,
+      question:
+        "Which tools should be loaded into the agent context first for this task? Pick the most useful tool; probabilities may be used to keep a small ranked shortlist.",
+      limit: prefetchLimit,
+    }),
+    new Promise<string[]>((resolve) => {
+      timeout = setTimeout(() => resolve([]), remaining);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
   return selectedNames.length > 0
     ? prependSelectedTools(options, selectedNames)
     : options.initialTools;

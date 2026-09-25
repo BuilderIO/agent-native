@@ -70,6 +70,12 @@ describe("analytics query catalog", () => {
       action: "hubspot-deals",
       approved: true,
     });
+    expect(
+      results.some(
+        (result) =>
+          result.kind === "data-dictionary" && result.id === "revenue-notes",
+      ),
+    ).toBe(false);
   });
 
   it("matches plural questions against singular saved titles", () => {
