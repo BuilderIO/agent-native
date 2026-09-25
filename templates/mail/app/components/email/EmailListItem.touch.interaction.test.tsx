@@ -252,8 +252,7 @@ describe("EmailListItem touch swipe interactions", () => {
       canArchive: true,
       onSnooze: vi.fn(),
       canSnooze: true,
-      onTrash: vi.fn(),
-      canTrash: true,
+      onImportanceFeedback: vi.fn(),
       onSendNow: vi.fn(),
       onCancelSchedule: vi.fn(),
       scheduledJobId: "scheduled-1",
@@ -266,7 +265,7 @@ describe("EmailListItem touch swipe interactions", () => {
       "mail.snooze.snooze",
       "mail.sendLater.sendNow",
       "mail.sendLater.cancelScheduledSend",
-      "mail.actions.moveToTrash",
+      "mail.aiFilter.importantMode",
       "mail.actions.star",
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();

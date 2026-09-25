@@ -497,6 +497,19 @@ export interface Settings {
   bookingPageDescription: string;
   defaultEventDuration: number; // minutes
   weekStart: import("./calendar-week.js").CalendarWeekStart;
+  eventRules?: { accept?: string; decline?: string; hide?: string };
+  hiddenEventKeys?: string[];
+  eventRuleActivity?: CalendarEventRuleActivity[];
+}
+
+export interface CalendarEventRuleActivity {
+  id: string;
+  eventId: string;
+  accountEmail: string;
+  title: string;
+  action: "accepted" | "declined" | "hidden";
+  occurredAt: string;
+  hiddenEventKey?: string;
 }
 
 export type ApolloPersonResult = {

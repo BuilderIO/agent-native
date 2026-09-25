@@ -58,6 +58,7 @@ import { toast } from "sonner";
 
 import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
+import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -145,6 +146,24 @@ const ACCOUNT_POLL_INTERVAL_MS = 2000;
 // Bounds the account-status poll so a hung fetch can't leave the in-flight
 // guard stuck and stall the interval forever.
 const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
+
+function wasMailChatOpen(): boolean {
+  try {
+    if (window.matchMedia("(max-width: 767px)").matches) return false;
+    return (
+      localStorage.getItem("agent-native.mail-chat.sidebar-open") === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function mailChatOpenStorageKey(): string {
+  return typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 767px)").matches
+    ? "mail-chat-mobile"
+    : "mail-chat";
+}
 
 function AccountAvatar({
   email,
@@ -329,7 +348,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       browserTabId={getBrowserTabId()}
       position="right"
-      defaultOpen={false}
+      disableChatShortcut
+      defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
+      openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
@@ -1486,7 +1507,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
                   <Link
-                    to="/settings?section=ai-filter"
+                    to="/settings?section=ai-filter#ai-tag-rules"
                     onClick={() => setTabSettingsOpen(false)}
                     className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
                   >
@@ -1502,6 +1523,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     combinedInbox={combineInbox}
+                    showSplitInbox={accounts.length > 1}
                     allTabVisible={showAllTab}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
@@ -2310,6 +2332,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           setSnoozeOverride(null);
         }}
       />
+      <AiInboxSetup />
     </AccountFilterContext.Provider>
   );
 }
@@ -2623,6 +2646,7 @@ function TabSettingsPopover({
   labelDisplayNames,
   pinnedLabels,
   combinedInbox,
+  showSplitInbox,
   allTabVisible,
   savedFilters,
   labelAliases,
@@ -2639,6 +2663,7 @@ function TabSettingsPopover({
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   combinedInbox: boolean;
+  showSplitInbox: boolean;
   allTabVisible: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
@@ -2653,7 +2678,9 @@ function TabSettingsPopover({
   const t = useT();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const q = search.toLowerCase();
+  const searchEnabled =
+    systemViews.length + userLabels.length + savedFilters.length > 10;
+  const q = searchEnabled ? search.toLowerCase() : "";
 
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
@@ -2717,46 +2744,38 @@ function TabSettingsPopover({
 
   return (
     <>
-      {/* Search */}
-      <div className="px-2 py-1.5 border-b border-border/30">
-        <input
-          autoFocus
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={t("mail.search.placeholder")}
-          className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
-        />
-      </div>
+      {searchEnabled && (
+        <div className="px-2 py-1.5 border-b border-border/30">
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={t("mail.search.placeholder")}
+            className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+          />
+        </div>
+      )}
 
-      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
-        <label
-          htmlFor="combined-inbox-toggle"
-          className="text-[13px] text-foreground"
-        >
-          {t("mail.tabSettings.combinedInbox")}
-        </label>
-        <Switch
-          id="combined-inbox-toggle"
-          checked={combinedInbox}
-          onCheckedChange={onCombinedInboxChange}
-        />
-      </div>
+      <div
+        className={cn(combinedInbox && "opacity-40")}
+        aria-disabled={combinedInbox}
+        inert={combinedInbox}
+      >
+        <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+          <label
+            htmlFor="all-inbox-tab-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.allTab")}
+          </label>
+          <Switch
+            id="all-inbox-tab-toggle"
+            checked={allTabVisible}
+            onCheckedChange={onAllTabChange}
+          />
+        </div>
 
-      <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
-        <label
-          htmlFor="all-inbox-tab-toggle"
-          className="text-[13px] text-foreground"
-        >
-          {t("mail.tabSettings.allTab")}
-        </label>
-        <Switch
-          id="all-inbox-tab-toggle"
-          checked={allTabVisible}
-          onCheckedChange={onAllTabChange}
-        />
-      </div>
-
-      <div className="max-h-72 overflow-y-auto">
+        <div className="max-h-72 overflow-y-auto">
         {noResults && (
           <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
             {t("mail.search.noMatches")}
@@ -2909,13 +2928,24 @@ function TabSettingsPopover({
             })}
           </div>
         )}
+        </div>
       </div>
 
-      <div className="px-3 py-1.5 border-t border-border/30">
-        <p className="text-[11px] text-muted-foreground/40">
-          {t("mail.tabSettings.help")}
-        </p>
-      </div>
+      {showSplitInbox && (
+        <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+          <label
+            htmlFor="split-inbox-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.splitInbox")}
+          </label>
+          <Switch
+            id="split-inbox-toggle"
+            checked={!combinedInbox}
+            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}
+          />
+        </div>
+      )}
     </>
   );
 }

@@ -29,6 +29,10 @@ custom label is Gmail's provider-controlled Spam system label.
 `trigger-automations` forces immediate processing (debounced — a
 just-triggered run may report "skipped, try again in 30 seconds").
 
+Priority sort uses enabled AI Important rules as its Jev instruction.
+`record-ai-priority-feedback` stores per-email important/not-important votes;
+Priority treats a vote as an explicit score override for that message.
+
 ## Gmail filters are a different mechanism
 
 Gmail filters (`manage-gmail-filters`) are a distinct, provider-native

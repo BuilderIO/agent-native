@@ -377,6 +377,7 @@ export function calendarListEvents(
     maxResults?: number;
     pageToken?: string;
     eventTypes?: string[];
+    syncToken?: string;
   } = {},
 ) {
   return googleFetch(

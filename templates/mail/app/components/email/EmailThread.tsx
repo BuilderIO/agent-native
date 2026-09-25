@@ -28,7 +28,6 @@ import {
   IconInbox,
   IconArrowsMaximize,
   IconArrowsMinimize,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -47,6 +46,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
+import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -54,6 +54,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
 import {
   applyDraftSaveResult,
   useComposeState,
@@ -192,6 +196,7 @@ export function EmailThread({
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
+  const priorityFeedback = useAiPriorityFeedback();
 
   useEffect(() => {
     if (!threadId) return;
@@ -295,6 +300,45 @@ export function EmailThread({
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const submitPriorityFeedback = useCallback(
+    async (decision: "important" | "not-important") => {
+      if (!email) return;
+      try {
+        const { totalVotes, recentVotes } = await priorityFeedback.mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        });
+        if (totalVotes % 5 !== 0) return;
+        let showSuggestion = true;
+        try {
+          const key = "mail-priority-feedback-suggestion-count";
+          const shownCount = Number(localStorage.getItem(key) ?? 0);
+          showSuggestion = shownCount < totalVotes;
+          if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+        } catch {
+          // Feedback is saved server-side even when browser storage is unavailable.
+        }
+        if (!showSuggestion) return;
+        toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+          duration: 8_000,
+          action: {
+            label: t("mail.sort.priorityFeedbackAskAgent"),
+            onClick: () =>
+              askAgentToDraftImportanceRules(
+                t("mail.sort.priorityFeedbackSuggestion"),
+                recentVotes,
+              ),
+          },
+        });
+      } catch {
+        toast.error(t("mail.aiFilter.actionFailed"));
+      }
+    },
+    [email, navigate, priorityFeedback, t],
+  );
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
     targets: AiFilterTarget[];
@@ -1435,22 +1479,13 @@ export function EmailThread({
                     {t("mail.actions.archive")} (E)
                   </TooltipContent>
                 </Tooltip>
-                {view !== "trash" && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={handleTrash}
-                        aria-label={t("mail.actions.moveToTrash")}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      >
-                        <IconTrash className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("mail.actions.moveToTrash")} (D / #)
-                    </TooltipContent>
-                  </Tooltip>
+                {email && view !== "trash" && (
+                  <ImportanceFeedbackMenu
+                    onFeedback={(decision) =>
+                      void submitPriorityFeedback(decision)
+                    }
+                    className="h-7 w-7"
+                  />
                 )}
                 <button
                   type="button"

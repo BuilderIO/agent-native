@@ -141,6 +141,9 @@ export type UserSettings = {
   combineInbox: boolean;
   /** Show the All tab before the split inbox tabs. */
   showAllTab?: boolean;
+  /** Inbox row ordering, remembered between visits. */
+  sortMode?: "newest" | "priority";
+  aiSetupCompleted?: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
   savedFilters?: SavedMailFilter[];

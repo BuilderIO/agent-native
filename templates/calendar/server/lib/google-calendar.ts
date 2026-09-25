@@ -2464,7 +2464,7 @@ async function rsvpSingleEvent(
  */
 export async function rsvpEvent(
   googleEventId: string,
-  responseStatus: "accepted" | "declined" | "tentative",
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction",
   account: GoogleAccountSelection,
   scope: "single" | "all" | "thisAndFollowing" = "single",
   comment?: string,

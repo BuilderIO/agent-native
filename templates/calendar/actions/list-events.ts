@@ -869,7 +869,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
-    const owner = inventory ? getRequestUserEmail() : undefined;
+    const owner = getRequestUserEmail();
     if (inventory && !owner) throw new Error("no authenticated user");
     const calendarTimezone = inventory
       ? await getCalendarTimezone(owner!)
@@ -918,6 +918,21 @@ export default defineAction({
         timezone: calendarTimezone,
       },
     );
+    if (owner) {
+      const settings = (await getUserSetting(owner, "calendar-settings")) as {
+        hiddenEventKeys?: string[];
+      } | null;
+      const hidden = new Set(settings?.hiddenEventKeys ?? []);
+      if (hidden.size) {
+        result.events = result.events.filter(
+          (event) =>
+            !hidden.has(event.id) &&
+            !hidden.has(
+              `${event.source}:${event.accountEmail?.trim().toLowerCase()}:${event.calendarId ?? "primary"}:${event.googleEventId ?? event.id}`,
+            ),
+        );
+      }
+    }
 
     if (inventory) {
       const query =

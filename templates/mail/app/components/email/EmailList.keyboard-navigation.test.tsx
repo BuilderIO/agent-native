@@ -70,6 +70,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  Link: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => mocks.navigate,
   useParams: () => ({ view: mocks.view }),
   useSearchParams: () => [
@@ -124,6 +125,12 @@ vi.mock("@/hooks/use-ai-priority", () => ({
   useAiPriority: () => ({
     isPending: false,
     mutateAsync: mocks.priorityRequest,
+  }),
+}));
+
+vi.mock("@/hooks/use-ai-priority-feedback", () => ({
+  useAiPriorityFeedback: () => ({
+    mutateAsync: vi.fn(() => Promise.resolve({ totalVotes: 1 })),
   }),
 }));
 
@@ -329,6 +336,45 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+  });
+
+  it("keeps cached priority scores when volatile labels change", async () => {
+    mocks.view = "inbox";
+    mocks.priorityRequest.mockResolvedValue({
+      scores: messages.map((email) => ({
+        emailId: email.id,
+        accountEmail: email.accountEmail,
+        score: email.id === "middle" ? 0.9 : 0.1,
+      })),
+    });
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(1));
+    rerender(
+      <Harness
+        emails={inboxEmails.map((email) => ({
+          ...email,
+          labelIds: [
+            "inbox",
+            "UNREAD",
+            "STARRED",
+            "agent-native-important",
+            "[superhuman]/ai/automated",
+          ],
+        }))}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    expect(mocks.priorityRequest).toHaveBeenCalledTimes(1);
+    expect(rows()[0].textContent).toContain("Subject middle");
   });
 
   it("reuses priority scores on the first render after the list remounts", async () => {

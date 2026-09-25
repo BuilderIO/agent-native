@@ -856,7 +856,6 @@ async function evaluatePriorityWithJev(
         to: email.to,
         subject: email.subject,
         snippet: email.snippet,
-        labels: email.labelIds,
         date: email.date,
       })),
     },
@@ -992,19 +991,29 @@ export async function previewAutomationPriority(
     }));
 
   const scores = new Map<string, PriorityScore>();
-  for (let i = 0; i < messages.length; i += 50) {
+  const batches = Array.from(
+    { length: Math.ceil(messages.length / 50) },
+    (_, i) => messages.slice(i * 50, (i + 1) * 50),
+  );
+  for (let i = 0; i < batches.length; i += 3) {
     signal?.throwIfAborted();
-    const batch = messages.slice(i, i + 50);
-    const batchScores = await evaluatePriorityWithJev(
-      batch.map(({ summary }) => summary),
-      instruction,
-      ownerEmail,
-      jevCredentials,
-      signal,
+    const wave = batches.slice(i, i + 3);
+    const batchScores = await Promise.all(
+      wave.map((batch) =>
+        evaluatePriorityWithJev(
+          batch.map(({ summary }) => summary),
+          instruction,
+          ownerEmail,
+          jevCredentials,
+          signal,
+        ),
+      ),
     );
-    for (const { key, summary } of batch) {
-      const score = batchScores.get(summary.id);
-      if (score) scores.set(key, score);
+    for (const [batchIndex, batch] of wave.entries()) {
+      for (const { key, summary } of batch) {
+        const score = batchScores[batchIndex].get(summary.id);
+        if (score) scores.set(key, score);
+      }
     }
   }
   return { scores, model };

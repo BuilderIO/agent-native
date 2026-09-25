@@ -7299,6 +7299,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const appSweepHandlers = await runRecurringSweepHandlers();
             const triggerAvailability = scheduledTriggerAvailability();
             if (unclaimedBackgroundRuns === null) {
               setResponseStatus(event, 500);
@@ -7307,16 +7310,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: "unclaimed-background-sweep-failed",
               };
             }
             if (!triggerAvailability.available) {
+              if (appSweepHandlers.failed.length > 0) {
+                setResponseStatus(event, 500);
+              }
               return {
-                ok: true,
+                ok: appSweepHandlers.failed.length === 0,
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
                 jobsSkipped: true,
                 jobsSkippedReason: triggerAvailability.reason,
               };
@@ -7327,11 +7335,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
+              if (appSweepHandlers.failed.length > 0) {
+                setResponseStatus(event, 500);
+                return {
+                  ok: false,
+                  staleRunsReaped,
+                  chatHealth,
+                  unclaimedBackgroundRuns,
+                  appSweepHandlers,
+                };
+              }
               return {
                 ok: true,
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
@@ -7341,6 +7360,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 staleRunsReaped,
                 chatHealth,
                 unclaimedBackgroundRuns,
+                appSweepHandlers,
               };
             }
           }),

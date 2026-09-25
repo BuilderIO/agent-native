@@ -33,6 +33,51 @@ const messages = {
       newest: "Plus récents",
       priority: "Priorité",
       priorityFailed: "Impossible de trier la boîte de réception.",
+      priorityScoreHelp:
+        "Un score plus élevé signifie que Jev juge le message plus important.",
+      priorityFeedbackSuggestion:
+        "Transformez ce comportement en règle d’importance ou d’archivage automatique.",
+      priorityFeedbackAskAgent: "Demander à l’agent de proposer des règles",
+      aiSetupTitle: "Configurer votre boîte de réception IA",
+      aiSetupTagLabel: "Créer un tag IA",
+      aiSetupImportanceLabel: "Messages importants",
+      aiSetupSpamLabel: "Spam et messages indésirables",
+      aiSetupArchiveLabel: "Archiver automatiquement",
+      aiSetupSave: "Enregistrer la configuration",
+      aiSetupSkip: "Ignorer pour le moment",
+      aiSetupImportantHeadline: "Ce qui est important",
+      aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
+      aiSetupTagsHeadline: "Choisissez vos onglets",
+      aiSetupArchiveSpamHeadline: "Archivage automatique et spam",
+      aiSetupTagReceipts: "Reçus",
+      aiSetupTagUpdates: "Mises à jour produit",
+      aiSetupTagGitHub: "Personnes sur GitHub",
+      aiSetupPromptReceipts:
+        "Reçus et confirmations de commande de boutiques en ligne",
+      aiSetupPromptUpdates:
+        "Mises à jour produit et notes de version de mes outils",
+      aiSetupPromptGitHub: "Notifications GitHub avec des commentaires humains",
+      aiSetupImportantPrompt:
+        "Messages nécessitant une réponse ou ayant une échéance, y compris les commentaires humains sur GitHub. Ignorer les commentaires des robots.",
+      aiSetupArchiveSpamPrompt:
+        "Archiver automatiquement : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
+      aiSetupCustomTag: "Personnalisé",
+      aiSetupDone: "Terminé",
+      aiSetupRunAgain: "Relancer la configuration",
+      aiSetupTagCalendar: "Calendrier",
+      aiSetupPromptCalendar:
+        "Invitations et mises à jour de calendrier dont j’ai besoin",
+      aiSetupTagTravel: "Voyages",
+      aiSetupPromptTravel:
+        "Confirmations et réservations de voyage dont j’ai besoin",
+      aiSetupTagFinance: "Finances",
+      aiSetupPromptFinance: "Factures et relevés de compte dont j’ai besoin",
+      priorityFeedbackLabel: "Retour sur l’importance",
+      priorityScoreHigh: "Importance élevée",
+      priorityScoreMedium: "Importance moyenne",
+      priorityScoreLow: "Faible importance",
+      priorityEditRules: "Modifier les règles d’importance",
+      aiSetupContinue: "Continuer",
     },
     toolbar: {
       toggleMenu: "Basculer le menu",
@@ -47,7 +92,7 @@ const messages = {
       unpinSidebar: "Désépingler la barre latérale",
       closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
-      aiSettings: "Tags et spam IA",
+      aiSettings: "Gérer les tags et les règles",
     },
     search: {
       label: "Rechercher",
@@ -62,6 +107,7 @@ const messages = {
       filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
+      splitInbox: "Boîte de réception séparée",
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
@@ -69,7 +115,8 @@ const messages = {
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
       allTab: "Onglet Tout",
-      help: "Tout inclut tous les fils de la boîte de réception. Les libellés cochés répartissent la boîte.",
+      help: "La boîte combinée réunit tous les comptes ; désactivez-la pour répartir les messages en onglets.",
+      aiSetup: "Configurer les tags et règles IA",
     },
     accounts: {
       remove: "Retirer",
@@ -439,6 +486,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Pas important",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -515,9 +563,12 @@ const messages = {
       actionFailed: "Impossible de mettre à jour le filtre IA.",
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
       tagMode: "Tag",
+      aiTagsTitle: "Tags IA",
       importantMode: "Important",
+      notImportantMode: "Pas important",
       importantLabel: "Important par IA",
       reviewImportant: "Voir les importants",
       importantPlaceholder:
@@ -530,6 +581,8 @@ const messages = {
       spamPlaceholder: "ex. Messages clairement promotionnels ou indésirables",
       tagPlaceholder:
         "ex. Reçus et confirmations de commande de boutiques en ligne",
+      archivePlaceholder:
+        "ex. Notifications de robots GitHub sans action requise",
       addShortcut: "Appuyez sur ⌘ Entrée pour ajouter",
       previewTitle: "Prévisualiser les emails récents",
       previewDescription:
@@ -553,6 +606,10 @@ const messages = {
       previewEmpty:
         "Lancez une prévisualisation pour voir les correspondances probables.",
       previewFailed: "Impossible de prévisualiser les emails récents.",
+      promptRulesCleared: "Règles de tri supprimées.",
+      tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
+      addTag: "Ajouter un tag",
+      triageTitle: "Tri",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -743,7 +800,7 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
-    aiFilter: "Filtre IA",
+    aiFilter: "Triage",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",

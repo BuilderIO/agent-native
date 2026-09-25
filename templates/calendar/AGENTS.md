@@ -28,6 +28,11 @@ Detailed event, availability, booking, storage, and UI rules live in
   Google Calendar connection, and sharing. Do not bypass app access checks.
 - The `get-settings` and `update-settings` actions expose the General week-start
   setting as `weekStart`: `sunday` or `monday`.
+- `update-settings` also saves owner-private Jev invitation prompts in
+  `eventRules.accept`, `eventRules.decline`, and `eventRules.hide`. Automatic
+  evaluation runs for invitations in each connected account's primary Google
+  calendar through the registered recurring sweep handler; `get-event-rules-status`
+  reports whether this deployment has a durable sweep driver.
 - Use `connect-google-calendar` when the user asks to connect or reconnect
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route
