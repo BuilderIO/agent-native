@@ -15,7 +15,6 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { storySources } from "./editionSources";
 import {
   Collapsible,
   CollapsibleContent,
@@ -26,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { PlanBlockView } from "../DocumentArea";
 import { createPlanBlockRenderContext, planBlockRegistry } from "../planBlocks";
 import { PlanMarkdownReader } from "../PlanMarkdownReader";
+import { storySources } from "./editionSources";
 import {
   editionStat,
   EditionStatUnavailable,

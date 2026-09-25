@@ -87,6 +87,7 @@ async function resetTables() {
     DELETE FROM plan_events;
     DELETE FROM plan_comments;
     DELETE FROM plan_sections;
+    DELETE FROM plan_edition_stories;
     DELETE FROM plan_shares;
     DELETE FROM plans;
   `);
@@ -117,6 +118,22 @@ async function seedPlan() {
     ownerEmail: OWNER,
     orgId: null,
     visibility: "public",
+  });
+  await db.insert(planSchema.planEditionStories).values({
+    id: "edstory_delete",
+    editionId: PLAN_ID,
+    storyId: "story-1",
+    order: 0,
+    isLead: true,
+    headline: "Story",
+    dek: "",
+    tagsJson: "[]",
+    recapsJson: "[]",
+    cohortsJson: "[]",
+    whatShipped: null,
+    why: null,
+    howItWorks: null,
+    createdAt: NOW,
   });
   await db.insert(planSchema.planSections).values({
     id: "sec_delete",
@@ -256,6 +273,7 @@ beforeAll(async () => {
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas BOOLEAN, has_prototype BOOLEAN, preview_text TEXT);
     CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL, notified_at TEXT);
     CREATE TABLE plan_assets (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, filename TEXT NOT NULL, mime_type TEXT NOT NULL, data TEXT NOT NULL, byte_size INTEGER NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE plan_edition_stories (id TEXT PRIMARY KEY, edition_id TEXT NOT NULL, story_id TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, is_lead BOOLEAN NOT NULL DEFAULT FALSE, headline TEXT NOT NULL, dek TEXT NOT NULL DEFAULT '', tags_json TEXT, recaps_json TEXT NOT NULL, cohorts_json TEXT, what_shipped TEXT, why TEXT, how_it_works TEXT, created_at TEXT NOT NULL);
   `);
 
   registerShareableResource({
@@ -354,6 +372,7 @@ describe("delete-visual-plan", () => {
       hardDeleted: true,
       deletedCounts: {
         comments: 1,
+        editionStories: 1,
         sections: 1,
         reports: 1,
         versions: 1,
@@ -370,6 +389,7 @@ describe("delete-visual-plan", () => {
     expect(await countRows("plan_versions")).toBe(0);
     expect(await countRows("plan_shares", "resource_id")).toBe(0);
     expect(await countRows("plan_assets")).toBe(0);
+    expect(await countRows("plan_edition_stories", "edition_id")).toBe(0);
     const collabRows = await execute({
       sql: `SELECT doc_id FROM _collab_docs WHERE doc_id = ? OR doc_id LIKE ?`,
       args: [`plan:${PLAN_ID}`, `plan:${PLAN_ID}:%`],

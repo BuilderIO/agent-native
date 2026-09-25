@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   headers: {} as Record<string, string>,
   apiKey: null as string | null,
   sessionThrows: false,
+  sessionEmail: "reader@example.com" as string | null,
   orgThrows: false,
   requestContexts: [] as { userEmail?: string; orgId?: string }[],
 }));
@@ -30,7 +31,7 @@ vi.mock("./request-origin.js", () => ({ isSameOriginRequest: () => true }));
 vi.mock("./auth.js", () => ({
   getSession: async () => {
     if (state.sessionThrows) throw new Error("session store unreachable");
-    return { email: "reader@example.com" };
+    return state.sessionEmail ? { email: state.sessionEmail } : null;
   },
 }));
 vi.mock("../org/context.js", () => ({
@@ -83,6 +84,7 @@ beforeEach(() => {
   state.headers = {};
   state.apiKey = "sk-test";
   state.sessionThrows = false;
+  state.sessionEmail = "reader@example.com";
   state.orgThrows = false;
   state.requestContexts = [];
   vi.unstubAllGlobals();
@@ -208,6 +210,18 @@ describe("speak route", () => {
     expect(state.requestContexts).toEqual([
       { userEmail: "reader@example.com", orgId: "org-1" },
     ]);
+  });
+
+  it("refuses an anonymous caller instead of spending the deploy key", async () => {
+    const fetchMock = mockFetch();
+    state.sessionEmail = null;
+
+    const body = await post();
+
+    expect(state.status).toBe(401);
+    expect(body.reason).toBe("not-allowed");
+    expect(state.requestContexts).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses when the session cannot be read, rather than going anonymous", async () => {

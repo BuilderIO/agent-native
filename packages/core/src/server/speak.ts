@@ -243,30 +243,28 @@ export function createSpeakHandler() {
         reason: "identity-unavailable",
       };
     }
-    if (!session?.email && process.env.NODE_ENV === "production") {
+    // Synthesis spends the resolved provider key, so an identity is required
+    // before one is read: an anonymous caller would otherwise bill the deploy
+    // key, and a caller-less resolve searches the wrong organization anyway.
+    if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Authentication required", reason: "not-allowed" };
     }
 
-    let apiKey: string | null | undefined;
-    if (session?.email) {
-      let orgId: string | undefined;
-      try {
-        orgId = (await getOrgContext(event))?.orgId ?? undefined;
-      } catch (err) {
-        setResponseStatus(event, 503);
-        return {
-          error: `Organization context could not be read: ${message(err)}`,
-          reason: "identity-unavailable",
-        };
-      }
-      apiKey = await runWithRequestContext(
-        { userEmail: session.email, orgId },
-        () => resolveSecret("OPENAI_API_KEY"),
-      );
-    } else {
-      apiKey = await resolveSecret("OPENAI_API_KEY");
+    let orgId: string | undefined;
+    try {
+      orgId = (await getOrgContext(event))?.orgId ?? undefined;
+    } catch (err) {
+      setResponseStatus(event, 503);
+      return {
+        error: `Organization context could not be read: ${message(err)}`,
+        reason: "identity-unavailable",
+      };
     }
+    const apiKey = await runWithRequestContext(
+      { userEmail: session.email, orgId },
+      () => resolveSecret("OPENAI_API_KEY"),
+    );
 
     // A misspelled voice must not quietly become the default one: the caller
     // asked for a specific narrator and would never hear that it got another.

@@ -71,16 +71,33 @@ function indexBlocksById(
 async function resolveStoryBlocks(stories: EditionStoryData[]): Promise<{
   blocksByStory: Map<string, EditionStoryBlock[]>;
   unresolved: number;
+  /**
+   * Cited recaps that exist and are live but are NOT this viewer's to read. An
+   * edition is shared more widely than the recaps it cites, and a reference
+   * carries the recap's repo, PR, author and diff stats, so the reference is
+   * itself a disclosure. A recap that is gone or soft-deleted is not in here:
+   * nothing is disclosed by citing it, and dropping it would lose a pull
+   * request the story really did cover.
+   */
+  hiddenRecapIds: Set<string>;
 }> {
+  const cited = new Set<string>();
   const wanted = new Map<string, Set<string>>();
   for (const story of stories)
     for (const recap of story.recaps) {
-      if (!recap.recapId || !recap.blockIds?.length) continue;
+      if (!recap.recapId) continue;
+      cited.add(recap.recapId);
+      if (!recap.blockIds?.length) continue;
       const set = wanted.get(recap.recapId) ?? new Set<string>();
       for (const id of recap.blockIds) set.add(id);
       wanted.set(recap.recapId, set);
     }
-  if (wanted.size === 0) return { blocksByStory: new Map(), unresolved: 0 };
+  if (cited.size === 0)
+    return {
+      blocksByStory: new Map(),
+      unresolved: 0,
+      hiddenRecapIds: new Set(),
+    };
 
   const rows = await getDb()
     .select({ id: schema.plans.id, content: schema.plans.content })
@@ -94,12 +111,28 @@ async function resolveStoryBlocks(stories: EditionStoryData[]): Promise<{
         ),
         isNull(schema.plans.deletedAt),
         eq(schema.plans.kind, "recap"),
-        inArray(schema.plans.id, [...wanted.keys()]),
+        inArray(schema.plans.id, [...cited]),
       ),
     );
 
+  const live = await getDb()
+    .select({ id: schema.plans.id })
+    .from(schema.plans)
+    .where(
+      and(
+        isNull(schema.plans.deletedAt),
+        eq(schema.plans.kind, "recap"),
+        inArray(schema.plans.id, [...cited]),
+      ),
+    );
+
+  const readable = new Set(rows.map((row) => row.id));
+  const hiddenRecapIds = new Set(
+    live.map((row) => row.id).filter((id) => !readable.has(id)),
+  );
   const byRecap = new Map<string, Map<string, PlanBlock>>();
   for (const row of rows) {
+    if (!wanted.has(row.id)) continue;
     const index = new Map<string, PlanBlock>();
     indexBlocksById(parsePlanContent(row.content)?.blocks, index);
     byRecap.set(row.id, index);
@@ -118,7 +151,7 @@ async function resolveStoryBlocks(stories: EditionStoryData[]): Promise<{
       }
     if (picked.length > 0) blocksByStory.set(story.storyId, picked);
   }
-  return { blocksByStory, unresolved };
+  return { blocksByStory, unresolved, hiddenRecapIds };
 }
 
 export default defineAction({
@@ -208,7 +241,8 @@ export default defineAction({
       ...(row.howItWorks ? { howItWorks: row.howItWorks } : {}),
     }));
 
-    const { blocksByStory, unresolved } = await resolveStoryBlocks(stories);
+    const { blocksByStory, unresolved, hiddenRecapIds } =
+      await resolveStoryBlocks(stories);
 
     return {
       unresolvedBlockRefs: unresolved,
@@ -228,6 +262,11 @@ export default defineAction({
       },
       stories: stories.map((story) => ({
         ...story,
+        // Dropped, not redacted: an entry with no diff and no link reads as a
+        // recap that failed rather than one that was never theirs to see.
+        recaps: story.recaps.filter(
+          (recap) => !recap.recapId || !hiddenRecapIds.has(recap.recapId),
+        ),
         blocks: blocksByStory.get(story.storyId) ?? [],
       })),
       coverage: parseJsonColumn<EditionCoverageData | null>(

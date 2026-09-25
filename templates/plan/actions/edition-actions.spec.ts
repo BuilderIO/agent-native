@@ -812,6 +812,78 @@ describe("get-edition", () => {
   });
 });
 
+describe("edition reader access", () => {
+  it("drops a reference to a recap the reader cannot open", async () => {
+    await insertRecap({
+      id: "recap-not-mine",
+      prNumber: 7001,
+      mergedAt: "2026-09-20T10:00:00.000Z",
+      ownerEmail: "someone-else@example.com",
+      visibility: "private",
+      orgId: null,
+    });
+
+    const created = (await asOwner(() =>
+      createEdition.run({
+        title: "cites a private recap",
+        brief: "b",
+        ...WINDOW,
+        stories: [
+          storyFixture({
+            recaps: [
+              {
+                recapId: "recap-not-mine",
+                repo: REPO,
+                prNumber: 7001,
+                prUrl: `https://github.com/${REPO}/pull/7001`,
+                authorLogin: "someone-else",
+                additions: 1200,
+                deletions: 40,
+              },
+            ],
+          }),
+        ],
+      }),
+    )) as { editionId: string };
+
+    const read = (await asOwner(() =>
+      getEdition.run({ id: created.editionId }),
+    )) as { stories: { recaps: unknown[] }[] };
+
+    expect(read.stories[0].recaps).toEqual([]);
+  });
+});
+
+describe("edition replacement", () => {
+  it("applies the requested visibility to a republished edition", async () => {
+    const first = (await asOwner(() =>
+      createEdition.run({
+        title: "first",
+        brief: "b",
+        visibility: "private",
+        ...WINDOW,
+        stories: [storyFixture()],
+      }),
+    )) as { editionId: string };
+
+    await asOwner(() =>
+      createEdition.run({
+        title: "second",
+        brief: "b",
+        visibility: "org",
+        ...WINDOW,
+        stories: [storyFixture()],
+      }),
+    );
+
+    const rows = await client.query(
+      `SELECT visibility FROM plans WHERE id = $1`,
+      [first.editionId],
+    );
+    expect((rows.rows[0] as { visibility: string }).visibility).toBe("org");
+  });
+});
+
 describe("editions lab", () => {
   it("keeps editions out of the generic plan list while the lab is off", async () => {
     await asOwner(() =>

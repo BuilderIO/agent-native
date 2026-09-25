@@ -216,10 +216,16 @@ function EditionReader({ id }: { id: string }) {
   // A grid cell earns its place if it can say more than the headline — a dek,
   // a what-shipped, or at minimum a byline with the author and the diff. A
   // story with none of those is a row, which keeps the tail one height.
-  const hasSomethingToSay = (story: EditionReaderStory) =>
-    Boolean(
-      story.dek?.trim() || story.whatShipped?.trim() || story.recaps.length > 0,
+  const hasByline = (story: EditionReaderStory) =>
+    story.recaps.some(
+      (recap) =>
+        recap.authorLogin?.trim() ||
+        typeof recap.filesChanged === "number" ||
+        typeof recap.additions === "number" ||
+        typeof recap.deletions === "number",
     );
+  const hasSomethingToSay = (story: EditionReaderStory) =>
+    Boolean(story.dek?.trim() || story.whatShipped?.trim() || hasByline(story));
   const secondary = rest.filter(hasSomethingToSay);
   const tail = rest.filter((story) => !hasSomethingToSay(story));
 

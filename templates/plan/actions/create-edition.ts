@@ -32,6 +32,7 @@ function isHttpUrl(value: string): boolean {
   try {
     const { protocol } = new URL(value);
     return protocol === "http:" || protocol === "https:";
+    // coercion-ok: a value that is not a URL at all is not an http(s) one.
   } catch {
     return false;
   }
@@ -260,7 +261,13 @@ export default defineAction({
               // The issue number is written on replace too: an edition
               // published before issue numbers existed has NULL here, and a
               // reader that shows "No. —" is worse than one that backfills.
-              .set({ ...row, editionIssueNumber: issueNumber })
+              // Visibility likewise: leaving it alone silently keeps the first
+              // publish's audience for every later one.
+              .set({
+                ...row,
+                editionIssueNumber: issueNumber,
+                visibility: args.visibility,
+              })
               .where(eq(schema.plans.id, editionId));
             await tx
               .delete(schema.planEditionStories)
