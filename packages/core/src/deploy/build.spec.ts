@@ -48,6 +48,7 @@ import {
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
+  resolveEsbuildCommand,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -5034,6 +5035,59 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /contains Vitest test runtime code/,
     );
+  });
+
+  it("runs the esbuild JavaScript launcher through Node on Windows", () => {
+    const command = resolveEsbuildCommand("win32");
+
+    expect(command.executable).toBe(process.execPath);
+    expect(command.args).toHaveLength(1);
+    expect(command.args[0].split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
+    );
+  });
+
+  it("runs the native esbuild binary directly on non-Windows platforms", () => {
+    const command = resolveEsbuildCommand("linux");
+
+    expect(command.executable.split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
+    );
+    expect(command.args).toEqual([]);
+  });
+
+  it("bypasses the command processor for Windows paths and arguments", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "esbuild & package (test)-"),
+    );
+    const packageJson = path.join(root, "package.json");
+    const bin = path.join(root, "bin", "esbuild");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(packageJson, "{}\n");
+    fs.writeFileSync(bin, "console.log(process.argv[2]);\n");
+
+    try {
+      const command = resolveEsbuildCommand("win32", () => packageJson);
+      const argument = "C:\\build & output (test)\\entry.js";
+      const output = execFileSync(
+        command.executable,
+        [...command.args, argument],
+        { encoding: "utf8" },
+      ).trim();
+
+      expect(command).toEqual({ executable: process.execPath, args: [bin] });
+      expect(output).toBe(argument);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails clearly when the esbuild dependency cannot be resolved", () => {
+    expect(() =>
+      resolveEsbuildCommand("win32", () => {
+        throw new Error("missing");
+      }),
+    ).toThrow(/Could not resolve the esbuild dependency/);
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
