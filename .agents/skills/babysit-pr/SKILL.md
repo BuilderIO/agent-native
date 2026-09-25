@@ -55,15 +55,25 @@ continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
 1. Run one foreground tick immediately and continue here until this mode's
-   endpoint. Never create, resume, pause, or mutate an automation, and never
-   acquire a lease. Before each PR write, reread the live state. Push normally
-   (never force); if a concurrent push advances the branch or the push is
-   rejected, fetch and restart the tick from the new head. Guard merges with
-   `--match-head-commit <live_head_oid>`. A stale-head rejection is a retry
-   signal, not a reason to stop the requested work.
-2. Track the last actionable item: new human/bot feedback, a CI fix, conflict
+   endpoint. Never create or resume a watcher, and never acquire or renew a
+   lease. For migration only, find an existing heartbeat whose full name and
+   prompt identify this PR; read its full definition and `ship_mode`, let any
+   separate target task finish, and pause it only if this invocation has the
+   same or stronger `ship_mode`. Resend its definition with only `status`
+   changed to `PAUSED` and verify the result. If none exists, do nothing. If
+   authorization, identity, or pause is uncertain, keep doing local/read-only
+   work and avoid PR writes until the legacy run is inactive.
+2. Before each PR write, reread the live state. Push normally (never force).
+   On a non-fast-forward rejection, fetch and verify the remote PR head. If it
+   does not already contain the local commits, confirm the tree is clean and
+   those commits belong to this PR, merge the refreshed `origin/<branch>` into
+   the current branch, resolve and test, then recheck the live head before
+   pushing. Never retry the same stale push, rebase, or force-push. Guard PR
+   merges with `--match-head-commit <live_head_oid>`; a stale-head rejection is
+   a retry signal, not a reason to stop the requested work.
+3. Track the last actionable item: new human/bot feedback, a CI fix, conflict
    resolution, or an intentional commit/push.
-3. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
+4. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
    CI and no new actionable item. Under `/ship` with `ship_mode=merge-authorized`,
    keep working through the 10-minute merge gate and guarded merge. With
    `ship_mode=ready-only`, fix CI and review feedback until the ready-PR gate
@@ -431,5 +441,5 @@ disposition.
 
 ## Final state
 
-Verify the PR's final state. This workflow creates no automation, so it has no
-automation cleanup step.
+Verify the PR's final state. This workflow creates no automation; its only
+automation operation is pausing a verified legacy heartbeat during migration.
