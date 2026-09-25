@@ -648,7 +648,7 @@ describe("create-deck — generation lifecycle tracking", () => {
   );
 
   it("joins generation start and completion with one opaque attempt id", async () => {
-    await action.run({
+    const result = await action.run({
       title: "T",
       slides: [{ id: "s1", content: "<div>Slide</div>" }],
     });
@@ -665,6 +665,11 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(started?.properties.generation_attempt_id).toEqual(
       expect.any(String),
     );
+    expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
+      generationAttemptId: started?.properties.generation_attempt_id,
+      generationMode: "action",
+    });
+    expect(result.id).toBe(completed?.properties.output_id);
     expect(started?.properties).not.toHaveProperty("title");
     expect(started?.properties).not.toHaveProperty("prompt");
     expect(completed?.properties).toMatchObject({

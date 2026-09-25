@@ -62,20 +62,31 @@ describe("onboarding funnel metrics", () => {
     eventName: string,
     authUserId: string,
     properties: Record<string, unknown>,
-    options: { email?: string | null; anonymousId?: string } = {},
+    options: {
+      email?: string | null;
+      anonymousId?: string;
+      userKey?: string | null;
+      authUserId?: string | null;
+    } = {},
   ) {
+    const canonicalAuthUserId =
+      options.authUserId === undefined ? authUserId : options.authUserId;
     await client.query(
       `INSERT INTO analytics_events
-        (id, event_name, user_id, anonymous_id, timestamp, event_date, app, template, hostname, properties)
-       VALUES ($1, $2, $3, $4, $5, $6, 'clips', 'clips', 'clips.agent-native.com', $7)`,
+        (id, event_name, user_id, anonymous_id, user_key, timestamp, event_date, app, template, hostname, properties)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'clips', 'clips', 'clips.agent-native.com', $8)`,
       [
         `event-${nextRowId++}`,
         eventName,
         options.email ?? `${authUserId}@example.com`,
         options.anonymousId ?? `anon-${authUserId}`,
+        options.userKey ?? null,
         `${eventDay}T12:00:00.000Z`,
         eventDay,
-        JSON.stringify({ ...properties, auth_user_id: authUserId }),
+        JSON.stringify({
+          ...properties,
+          ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
+        }),
       ],
     );
   }
@@ -222,6 +233,45 @@ describe("onboarding funnel metrics", () => {
       first_choice_users: 1,
       settings_handoff_attempts: 1,
       handoff_failure_attempts: 1,
+    });
+  }, 20_000);
+
+  it("keeps onboarding identity stable across the auth-user-id rollout", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    await insertEvent("onboarding_step_viewed", "legacy", step, {
+      email: "alice@example.com",
+      userKey: "alice@example.com",
+      authUserId: null,
+      anonymousId: "legacy-visitor",
+    });
+    await insertEvent(
+      "onboarding_method_clicked",
+      "current",
+      {
+        ...step,
+        method_id: "builder_create_account",
+        method_kind: "builder",
+        onboarding_attempt_id: "attempt-1",
+      },
+      {
+        email: "alice@example.com",
+        userKey: "alice@example.com",
+        authUserId: "better-auth-alice",
+        anonymousId: "identified-visitor",
+      },
+    );
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
     });
   }, 20_000);
 });

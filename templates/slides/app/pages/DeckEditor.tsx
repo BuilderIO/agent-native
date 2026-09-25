@@ -715,6 +715,12 @@ export default function DeckEditor() {
       return;
     }
     viewedDeckIdsRef.current.add(id);
+    const viewedKey = `slides:output-viewed:${id}`;
+    try {
+      if (window.sessionStorage.getItem(viewedKey) === "1") return;
+      window.sessionStorage.setItem(viewedKey, "1");
+      // coercion-ok: sessionStorage may be disabled; in-memory dedupe is fallback.
+    } catch {}
     trackEvent("output_viewed", {
       app_name: "slides",
       template_name: "slides",

@@ -196,6 +196,7 @@ describe("DeckEditor generation signal wiring", () => {
   let router: ReturnType<typeof createMemoryRouter> | undefined;
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     mocks.deck.slides = [];
     Object.assign(mocks, {
       broadGenerating: true,
@@ -271,6 +272,28 @@ describe("DeckEditor generation signal wiring", () => {
 
     await act(async () => router?.navigate("/deck/deck-1"));
     expect(outputViews()).toHaveLength(2);
+  });
+
+  it("does not emit a second output view when the editor remounts in the tab", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "slide" }];
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/other", element: <div>Other</div> },
+      ],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    const outputViews = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === "output_viewed");
+    await waitFor(() => expect(outputViews()).toHaveLength(1));
+
+    await act(async () => router?.navigate("/other"));
+    await act(async () => router?.navigate("/deck/deck-1"));
+    expect(outputViews()).toHaveLength(1);
   });
 
   it("clears generation state when the target tab finishes while another chat stays busy", async () => {

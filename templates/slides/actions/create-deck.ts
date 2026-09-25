@@ -580,7 +580,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(incrementalGeneration
+        ...(actionOwnsGenerationLifecycle
           ? {
               generationContext: {
                 generationAttemptId,

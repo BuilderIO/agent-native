@@ -195,6 +195,7 @@ export function FirstRunOnboarding({
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const startSetupMethod = useCallback(
     (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
       if (previewMode || typeof window === "undefined") return null;
@@ -301,7 +302,8 @@ export function FirstRunOnboarding({
     [extensions, finishOnboarding, trackFirstRunStepCompleted],
   );
   const handleBuilderConnected = useCallback(() => {
-    trackFirstRunSetupOutcome(setupAttemptRef.current, "connected");
+    trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
+    builderSetupAttemptRef.current = null;
     setupAttemptRef.current = null;
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
@@ -315,7 +317,7 @@ export function FirstRunOnboarding({
     onConnected: handleBuilderConnected,
   });
   useEffect(() => {
-    const attempt = setupAttemptRef.current;
+    const attempt = builderSetupAttemptRef.current;
     if (!attempt || connectFlow.connecting) return;
     if (connectFlow.accountExists) {
       trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
@@ -385,8 +387,10 @@ export function FirstRunOnboarding({
       provisionAccount ? "builder_create_account" : "builder_sign_in",
       "builder",
     );
+    builderSetupAttemptRef.current = attempt;
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
       trackFirstRunSetupOutcome(attempt, "already_connected");
+      builderSetupAttemptRef.current = null;
       setupAttemptRef.current = null;
       trackFirstRunStepCompleted("choice");
       handleFinish(null);

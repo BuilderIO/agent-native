@@ -733,7 +733,7 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
 )`;
 const ONBOARDING_EVENTS_CTE = `WITH scoped_onboarding_events AS (
   SELECT e.*,
-    COALESCE(NULLIF(e.properties::jsonb ->> 'auth_user_id', ''), NULLIF(e.user_key, ''), NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,
+    COALESCE(NULLIF(e.user_key, ''), NULLIF(e.properties::jsonb ->> 'auth_user_id', ''), NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,
     NULLIF(e.user_id, '') AS funnel_user_email
   FROM analytics_events e
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}

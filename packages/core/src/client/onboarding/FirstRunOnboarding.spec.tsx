@@ -660,6 +660,91 @@ describe("FirstRunOnboarding", () => {
     expect(JSON.stringify(outcome)).not.toContain("Error:");
   });
 
+  it("does not attach a stale Builder error to a later manual setup attempt", async () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null as string | null,
+      start: vi.fn(),
+    };
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-create-account']")
+        ?.click();
+    });
+
+    flow.error = "stale Builder error";
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+    flow.error = "stale Builder error changed";
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      resolveCompletion?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ method_id: "custom_keys", outcome: "failed" }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+        onboarding_attempt_id: expect.any(String),
+      }),
+    );
+  });
+
   it("shows the full list of included Builder.io services on the card", () => {
     act(() => {
       root.render(

@@ -115,6 +115,24 @@ describe("tracking registry", () => {
     expect(events[1]?.properties).not.toHaveProperty("auth_user_id");
   });
 
+  it("does not attach ambient identity or session to explicit anonymous events", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "session-1",
+      },
+      () => track("anonymous_event", {}, { anonymousId: "visitor-1" }),
+    );
+
+    expect(events[0]).toMatchObject({ anonymousId: "visitor-1" });
+    expect(events[0]?.userId).toBeUndefined();
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
   it("removes auth_user_id when no verified identity is available", () => {
     const events = captureEvents();
 

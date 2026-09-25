@@ -129,8 +129,9 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
       telemetryOrigin: "server",
     };
   }
-  const canUseAmbientIdentity =
-    !source.userId || source.userId === requestContext?.userEmail;
+  const canUseAmbientIdentity = source.userId
+    ? source.userId === requestContext?.userEmail
+    : !source.anonymousId;
   return {
     userId: source.userId,
     authUserId:
