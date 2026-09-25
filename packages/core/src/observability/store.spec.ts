@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Capture every SQL string + bound args the store sends to the DB so we
-// can assert that user-scoped reads include `user_id = ?` and that the
-// owner identifier reaches the binding. We don't simulate real SQL
-// execution — the goal here is to verify that the data-isolation
-// contract is upheld at the query-construction layer.
+// Capture every SQL string + bound args. Reads default to empty results,
+// with selected rows supplied only when a mapper needs exercising.
 interface ExecCall {
   sql: string;
   args: any[];
 }
 
 const execCalls: ExecCall[] = [];
+let selectedRows: Record<string, unknown>[] = [];
+const mockEnsureIndexExists = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
 
 function createCapturingDb() {
   return {
@@ -20,7 +21,10 @@ function createCapturingDb() {
       execCalls.push({ sql: rawSql, args });
       // Most calls just need to "succeed" with empty rows. SELECTs in this
       // store return an array shape; provide one to keep the mappers happy.
-      return { rows: [], rowsAffected: 0 };
+      return {
+        rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
+        rowsAffected: 0,
+      };
     }),
   };
 }
@@ -34,7 +38,7 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: mockEnsureIndexExists,
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -44,7 +48,14 @@ const {
   getTraceSummary,
   getLatestTraceSummaryForThread,
   getTraceSpansForRun,
+  getSuccessfulToolSpansForReview,
+  MAX_REVIEW_TOOL_SPANS,
+  getOrgScopedThreadData,
+  getOrgScopedThreadTitles,
+  getOrgScopedReviewThreads,
+  getHumanReviewSummaries,
   getFeedback,
+  getInstructionUpdates,
   getFeedbackStats,
   getSatisfactionScores,
   getEvalsForRun,
@@ -54,6 +65,7 @@ const {
   insertEvalResult,
   insertFeedback,
   upsertTraceSummary,
+  upsertHumanReviewSummary,
   upsertSatisfactionScore,
 } = await import("./store.js");
 
@@ -67,6 +79,7 @@ function lastSelect(): ExecCall {
 describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
+    selectedRows = [];
     vi.clearAllMocks();
   });
 
@@ -76,6 +89,30 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE created_at >= \? AND user_id = \?/);
       expect(call.args).toEqual([1000, "alice", 50]);
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_trace_summaries_org_created",
+        expect.stringMatching(
+          /ON agent_trace_summaries \(org_id, created_at DESC\)/,
+        ),
+      );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_trace_spans_type_name_run_id",
+        expect.stringMatching(
+          /ON agent_trace_spans \(span_type, name, run_id\)/,
+        ),
+      );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_feedback_org_source_created",
+        expect.stringMatching(
+          /ON agent_feedback \(org_id, source, created_at DESC\)/,
+        ),
+      );
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_feedback_org_run_created",
+        expect.stringMatching(
+          /ON agent_feedback \(org_id, run_id, created_at DESC\)/,
+        ),
+      );
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {
@@ -96,6 +133,277 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-from-other-user", "alice"]);
     });
 
+    it("getTraceSummary scopes admin run-id lookups to the explicit org", async () => {
+      await getTraceSummary("run-from-org-b", { orgId: "org-a" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE run_id = \? AND org_id = \?/);
+      expect(call.args).toEqual(["run-from-org-b", "org-a"]);
+    });
+
+    it("lists only summaries explicitly attributed to the requested org", async () => {
+      await getTraceSummaries({ sinceMs: 1000, limit: 50, orgId: "org-a" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE created_at >= \? AND org_id = \?/);
+      expect(call.args).toEqual([1000, "org-a", 50]);
+    });
+
+    it("excludes summary-agent runs in SQL before applying list limit", async () => {
+      await getTraceSummaries({
+        sinceMs: 1000,
+        limit: 20,
+        orgId: "org-a",
+        excludeSpanName: "agent_run:observability:human-review-summary",
+        requireReviewContext: true,
+      });
+      const call = lastSelect();
+      expect(call.sql.indexOf("NOT IN")).toBeLessThan(
+        call.sql.indexOf("LIMIT ?"),
+      );
+      expect(call.sql).toMatch(/thread_id IS NOT NULL/);
+      expect(call.sql).toMatch(/FROM chat_threads review_thread/);
+      expect(call.sql).toMatch(
+        /FROM agent_human_review_summaries review_summary/,
+      );
+      expect(call.sql.indexOf("review_summary")).toBeLessThan(
+        call.sql.indexOf("LIMIT ?"),
+      );
+      expect(call.sql).toMatch(
+        /FROM agent_trace_spans\s+WHERE span_type = 'agent_run' AND name = \?\s+AND org_id = \?/,
+      );
+      expect(call.args).toEqual([
+        1000,
+        "org-a",
+        "agent_run:observability:human-review-summary",
+        "org-a",
+        20,
+      ]);
+    });
+
+    it("excludes other-org and legacy NULL-org threads before reading thread data", async () => {
+      await getOrgScopedThreadData("org-a", "alice@example.com", ["a", "b"]);
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /WHERE org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\)/,
+      );
+      expect(call.sql).toMatch(/AND id IN \(\?, \?\)/);
+      expect(call.sql).toMatch(/^SELECT id, thread_data FROM chat_threads/);
+      expect(call.args).toEqual(["org-a", "alice@example.com", "a", "b"]);
+    });
+
+    it("reads thread titles only from explicitly org-owned rows", async () => {
+      await getOrgScopedThreadTitles("org-a", "alice@example.com", [
+        "thread-a",
+      ]);
+      const call = lastSelect();
+      expect(call.sql).toMatch(/^SELECT id, title FROM chat_threads/);
+      expect(call.sql).toMatch(
+        /WHERE org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\)/,
+      );
+      expect(call.args).toEqual(["org-a", "alice@example.com", "thread-a"]);
+    });
+
+    it("batches thread data and titles with an org and owner check per row", async () => {
+      selectedRows = [
+        {
+          id: "thread-a",
+          thread_data: '{"messages":[]}',
+          title: "Alice's thread",
+        },
+      ];
+      const threads = await getOrgScopedReviewThreads("org-a", [
+        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+        { ownerEmail: "bob@example.com", threadId: "thread-b" },
+      ]);
+      const queryCalls = execCalls.filter((call) =>
+        /FROM chat_threads/.test(call.sql),
+      );
+      expect(queryCalls).toHaveLength(1);
+      expect(queryCalls[0]!.sql).toMatch(
+        /SELECT id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+      );
+      expect(queryCalls[0]!.args).toEqual([
+        1_000_000,
+        "org-a",
+        "alice@example.com",
+        "thread-a",
+        "bob@example.com",
+        "thread-b",
+      ]);
+      expect(threads.get("thread-a")).toEqual({
+        threadData: '{"messages":[]}',
+        title: "Alice's thread",
+      });
+    });
+
+    it("omits an oversized review thread while preserving its title", async () => {
+      selectedRows = [
+        { id: "thread-a", thread_data: null, title: "Alice's thread" },
+      ];
+      const threads = await getOrgScopedReviewThreads("org-a", [
+        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+      ]);
+
+      expect(lastSelect().sql).toContain(
+        "CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END",
+      );
+      expect(threads.get("thread-a")).toEqual({
+        threadData: null,
+        title: "Alice's thread",
+      });
+    });
+
+    it("bounds successful tool span and metadata reads in SQL", async () => {
+      selectedRows = [
+        {
+          name: "create_design",
+          metadata: '{"input":{"designId":"design-a"}}',
+        },
+      ];
+      await expect(
+        getSuccessfulToolSpansForReview("run-a", "org-a", 999),
+      ).resolves.toEqual([
+        {
+          name: "create_design",
+          metadata: { input: { designId: "design-a" } },
+        },
+      ]);
+
+      const call = lastSelect();
+      expect(call.sql).toMatch(/CASE WHEN OCTET_LENGTH\(metadata\) <= \?/);
+      expect(call.sql).toMatch(
+        /WHERE run_id = \? AND org_id = \?\s+AND span_type = 'tool_call' AND status = 'success'\s+ORDER BY created_at ASC\s+LIMIT \?/,
+      );
+      expect(call.sql).not.toContain("SELECT *");
+      expect(call.args).toEqual([
+        100_000,
+        "run-a",
+        "org-a",
+        MAX_REVIEW_TOOL_SPANS,
+      ]);
+    });
+
+    it("reads persisted summaries for the active org and requested runs only", async () => {
+      await getHumanReviewSummaries("org-a", ["run-a", "run-b"]);
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /FROM agent_human_review_summaries WHERE org_id = \? AND run_id IN \(\?, \?\)/,
+      );
+      expect(call.args).toEqual(["org-a", "run-a", "run-b"]);
+    });
+
+    it("parses valid persisted summary artifacts", async () => {
+      selectedRows = [
+        {
+          run_id: "run-a",
+          org_id: "org-a",
+          ask: "Build the report",
+          outcome: "Created the report",
+          artifacts:
+            '[{"appId":"analytics","artifactId":"dash-a","title":"Weekly","path":"/dashboards/dash-a"}]',
+          created_by: "admin@example.com",
+          created_at: 1,
+          updated_at: "2",
+        },
+      ];
+      await expect(getHumanReviewSummaries("org-a")).resolves.toEqual(
+        new Map([
+          [
+            "run-a",
+            {
+              runId: "run-a",
+              orgId: "org-a",
+              ask: "Build the report",
+              outcome: "Created the report",
+              artifacts: [
+                {
+                  appId: "analytics",
+                  artifactId: "dash-a",
+                  title: "Weekly",
+                  path: "/dashboards/dash-a",
+                },
+              ],
+              createdBy: "admin@example.com",
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+        ]),
+      );
+    });
+
+    it.each([
+      ["invalid JSON", "not-json"],
+      [
+        "invalid artifact shape",
+        '[{"appId":"unknown","artifactId":"x","title":"X"}]',
+      ],
+      [
+        "app-inconsistent path",
+        '[{"appId":"analytics","artifactId":"x","title":"X","path":"/design/x"}]',
+      ],
+    ])(
+      "fails explicitly for persisted summary artifacts with %s",
+      async (_label, artifacts) => {
+        selectedRows = [
+          {
+            run_id: "run-a",
+            org_id: "org-a",
+            ask: "Build the report",
+            outcome: "Created the report",
+            artifacts,
+            created_by: "admin@example.com",
+            created_at: 1,
+            updated_at: 2,
+          },
+        ];
+        await expect(getHumanReviewSummaries("org-a")).rejects.toThrow();
+      },
+    );
+
+    it("scopes instruction drafts and feedback writes/reads by org", async () => {
+      await getInstructionUpdates({ orgId: "org-a", runId: "run-a" });
+      expect(lastSelect().sql).toMatch(/run_id = \? AND org_id = \?/);
+      expect(lastSelect().args.slice(0, 2)).toEqual(["run-a", "org-a"]);
+
+      await getFeedback({ orgId: "org-a", source: "human_review" });
+      expect(lastSelect().sql).toMatch(/org_id = \? AND source = \?/);
+      expect(lastSelect().args.slice(0, 2)).toEqual(["org-a", "human_review"]);
+    });
+
+    it("filters feedback and instruction drafts by the selected run IDs", async () => {
+      await getFeedback({
+        runIds: ["run-a", "run-b"],
+        orgId: "org-a",
+        source: "human_review",
+        limit: 10,
+      });
+      expect(lastSelect().sql).toMatch(
+        /WHERE run_id IN \(\?, \?\) AND org_id = \? AND source = \?/,
+      );
+      expect(lastSelect().args).toEqual([
+        "run-a",
+        "run-b",
+        "org-a",
+        "human_review",
+        10,
+      ]);
+
+      await getInstructionUpdates({
+        runIds: ["run-a", "run-b"],
+        orgId: "org-a",
+      });
+      expect(lastSelect().sql).toMatch(
+        /WHERE run_id IN \(\?, \?\) AND org_id = \?/,
+      );
+      expect(lastSelect().args).toEqual(["run-a", "run-b", "org-a", 500]);
+    });
+
+    it("returns no rows without querying when an explicit run list is empty", async () => {
+      await expect(getFeedback({ runIds: [] })).resolves.toEqual([]);
+      await expect(getInstructionUpdates({ runIds: [] })).resolves.toEqual([]);
+      expect(execCalls).toHaveLength(0);
+    });
+
     it("gets the latest response by thread and owner", async () => {
       await getLatestTraceSummaryForThread("thread-1", {
         userId: "alice",
@@ -114,6 +422,84 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE run_id = \? AND user_id = \?/);
       expect(call.args).toEqual(["run-x", "alice"]);
+    });
+
+    it("hides legacy tool errors and sanitizes explicitly captured errors", async () => {
+      selectedRows.push(
+        {
+          id: "legacy",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message:
+            "Error: client_secret=old-secret private_key=old-private-key",
+          metadata: null,
+          created_at: 1,
+        },
+        {
+          id: "captured",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message:
+            "Error: client_secret=new-secret private_key=new-private-key",
+          metadata: JSON.stringify({
+            __tool_error_capture_version: 1,
+          }),
+          created_at: 2,
+        },
+        {
+          id: "captured-jsonb",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "error",
+          error_message: "Error: client_secret=jsonb-secret",
+          metadata: {
+            __tool_error_capture_version: 1,
+            input: { query: "safe query" },
+          },
+          created_at: 3,
+        },
+        {
+          id: "legacy-captured-input",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "success",
+          metadata: {
+            input: {
+              headers: { "Proxy-Authorization": "Basic old-proxy-secret" },
+              subscriptionKey: "old-subscription-key",
+              googleClientSecret: "old-client-secret",
+              providerToken: "old-provider-token",
+            },
+          },
+          created_at: 4,
+        },
+      );
+
+      const spans = await getTraceSpansForRun("run-x");
+
+      expect(spans[0]?.errorMessage).toBeNull();
+      expect(spans[1]?.errorMessage).toBe(
+        "Error: client_secret=[REDACTED] private_key=[REDACTED]",
+      );
+      expect(spans[1]?.metadata).not.toHaveProperty(
+        "__tool_error_capture_version",
+      );
+      expect(spans[2]?.errorMessage).toBe("Error: client_secret=[REDACTED]");
+      expect(spans[2]?.metadata).toEqual({ input: { query: "safe query" } });
+      expect(spans[3]?.metadata).toEqual({
+        input: {
+          headers: { "Proxy-Authorization": "[REDACTED]" },
+          subscriptionKey: "[REDACTED]",
+          googleClientSecret: "[REDACTED]",
+          providerToken: "[REDACTED]",
+        },
+      });
     });
 
     it("getFeedback adds user_id filter when userId is provided", async () => {
@@ -230,6 +616,32 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("keeps summary org attribution immutable on conflict", async () => {
+      await upsertHumanReviewSummary({
+        runId: "r1",
+        orgId: "org-a",
+        ask: "Original ask",
+        outcome: "Created a dashboard",
+        artifacts: [
+          { appId: "analytics", artifactId: "dash-1", title: "Weekly" },
+        ],
+        createdBy: "admin@example.com",
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      const call = execCalls.find((entry) =>
+        /INSERT\s+INTO agent_human_review_summaries/.test(entry.sql),
+      );
+      expect(call?.sql).toMatch(
+        /WHERE agent_human_review_summaries\.org_id = EXCLUDED\.org_id/,
+      );
+      expect(call?.sql).not.toMatch(/org_id = EXCLUDED\.org_id,/);
+      expect(call?.args).toContain("org-a");
+      expect(call?.args).toContain(
+        '[{"appId":"analytics","artifactId":"dash-1","title":"Weekly"}]',
+      );
     });
 
     it("insertEvalResult persists user_id", async () => {

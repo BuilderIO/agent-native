@@ -620,6 +620,8 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
+    expect(source).toContain('if ("showAllTab" in variables)');
+    expect(source).toContain("invalidations.push(invalidateInboxThreads(qc))");
     expect(source).toContain("requestSource: TAB_ID");
   });
 });

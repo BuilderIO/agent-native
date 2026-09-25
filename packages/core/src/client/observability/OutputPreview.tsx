@@ -152,6 +152,21 @@ function safeDesignPreviewUrl(
   }
 }
 
+function safeDesignArtifactPreviewUrl(
+  value: unknown,
+  baseOrigin = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): string | undefined {
+  const candidate = boundedString(value);
+  const match = candidate?.match(
+    /^\/(?:design|present)\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/,
+  );
+  return match
+    ? safeDesignPreviewUrl(`/design/${match[1]}`, baseOrigin)
+    : undefined;
+}
+
 function findDesignPreviewUrl(
   text: string,
   baseOrigin?: string,
@@ -377,6 +392,7 @@ export function OutputPreview({
   inlineAppTitle,
   compact = false,
   maxAppHeight,
+  designPreviewPath,
 }: {
   answer: string;
   previewLabel: string;
@@ -384,13 +400,21 @@ export function OutputPreview({
   inlineAppTitle?: string;
   compact?: boolean;
   maxAppHeight?: number;
+  designPreviewPath?: string;
 }) {
   const preview = parseOutputPreview(answer);
+  const designPreviewUrl =
+    safeDesignArtifactPreviewUrl(designPreviewPath) ??
+    (preview.kind === "design" ? preview.previewUrl : undefined);
 
-  if (preview.kind === "design" && preview.previewUrl) {
+  if (designPreviewUrl) {
     return (
       <div
-        aria-label={preview.title ?? previewLabel}
+        aria-label={
+          preview.kind === "design"
+            ? (preview.title ?? previewLabel)
+            : previewLabel
+        }
         className={
           compact
             ? "relative size-full overflow-hidden bg-background"
@@ -410,9 +434,13 @@ export function OutputPreview({
           }
           loading="lazy"
           referrerPolicy="no-referrer"
-          src={preview.previewUrl}
+          src={designPreviewUrl}
           tabIndex={-1}
-          title={preview.title ?? previewLabel}
+          title={
+            preview.kind === "design"
+              ? (preview.title ?? previewLabel)
+              : previewLabel
+          }
         />
       </div>
     );

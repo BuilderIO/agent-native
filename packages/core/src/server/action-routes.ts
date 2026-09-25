@@ -326,6 +326,10 @@ export interface ActionRouteAuthAdapter {
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
+  /** Resolve a canonical id directly from the validated Better Auth session. */
+  getAuthUserIdFromEvent?: (
+    event: any,
+  ) => string | undefined | Promise<string | undefined>;
   /** Hosting app/template id used for app-owned action resources. */
   appId?: string;
   /** Resolve display name from the H3 event, when available. */
@@ -624,6 +628,7 @@ function mountActionRoutesInternal(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
+        let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
         // An app-supplied auth adapter runs first: it can accept caller
         // identities the framework's getSession chain doesn't understand (e.g.
@@ -690,6 +695,7 @@ function mountActionRoutesInternal(
             if (!ownerContext.anonymous) {
               userEmail = ownerContext.owner;
               userName = ownerContext.name;
+              authUserId = ownerContext.authUserId;
             }
           } catch (error) {
             if (
@@ -727,6 +733,15 @@ function mountActionRoutesInternal(
             } else {
               throw error;
             }
+          }
+        }
+        if (userEmail && !resolvedCaller && options?.getAuthUserIdFromEvent) {
+          try {
+            authUserId = await options.getAuthUserIdFromEvent(event);
+          } catch {
+            console.warn(
+              "[agent-actions] Could not resolve canonical tracking identity; continuing without auth_user_id.",
+            );
           }
         }
         // Org scoping. For adapter-resolved callers the org must come
@@ -786,6 +801,7 @@ function mountActionRoutesInternal(
         return runWithRequestContext(
           {
             userEmail,
+            ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
             ...(hasExplicitPersonalOrgScope(event)

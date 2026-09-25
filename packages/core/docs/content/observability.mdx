@@ -105,7 +105,7 @@ export default function ObservabilityPage() {
 
 All data is scoped to the signed-in user; there is no cross-user admin view today.
 
-The dashboard has 5 tabs:
+The dashboard has 6 tabs:
 
 | Tab               | What it shows                                                                   |
 | ----------------- | ------------------------------------------------------------------------------- |
@@ -114,6 +114,17 @@ The dashboard has 5 tabs:
 | **Evals**         | Automated eval scores by criteria, trends over time                             |
 | **Experiments**   | A/B test list with status badges, variant results with confidence intervals     |
 | **Feedback**      | Thumbs up/down stream, category breakdown, frustration scores                   |
+| **Human review**  | Review the ask and answer, record feedback, and draft instruction updates       |
+
+### Conversations {#conversations}
+
+Select a run to inspect its spans. Expand any span to view captured tool inputs, outputs, errors, and metadata. Use **Open full conversation** to jump to the associated chat thread.
+
+Tool arguments and results are off by default. Enable `captureToolArgs` and `captureToolResults` in the `observability` config to store them. Sensitive fields and tool error messages are redacted before storage.
+
+### Human review {#review}
+
+The Human review tab shows each run’s ask and answer, lets you record feedback, and lets you draft an instruction update for a human to review. Saving the draft does not change instructions automatically.
 
 ## User feedback {#feedback}
 

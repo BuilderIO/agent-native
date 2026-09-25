@@ -131,6 +131,8 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
+  isPopupClosed,
+  POPUP_CLOSED_CONFIRMATION_GRACE_MS,
   type BuilderConnectFlow,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -812,6 +814,8 @@ function ChatGPTSubscriptionCard({
   const [status, setStatus] = useState<ChatGPTSubscriptionStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const popupClosedAtRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -838,6 +842,8 @@ function ChatGPTSubscriptionCard({
         event.origin === window.location.origin &&
         event.data?.type === "agent-native-chatgpt-subscription-connected"
       ) {
+        popupRef.current = null;
+        popupClosedAtRef.current = null;
         setConnecting(false);
         void refresh().then((next) => {
           if (next?.connected) onConfigured();
@@ -847,6 +853,28 @@ function ChatGPTSubscriptionCard({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [onConfigured, refresh]);
+
+  useEffect(() => {
+    if (!connecting || !popupRef.current) return;
+    const timer = window.setInterval(() => {
+      if (!isPopupClosed(popupRef.current)) return;
+      popupClosedAtRef.current ??= Date.now();
+      if (
+        Date.now() - popupClosedAtRef.current <=
+        POPUP_CLOSED_CONFIRMATION_GRACE_MS
+      ) {
+        return;
+      }
+      window.clearInterval(timer);
+      popupRef.current = null;
+      popupClosedAtRef.current = null;
+      setConnecting(false);
+      void refresh().then((next) => {
+        if (next?.connected) onConfigured();
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [connecting, onConfigured, refresh]);
 
   const connect = useCallback(() => {
     setError(null);
@@ -864,6 +892,8 @@ function ChatGPTSubscriptionCard({
       );
       return;
     }
+    popupRef.current = popup;
+    popupClosedAtRef.current = null;
     setConnecting(true);
   }, [t]);
 

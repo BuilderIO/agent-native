@@ -174,6 +174,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/usage/actions/get-usage-metrics",
   },
   {
+    name: "get-builder-credit-usage",
+    specifier: "@agent-native/core/usage/actions/get-builder-credit-usage",
+  },
+  {
     name: "create-resource-version",
     specifier: "@agent-native/core/history/actions/create-resource-version",
   },
@@ -207,6 +211,21 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "get-observability-review-detail",
     specifier:
       "@agent-native/core/observability/actions/get-observability-review-detail",
+  },
+  {
+    name: "get-observability-review-summary-source",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-summary-source",
+  },
+  {
+    name: "save-observability-review-summary",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-summary",
+  },
+  {
+    name: "save-observability-review-feedback",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-feedback",
   },
   {
     name: "save-observability-instruction-update",

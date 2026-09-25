@@ -1,3 +1,4 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
 import { removeBreakpointMediaDeclaration } from "@shared/breakpoint-media";
 import {
   applyOrdinaryVisualStyleBatch,
@@ -25,6 +26,7 @@ import {
 } from "@shared/source-mode";
 import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 
+import type { RelativeStyleOperation } from "@/components/design/edit-panel/style-change-types";
 import type { ElementInfo } from "@/components/design/types";
 
 import {
@@ -41,6 +43,44 @@ export interface RuntimeStructureNodeSignature {
   text: string;
   classes: string[];
   component?: string;
+}
+
+export type PendingRelativeStyleOperation = RelativeStyleOperation;
+
+export function relativeOperationsForStyles(
+  styles: Record<string, string>,
+  metadata: {
+    relativeDelta?: number;
+    relativeExpression?: ScrubRelativeExpression;
+    relativeDeltaProperties?: string[];
+  } = {},
+): Record<string, PendingRelativeStyleOperation> | undefined {
+  const requestedProperties =
+    metadata.relativeDeltaProperties ??
+    (Object.keys(styles).length === 1 ? [Object.keys(styles)[0]!] : []);
+  const properties = requestedProperties.filter((property) =>
+    Object.prototype.hasOwnProperty.call(styles, property),
+  );
+  if (properties.length === 0) return undefined;
+  const expression = metadata.relativeExpression;
+  if (expression) {
+    return Object.fromEntries(
+      properties.map((property) => [
+        property,
+        { kind: "expression" as const, ...expression },
+      ]),
+    );
+  }
+  const delta = metadata.relativeDelta;
+  if (typeof delta === "number") {
+    return Object.fromEntries(
+      properties.map((property) => [
+        property,
+        { kind: "delta" as const, delta },
+      ]),
+    );
+  }
+  return undefined;
 }
 
 export function normalizeRuntimeStructureClasses(
@@ -101,6 +141,8 @@ export interface PendingVisualStyleEdit {
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
+  /** Relative scrub operations are source intent; `styles` remains the live preview/result value. */
+  relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   /**
    * Element pseudo-class being authored. Omitted for ordinary/base styles.
    * Localhost screens cannot persist the editor's managed HTML block because
@@ -252,11 +294,20 @@ export function mergePendingLiveNonStyleEdits(
       continue;
     }
     const previous = merged[index] as PendingLiveTextEdit;
+    const relativeOperations = {
+      ...previous.relativeOperations,
+      ...edit.relativeOperations,
+    };
     merged[index] = {
       ...previous,
       ...edit,
+      ...(Object.keys(relativeOperations).length > 0
+        ? { relativeOperations }
+        : {}),
       originalValue: previous.originalValue,
-      originalHtml: previous.originalHtml,
+      ...(previous.originalHtml !== undefined
+        ? { originalHtml: previous.originalHtml }
+        : {}),
     };
   }
   return merged;
@@ -296,6 +347,7 @@ export interface PendingLiveTextEdit {
   classes: string[];
   value: string;
   html?: string;
+  relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   originalValue: string;
   originalHtml?: string;
   updatedAt: number;
@@ -971,6 +1023,7 @@ export function mergePendingVisualStyleEdit(
       ...nextEdit,
       classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
       styles: { ...edit.styles, ...nextEdit.styles },
+      relativeOperations: mergeRelativeStyleOperations(edit, nextEdit),
       originalStyles: {
         ...nextEdit.originalStyles,
         ...edit.originalStyles,
@@ -979,6 +1032,16 @@ export function mergePendingVisualStyleEdit(
     };
   });
   return merged ? next : [...edits, nextEdit];
+}
+
+function mergeRelativeStyleOperations(
+  current: PendingVisualStyleEdit,
+  next: PendingVisualStyleEdit,
+): PendingVisualStyleEdit["relativeOperations"] {
+  const operations = { ...current.relativeOperations };
+  for (const property of Object.keys(next.styles)) delete operations[property];
+  Object.assign(operations, next.relativeOperations);
+  return Object.keys(operations).length > 0 ? operations : undefined;
 }
 
 export function mergePendingVisualStyleEdits(
@@ -1245,6 +1308,9 @@ export function formatPendingVisualStylePrompt(args: {
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    ...(edit.relativeOperations
+      ? { relativeOperations: edit.relativeOperations }
+      : {}),
     before: edit.originalStyles,
     after: edit.styles,
     ...(edit.interactionState
@@ -1255,6 +1321,11 @@ export function formatPendingVisualStylePrompt(args: {
   const hasBreakpointScopedEdits = args.edits.some(
     (edit) => edit.breakpoint && edit.breakpoint.upperBoundPx !== null,
   );
+  const hasRelativeOperations =
+    args.edits.some((edit) => edit.relativeOperations) ||
+    (args.liveEdits ?? []).some(
+      (edit) => edit.kind === "text" && edit.relativeOperations,
+    );
   const reactSourceAnchors = [
     ...args.edits.map((edit) => edit.sourceAnchor),
     ...(args.liveEdits ?? []).flatMap((edit) =>
@@ -1294,6 +1365,11 @@ export function formatPendingVisualStylePrompt(args: {
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
+        beforeHtml: edit.originalHtml,
+        afterHtml: edit.html,
+        ...(edit.relativeOperations
+          ? { relativeOperations: edit.relativeOperations }
+          : {}),
         before: edit.originalValue,
         after: edit.value,
       };
@@ -1600,6 +1676,9 @@ export function formatPendingVisualStylePrompt(args: {
     codingAgent
       ? "These were made against the running app in a visual canvas. Treat each item as a source operation: use provenance/sourceAnchor to locate the owning source, compare before with the live after, and make the smallest idiomatic source edit. Runtime selectors and node ids are correlation hints only; never hand off inline-style mutations as the final implementation. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasRelativeOperations
+      ? "A relativeOperations entry is the authoritative source intent for that property. styles, after, and text html may contain only the immediate DOM-preview result; do not replace calc(), var(), or another authored expression with that absolute preview value. Apply the recorded delta/expression to the existing source expression and preserve its relative semantics."
+      : "",
     hasOutsideConnectedRootPaths
       ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."
       : "",
@@ -1647,11 +1726,41 @@ export function formatPendingVisualStylePrompt(args: {
 
 export function formatVisualEditClipboardPrompt(
   prompt: string,
-  host: "chatgpt" | "claude" | "webmcp" | null | undefined,
+  host: "chatgpt" | "claude" | "codex" | "webmcp" | null | undefined,
+  fullPrompt = false,
+  designId?: string | null,
 ): string {
-  return host === "chatgpt" || host === "claude" || host === "webmcp"
-    ? "Call the get-visual-edit-prompt WebMCP tool and apply the returned instructions."
-    : prompt;
+  const design = designId
+    ? ` { designId: "${designId}" }`
+    : " using the design ID from this URL";
+  if (fullPrompt) {
+    return [
+      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+      "Use the supplied source provenance to make idiomatic code changes; do not leave editor-only DOM or inline-style mutations as the implementation. Verify the running app after HMR, then use the Agent-Native Design MCP tool get-visual-edit-pending to obtain the current revision, acknowledge only after verification, and pull again to confirm it cleared.",
+      "",
+      prompt,
+    ].join("\n");
+  }
+  if (host === "webmcp") {
+    return "Call the get-visual-edit-prompt WebMCP tool in this Design tab and apply the returned instructions.";
+  }
+  if (host === "chatgpt" || host === "claude" || host === "codex") {
+    return `Use the Agent-Native Design MCP tool get-visual-edit-pending${design} to pull the latest edits, then apply its prompt to the connected app source. Verify the running app before acknowledging that revision, then call the tool again to confirm the handoff cleared.`;
+  }
+  return prompt;
+}
+
+export function isVisualEditHandoffAcknowledged(args: {
+  currentRevision: number;
+  pendingEditCount: number;
+  revision: number | null;
+  status: string;
+}): boolean {
+  return (
+    args.pendingEditCount > 0 &&
+    args.status === "empty" &&
+    args.revision === args.currentRevision
+  );
 }
 
 export function resolveOverviewScreenSourceType(

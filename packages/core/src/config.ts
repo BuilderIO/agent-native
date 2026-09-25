@@ -744,6 +744,51 @@ export function resolveFirstRunOnboardingMode(
   return environmentValue ?? setting.default ?? "off";
 }
 
+/** True for any first-run onboarding mode that actually shows onboarding. */
+export function isFirstRunOnboardingModeActive(
+  mode: AgentNativeFirstRunOnboardingMode | undefined,
+): boolean {
+  return mode === "connect" || mode === "connect-and-integrations";
+}
+
+/**
+ * The env var the browser client checks before falling back to the
+ * configured mode (`client/onboarding/first-run-enabled.ts`). Exported so
+ * every build-time embed of the mode (Vite `define`, Nitro `replace`) applies
+ * the same override the client will actually honor.
+ */
+export const FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY =
+  "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING";
+
+/**
+ * Resolves the mode that will actually render: an explicit
+ * `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING` override always wins (truthy ->
+ * "connect", falsy -> "off"), otherwise the configured mode when it's one of
+ * the active modes, else "off". This is the client's exact precedence
+ * (`resolveFirstRunOnboardingMode` in first-run-enabled.ts), pulled out here
+ * so client code and every build-time server embed share one implementation
+ * and can never disagree about whether onboarding is showing.
+ */
+export function resolveEffectiveFirstRunOnboardingMode(
+  envOverride: string | boolean | undefined,
+  configuredMode: AgentNativeFirstRunOnboardingMode | undefined,
+): AgentNativeFirstRunOnboardingMode {
+  if (envOverride !== undefined) {
+    const enabled =
+      envOverride === true ||
+      (typeof envOverride === "string" &&
+        ["1", "true"].includes(envOverride.trim().toLowerCase()));
+    return enabled ? "connect" : "off";
+  }
+  if (
+    configuredMode !== undefined &&
+    isFirstRunOnboardingModeActive(configuredMode)
+  ) {
+    return configuredMode;
+  }
+  return "off";
+}
+
 function normalizeFirstRunSetting(
   value: unknown,
   source: string,

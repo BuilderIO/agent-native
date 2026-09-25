@@ -152,12 +152,15 @@ export function getDesignEditorShareUrl(
   id: string,
   origin: string,
   basePath = "",
+  surface: "design" | "visual-edit" = "design",
 ) {
   const normalizedBasePath = basePath.replace(/\/+$/, "");
   const pathname = normalizedBasePath
-    ? `${normalizedBasePath}/design/${encodeURIComponent(id)}`
-    : `/design/${encodeURIComponent(id)}`;
-  return new URL(pathname, origin).toString();
+    ? `${normalizedBasePath}/${surface}/${encodeURIComponent(id)}`
+    : `/${surface}/${encodeURIComponent(id)}`;
+  const url = new URL(pathname, origin);
+  if (surface === "visual-edit") url.searchParams.set("share", "1");
+  return url.toString();
 }
 
 function formatDesignEditorUrlZoom(zoom: number): string {

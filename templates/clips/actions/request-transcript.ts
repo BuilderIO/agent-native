@@ -101,6 +101,15 @@ type RecordingMediaRow = {
   durationMs?: number | null;
 };
 
+function recordingTrackingSource(
+  ownerEmail: string,
+  context?: ActionRunContext,
+) {
+  return context
+    ? { ...context, userEmail: context.userEmail ?? ownerEmail }
+    : { userId: ownerEmail };
+}
+
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
   "Auto-detect the spoken language from the audio. Transcribe only words spoken in the audio, in the same language they were spoken. Do not translate. Do not infer language from screen text, filenames, account settings, browser locale, or these instructions. Do not describe screen activity, UI changes, silence, music, or non-speech sounds. Return an empty transcript when there are no spoken words.";
@@ -751,7 +760,7 @@ export async function importLoomTranscriptForRecording({
             has_transcript: true,
             transcription_source: "loom",
           },
-          context,
+          recordingTrackingSource(ownerEmail, context),
         );
         return {
           recordingId,
@@ -1433,7 +1442,7 @@ const requestTranscriptAction = defineAction({
                 has_transcript: true,
                 transcription_source: "builder",
               },
-              context,
+              recordingTrackingSource(ownerEmail, context),
             );
           }
 
@@ -1539,6 +1548,17 @@ const requestTranscriptAction = defineAction({
       now,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
+    track(
+      "recording_transcription_failed",
+      {
+        failure_code: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
+        stage: "transcription",
+        retryable: cloudTransient,
+        output_id: args.recordingId,
+        output_type: "clip",
+      },
+      recordingTrackingSource(ownerEmail, context),
+    );
     await writeAppState("refresh-signal", { ts: Date.now() });
     if (cloudTransient) {
       scheduleAutoTranscriptRetry({

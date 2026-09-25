@@ -35,12 +35,11 @@ import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
 import { SettingsCrossLinkHint } from "./SettingsCrossLinkHint.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 /** Where a stored value's effective source is, as reported by the server. */
-type SecretSource = "personal" | "workspace" | "vault" | "env";
+type SecretSource = "personal" | "workspace" | "vault";
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
   workspace: "secrets.sourceWorkspace",
-  env: "secrets.sourceEnvironment",
 };
 
 const OUTLINE_LINK_CLASSNAME =
@@ -64,8 +63,8 @@ interface SecretStatus {
   source?: SecretSource;
   /**
    * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault,
-   * workspace, or env value is in use instead.
+   * registered scope, so Rotate/Remove apply. False when a Vault or
+   * workspace value is in use instead.
    */
   managedHere?: boolean;
   /** A shared value this row overrides; removing the row falls back to it. */
@@ -171,8 +170,8 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
-  // Keys the Vault or the environment provide still count as "set", but until
-  // someone adds a key of their own the quick-add tiles are the useful view.
+  // Vault keys count as "set", but until someone adds their own key the
+  // quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
     (secret) => secret.status === "set" && secret.managedHere !== false,
   );
@@ -519,12 +518,9 @@ function SecretCard({
 
   const isOAuth = secret.kind === "oauth";
   // Vault/workspace-shadowed rows only show the value form once the user
-  // opts into a personal override; an env-shadowed row shows it directly
-  // since a saved row always wins over env.
+  // opts into a personal override.
   const showRotationForm =
-    (secret.status !== "set" && secret.status !== "unknown") ||
-    (isShadowedSet && secret.source === "env") ||
-    isRotating;
+    (secret.status !== "set" && secret.status !== "unknown") || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -650,9 +646,7 @@ function SecretCard({
                   <p className="text-[10px] text-muted-foreground">
                     {secret.source === "vault"
                       ? t("secrets.managedInVault")
-                      : secret.source === "workspace"
-                        ? t("secrets.setForWorkspace")
-                        : t("secrets.fromEnvironment")}
+                      : t("secrets.setForWorkspace")}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
@@ -680,7 +674,7 @@ function SecretCard({
                         <IconExternalLink size={10} />
                       </a>
                     )}
-                    {secret.source !== "env" && secret.scope === "user" && (
+                    {secret.scope === "user" && (
                       <Button
                         type="button"
                         intent="neutral"

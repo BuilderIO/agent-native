@@ -37,6 +37,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -86,6 +87,9 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
+  readAgentNativeBuildConfigMarker,
+  resolveFirstRunOnboardingBuildReplacement,
+  resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import {
   cloneServerBundleForFunction,
@@ -6132,6 +6136,8 @@ export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
   projectCwd: string = cwd,
+  firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
+  harnessMode: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6208,6 +6214,17 @@ export function resolveNitroBuildReplacements(
       JSON.stringify(
         env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || "",
       ),
+    // org/context.ts's eligibility-marker write must not read
+    // agent-native.json at runtime (not shipped into the deployed function),
+    // so embed the mode resolved from the full app config. "" is unknown.
+    "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING": JSON.stringify(
+      firstRunOnboardingMode,
+    ),
+    // hosted-harness-policy.ts's config read has the same problem: apps set
+    // `harness` only in agent-native.config.ts, which is not shipped into the
+    // deployed function either. "" is "a build recorded nothing"; a recorded
+    // value is always a JSON string (see resolveHarnessBuildReplacement).
+    "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
   };
 }
 
@@ -6268,6 +6285,12 @@ async function buildWithNitro() {
     createAgentNativeConfigContext("build", nitroMode),
     { environment: nitroEnvironment },
   );
+  // `agent-native build` runs the Vite build (which can see config passed
+  // inline to `agentNative()`) and this deploy build as separate processes.
+  // Prefer whatever the Vite step already resolved; only re-resolve from the
+  // config this function loaded above when no marker exists (a build that
+  // skipped the Vite step, or an older core).
+  const buildConfigMarker = readAgentNativeBuildConfigMarker(cwd);
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -6350,6 +6373,14 @@ export default bundle;
     replace: resolveNitroBuildReplacements(
       nitroEnvironment,
       nitroAgentConfig.deployment?.environment,
+      cwd,
+      buildConfigMarker?.firstRunOnboarding ??
+        resolveFirstRunOnboardingBuildReplacement(
+          nitroAgentConfig,
+          nitroEnvironment,
+        ),
+      buildConfigMarker?.harness ??
+        resolveHarnessBuildReplacement(nitroAgentConfig),
     ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real

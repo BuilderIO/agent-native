@@ -336,9 +336,19 @@ export async function acknowledgeDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await enqueueOutboxOperation(storage, entry.key, () =>
-    storage.deleteIfRevision(entry),
-  );
+  return await enqueueOutboxOperation(storage, entry.key, async () => {
+    const current = (await storage.list(entry.designId, entry.actorScope)).find(
+      (candidate) => candidate.key === entry.key,
+    );
+    if (
+      !current ||
+      current.operationSource !== entry.operationSource ||
+      current.operationRevision > entry.operationRevision
+    ) {
+      return false;
+    }
+    return await storage.deleteIfRevision(current);
+  });
 }
 
 export async function discardDesignSaveOutboxEntry(

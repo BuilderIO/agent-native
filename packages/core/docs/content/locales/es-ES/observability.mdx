@@ -108,7 +108,7 @@ export default function ObservabilityPage() {
 
 Todos los datos se limitan al usuario que inició sesión; hoy no hay una vista de administrador entre usuarios.
 
-El panel tiene 5 pestañas:
+El panel tiene 6 pestañas:
 
 | Pestaña                 | Qué muestra                                                                                                           |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -117,6 +117,17 @@ El panel tiene 5 pestañas:
 | **Evaluaciones**        | Puntuaciones de evaluación automatizadas por criterios, tendencias a lo largo del tiempo                              |
 | **Experimentos**        | Lista de pruebas A/B con insignias de estado, resultados de variantes con intervalos de confianza                     |
 | **Comentarios**         | Aprobación/desaprobación, desglose de categorías, puntuaciones de frustración                                         |
+| **Revisión humana**     | Revisar la solicitud y la respuesta, registrar comentarios y redactar una actualización de instrucciones              |
+
+### Detalles de las conversaciones {#conversations}
+
+La pestaña Conversaciones muestra las ejecuciones registradas. Selecciona una para inspeccionar sus tramos y expande cualquiera para ver las entradas, salidas, errores y metadatos de herramientas capturados. **Abrir conversación completa** te lleva al hilo de chat correspondiente.
+
+Los argumentos y resultados de herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` y `captureToolResults` en la configuración `observability` para almacenarlos. Los campos sensibles y los mensajes de error de herramientas se redactan antes de guardarlos.
+
+### Revisión humana {#review}
+
+La pestaña Revisión humana muestra la solicitud y la respuesta de cada ejecución, permite registrar comentarios y guardar un borrador de actualización de instrucciones para que lo revise una persona. Guardar el borrador no cambia las instrucciones automáticamente.
 
 ## Comentarios de los usuarios {#feedback}
 

@@ -1,3 +1,5 @@
+import postcss from "postcss";
+
 const SHAPE_TAGS = new Set([
   "path",
   "rect",
@@ -48,18 +50,21 @@ const PAINT_PROPERTIES: Array<[string, string | null]> = [
   ["stroke-dashoffset", "0"],
   ["clip-rule", "nonzero"],
 ];
-const UNSAFE_TAGS = [
-  "script",
-  "foreignObject",
-  "iframe",
-  "object",
-  "embed",
-  "animate",
-  "animateMotion",
-  "animateTransform",
-  "set",
-  "discard",
-];
+const UNSAFE_TAGS = new Set(
+  [
+    "script",
+    "foreignObject",
+    "iframe",
+    "object",
+    "embed",
+    "animate",
+    "animateMotion",
+    "animateTransform",
+    "set",
+    "discard",
+  ].map((tag) => tag.toLowerCase()),
+);
+const UNSUPPORTED_TAGS = new Set(["image", "text", "use", "foreignobject"]);
 /** Elements a Vector may carry in its own `<defs>`; anything else is dropped. */
 const DEF_TAGS = new Set(
   [
@@ -90,8 +95,77 @@ const DEF_TAGS = new Set(
   ].map((tag) => tag.toLowerCase()),
 );
 const GROUP_EFFECT_ATTRIBUTES = ["clip-path", "mask", "filter"];
-const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/g;
+const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/gi;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
+function removeCssLineContinuations(value: string): string {
+  return value.replace(/\\(?:\r\n|[\n\r\f])/g, "");
+}
+
+function normalizeCssTokens(value: string): string {
+  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutLineContinuations = removeCssLineContinuations(uncommented);
+  return withoutLineContinuations.replace(
+    /\\([\da-f]{1,6})(?:\r\n|\s)?|\\(.)/gi,
+    (_, hex, escaped) => {
+      if (!hex) return escaped;
+      const codePoint = Number.parseInt(hex, 16);
+      return String.fromCodePoint(
+        codePoint > 0x10ffff || codePoint === 0 ? 0xfffd : codePoint,
+      );
+    },
+  );
+}
+
+function sanitizeExternalUrlReferences(value: string): string {
+  const normalized = normalizeCssTokens(value);
+  if (!/url\s*\(/i.test(normalized)) return value;
+  return normalized.replace(
+    /url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi,
+    (reference, doubleQuoted, singleQuoted, unquoted) => {
+      const target = (doubleQuoted ?? singleQuoted ?? unquoted ?? "").trim();
+      return target.startsWith("#") ? reference : "";
+    },
+  );
+}
+
+function sanitizeStyleAttribute(value: string): string | null {
+  try {
+    const root = postcss.parse(`svg{${removeCssLineContinuations(value)}}`);
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    const rule = root.first;
+    const style = document.createElement("div").style;
+    style.cssText =
+      rule?.type === "rule"
+        ? rule.nodes.map((node) => node.toString()).join(";")
+        : "";
+    return style.length ? style.cssText : null;
+    // coercion-ok: malformed SVG style declarations are dropped at the paste boundary.
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeStyleSheet(styleElement: Element): void {
+  try {
+    const root = postcss.parse(
+      removeCssLineContinuations(styleElement.textContent ?? ""),
+    );
+    root.walkAtRules((rule) => {
+      if (normalizeCssTokens(rule.name).toLowerCase() === "import") {
+        rule.remove();
+      }
+    });
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    styleElement.textContent = root.toString();
+  } catch {
+    styleElement.remove();
+  }
+}
 /** Past these, a pasted SVG is artwork rather than an icon or logo and goes
  * through the image upload instead of into the document as markup. */
 const MAX_SVG_MARKUP_LENGTH = 512 * 1024;
@@ -144,27 +218,76 @@ export function svgLayerName(fileName: string): string {
 }
 
 function parseSvgRoot(markup: string): SVGSVGElement | null {
-  const doc = new DOMParser().parseFromString(markup, "text/html");
-  return doc.body.querySelector("svg");
+  // XML normalizes attribute line breaks before the CSS sanitizer sees them.
+  const sanitizedMarkup = markup.replace(
+    /<(?:"[^"]*"|'[^']*'|[^'">])*?>/g,
+    removeCssLineContinuations,
+  );
+  const namespacedMarkup = sanitizedMarkup.replace(
+    /<(svg)(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
+    (_tag, rootName: string, attributes: string) => {
+      const namespace = /\sxmlns\s*=\s*(["'])[\s\S]*?\1/i;
+      const namespacedAttributes = namespace.test(attributes)
+        ? attributes.replace(namespace, ` xmlns="${SVG_NAMESPACE}"`)
+        : `${attributes} xmlns="${SVG_NAMESPACE}"`;
+      return `<${rootName}${namespacedAttributes}>`;
+    },
+  );
+  const doc = new DOMParser().parseFromString(
+    namespacedMarkup,
+    "image/svg+xml",
+  );
+  if (
+    doc.querySelector("parsererror") ||
+    doc.documentElement.localName.toLowerCase() !== "svg"
+  ) {
+    return null;
+  }
+  return doc.documentElement as unknown as SVGSVGElement;
+}
+
+function svgElements(root: Element): Element[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))];
 }
 
 function sanitizeSvg(root: SVGSVGElement): void {
-  for (const tag of UNSAFE_TAGS) {
-    root.querySelectorAll(tag).forEach((element) => element.remove());
+  for (const element of svgElements(root)) {
+    if (UNSAFE_TAGS.has(element.localName.toLowerCase())) element.remove();
   }
-  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+  for (const element of svgElements(root)) {
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       const value = attribute.value.trim();
-      if (name.startsWith("on")) element.removeAttribute(attribute.name);
-      else if (
+      if (
+        name.startsWith("on") ||
+        name.startsWith("data-an-") ||
+        name.startsWith("data-agent-native-")
+      ) {
+        element.removeAttribute(attribute.name);
+      } else if (
         (name === "href" || name === "xlink:href") &&
+        value !== "" &&
         !value.startsWith("#")
       ) {
         element.removeAttribute(attribute.name);
+      } else if (name === "style") {
+        const safeStyle = sanitizeStyleAttribute(value);
+        if (safeStyle) element.setAttribute(attribute.name, safeStyle);
+        else element.removeAttribute(attribute.name);
       } else if (/javascript:|data:text\/html/i.test(value)) {
         element.removeAttribute(attribute.name);
+      } else {
+        const safeValue = sanitizeExternalUrlReferences(value);
+        if (safeValue !== value) {
+          if (safeValue) element.setAttribute(attribute.name, safeValue);
+          else element.removeAttribute(attribute.name);
+        }
       }
+    }
+  }
+  for (const element of svgElements(root)) {
+    if (element.localName.toLowerCase() === "style") {
+      sanitizeStyleSheet(element);
     }
   }
 }
@@ -343,12 +466,16 @@ export const measureSvgInDocument: MeasureSvg = (root, size) => {
     const rootRect = mounted.getBoundingClientRect();
     const toUser = mounted.getScreenCTM()?.inverse();
     // Stops styled by a <style> class lose their colour once <style> is gone.
-    const sourceStops = Array.from(root.querySelectorAll("stop"));
-    mounted.querySelectorAll("stop").forEach((stop, index) => {
-      const computed = getComputedStyle(stop);
-      sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
-      sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
-    });
+    const sourceStops = svgElements(root).filter(
+      (element) => element.localName.toLowerCase() === "stop",
+    );
+    svgElements(mounted)
+      .filter((element) => element.localName.toLowerCase() === "stop")
+      .forEach((stop, index) => {
+        const computed = getComputedStyle(stop);
+        sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
+        sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
+      });
     const originals = drawableShapes(root);
     drawableShapes(mounted).forEach((shape, index) => {
       const original = originals[index]!;
@@ -451,7 +578,12 @@ export function buildPastedSvgLayer(
 ): PastedSvgLayer | null {
   if (markup.length > MAX_SVG_MARKUP_LENGTH) return null;
   const root = parseSvgRoot(markup);
-  if (!root || root.querySelector("image, text, use, foreignObject")) {
+  if (
+    !root ||
+    svgElements(root).some((element) =>
+      UNSUPPORTED_TAGS.has(element.localName.toLowerCase()),
+    )
+  ) {
     return null;
   }
   sanitizeSvg(root);

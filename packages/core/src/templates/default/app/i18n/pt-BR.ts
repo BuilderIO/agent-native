@@ -714,6 +714,7 @@ const messages = {
     saveUpdate: "Salvar rascunho",
     draftSaved: "Rascunho salvo",
     noReviews: "Ainda não há respostas do agente para revisar",
+    summarizeWithAgent: "Resumir com o agente",
   },
   error: {
     genericTitle: "Algo deu errado",

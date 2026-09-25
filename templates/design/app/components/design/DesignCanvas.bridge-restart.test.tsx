@@ -69,6 +69,8 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
           sourceType="localhost"
           bridgeUrl={BRIDGE_URL}
           previewToken={PREVIEW_TOKEN}
+          liveEditCapability="bridge-restart-live-capability"
+          liveEditRegistrationCapability="bridge-restart-registration-capability"
           zoom={100}
           deviceFrame="none"
           interactMode={false}
@@ -192,7 +194,9 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").not.toContain(
       "Live editor connection failed",
     );
-    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+    // The real iframe has not posted ready, so edit interactions remain
+    // shielded even though the same-instance probe correctly avoids an error.
+    expect(container.textContent ?? "").toContain("Preparing live editor");
     const iframeSrc = container.querySelector("iframe")?.getAttribute("src");
     expect(iframeSrc).toContain("/live-edit");
 
@@ -345,8 +349,9 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
 
     // The live document that the watchdog retired had already queued ready.
-    // Its exact WindowProxy + bridge-key generation is allowed to restore the
-    // registration, clearing both the error and the pending placeholder.
+    // Its exact WindowProxy + bridge-key generation restores the registration
+    // and clears the error; the newly mounted document remains shielded until
+    // it sends its own ready handshake.
     await act(async () => {
       postReadyHandshake(retiredLiveWindow!);
       await flushMicrotasks();
@@ -354,7 +359,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").not.toContain(
       "Live editor connection failed",
     );
-    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+    expect(container.textContent ?? "").toContain("Preparing live editor");
     expect(container.querySelector("iframe")?.getAttribute("src")).toContain(
       "/live-edit",
     );

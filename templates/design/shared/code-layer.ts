@@ -6062,6 +6062,16 @@ function applyStyleEdit(
   const normalized = normalizedSafeStyleValue(intent.property, intent.value);
   if (!normalized) return "unsupported";
   const { property, value } = normalized;
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(html, element, value);
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
   if (property === "border-color") {
     const isGradient =
       /^(?:repeating-)?(?:linear|radial|conic)-gradient\(/i.test(value);
@@ -6340,6 +6350,115 @@ function applyStyleEdit(
   };
 }
 
+const OPEN_PEN_PATH_FILL_OPACITY = "data-an-open-fill-opacity";
+
+type OpenPenPathFillOpacitySnapshot = {
+  version: 2;
+  attributeValue: string | null;
+  restoreAttribute: boolean;
+  styleValue: string | null;
+  stylePriority: string;
+};
+
+type OpenPenPathFillOpacityUpdate =
+  | { kind: "unmarked" }
+  | { kind: "invalid" }
+  | { kind: "updated"; content: string };
+
+function readOpenPenPathFillOpacitySnapshot(
+  marker: string,
+  element: ParsedElement,
+): OpenPenPathFillOpacitySnapshot | null {
+  if (marker === "absent" || marker.startsWith("value:")) {
+    const opacity = parseStyleDeclarations(
+      attributeValue(element, "style") ?? "",
+    ).declarations.find(
+      (declaration) => cssPropertyKey(declaration.prop) === "fill-opacity",
+    );
+    return {
+      version: 2,
+      attributeValue:
+        marker === "absent" ? null : marker.slice("value:".length),
+      restoreAttribute: true,
+      styleValue: opacity?.value ?? null,
+      stylePriority: opacity?.important ? "important" : "",
+    };
+  }
+
+  let snapshot: unknown;
+  try {
+    snapshot = JSON.parse(marker);
+  } catch {
+    // coercion-ok: malformed persisted metadata is returned as invalid and rejected by the caller.
+    return null;
+  }
+  if (
+    typeof snapshot === "object" &&
+    snapshot !== null &&
+    "version" in snapshot &&
+    snapshot.version === 2 &&
+    "restoreAttribute" in snapshot &&
+    typeof snapshot.restoreAttribute === "boolean" &&
+    "attributeValue" in snapshot &&
+    (snapshot.attributeValue === null ||
+      typeof snapshot.attributeValue === "string") &&
+    "styleValue" in snapshot &&
+    (snapshot.styleValue === null || typeof snapshot.styleValue === "string") &&
+    "stylePriority" in snapshot &&
+    typeof snapshot.stylePriority === "string"
+  ) {
+    return snapshot as OpenPenPathFillOpacitySnapshot;
+  }
+  return null;
+}
+
+function updateOpenPenPathFillOpacity(
+  html: string,
+  element: ParsedElement,
+  value: string | null,
+): OpenPenPathFillOpacityUpdate {
+  if (element.tag !== "path") return { kind: "unmarked" };
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return { kind: "unmarked" };
+
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return { kind: "invalid" };
+
+  const declaration = value
+    ? parseStyleDeclarations(`fill-opacity: ${value}`).declarations[0]
+    : undefined;
+  if (value && !declaration) return { kind: "invalid" };
+  return {
+    kind: "updated",
+    content: replaceOrInsertAttribute(
+      html,
+      element,
+      OPEN_PEN_PATH_FILL_OPACITY,
+      JSON.stringify({
+        ...snapshot,
+        styleValue: declaration?.value ?? null,
+        stylePriority: declaration?.important ? "important" : "",
+      }),
+    ),
+  };
+}
+
+function updateOpenPenPathFillOpacityAttribute(
+  element: ParsedElement,
+  value: string,
+): string | null | undefined {
+  if (element.tag !== "path") return undefined;
+  const marker = attributeValue(element, OPEN_PEN_PATH_FILL_OPACITY);
+  if (marker === null) return undefined;
+  const snapshot = readOpenPenPathFillOpacitySnapshot(marker, element);
+  if (!snapshot) return null;
+  return JSON.stringify({
+    ...snapshot,
+    attributeValue: value,
+    restoreAttribute: false,
+  });
+}
+
 const BORDER_RADIUS_PROPERTY = /^border(-[a-z]+)*-radius$/;
 const SOURCE_PATH_DATA_ATTRIBUTE = "data-an-source-d";
 
@@ -6571,6 +6690,20 @@ function applyStyleRemoveEdit(
     return "unsupported";
   }
   const currentStyle = attributeValue(styleElement, "style");
+  if (property === "fill-opacity") {
+    const opacityUpdate = updateOpenPenPathFillOpacity(
+      html,
+      styleElement,
+      null,
+    );
+    if (opacityUpdate.kind === "invalid") return "unsupported";
+    if (opacityUpdate.kind === "updated") {
+      return {
+        content: opacityUpdate.content,
+        capability: { kind: "style", properties: [property], confidence: 0.9 },
+      };
+    }
+  }
   const previousStroke =
     property === "stroke" ? vectorStyleValue(styleElement, "stroke") : null;
   const previousFill =
@@ -7277,8 +7410,16 @@ function applyAttributeEdit(
     return "unsupported";
   }
   if (!isSafeAttributeValue(intent.name, intent.value)) return "unsupported";
+  const attributes: Record<string, string | null> = {
+    [intent.name]: intent.value,
+  };
+  if (intent.name.toLowerCase() === "fill-opacity") {
+    const marker = updateOpenPenPathFillOpacityAttribute(element, intent.value);
+    if (marker === null) return "unsupported";
+    if (marker !== undefined) attributes[OPEN_PEN_PATH_FILL_OPACITY] = marker;
+  }
   return {
-    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    content: patchElementAttributes(html, [{ element, attributes }]),
     capability: {
       kind: "attribute",
       operations: ["set"],

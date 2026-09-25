@@ -14,6 +14,7 @@ import type { OverviewScreen } from "@/pages/design-editor/derive/overview-scree
 import {
   applyScopedVisualStyleEdit,
   resolveOverviewScreenSourceType,
+  type PendingRelativeStyleOperation,
 } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -46,6 +47,8 @@ export interface ScreenVisualStyleChangeArgs {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+      runtimeApplied?: boolean;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -59,6 +62,7 @@ export interface ScreenVisualStyleChangeArgs {
       preserveSelection?: boolean;
       interactionState?: InteractionState;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
@@ -90,6 +94,8 @@ export function runScreenVisualStyleChange(
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
     routePath?: string;
+    runtimeApplied?: boolean;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   const overviewScreen = overviewScreens.find(
@@ -119,13 +125,12 @@ export function runScreenVisualStyleChange(
   // pattern below.
   if (screenSourceType === "localhost") {
     if (!canEditScreen) return;
-    recordPendingVisualStyleEdit(
-      screenId,
-      selector,
-      styles,
-      elementInfo,
-      metadata,
-    );
+    recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo, {
+      originalStyles: metadata?.originalStyles,
+      preserveSelection: metadata?.preserveSelection,
+      routePath: metadata?.routePath,
+      relativeOperations: metadata?.relativeOperations,
+    });
     return;
   }
   if (!canEditDesign) return;
