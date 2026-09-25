@@ -272,6 +272,40 @@ describe("shouldShowAssistantChatModelSelector", () => {
 });
 
 describe("AssistantChat thread restore and composer recovery", () => {
+  it("serializes chat submissions with history restoration", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const restoreStart = source.indexOf(
+      "const restoreChatHistoryVersion = useCallback",
+    );
+    const restoreEnd = source.indexOf(
+      "const chatHistoryContext = useMemo",
+      restoreStart,
+    );
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const dequeueEnd = source.indexOf(
+      "// Clear frozen reconnect content",
+      dequeueStart,
+    );
+    const restoreSource = source.slice(restoreStart, restoreEnd);
+    const submitSource = source.slice(submitStart, submitEnd);
+    const dequeueSource = source.slice(dequeueStart, dequeueEnd);
+
+    expect(restoreSource).toContain("submissionInFlightRef.current > 0");
+    expect(restoreSource).toContain(
+      "chatHistoryRestoreWaitRef.current = restoreWait",
+    );
+    expect(submitSource).toContain("await waitForChatHistoryRestore();");
+    expect(dequeueSource).toContain("isChatHistoryRestoring");
+    expect(dequeueSource).toContain("chatHistoryRestoreInFlightRef.current");
+    expect(source).toMatch(
+      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*isChatHistoryRestoring\s*\}/,
+    );
+  });
+
   it("keeps recovery-card fork snapshots compact", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -1943,7 +1977,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain('"agent-composer-area--attached-above"');
     expect(source).toContain("layout={missingApiKeySetupLayout}");
     expect(source).toMatch(
-      /disabled=\{\s*isComposerDisabled \|\| showMissingKeySetup\s*\}/,
+      /disabled=\{\s*isComposerDisabled \|\|\s*showMissingKeySetup \|\|\s*isChatHistoryRestoring\s*\}/,
     );
     expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toContain(".agent-builder-setup-card--attached");
