@@ -76,16 +76,12 @@ const SHIPPING_CHURN_RE =
 
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:stopped|blocked)\b[^.!?\n]{0,40}\b(?:work\w*|task|session|thread|agent)\b`,
-    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:work|task|session|thread|agent)\s+stopped\b`,
-    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\b(?:stopped working|was blocked|got blocked)\b[^.!?\n]{0,100}\bleases?\b`,
-    String.raw`\bleases?\b[^.!?\n]{0,120}\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\b(?:didn['’]?t|did not|couldn['’]?t|could not|was unable to)\s+continu\w*`,
-    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\b(?:didn['’]?t|did not|couldn['’]?t|could not|was unable to)\s+continu\w*[^.!?\n]{0,100}\bleases?\b`,
-    String.raw`\bleases?\b[^.!?\n]{0,100}\bprevented\b[^.!?\n]{0,40}\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b`,
-    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?\n]{0,80}\bprevented\b[^.!?\n]{0,40}\bfrom\s+(?:continuing|working)\b[^.!?\n]{0,100}\bleases?\b`,
-    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?\n]{0,120}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,80}\bleases?\b[^.!?\n]{0,80}\b(?:would|will|then)\s+(?:just\s+)?stop\w*\b`,
-    String.raw`\b(?:told|asked|reminded)\b[^.!?\n]{0,80}\b(?:threads?|sessions?|agents?)\b[^.!?\n]{0,80}\b(?:finish(?:ing)?\s+shipping|ignore|bypass)\b[^.!?\n]{0,60}\bleases?\b`,
-    String.raw`\bleases?\b[^.!?\n]{0,80}\b(?:shouldn['’]?t|should not|wouldn['’]?t|would not|couldn['’]?t|could not)\s+block\w*\b[^.!?\n]{0,40}\b(?:work|task)\b[^.!?\n]{0,40}\bbut\s+it\s+did\b`,
+    String.raw`\bleases?\b[^.!?;\n]{0,60}\b(?:blocked|stopped|prevented)\b[^.!?;\n]{0,35}\b(?:work|task|session|thread|agent)\b`,
+    String.raw`\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,35}\b(?:stopped(?:\s+working)?|was blocked|got blocked|couldn['’]?t continue|could not continue|was unable to continue|didn['’]?t continue|did not continue)\b[^.!?;\n]{0,35}\b(?:because(?:\s+of)?|due to|after)\b[^.!?;\n]{0,55}\bleases?\b`,
+    String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:fail(?:ed|ure)?|expired|was(?:n['’]?t| not) renewed|couldn['’]?t renew|could not renew|couldn['’]?t get|could not get)\b[^.!?;\n]{0,30}\b(?:so|therefore|then|meant|caused)\b[^.!?;\n]{0,30}\b(?:work|task|session|thread|agent)\b[^.!?;\n]{0,25}\b(?:stopped|couldn['’]?t continue|could not continue|didn['’]?t continue|did not continue|was unable to continue)\b(?![^.!?;\n]{0,60}\b(?:because|due to|since)\b)`,
+    String.raw`\b(?:codex|agents?|sessions?|threads?)\b[^.!?;\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?;\n]{0,50}\bleases?\b[^.!?;\n]{0,40}\b(?:so|then|and then|therefore)\b[^.!?;\n]{0,30}\b(?:just\s+)?stop\w*\b`,
+    String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
+    String.raw`\bleases?\b[^.!?;\n]{0,50}\b(?:shouldn['’]?t|should not|wouldn['’]?t|would not|couldn['’]?t|could not)\s+block\b[^.!?;\n]{0,30}\b(?:work|task)\b[^.!?;\n]{0,25}\bbut\s+it\s+did\b`,
   ].join("|"),
   "i",
 );
@@ -617,13 +613,17 @@ const SHIPPING_CHURN_REGEX_CASES = [
 const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [true, "Codex couldn't renew the PR lease and then stopped working."],
   [true, "I told the threads to finish shipping and ignore the lease stuff."],
+  [
+    true,
+    "I had to tell at the threads to finish shipping and ignore the lease stuff.",
+  ],
   [false, "The PR lease coordinates durable watchers."],
   [false, "The lease failed, but this task continued in the foreground."],
   [false, "The lease failure did not stop this task from working."],
   [false, "The lease is not blocking work."],
   [false, "The lease should not block work."],
   [false, "A file lock prevented the build from running."],
-  [true, "The PR lease was not renewed, and work stopped."],
+  [true, "The PR lease was not renewed, so work stopped."],
   [true, "The lease failure meant the task did not continue working."],
   [
     true,
@@ -633,12 +633,23 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [false, "The agent did not stop working; the lease was irrelevant."],
   [true, "The agent stopped working after the lease expired."],
   [true, "The lease failure prevented the task from continuing."],
+  [true, "Work stopped because the lease expired."],
+  [true, "The task stopped because it could not renew its lease."],
   [false, "No work was stopped by the lease."],
   [false, "Don't ignore the lease; continue working."],
   [false, "The lease prevents duplicate watchers so work can continue."],
   [false, "Work was not blocked by the lease."],
   [true, "Work could not continue after the lease expired."],
   [true, "The lease failure meant the task could not continue."],
+  [
+    false,
+    "The lease was not blocking work; the task could not continue because GitHub was down.",
+  ],
+  [
+    false,
+    "I did not ask the threads to finish shipping and ignore lease stuff.",
+  ],
+  [false, "Don't ask the threads to finish shipping and ignore lease stuff."],
   [
     true,
     "Codex sessions couldn't get leases or lease renewal so would just stop.",
