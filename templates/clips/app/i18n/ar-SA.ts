@@ -414,6 +414,11 @@ const messages = {
     agentEmptyTitle: "انضم إلى المحادثة",
     agentEmptyDescription:
       "أنشئ حساب Clips مجانيًا للتعليق والتفاعل وطرح الأسئلة حول هذا المقطع.",
+    commentSignupTitle: "امنح وكيل الذكاء الاصطناعي الصورة كاملة",
+    commentSignupContext:
+      "شارك النص المكتوب والإطارات ذات الطوابع الزمنية في رابط واحد",
+    commentSignupFeedback: "حوّل الملاحظات المسجّلة إلى خطوات واضحة",
+    commentSignupDebug: "التقط أخطاء وحدة التحكم والطلبات الفاشلة",
     agentEmptySignInPrompt: "لديك حساب بالفعل؟",
     signUp: "التسجيل",
     ownerInsights: "رؤى المالك",

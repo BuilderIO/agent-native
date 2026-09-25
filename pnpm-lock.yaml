@@ -2641,6 +2641,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
+      '@launchdarkly/node-server-sdk':
+        specifier: ^9.13.6
+        version: 9.13.6
       '@mcp-b/webmcp-polyfill':
         specifier: ^5.1.0
         version: 5.1.0
@@ -10739,6 +10742,15 @@ packages:
 
   '@kurkle/color@0.3.4':
     resolution: {integrity: sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==}
+
+  '@launchdarkly/js-sdk-common@2.26.0':
+    resolution: {integrity: sha512-udqKKgDhRpvprMh53GtK2hSdIJvhs9mUNseAyyyEBcLc5ftNxAZeZbWfKvmyuckS7Qt7rznIHHSSiwm2yYW4+g==}
+
+  '@launchdarkly/js-server-sdk-common@2.21.4':
+    resolution: {integrity: sha512-SMrbPsjA95SM8s9Tnj85hJZ0Di7H8j3Ma32CCT1rUJhqAUetcDofkPtgePaba44p8H+F1ToHN1mXUuM8fbY1bQ==}
+
+  '@launchdarkly/node-server-sdk@9.13.6':
+    resolution: {integrity: sha512-2kGql7mXJKRndqK8m+++j+C9lk48KK9dRf03BlBo9/Ml7sVtgWSwBkX4vgZH/CvvReeXToaDsnv5Wxx2VDM6fg==}
 
   '@legendapp/list@3.3.3':
     resolution: {integrity: sha512-p3g4xG6f//s4XQKhuus2189GCQgOHEIbJXHePqeDxj+6UQQQyij4YBjyArNSCgqoP0c03sxDPSOuCFB128Ql6g==}
@@ -19790,6 +19802,10 @@ packages:
     resolution: {integrity: sha512-QJv/h939gDpvT+9SiLVlY7tZC3xB2qK57v0J04Sh9wpMb6MP1q8gB21L3WIo8T5P1MSMg3Ep14L7KkDCFG3y4w==}
     engines: {node: '>=16.0.0'}
 
+  launchdarkly-eventsource@2.2.0:
+    resolution: {integrity: sha512-u38fYlLSq/m6oFz0MS1/76Sj2xzlYhTKZ+sf/vju6PA86PMc6fPlY5k8CdU79edLXjNwsvIQTDvDNy3llDqB8A==}
+    engines: {node: '>=0.12.0'}
+
   layout-base@1.0.2:
     resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
 
@@ -22096,6 +22112,11 @@ packages:
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
+    hasBin: true
+
+  semver@7.5.4:
+    resolution: {integrity: sha512-1bCSESV6Pv+i21Hvpxp3Dx+pSD8lIPt8uVjRrxAUt/nbswYc+tK6Y2btiULjd4+fnq15PX+nqQDC7Oft7WkwcA==}
+    engines: {node: '>=10'}
     hasBin: true
 
   semver@7.7.4:
@@ -26966,6 +26987,21 @@ snapshots:
   '@keyv/serialize@1.1.1': {}
 
   '@kurkle/color@0.3.4': {}
+
+  '@launchdarkly/js-sdk-common@2.26.0': {}
+
+  '@launchdarkly/js-server-sdk-common@2.21.4':
+    dependencies:
+      '@launchdarkly/js-sdk-common': 2.26.0
+      semver: 7.5.4
+
+  '@launchdarkly/node-server-sdk@9.13.6':
+    dependencies:
+      '@launchdarkly/js-server-sdk-common': 2.21.4
+      https-proxy-agent: 7.0.6
+      launchdarkly-eventsource: 2.2.0
+    transitivePeerDependencies:
+      - supports-color
 
   '@legendapp/list@3.3.3(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -36848,6 +36884,8 @@ snapshots:
       vscode-languageserver-textdocument: 1.0.12
       vscode-uri: 3.0.8
 
+  launchdarkly-eventsource@2.2.0: {}
+
   layout-base@1.0.2: {}
 
   layout-base@2.0.1: {}
@@ -39832,6 +39870,10 @@ snapshots:
   semver@5.7.2: {}
 
   semver@6.3.1: {}
+
+  semver@7.5.4:
+    dependencies:
+      lru-cache: 6.0.0
 
   semver@7.7.4: {}
 

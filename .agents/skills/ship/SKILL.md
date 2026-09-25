@@ -28,31 +28,22 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 - `/ship` starts in `ship_mode=merge-authorized`: merge once the gates below
   pass unless the user explicitly says to leave the PR open. If they opt out,
   switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
-  PR is ready, then leave it open, clean up the watcher, and do not rotate the
-  branch.
+  PR is ready, then leave it open and do not rotate the branch.
 - Before the guarded merge, persist its exact verified PR head OID as
-  `ship_merge_head_oid`. In Codex, use the active task-scoped watcher prompt
-  when a watcher is active; foreground-only runs with no watcher keep the
-  marker in the task transcript and continue without yielding through
-  post-merge disposition. In Claude Code, use the active `/goal` transcript
-  when one exists; otherwise use the foreground task transcript and continue
-  without yielding through post-merge disposition. A missing watcher or
-  `/goal` never blocks the authorized merge. Carry the immutable value through
-  post-merge verification; never replace it with a live PR head read after
-  merge, because the source branch may advance or be deleted.
+  `ship_merge_head_oid` in the active goal or task transcript. Continue in the
+  foreground through post-merge disposition. Carry the immutable value through
+  verification; never replace it with a live PR head read after merge, because
+  the source branch may advance or be deleted.
 - `/ship` uses the current branch when attached. In a dedicated task-owned
-  worktree with detached `HEAD`, create an available shipping branch without
-  asking; use the detached preflight below to base it on fresh `origin/main`
-  while preserving all local commits and changes. A branch name already used
-  by another task means choose the next available name. In a shared checkout,
-  ask before changing branches unless the user gave the exact operation.
-  Never move or rewrite a branch used by another worktree or a platform-assigned
-  branch. After `origin/main` ancestry is verified, rotate to a fresh branch in
-  the task-owned worktree without asking when the `/ship` safety checks pass.
-  If unpublished commits or dirty publishable paths remain, retain the source
-  branch and report them; do not strand commits excluded from `ship:push` on
-  the old branch without naming them. In a shared checkout, keep the source
-  branch unless the user authorized the exact operation.
+  worktree, create or switch to an available task branch when needed without
+  asking; base new branches on fresh `origin/main` as described below. A name
+  already used by another task belongs to that task, so choose another. Never
+  move or rewrite a branch used by another worktree or a platform-assigned
+  branch. After `origin/main` ancestry is verified, rotate to a fresh task
+  branch in the task-owned worktree without asking when `/ship` safety checks
+  pass. If unpublished commits or dirty publishable paths remain, retain the
+  source branch and report them. In a shared checkout, ask before changing
+  branches unless the user gave the exact operation.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
   create one with `create_goal` whose objective, under normal `/ship`
   authorization, says to continue until the PR is merged, `origin/main` ancestry
@@ -68,8 +59,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   checks, addressed review feedback with no new actionable item at final
   revalidation, `MERGEABLE`, a clean worktree, and no unpushed commits.
   Complete the ship goal only after its stated endpoint is reached.
-  The goal records the objective; `/babysit-pr` owns the checks and durable
-  wake-ups.
+  The goal records the objective; `/babysit-pr` owns the checks. `/ship` stays
+  foreground-only and creates no watcher or lease.
 - In Claude Code, use its native session goal for the same endpoint. `/goal` is
   a session command, not an agent tool, so the user must submit it as a separate
   message before invoking `/ship`; loading the skill cannot set it. Submit this
@@ -113,18 +104,16 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 1. Preflight the worktree and ownership.
 2. Run focused validation and publish the first coherent snapshot.
 3. Open or update the ready PR immediately.
-4. Run `/babysit-pr <number>` with the persisted `ship_mode` and keep the
-   watcher or foreground loop active through the mode's endpoint. The
-   standalone 30-minute stop never ends a `/ship` lifecycle.
+4. Run `/babysit-pr <number>` in this foreground task with the inherited
+   `ship_mode`. The standalone 30-minute stop never ends a `/ship` lifecycle.
 5. In `merge-authorized` mode, merge only after the live gates hold for 10
-   minutes. In `ready-only` mode, stop at the verified ready-PR gate, leave the
-   PR open, and clean up its watcher and lease.
-6. After a merge, verify it reached `origin/main`, then rotate this task-owned
-   worktree to a fresh branch using `/new-branch`'s safety checks, without
-   asking for confirmation. Retain the source branch if unpushed commits or
-   dirty publishable paths remain. In a shared checkout, keep the source branch
-   unless the user authorized the exact operation. `ready-only` shipments do
-   not rotate.
+   minutes. In `ready-only` mode, stop at the verified ready-PR gate and leave
+   the PR open.
+6. After a merge, verify it reached `origin/main`, then finish branch
+   disposition. In a task-owned worktree, rotate to a fresh task branch without
+   asking if `/ship` safety checks pass; in a shared checkout, keep the source
+   branch unless the user authorized that exact operation. `ready-only`
+   shipments do not rotate.
 7. Report source checks, PR, merge or intentional open state, branch
    disposition, and deployment boundaries separately.
 
@@ -143,11 +132,10 @@ reminder or leave a scheduler repeating an unchanged status. For each PR:
   `gh pr merge <number> --squash --admin --match-head-commit <verified-head-oid>`.
   If the command rejects because the head changed, restart the soak.
 - In `ready-only` mode, keep fixing CI and review feedback until the ready-PR
-  gate in `/babysit-pr` holds; then leave the PR open and clean up its watcher
-  and lease without merging or rotating.
+  gate in `/babysit-pr` holds; then leave the PR open without merging or rotating.
 - If an external dependency is unchanged, record the exact blocker once and
-  keep the watcher quiet until a meaningful state change. Do not send repeated
-  "continue" prompts that only renew a lease or restate CI status.
+  keep the foreground task quiet until a meaningful state change. Do not send
+  repeated "continue" prompts that restate CI status.
 
 The scheduler is a trigger, not the work. The original task that received the
 ship request owns its endpoint; it must not stop at a progress report while an
@@ -251,26 +239,24 @@ Keep these claims separate in the PR and final report:
 
 ## 4. Babysit
 
-Run /babysit-pr <number> immediately after PR creation and follow that skill
-for the durable heartbeat, serialized PR lease, local-change ownership checks,
-review handling, conflict recovery, and cadence. Do not duplicate its lease
-protocol here or end the task after opening the PR without either its watcher
-or a foreground loop.
+Run /babysit-pr <number> immediately after PR creation in this foreground
+task. Follow that skill for local-change ownership checks, review handling,
+conflict recovery, and cadence. `/ship` never creates a watcher or acquires a
+lease; keep this task active through its authorized endpoint.
 
 Under `/ship` with `ship_mode=merge-authorized`, `/babysit-pr` is a blocking
-subworkflow, not a terminal handoff. Do not return "All clear," stop the task,
-or pause its watcher while the PR is open. A green, review-clean, mergeable
+subworkflow, not a terminal handoff. Do not return "All clear" or stop this
+foreground task while the PR is open. A green, review-clean, mergeable
 unchanged head that passes the 10-minute gate is an immediate guarded-merge
-trigger. After merge, continue in this task through `origin/main` verification
-and branch disposition before completing the ship goal.
+trigger. After merge, continue in this foreground task through `origin/main`
+verification and branch disposition before completing the ship goal.
 
 With `ship_mode=ready-only`, continue fixing CI and review feedback until the
 PR is open, required checks are green, all review items are addressed, GitHub
 reports `MERGEABLE`, no new actionable feedback arrived since the final review
 scan, the worktree is clean, and no commits are unpushed. Then leave the PR
-open, pause this task's watcher, release its lease, and return to the parent
-`/ship` goal without merging or rotating. This is the no-merge endpoint, not
-the standalone 30-minute quiet stop.
+open and return to the parent `/ship` goal without merging or rotating. This is
+the no-merge endpoint, not the standalone 30-minute quiet stop.
 
 If a live PR is CONFLICTING, let babysit-pr recover it only after:
 
