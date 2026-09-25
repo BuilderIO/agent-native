@@ -73,25 +73,21 @@ export default defineAction({
     // batch share a `createdAt` to the millisecond and fall back to the id
     // tiebreak. Nothing may depend on the index matching the order a generator
     // wrote in — see the order-independence case in variant-lineup.test.ts.
-    const fileFields =
+    const fileMetadataFields = {
+      id: schema.designFiles.id,
+      filename: schema.designFiles.filename,
+      fileType: schema.designFiles.fileType,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
+    };
+    const filesQuery =
       includeFileContent === false
-        ? {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          }
-        : {
-            id: schema.designFiles.id,
-            filename: schema.designFiles.filename,
-            fileType: schema.designFiles.fileType,
+        ? db.select(fileMetadataFields)
+        : db.select({
+            ...fileMetadataFields,
             content: schema.designFiles.content,
-            createdAt: schema.designFiles.createdAt,
-            updatedAt: schema.designFiles.updatedAt,
-          };
-    const files = await db
-      .select(fileFields)
+          });
+    const files = await filesQuery
       .from(schema.designFiles)
       .where(
         fileId
@@ -138,7 +134,9 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        ...(includeFileContent === false ? {} : { content: f.content }),
+        ...(includeFileContent !== false && "content" in f
+          ? { content: f.content }
+          : {}),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
