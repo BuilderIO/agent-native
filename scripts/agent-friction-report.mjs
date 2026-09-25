@@ -77,19 +77,17 @@ const SHIPPING_CHURN_RE =
 const WORKTREE_PERMISSION_CORRECTION_RE =
   /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:are\s+)?needed\b[^.!?\n]{0,100}\bworktrees?\b/i;
 const WORKTREE_BRANCH_CONTEXT_RE =
-  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|shared branch issues?)\b/i;
+  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?))\b/i;
 const WORKTREE_BRANCH_PERMISSION_RE = {
   test(text) {
-    // Ignore general worktree permission requests unless the same correction names branch work.
-    return [
-      ...text.matchAll(
-        new RegExp(WORKTREE_PERMISSION_CORRECTION_RE.source, "gi"),
-      ),
-    ].some((match) => {
-      const start = Math.max(0, match.index - 160);
-      const end = Math.min(text.length, match.index + match[0].length + 500);
-      return WORKTREE_BRANCH_CONTEXT_RE.test(text.slice(start, end));
-    });
+    // Keep unrelated branch mentions in neighboring sentences out of this metric.
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          WORKTREE_PERMISSION_CORRECTION_RE.test(sentence) &&
+          WORKTREE_BRANCH_CONTEXT_RE.test(sentence),
+      );
   },
 };
 const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
@@ -104,10 +102,7 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
     true,
     "No permissions are needed for changing branches in task-owned worktrees.",
   ],
-  [
-    true,
-    "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
-  ],
+  [true, "Only ask permission to create a new branch outside a worktree."],
   [
     false,
     "Do not ask permission to access production data from this worktree.",
@@ -116,6 +111,10 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
   [
     false,
     "Do not ask permission to access production in this worktree; the feature branch was created yesterday.",
+  ],
+  [
+    false,
+    "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
   ],
   [false, "Ask before changing branches in the shared checkout."],
   [false, "The worktree has a branch checked out."],
