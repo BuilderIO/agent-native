@@ -243,6 +243,20 @@ describe("secret usage", () => {
     expect(preview.effects[0].models?.length).toBeGreaterThan(0);
   });
 
+  it("previews removing Ollama by its endpoint URL, which is what adds it", async () => {
+    const preview = await previewSecretRemoval({
+      key: "OLLAMA_BASE_URL",
+      scope: "org",
+    });
+    expect(preview.effects[0]).toMatchObject({
+      app: "all",
+      feature: "Agent",
+      effect: "Ollama models leave the model picker.",
+      code: "models-leave-picker",
+      params: { provider: "Ollama" },
+    });
+  });
+
   it("says chats stop when no other provider can take over the default", async () => {
     registerRequiredSecret({
       key: "ANTHROPIC_API_KEY",

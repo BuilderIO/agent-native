@@ -1468,6 +1468,169 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "Añadir archivo",
   "settingsResources.files.upload": "Subir archivo",
   "settingsResources.files.create": "Crear archivo",
+  "settingsModel.addEndpoint": "Añadir una URL de endpoint",
+  "settingsModel.addNamed": "Añadir {{provider}}",
+  "settingsModel.addProvider": "Añadir proveedor",
+  "settingsModel.affectsOrg": "Esto afecta a todas las personas de {{org}}.",
+  "settingsModel.affectsYou": "Esto solo te afecta a ti.",
+  "settingsModel.allApps": "Todas las apps",
+  "settingsModel.apiKey": "Clave de API",
+  "settingsModel.builderConnected": "Conectado · {{space}}",
+  "settingsModel.builderConnectedPlain": "Conectado",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "No conectado. Cuando lo conectes, todas las personas de {{org}} podrán usarlo.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "No conectado. Un propietario o administrador puede conectarlo.",
+  "settingsModel.builderPersonalConnect":
+    "Conecta tu propia cuenta para usar tus créditos de Builder.io.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "Conecta tu propia cuenta para usarla en lugar de la de la organización.",
+  "settingsModel.builderPersonalOverOrg":
+    "Conectado · {{space}}. Se usa en lugar de la conexión de la organización.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "Conectado. Se usa en lugar de la conexión de la organización.",
+  "settingsModel.builderUnknown":
+    "No se pudo comprobar la conexión de Builder.io.",
+  "settingsModel.cancel": "Cancelar",
+  "settingsModel.change": "Cambiar",
+  "settingsModel.chatgptConnected": "Conectado",
+  "settingsModel.chatgptDescription":
+    "Usa el motor Codex con tu plan de ChatGPT.",
+  "settingsModel.chatgptPopupBlocked":
+    "Permite las ventanas emergentes para este sitio y vuelve a intentarlo.",
+  "settingsModel.chatgptTitle": "Suscripción a ChatGPT",
+  "settingsModel.checkAgain": "Volver a comprobar",
+  "settingsModel.checkedJustNow": "Comprobada hace un momento.",
+  "settingsModel.checkedOn": "Comprobada el {{date}}.",
+  "settingsModel.checking": "Comprobando tu clave con {{provider}}",
+  "settingsModel.checkingEndpoint": "Comprobando el endpoint",
+  "settingsModel.checkingOllama": "Comprobando los modelos instalados…",
+  "settingsModel.checkingSaved": "Comprobando la clave guardada",
+  "settingsModel.chooseModel": "Elige un modelo",
+  "settingsModel.clear": "Borrar",
+  "settingsModel.connect": "Conectar",
+  "settingsModel.connecting": "Conectando…",
+  "settingsModel.defaultModelDescription":
+    "Se usa en todas las apps, salvo que la app defina el suyo.",
+  "settingsModel.disconnect": "Desconectar",
+  "settingsModel.effectDefaultStops":
+    "Los chats se detienen hasta que se configure otro proveedor.",
+  "settingsModel.effectDefaultSwitches":
+    "El modelo predeterminado cambia a {{next}}.",
+  "settingsModel.effectKeepsOrg":
+    "Sigue funcionando con la clave de la organización.",
+  "settingsModel.effectKeepsVault": "Sigue funcionando con la clave del Vault.",
+  "settingsModel.effectKeepsWorkspace":
+    "Sigue funcionando con la clave del espacio de trabajo.",
+  "settingsModel.effectModelsLeave":
+    "Los modelos de {{provider}} salen del selector de modelos.",
+  "settingsModel.endpointFirst": "Primero introduce la URL del endpoint.",
+  "settingsModel.endpointHint":
+    "Opcional. Úsala para LiteLLM u otra pasarela compatible con OpenAI.",
+  "settingsModel.endpointUrl": "URL del endpoint",
+  "settingsModel.keyHint":
+    "Crea una en {{host}}. {{provider}} la factura directamente.",
+  "settingsModel.keyPlaceholder": "Pega tu clave de {{provider}}",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "No se pudieron cargar los proveedores.",
+  "settingsModel.lockedTip":
+    "Solo los propietarios y administradores pueden cambiar esto.",
+  "settingsModel.manage": "Gestionar",
+  "settingsModel.maxIterationsDescription":
+    "Cuánto tiempo puede trabajar una respuesta antes de pausarse.",
+  "settingsModel.maxIterationsInvalid":
+    "Introduce un número entero de {{min}} a {{max}}.",
+  "settingsModel.modelCount_many": "{{count}} modelos",
+  "settingsModel.modelCount_one": "{{count}} modelo",
+  "settingsModel.modelCount_other": "{{count}} modelos",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "Modelos",
+  "settingsModel.modelsHint":
+    "Los modelos seleccionados aparecen en el selector de modelos.",
+  "settingsModel.modelsHintService":
+    "Los modelos de chat son opcionales. Déjalos sin marcar para usar esta clave solo para {{service}}.",
+  "settingsModel.modelsIdle":
+    "Pega una clave para ver los modelos que puede usar.",
+  "settingsModel.modelsIdleOllama":
+    "Introduce la URL del endpoint para ver sus modelos instalados.",
+  "settingsModel.modelsSaveFailed":
+    "La clave se guardó, pero la lista de modelos no. {{message}}",
+  "settingsModel.noChatModels": "Sin modelos de chat",
+  "settingsModel.noModelsFound": "No se encontraron modelos.",
+  "settingsModel.notSet": "Sin definir",
+  "settingsModel.nothingElse": "Nada más usa esta clave.",
+  "settingsModel.ollamaHint": "No se necesita clave de API.",
+  "settingsModel.orgProviders": "Proveedores de la organización",
+  "settingsModel.orgSettings": "Ajustes de la organización",
+  "settingsModel.organization": "Organización",
+  "settingsModel.pasteFirst": "Primero pega una clave.",
+  "settingsModel.personal": "Personal",
+  "settingsModel.personalProviders": "Proveedores personales",
+  "settingsModel.previewFailed": "No se pudo comprobar a qué afecta.",
+  "settingsModel.provider": "Proveedor",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} no pudo comprobar esta clave",
+  "settingsModel.reasonEndpoint": "Comprueba la URL del endpoint.",
+  "settingsModel.reasonOllamaUnreachable":
+    "Comprueba la URL y que Ollama esté en ejecución.",
+  "settingsModel.reasonPrefix":
+    "Las claves de {{provider}} empiezan por {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "Comprueba que la copiaste entera o crea una nueva.",
+  "settingsModel.reasonTryAgain": "Vuelve a intentarlo en un momento.",
+  "settingsModel.reasonWrongProvider": "Parece una clave de {{provider}}.",
+  "settingsModel.reasonWrongProviderVowel": "Parece una clave de {{provider}}.",
+  "settingsModel.reconnect": "Volver a conectar",
+  "settingsModel.rejected":
+    "{{provider}} rechazó esta clave el {{date}}. Los chats que la usan se detienen hasta que la sustituyas.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} rechazó esta clave el {{date}}. Pide a un propietario o administrador que la sustituya.",
+  "settingsModel.rejectedHeadline": "{{provider}} rechazó esta clave",
+  "settingsModel.remove": "Quitar",
+  "settingsModel.removeProvider": "Quitar proveedor",
+  "settingsModel.removeTitle": "¿Quitar {{provider}}?",
+  "settingsModel.replace": "Sustituir",
+  "settingsModel.replaceKey": "Sustituir clave",
+  "settingsModel.restrictBody":
+    "Los miembros solo pueden usar proveedores de la organización.",
+  "settingsModel.restrictConfirm": "Restringir claves",
+  "settingsModel.restrictDescription":
+    "Los miembros solo pueden usar proveedores de la organización, y las claves que añadieron dejan de funcionar.",
+  "settingsModel.restrictLabel": "Restringir claves de API personales",
+  "settingsModel.restrictMemberBuilder":
+    "Su conexión personal de Builder.io deja de funcionar.",
+  "settingsModel.restrictMemberChats":
+    "Sus chats pasan a usar proveedores de la organización.",
+  "settingsModel.restrictMemberKeys_many":
+    "Sus claves de {{providers}} dejan de funcionar.",
+  "settingsModel.restrictMemberKeys_one":
+    "Su clave de {{providers}} deja de funcionar.",
+  "settingsModel.restrictMemberKeys_other":
+    "Sus claves de {{providers}} dejan de funcionar.",
+  "settingsModel.restrictNewKeysBody":
+    "Los miembros no pueden añadirlas. Los propietarios y administradores sí pueden.",
+  "settingsModel.restrictNewKeysTitle": "Nuevas claves personales",
+  "settingsModel.restrictTitle": "¿Restringir claves de API personales?",
+  "settingsModel.restricted":
+    "Los propietarios y administradores restringieron las claves de API personales.",
+  "settingsModel.restrictedRow":
+    "No se usa mientras las claves de API personales estén restringidas.",
+  "settingsModel.retry": "Reintentar",
+  "settingsModel.save": "Guardar",
+  "settingsModel.savedRejected":
+    "{{provider}} rechazó la clave guardada. Pega una nueva.",
+  "settingsModel.selectAll": "Seleccionar todo",
+  "settingsModel.settingLoadFailed": "No se pudo cargar este ajuste.",
+  "settingsModel.unreachableHeadline": "No se pudo conectar con {{provider}}",
+  "settingsModel.view": "Ver",
+  "settingsModel.whatHappens": "Qué ocurre",
+  "settingsModel.who": "Quién puede usarlo",
+  "settingsModel.whoHintAdmin":
+    "Los proveedores personales solo son tuyos. Los proveedores de la organización funcionan para todas las personas de {{org}}.",
+  "settingsModel.whoHintMember":
+    "Solo los propietarios y administradores pueden añadir proveedores de la organización.",
+  "settingsModel.whoHintService":
+    "Los servicios usan claves de la organización.",
 };
 
 export default messages;

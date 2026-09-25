@@ -691,17 +691,14 @@ describe("agent engine api-key route helpers", () => {
         keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
       ),
     ).resolves.toEqual({ ok: true, key: "OPENAI_API_KEY", scope: "org" });
-    expect(mockDeleteAppSecret).toHaveBeenCalledTimes(2);
-    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(1, {
-      key: "OPENAI_API_KEY",
-      scope: "org",
-      scopeId: "org-1",
-    });
-    expect(mockDeleteAppSecret).toHaveBeenNthCalledWith(2, {
-      key: "OPENAI_BASE_URL",
-      scope: "org",
-      scopeId: "org-1",
-    });
+    // The legacy workspace row for the organization resolves after the org
+    // row, so leaving it would keep the provider working.
+    expect(mockDeleteAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      { key: "OPENAI_API_KEY", scope: "org", scopeId: "org-1" },
+      { key: "OPENAI_BASE_URL", scope: "org", scopeId: "org-1" },
+      { key: "OPENAI_API_KEY", scope: "workspace", scopeId: "org-1" },
+      { key: "OPENAI_BASE_URL", scope: "workspace", scopeId: "org-1" },
+    ]);
   });
 
   it("removes a Gemini key under both of its names", async () => {
@@ -728,6 +725,16 @@ describe("agent engine api-key route helpers", () => {
         key: "GEMINI_API_KEY",
         scope: "user",
         scopeId: "member@example.test",
+      },
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        scope: "workspace",
+        scopeId: "solo:member@example.test",
+      },
+      {
+        key: "GEMINI_API_KEY",
+        scope: "workspace",
+        scopeId: "solo:member@example.test",
       },
     ]);
   });

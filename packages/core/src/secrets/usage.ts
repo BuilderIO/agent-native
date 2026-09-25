@@ -31,9 +31,12 @@ function providerForKey(key: string): AgentProviderOption | undefined {
   const providerId = Object.entries(PROVIDER_ENV_META).find(
     ([, meta]) => meta.envVar === key,
   )?.[0];
+  // Ollama has no API key: its endpoint URL is the stored value that adds it.
   return providerId
     ? AGENT_PROVIDER_CATALOG.find((option) => option.id === providerId)
-    : undefined;
+    : AGENT_PROVIDER_CATALOG.find(
+        (option) => option.kind === "local" && option.endpointKey === key,
+      );
 }
 
 function modelsLeavePickerEffect(provider: AgentProviderOption): string {

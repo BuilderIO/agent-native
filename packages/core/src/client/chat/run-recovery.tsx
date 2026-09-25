@@ -28,12 +28,14 @@ import {
   useRef,
 } from "react";
 
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   isProviderAuthenticationError,
   localizeKnownChatErrorText,
 } from "../error-format.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useFormatters, useT } from "../i18n.js";
 import { LazyChunkErrorBoundary } from "../lazy-chunk-error-boundary.js";
 import { LazyChunkRetryFallback } from "../lazy-chunk-retry-fallback.js";
@@ -44,6 +46,12 @@ import { cn } from "../utils.js";
 const LazyAgentProviderSetupForm = lazy(() =>
   import("../settings/ProviderSetupForm.js").then((module) => ({
     default: module.AgentProviderSetupForm,
+  })),
+);
+
+const LazyProviderDialog = lazy(() =>
+  import("../settings/model/ProviderDialog.js").then((module) => ({
+    default: module.ProviderDialog,
   })),
 );
 
@@ -368,8 +376,16 @@ export function BuilderConnectCta({
 
 // ─── ApiKeyConnect ────────────────────────────────────────────────────────────
 
-export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+export function ApiKeyConnect({
+  onConnected,
+  onClose,
+}: {
+  onConnected?: () => void;
+  /** With the settings redesign on, the provider dialog closed. */
+  onClose?: () => void;
+}) {
   const t = useT();
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   const loadingForm = (
     <div
       role="status"
@@ -391,6 +407,24 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
       />
     </div>
   );
+
+  if (redesign.status === "loading") return loadingForm;
+  if (redesign.enabled) {
+    return (
+      <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+        <Suspense fallback={loadingForm}>
+          <LazyProviderDialog
+            open
+            mode="add"
+            onOpenChange={(open) => {
+              if (!open) onClose?.();
+            }}
+            onSaved={() => onConnected?.()}
+          />
+        </Suspense>
+      </LazyChunkErrorBoundary>
+    );
+  }
 
   return (
     <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
@@ -472,7 +506,10 @@ export function BuilderSetupContent({
 
       {keyOpen ? (
         <div className="mt-3">
-          <ApiKeyConnect onConnected={onConnected} />
+          <ApiKeyConnect
+            onConnected={onConnected}
+            onClose={() => setKeyOpen(false)}
+          />
         </div>
       ) : null}
     </div>
@@ -1033,10 +1070,11 @@ export function LoopLimitContinueCard({
   }, [hasPendingChange, onContinue, saveLimit]);
 
   const openSettings = useCallback(() => {
-    try {
-      window.location.hash = "agent-limits";
-    } catch {}
-    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "limits" },
+      }),
+    );
   }, []);
 
   return (

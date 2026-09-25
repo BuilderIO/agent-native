@@ -1385,6 +1385,153 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "파일 추가",
   "settingsResources.files.upload": "파일 업로드",
   "settingsResources.files.create": "파일 만들기",
+  "settingsModel.addEndpoint": "엔드포인트 URL 추가",
+  "settingsModel.addNamed": "{{provider}} 추가",
+  "settingsModel.addProvider": "공급자 추가",
+  "settingsModel.affectsOrg": "{{org}}의 모든 사용자에게 영향을 줍니다.",
+  "settingsModel.affectsYou": "나에게만 영향을 줍니다.",
+  "settingsModel.allApps": "모든 앱",
+  "settingsModel.apiKey": "API 키",
+  "settingsModel.builderConnected": "연결됨 · {{space}}",
+  "settingsModel.builderConnectedPlain": "연결됨",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+  "settingsModel.builderPersonalConnect":
+    "내 계정을 연결해 내 Builder.io 크레딧을 사용하세요.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "내 계정을 연결해 조직 연결 대신 사용하세요.",
+  "settingsModel.builderPersonalOverOrg":
+    "연결됨 · {{space}}. 조직 연결 대신 사용됩니다.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "연결됨. 조직 연결 대신 사용됩니다.",
+  "settingsModel.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
+  "settingsModel.cancel": "취소",
+  "settingsModel.change": "변경",
+  "settingsModel.chatgptConnected": "연결됨",
+  "settingsModel.chatgptDescription":
+    "ChatGPT 요금제로 Codex 엔진을 사용합니다.",
+  "settingsModel.chatgptPopupBlocked":
+    "이 사이트의 팝업을 허용한 다음 다시 시도하세요.",
+  "settingsModel.chatgptTitle": "ChatGPT 구독",
+  "settingsModel.checkAgain": "다시 확인",
+  "settingsModel.checkedJustNow": "방금 확인했습니다.",
+  "settingsModel.checkedOn": "{{date}}에 확인했습니다.",
+  "settingsModel.checking": "{{provider}}에서 키를 확인하는 중",
+  "settingsModel.checkingEndpoint": "엔드포인트를 확인하는 중",
+  "settingsModel.checkingOllama": "설치된 모델을 확인하는 중…",
+  "settingsModel.checkingSaved": "저장된 키를 확인하는 중",
+  "settingsModel.chooseModel": "모델 선택",
+  "settingsModel.clear": "지우기",
+  "settingsModel.connect": "연결",
+  "settingsModel.connecting": "연결하는 중…",
+  "settingsModel.defaultModelDescription":
+    "앱에서 따로 설정하지 않으면 모든 앱에서 사용됩니다.",
+  "settingsModel.disconnect": "연결 해제",
+  "settingsModel.effectDefaultStops":
+    "다른 공급자를 설정할 때까지 채팅이 중지됩니다.",
+  "settingsModel.effectDefaultSwitches": "기본 모델이 {{next}}(으)로 바뀝니다.",
+  "settingsModel.effectKeepsOrg": "조직 키로 계속 작동합니다.",
+  "settingsModel.effectKeepsVault": "Vault 키로 계속 작동합니다.",
+  "settingsModel.effectKeepsWorkspace": "워크스페이스 키로 계속 작동합니다.",
+  "settingsModel.effectModelsLeave":
+    "{{provider}} 모델이 모델 선택기에서 사라집니다.",
+  "settingsModel.endpointFirst": "먼저 엔드포인트 URL을 입력하세요.",
+  "settingsModel.endpointHint":
+    "선택 사항입니다. LiteLLM이나 다른 OpenAI 호환 게이트웨이에 사용하세요.",
+  "settingsModel.endpointUrl": "엔드포인트 URL",
+  "settingsModel.keyHint":
+    "{{host}}에서 만들 수 있습니다. 요금은 {{provider}}에서 직접 청구합니다.",
+  "settingsModel.keyPlaceholder": "{{provider}} 키 붙여넣기",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "공급자를 불러올 수 없습니다.",
+  "settingsModel.lockedTip": "소유자와 관리자만 변경할 수 있습니다.",
+  "settingsModel.manage": "관리",
+  "settingsModel.maxIterationsDescription":
+    "응답 하나가 일시 중지되기 전까지 작업할 수 있는 길이입니다.",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}}에서 {{max}} 사이의 정수를 입력하세요.",
+  "settingsModel.modelCount_other": "모델 {{count}}개",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "모델",
+  "settingsModel.modelsHint": "선택한 모델이 모델 선택기에 표시됩니다.",
+  "settingsModel.modelsHintService":
+    "채팅 모델은 선택 사항입니다. 선택하지 않으면 이 키를 {{service}}에만 사용합니다.",
+  "settingsModel.modelsIdle":
+    "키를 붙여넣으면 사용할 수 있는 모델이 표시됩니다.",
+  "settingsModel.modelsIdleOllama":
+    "엔드포인트 URL을 입력하면 설치된 모델이 표시됩니다.",
+  "settingsModel.modelsSaveFailed":
+    "키는 저장했지만 모델 목록은 저장하지 못했습니다. {{message}}",
+  "settingsModel.noChatModels": "채팅 모델 없음",
+  "settingsModel.noModelsFound": "모델을 찾을 수 없습니다.",
+  "settingsModel.notSet": "설정되지 않음",
+  "settingsModel.nothingElse": "이 키를 사용하는 다른 항목이 없습니다.",
+  "settingsModel.ollamaHint": "API 키가 필요하지 않습니다.",
+  "settingsModel.orgProviders": "조직 공급자",
+  "settingsModel.orgSettings": "조직 설정",
+  "settingsModel.organization": "조직",
+  "settingsModel.pasteFirst": "먼저 키를 붙여넣으세요.",
+  "settingsModel.personal": "개인",
+  "settingsModel.personalProviders": "개인 공급자",
+  "settingsModel.previewFailed": "영향을 확인할 수 없습니다.",
+  "settingsModel.provider": "공급자",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}}에서 이 키를 확인할 수 없습니다",
+  "settingsModel.reasonEndpoint": "엔드포인트 URL을 확인하세요.",
+  "settingsModel.reasonOllamaUnreachable":
+    "URL과 Ollama가 실행 중인지 확인하세요.",
+  "settingsModel.reasonPrefix":
+    "{{provider}} 키는 {{prefix}}(으)로 시작합니다.",
+  "settingsModel.reasonRejected":
+    "키 전체를 복사했는지 확인하거나 새 키를 만드세요.",
+  "settingsModel.reasonTryAgain": "잠시 후 다시 시도하세요.",
+  "settingsModel.reasonWrongProvider": "{{provider}} 키로 보입니다.",
+  "settingsModel.reasonWrongProviderVowel": "{{provider}} 키로 보입니다.",
+  "settingsModel.reconnect": "다시 연결",
+  "settingsModel.rejected":
+    "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 키를 교체할 때까지 이 키를 사용하는 채팅이 중지됩니다.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}}에서 {{date}}에 이 키를 거부했습니다. 소유자나 관리자에게 교체를 요청하세요.",
+  "settingsModel.rejectedHeadline": "{{provider}}에서 이 키를 거부했습니다",
+  "settingsModel.remove": "삭제",
+  "settingsModel.removeProvider": "공급자 삭제",
+  "settingsModel.removeTitle": "{{provider}}을(를) 삭제할까요?",
+  "settingsModel.replace": "교체",
+  "settingsModel.replaceKey": "키 교체",
+  "settingsModel.restrictBody": "멤버는 조직 공급자만 사용할 수 있습니다.",
+  "settingsModel.restrictConfirm": "키 제한",
+  "settingsModel.restrictDescription":
+    "멤버는 조직 공급자만 사용할 수 있고, 멤버가 추가한 키는 작동하지 않습니다.",
+  "settingsModel.restrictLabel": "개인 API 키 제한",
+  "settingsModel.restrictMemberBuilder":
+    "개인 Builder.io 연결이 작동하지 않습니다.",
+  "settingsModel.restrictMemberChats": "채팅은 조직 공급자로 전환됩니다.",
+  "settingsModel.restrictMemberKeys_other":
+    "{{providers}} 키가 작동하지 않습니다.",
+  "settingsModel.restrictNewKeysBody":
+    "멤버는 추가할 수 없습니다. 소유자와 관리자는 계속 추가할 수 있습니다.",
+  "settingsModel.restrictNewKeysTitle": "새 개인 키",
+  "settingsModel.restrictTitle": "개인 API 키를 제한할까요?",
+  "settingsModel.restricted": "소유자와 관리자가 개인 API 키를 제한했습니다.",
+  "settingsModel.restrictedRow":
+    "개인 API 키가 제한되어 있는 동안에는 사용되지 않습니다.",
+  "settingsModel.retry": "다시 시도",
+  "settingsModel.save": "저장",
+  "settingsModel.savedRejected":
+    "{{provider}}에서 저장된 키를 거부했습니다. 새 키를 붙여넣으세요.",
+  "settingsModel.selectAll": "모두 선택",
+  "settingsModel.settingLoadFailed": "이 설정을 불러올 수 없습니다.",
+  "settingsModel.unreachableHeadline": "{{provider}}에 연결할 수 없습니다",
+  "settingsModel.view": "보기",
+  "settingsModel.whatHappens": "변경 사항",
+  "settingsModel.who": "사용할 수 있는 사람",
+  "settingsModel.whoHintAdmin":
+    "개인 공급자는 나만 사용합니다. 조직 공급자는 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+  "settingsModel.whoHintMember":
+    "소유자와 관리자만 조직 공급자를 추가할 수 있습니다.",
+  "settingsModel.whoHintService": "서비스는 조직 키를 사용합니다.",
 };
 
 export default messages;

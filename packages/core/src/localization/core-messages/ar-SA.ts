@@ -1417,6 +1417,166 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "إضافة ملف",
   "settingsResources.files.upload": "رفع ملف",
   "settingsResources.files.create": "إنشاء ملف",
+  "settingsModel.addEndpoint": "إضافة عنوان URL لنقطة النهاية",
+  "settingsModel.addNamed": "إضافة {{provider}}",
+  "settingsModel.addProvider": "إضافة مزوّد",
+  "settingsModel.affectsOrg": "يؤثر هذا على الجميع في {{org}}.",
+  "settingsModel.affectsYou": "يؤثر هذا عليك فقط.",
+  "settingsModel.allApps": "كل التطبيقات",
+  "settingsModel.apiKey": "مفتاح API",
+  "settingsModel.builderConnected": "متصل · {{space}}",
+  "settingsModel.builderConnectedPlain": "متصل",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "غير متصل. عند توصيله، يمكن للجميع في {{org}} استخدامه.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "غير متصل. يمكن لمالك أو مسؤول توصيله.",
+  "settingsModel.builderPersonalConnect":
+    "صِل حسابك الخاص لاستخدام أرصدة Builder.io الخاصة بك.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "صِل حسابك الخاص لاستخدامه بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderPersonalOverOrg":
+    "متصل · {{space}}. يُستخدم بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "متصل. يُستخدم بدلًا من اتصال المؤسسة.",
+  "settingsModel.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
+  "settingsModel.cancel": "إلغاء",
+  "settingsModel.change": "تغيير",
+  "settingsModel.chatgptConnected": "متصل",
+  "settingsModel.chatgptDescription":
+    "استخدم محرك Codex مع خطة ChatGPT الخاصة بك.",
+  "settingsModel.chatgptPopupBlocked":
+    "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
+  "settingsModel.chatgptTitle": "اشتراك ChatGPT",
+  "settingsModel.checkAgain": "التحقق مرة أخرى",
+  "settingsModel.checkedJustNow": "تم التحقق الآن.",
+  "settingsModel.checkedOn": "تم التحقق في {{date}}.",
+  "settingsModel.checking": "جارٍ التحقق من مفتاحك لدى {{provider}}",
+  "settingsModel.checkingEndpoint": "جارٍ التحقق من نقطة النهاية",
+  "settingsModel.checkingOllama": "جارٍ التحقق من النماذج المثبتة…",
+  "settingsModel.checkingSaved": "جارٍ التحقق من المفتاح المحفوظ",
+  "settingsModel.chooseModel": "اختر نموذجًا",
+  "settingsModel.clear": "مسح",
+  "settingsModel.connect": "توصيل",
+  "settingsModel.connecting": "جارٍ التوصيل…",
+  "settingsModel.defaultModelDescription":
+    "يُستخدم في كل تطبيق ما لم يحدد التطبيق نموذجه الخاص.",
+  "settingsModel.disconnect": "قطع الاتصال",
+  "settingsModel.effectDefaultStops":
+    "تتوقف المحادثات إلى أن يتم إعداد مزوّد آخر.",
+  "settingsModel.effectDefaultSwitches": "يتغير النموذج الافتراضي إلى {{next}}.",
+  "settingsModel.effectKeepsOrg": "يستمر في العمل باستخدام مفتاح المؤسسة.",
+  "settingsModel.effectKeepsVault": "يستمر في العمل باستخدام مفتاح Vault.",
+  "settingsModel.effectKeepsWorkspace":
+    "يستمر في العمل باستخدام مفتاح مساحة العمل.",
+  "settingsModel.effectModelsLeave":
+    "تختفي نماذج {{provider}} من أداة اختيار النموذج.",
+  "settingsModel.endpointFirst": "أدخل عنوان URL لنقطة النهاية أولًا.",
+  "settingsModel.endpointHint":
+    "اختياري. استخدمه مع LiteLLM أو بوابة أخرى متوافقة مع OpenAI.",
+  "settingsModel.endpointUrl": "عنوان URL لنقطة النهاية",
+  "settingsModel.keyHint":
+    "أنشئ مفتاحًا على {{host}}. يُصدر {{provider}} الفاتورة مباشرةً.",
+  "settingsModel.keyPlaceholder": "الصق مفتاح {{provider}} الخاص بك",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "تعذّر تحميل المزوّدين.",
+  "settingsModel.lockedTip": "يمكن للمالكين والمسؤولين فقط تغيير هذا.",
+  "settingsModel.manage": "إدارة",
+  "settingsModel.maxIterationsDescription":
+    "المدة التي يمكن أن يعمل فيها الرد قبل أن يتوقف مؤقتًا.",
+  "settingsModel.maxIterationsInvalid":
+    "أدخل عددًا صحيحًا من {{min}} إلى {{max}}.",
+  "settingsModel.modelCount_few": "{{count}} نماذج",
+  "settingsModel.modelCount_many": "{{count}} نموذجًا",
+  "settingsModel.modelCount_one": "{{count}} نموذج",
+  "settingsModel.modelCount_other": "{{count}} نموذج",
+  "settingsModel.modelCount_two": "{{count}} نموذجان",
+  "settingsModel.modelCount_zero": "{{count}} نموذج",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "النماذج",
+  "settingsModel.modelsHint": "تظهر النماذج المحددة في أداة اختيار النموذج.",
+  "settingsModel.modelsHintService":
+    "نماذج المحادثة اختيارية. اتركها دون تحديد لاستخدام هذا المفتاح لـ {{service}} فقط.",
+  "settingsModel.modelsIdle": "الصق مفتاحًا لرؤية النماذج التي يمكنه استخدامها.",
+  "settingsModel.modelsIdleOllama":
+    "أدخل عنوان URL لنقطة النهاية لرؤية النماذج المثبتة.",
+  "settingsModel.modelsSaveFailed":
+    "تم حفظ المفتاح، لكن لم يتم حفظ قائمة النماذج. {{message}}",
+  "settingsModel.noChatModels": "لا توجد نماذج محادثة",
+  "settingsModel.noModelsFound": "لم يتم العثور على نماذج.",
+  "settingsModel.notSet": "غير محدد",
+  "settingsModel.nothingElse": "لا يستخدم أي شيء آخر هذا المفتاح.",
+  "settingsModel.ollamaHint": "لا يلزم مفتاح API.",
+  "settingsModel.orgProviders": "مزوّدو المؤسسة",
+  "settingsModel.orgSettings": "إعدادات المؤسسة",
+  "settingsModel.organization": "المؤسسة",
+  "settingsModel.pasteFirst": "الصق مفتاحًا أولًا.",
+  "settingsModel.personal": "شخصي",
+  "settingsModel.personalProviders": "المزوّدون الشخصيون",
+  "settingsModel.previewFailed": "تعذّر التحقق مما يؤثر عليه هذا.",
+  "settingsModel.provider": "المزوّد",
+  "settingsModel.providerErrorHeadline":
+    "تعذّر على {{provider}} التحقق من هذا المفتاح",
+  "settingsModel.reasonEndpoint": "تحقق من عنوان URL لنقطة النهاية.",
+  "settingsModel.reasonOllamaUnreachable":
+    "تحقق من عنوان URL ومن أن Ollama قيد التشغيل.",
+  "settingsModel.reasonPrefix": "تبدأ مفاتيح {{provider}} بـ {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "تحقق من أنك نسخت المفتاح كاملًا، أو أنشئ مفتاحًا جديدًا.",
+  "settingsModel.reasonTryAgain": "حاول مرة أخرى بعد قليل.",
+  "settingsModel.reasonWrongProvider": "يبدو هذا مفتاح {{provider}}.",
+  "settingsModel.reasonWrongProviderVowel": "يبدو هذا مفتاح {{provider}}.",
+  "settingsModel.reconnect": "إعادة التوصيل",
+  "settingsModel.rejected":
+    "رفض {{provider}} هذا المفتاح في {{date}}. تتوقف المحادثات التي تستخدمه إلى أن تستبدله.",
+  "settingsModel.rejectedAskAdmin":
+    "رفض {{provider}} هذا المفتاح في {{date}}. اطلب من مالك أو مسؤول استبداله.",
+  "settingsModel.rejectedHeadline": "رفض {{provider}} هذا المفتاح",
+  "settingsModel.remove": "إزالة",
+  "settingsModel.removeProvider": "إزالة المزوّد",
+  "settingsModel.removeTitle": "هل تريد إزالة {{provider}}؟",
+  "settingsModel.replace": "استبدال",
+  "settingsModel.replaceKey": "استبدال المفتاح",
+  "settingsModel.restrictBody": "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط.",
+  "settingsModel.restrictConfirm": "تقييد المفاتيح",
+  "settingsModel.restrictDescription":
+    "يمكن للأعضاء استخدام مزوّدي المؤسسة فقط، وتتوقف المفاتيح التي أضافوها عن العمل.",
+  "settingsModel.restrictLabel": "تقييد مفاتيح API الشخصية",
+  "settingsModel.restrictMemberBuilder":
+    "يتوقف اتصال Builder.io الشخصي الخاص به عن العمل.",
+  "settingsModel.restrictMemberChats": "تنتقل محادثاته إلى مزوّدي المؤسسة.",
+  "settingsModel.restrictMemberKeys_few":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_many":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_one":
+    "يتوقف مفتاح {{providers}} الخاص به عن العمل.",
+  "settingsModel.restrictMemberKeys_other":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_two":
+    "تتوقف مفاتيح {{providers}} الخاصة به عن العمل.",
+  "settingsModel.restrictMemberKeys_zero":
+    "يتوقف مفتاح {{providers}} الخاص به عن العمل.",
+  "settingsModel.restrictNewKeysBody":
+    "لا يمكن للأعضاء إضافتها. لا يزال بإمكان المالكين والمسؤولين ذلك.",
+  "settingsModel.restrictNewKeysTitle": "مفاتيح شخصية جديدة",
+  "settingsModel.restrictTitle": "هل تريد تقييد مفاتيح API الشخصية؟",
+  "settingsModel.restricted": "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
+  "settingsModel.restrictedRow": "لا يُستخدم ما دامت مفاتيح API الشخصية مقيّدة.",
+  "settingsModel.retry": "إعادة المحاولة",
+  "settingsModel.save": "حفظ",
+  "settingsModel.savedRejected":
+    "رفض {{provider}} المفتاح المحفوظ. الصق مفتاحًا جديدًا.",
+  "settingsModel.selectAll": "تحديد الكل",
+  "settingsModel.settingLoadFailed": "تعذّر تحميل هذا الإعداد.",
+  "settingsModel.unreachableHeadline": "تعذّر الوصول إلى {{provider}}",
+  "settingsModel.view": "عرض",
+  "settingsModel.whatHappens": "ما الذي سيحدث",
+  "settingsModel.who": "من يمكنه استخدامه",
+  "settingsModel.whoHintAdmin":
+    "المزوّدون الشخصيون لك وحدك. يعمل مزوّدو المؤسسة للجميع في {{org}}.",
+  "settingsModel.whoHintMember":
+    "يمكن للمالكين والمسؤولين فقط إضافة مزوّدين للمؤسسة.",
+  "settingsModel.whoHintService": "تستخدم الخدمات مفاتيح المؤسسة.",
 };
 
 export default messages;

@@ -1487,6 +1487,172 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "Ajouter un fichier",
   "settingsResources.files.upload": "Importer un fichier",
   "settingsResources.files.create": "Créer un fichier",
+  "settingsModel.addEndpoint": "Ajouter une URL de point de terminaison",
+  "settingsModel.addNamed": "Ajouter {{provider}}",
+  "settingsModel.addProvider": "Ajouter un fournisseur",
+  "settingsModel.affectsOrg": "Cela concerne tout le monde dans {{org}}.",
+  "settingsModel.affectsYou": "Cela ne concerne que vous.",
+  "settingsModel.allApps": "Toutes les apps",
+  "settingsModel.apiKey": "Clé API",
+  "settingsModel.builderConnected": "Connecté · {{space}}",
+  "settingsModel.builderConnectedPlain": "Connecté",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "Non connecté. Une fois connecté, tout le monde dans {{org}} peut l’utiliser.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "Non connecté. Un propriétaire ou un administrateur peut le connecter.",
+  "settingsModel.builderPersonalConnect":
+    "Connectez votre propre compte pour utiliser vos crédits Builder.io.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "Connectez votre propre compte pour l’utiliser à la place de celui de l’organisation.",
+  "settingsModel.builderPersonalOverOrg":
+    "Connecté · {{space}}. Utilisé à la place de la connexion de l’organisation.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "Connecté. Utilisé à la place de la connexion de l’organisation.",
+  "settingsModel.builderUnknown":
+    "Impossible de vérifier la connexion Builder.io.",
+  "settingsModel.cancel": "Annuler",
+  "settingsModel.change": "Modifier",
+  "settingsModel.chatgptConnected": "Connecté",
+  "settingsModel.chatgptDescription":
+    "Utilisez le moteur Codex avec votre abonnement ChatGPT.",
+  "settingsModel.chatgptPopupBlocked":
+    "Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
+  "settingsModel.chatgptTitle": "Abonnement ChatGPT",
+  "settingsModel.checkAgain": "Vérifier à nouveau",
+  "settingsModel.checkedJustNow": "Vérifiée à l’instant.",
+  "settingsModel.checkedOn": "Vérifiée le {{date}}.",
+  "settingsModel.checking": "Vérification de votre clé auprès de {{provider}}",
+  "settingsModel.checkingEndpoint": "Vérification du point de terminaison",
+  "settingsModel.checkingOllama": "Vérification des modèles installés…",
+  "settingsModel.checkingSaved": "Vérification de la clé enregistrée",
+  "settingsModel.chooseModel": "Choisir un modèle",
+  "settingsModel.clear": "Effacer",
+  "settingsModel.connect": "Connecter",
+  "settingsModel.connecting": "Connexion…",
+  "settingsModel.defaultModelDescription":
+    "Utilisé dans chaque app, sauf si l’app définit le sien.",
+  "settingsModel.disconnect": "Déconnecter",
+  "settingsModel.effectDefaultStops":
+    "Les conversations s’arrêtent jusqu’à ce qu’un autre fournisseur soit configuré.",
+  "settingsModel.effectDefaultSwitches":
+    "Le modèle par défaut passe à {{next}}.",
+  "settingsModel.effectKeepsOrg":
+    "Continue de fonctionner avec la clé de l’organisation.",
+  "settingsModel.effectKeepsVault":
+    "Continue de fonctionner avec la clé du Vault.",
+  "settingsModel.effectKeepsWorkspace":
+    "Continue de fonctionner avec la clé de l’espace de travail.",
+  "settingsModel.effectModelsLeave":
+    "Les modèles {{provider}} disparaissent du sélecteur de modèles.",
+  "settingsModel.endpointFirst":
+    "Saisissez d’abord l’URL du point de terminaison.",
+  "settingsModel.endpointHint":
+    "Facultatif. À utiliser pour LiteLLM ou une autre passerelle compatible OpenAI.",
+  "settingsModel.endpointUrl": "URL du point de terminaison",
+  "settingsModel.keyHint":
+    "Créez-en une sur {{host}}. {{provider}} la facture directement.",
+  "settingsModel.keyPlaceholder": "Collez votre clé {{provider}}",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "Impossible de charger les fournisseurs.",
+  "settingsModel.lockedTip":
+    "Seuls les propriétaires et les administrateurs peuvent modifier ce paramètre.",
+  "settingsModel.manage": "Gérer",
+  "settingsModel.maxIterationsDescription":
+    "Durée pendant laquelle une réponse peut travailler avant de se mettre en pause.",
+  "settingsModel.maxIterationsInvalid":
+    "Saisissez un nombre entier de {{min}} à {{max}}.",
+  "settingsModel.modelCount_many": "{{count}} modèles",
+  "settingsModel.modelCount_one": "{{count}} modèle",
+  "settingsModel.modelCount_other": "{{count}} modèles",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "Modèles",
+  "settingsModel.modelsHint":
+    "Les modèles sélectionnés apparaissent dans le sélecteur de modèles.",
+  "settingsModel.modelsHintService":
+    "Les modèles de chat sont facultatifs. Laissez-les décochés pour utiliser cette clé uniquement pour {{service}}.",
+  "settingsModel.modelsIdle":
+    "Collez une clé pour voir les modèles qu’elle permet d’utiliser.",
+  "settingsModel.modelsIdleOllama":
+    "Saisissez l’URL du point de terminaison pour voir ses modèles installés.",
+  "settingsModel.modelsSaveFailed":
+    "La clé a été enregistrée, mais pas la liste des modèles. {{message}}",
+  "settingsModel.noChatModels": "Aucun modèle de chat",
+  "settingsModel.noModelsFound": "Aucun modèle trouvé.",
+  "settingsModel.notSet": "Non défini",
+  "settingsModel.nothingElse": "Rien d’autre n’utilise cette clé.",
+  "settingsModel.ollamaHint": "Aucune clé API requise.",
+  "settingsModel.orgProviders": "Fournisseurs de l’organisation",
+  "settingsModel.orgSettings": "Paramètres de l’organisation",
+  "settingsModel.organization": "Organisation",
+  "settingsModel.pasteFirst": "Collez d’abord une clé.",
+  "settingsModel.personal": "Personnel",
+  "settingsModel.personalProviders": "Fournisseurs personnels",
+  "settingsModel.previewFailed": "Impossible de vérifier ce que cela concerne.",
+  "settingsModel.provider": "Fournisseur",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} n’a pas pu vérifier cette clé",
+  "settingsModel.reasonEndpoint": "Vérifiez l’URL du point de terminaison.",
+  "settingsModel.reasonOllamaUnreachable":
+    "Vérifiez l’URL et qu’Ollama est en cours d’exécution.",
+  "settingsModel.reasonPrefix":
+    "Les clés {{provider}} commencent par {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "Vérifiez que vous l’avez copiée en entier, ou créez-en une nouvelle.",
+  "settingsModel.reasonTryAgain": "Réessayez dans un instant.",
+  "settingsModel.reasonWrongProvider": "Cela ressemble à une clé {{provider}}.",
+  "settingsModel.reasonWrongProviderVowel":
+    "Cela ressemble à une clé {{provider}}.",
+  "settingsModel.reconnect": "Reconnecter",
+  "settingsModel.rejected":
+    "{{provider}} a refusé cette clé le {{date}}. Les conversations qui l’utilisent s’arrêtent jusqu’à ce que vous la remplaciez.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} a refusé cette clé le {{date}}. Demandez à un propriétaire ou un administrateur de la remplacer.",
+  "settingsModel.rejectedHeadline": "{{provider}} a refusé cette clé",
+  "settingsModel.remove": "Supprimer",
+  "settingsModel.removeProvider": "Supprimer le fournisseur",
+  "settingsModel.removeTitle": "Supprimer {{provider}} ?",
+  "settingsModel.replace": "Remplacer",
+  "settingsModel.replaceKey": "Remplacer la clé",
+  "settingsModel.restrictBody":
+    "Les membres ne peuvent utiliser que les fournisseurs de l’organisation.",
+  "settingsModel.restrictConfirm": "Restreindre les clés",
+  "settingsModel.restrictDescription":
+    "Les membres ne peuvent utiliser que les fournisseurs de l’organisation, et les clés qu’ils ont ajoutées cessent de fonctionner.",
+  "settingsModel.restrictLabel": "Restreindre les clés API personnelles",
+  "settingsModel.restrictMemberBuilder":
+    "Sa connexion Builder.io personnelle cesse de fonctionner.",
+  "settingsModel.restrictMemberChats":
+    "Ses conversations passent aux fournisseurs de l’organisation.",
+  "settingsModel.restrictMemberKeys_many":
+    "Ses clés {{providers}} cessent de fonctionner.",
+  "settingsModel.restrictMemberKeys_one":
+    "Sa clé {{providers}} cesse de fonctionner.",
+  "settingsModel.restrictMemberKeys_other":
+    "Ses clés {{providers}} cessent de fonctionner.",
+  "settingsModel.restrictNewKeysBody":
+    "Les membres ne peuvent pas en ajouter. Les propriétaires et les administrateurs le peuvent toujours.",
+  "settingsModel.restrictNewKeysTitle": "Nouvelles clés personnelles",
+  "settingsModel.restrictTitle": "Restreindre les clés API personnelles ?",
+  "settingsModel.restricted":
+    "Les propriétaires et les administrateurs ont restreint les clés API personnelles.",
+  "settingsModel.restrictedRow":
+    "Non utilisée tant que les clés API personnelles sont restreintes.",
+  "settingsModel.retry": "Réessayer",
+  "settingsModel.save": "Enregistrer",
+  "settingsModel.savedRejected":
+    "{{provider}} a refusé la clé enregistrée. Collez-en une nouvelle.",
+  "settingsModel.selectAll": "Tout sélectionner",
+  "settingsModel.settingLoadFailed": "Impossible de charger ce paramètre.",
+  "settingsModel.unreachableHeadline": "Impossible de joindre {{provider}}",
+  "settingsModel.view": "Afficher",
+  "settingsModel.whatHappens": "Ce qui se passe",
+  "settingsModel.who": "Qui peut l’utiliser",
+  "settingsModel.whoHintAdmin":
+    "Les fournisseurs personnels n’appartiennent qu’à vous. Les fournisseurs de l’organisation fonctionnent pour tout le monde dans {{org}}.",
+  "settingsModel.whoHintMember":
+    "Seuls les propriétaires et les administrateurs peuvent ajouter des fournisseurs de l’organisation.",
+  "settingsModel.whoHintService":
+    "Les services utilisent les clés de l’organisation.",
 };
 
 export default messages;

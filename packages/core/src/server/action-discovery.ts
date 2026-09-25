@@ -794,6 +794,10 @@ export async function mergeCoreSharingActions(
       () => import("../agent/actions/manage-provider-models.js"),
     ],
     [
+      "list-model-providers",
+      () => import("../agent/actions/list-model-providers.js"),
+    ],
+    [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
     ],

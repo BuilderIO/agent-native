@@ -22,6 +22,7 @@ The framework supports pluggable AI engines beneath the agent loop. The **Anthro
 | `check-provider-key` | Check a provider API key by listing the models it reaches, before saving it |
 | `get-provider-models` | Read which models each provider shows in the model picker and default-model select |
 | `manage-provider-models` | Choose those models (`set`) or go back to the recommended ones (`reset`) |
+| `list-model-providers` | What Settings › Model shows: each provider's organization and personal key (masked), rejections, the restriction, and the stored default |
 
 ## Checking the Current Engine
 
@@ -44,6 +45,16 @@ Resolution order (highest priority first):
 2. The organization's default (`agent-engine` org setting)
 3. `AGENT_ENGINE` environment variable
 4. Default: `"anthropic"` (requires `ANTHROPIC_API_KEY`)
+
+## Settings › Model
+
+The Model page (`/settings/model`, page id `model`) has three groups:
+
+- **Organization providers:** the organization's Builder.io connection and each organization key. Owners and admins manage them; members see only "N models".
+- **Personal providers:** a member's own Builder.io connection, their own keys, and the ChatGPT subscription while its lab is on. A personal key is used before the organization's, for that person only.
+- **Organization settings:** Default model (`manage-agent-engine` `set`, organization models only), Restrict personal API keys (`manage-provider-key-policy`), and Max iterations (`manage-agent-loop-settings`, 1 to 1000). Owners and admins change them; members see the values.
+
+Read the page's state with `list-model-providers`, and the models each provider shows with `get-provider-models`. Keys are added and replaced in the provider dialog, which checks a pasted key by listing its models; you can't save a key for the user, so check one with `check-provider-key` and send them to Model (`open-settings-page`) to paste it. Before they remove a provider, run `preview-secret-removal` with the provider's key name and scope and tell them what stops.
 
 ## Restricting Personal API Keys
 

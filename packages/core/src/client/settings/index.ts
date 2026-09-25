@@ -98,3 +98,8 @@ export {
   AgentProviderSetupForm,
   type AgentProviderSetupFormProps,
 } from "./ProviderSetupForm.js";
+export {
+  ProviderDialog,
+  type ProviderDialogMode,
+  type ProviderDialogProps,
+} from "./model/ProviderDialog.js";

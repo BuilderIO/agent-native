@@ -4711,6 +4711,7 @@ export function useAgentSettingsTabs(
             }
           />
         ),
+        shellExtraContent: agentAdditionalContent,
       },
       {
         id: "agent:resources",

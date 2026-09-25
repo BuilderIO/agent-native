@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { lazy } from "react";
 
+import { AGENT_PROVIDER_CATALOG } from "../../agent-provider-catalog.js";
 import { DEFAULT_MCP_INTEGRATIONS } from "../../resources/mcp-integration-catalog.js";
 import { SIGN_OUT_SEARCH_TERMS } from "../../sign-out.js";
 import {
@@ -42,6 +43,61 @@ import {
 } from "./registry.js";
 
 const label = (key: string) => `agentChat.settingsShell.page.${key}`;
+const modelRow = (key: string) => `agentChat.settingsModel.${key}`;
+
+// Anchors are the Model page's row and group ids.
+const MODEL_PAGE_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
+  {
+    id: "model:org-providers",
+    labelKey: modelRow("orgProviders"),
+    keywords: "organization providers shared api keys byok builder",
+    anchor: "llm",
+  },
+  {
+    id: "model:personal-providers",
+    labelKey: modelRow("personalProviders"),
+    keywords: "personal providers own api key byok",
+    anchor: "personal-providers",
+  },
+  {
+    id: "model:default-model",
+    labelKey: "agentChat.settingsShell.search.defaultModel",
+    keywords: "default model llm engine provider app",
+    anchor: "default-model",
+  },
+  {
+    id: "model:restrict-personal-keys",
+    labelKey: modelRow("restrictLabel"),
+    keywords: "restrict personal api keys byok members policy",
+    anchor: "restrict-personal-keys",
+  },
+  {
+    id: "model:max-iterations",
+    labelKey: "agentChat.settingsShell.search.maxIterations",
+    keywords: "max iterations agent limits steps loop budget",
+    anchor: "max-iterations",
+  },
+  // Bridged onto the Model page until Infrastructure's Services list lands;
+  // `SHELL_SECTION_SEARCH_LABELS` leaves `background` out meanwhile.
+  {
+    id: "section:background",
+    labelKey: "agentChat.settingsShell.search.backgroundAgents",
+    keywords: "background agent builder code changes production",
+    anchor: "background",
+  },
+  {
+    id: "model:chatgpt-subscription",
+    labelKey: modelRow("chatgptTitle"),
+    keywords: "chatgpt subscription codex openai labs",
+    anchor: "chatgpt-subscription",
+  },
+  // Provider names aren't translated.
+  ...AGENT_PROVIDER_CATALOG.map((option) => ({
+    id: `model:provider:${option.id}`,
+    label: option.label,
+    keywords: `${option.id} provider api key model byok`,
+  })),
+];
 
 /** The read-only group of resources Dispatch shares with every app. */
 const fromDispatchSearchEntry: SettingsPageSearchEntry = {
@@ -144,6 +200,7 @@ export const CORE_SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     component: lazy(() => import("./pages/model.js")),
     legacyTabIds: ["agent", "agent:overview", "providers"],
     keywords: "model llm provider default model max iterations limits",
+    searchEntries: MODEL_PAGE_SEARCH_ENTRIES,
   }),
   defineSettingsPage({
     id: "instructions",

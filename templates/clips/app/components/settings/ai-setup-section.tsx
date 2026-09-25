@@ -1,13 +1,17 @@
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   AGENT_PROVIDER_CATALOG,
   AgentProviderSetupForm,
   BuilderConnectPopover,
+  ProviderDialog,
   SettingsGroup,
   SettingsRow,
   type AgentProviderId,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -19,6 +23,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +49,10 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
     { retry: false },
   );
   const [expanded, setExpanded] = useState(false);
+  // With the redesign on, the provider dialog adds keys and Model manages them.
+  const redesign = useFeatureFlag(SETTINGS_REDESIGN_FLAG.key);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const navigate = useNavigate();
   const configuredProviders = new Set<AgentProviderId>(
     AGENT_PROVIDER_CATALOG.filter(
       (provider) =>
@@ -57,6 +66,11 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
     creditStatus.data?.upgradeUrl ?? BUILDER_CREDITS_UPGRADE_URL;
 
   function openProviderSetup() {
+    if (redesign) {
+      if (configuredCount > 0) void navigate(buildSettingsRoute("model"));
+      else setDialogOpen(true);
+      return;
+    }
     setExpanded(true);
     window.requestAnimationFrame(() => {
       document
@@ -128,13 +142,26 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
                   </Button>
                 </BuilderConnectPopover>
               )}
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="outline" size="sm">
+              {redesign ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={openProviderSetup}
+                >
                   {configuredCount > 0
                     ? t("settings.providerManage")
                     : t("settings.providerCustomKeys")}
                 </Button>
-              </CollapsibleTrigger>
+              ) : (
+                <CollapsibleTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    {configuredCount > 0
+                      ? t("settings.providerManage")
+                      : t("settings.providerCustomKeys")}
+                  </Button>
+                </CollapsibleTrigger>
+              )}
             </div>
           }
         />
@@ -158,6 +185,17 @@ export function AiSetupSection({ builder, secrets }: AiSetupSectionProps) {
           </div>
         </CollapsibleContent>
       </Collapsible>
+      {redesign ? (
+        <ProviderDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          mode="add"
+          onSaved={() => {
+            void secrets.refresh();
+            toast.success(t("settings.apiKeySaved"));
+          }}
+        />
+      ) : null}
     </SettingsGroup>
   );
 }

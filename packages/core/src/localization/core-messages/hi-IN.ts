@@ -1374,6 +1374,151 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "फ़ाइल जोड़ें",
   "settingsResources.files.upload": "फ़ाइल अपलोड करें",
   "settingsResources.files.create": "फ़ाइल बनाएं",
+  "settingsModel.addEndpoint": "एंडपॉइंट URL जोड़ें",
+  "settingsModel.addNamed": "{{provider}} जोड़ें",
+  "settingsModel.addProvider": "प्रदाता जोड़ें",
+  "settingsModel.affectsOrg": "इसका असर {{org}} के सभी लोगों पर पड़ता है।",
+  "settingsModel.affectsYou": "इसका असर सिर्फ़ आप पर पड़ता है।",
+  "settingsModel.allApps": "सभी ऐप",
+  "settingsModel.apiKey": "API कुंजी",
+  "settingsModel.builderConnected": "कनेक्टेड · {{space}}",
+  "settingsModel.builderConnectedPlain": "कनेक्टेड",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} के सभी लोग इसका इस्तेमाल कर सकते हैं।",
+  "settingsModel.builderOrgNotConnectedMember":
+    "कनेक्ट नहीं है। कोई मालिक या एडमिन इसे कनेक्ट कर सकता है।",
+  "settingsModel.builderPersonalConnect":
+    "अपने Builder.io क्रेडिट इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "संगठन के कनेक्शन की जगह इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+  "settingsModel.builderPersonalOverOrg":
+    "कनेक्टेड · {{space}}। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "कनेक्टेड। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
+  "settingsModel.builderUnknown": "Builder.io कनेक्शन की जाँच नहीं हो सकी।",
+  "settingsModel.cancel": "रद्द करें",
+  "settingsModel.change": "बदलें",
+  "settingsModel.chatgptConnected": "कनेक्टेड",
+  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptPopupBlocked":
+    "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
+  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.checkAgain": "फिर से जाँचें",
+  "settingsModel.checkedJustNow": "अभी जाँचा गया।",
+  "settingsModel.checkedOn": "{{date}} को जाँचा गया।",
+  "settingsModel.checking": "{{provider}} से आपकी कुंजी जाँची जा रही है",
+  "settingsModel.checkingEndpoint": "एंडपॉइंट जाँचा जा रहा है",
+  "settingsModel.checkingOllama": "इंस्टॉल किए गए मॉडल जाँचे जा रहे हैं…",
+  "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
+  "settingsModel.chooseModel": "मॉडल चुनें",
+  "settingsModel.clear": "साफ़ करें",
+  "settingsModel.connect": "कनेक्ट करें",
+  "settingsModel.connecting": "कनेक्ट हो रहा है…",
+  "settingsModel.defaultModelDescription":
+    "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
+  "settingsModel.disconnect": "डिस्कनेक्ट करें",
+  "settingsModel.effectDefaultStops": "कोई दूसरा प्रदाता सेट होने तक चैट रुक जाती हैं।",
+  "settingsModel.effectDefaultSwitches": "डिफ़ॉल्ट मॉडल {{next}} पर बदल जाता है।",
+  "settingsModel.effectKeepsOrg": "संगठन की कुंजी से काम करता रहता है।",
+  "settingsModel.effectKeepsVault": "Vault की कुंजी से काम करता रहता है।",
+  "settingsModel.effectKeepsWorkspace": "वर्कस्पेस की कुंजी से काम करता रहता है।",
+  "settingsModel.effectModelsLeave": "{{provider}} मॉडल, मॉडल पिकर से हट जाते हैं।",
+  "settingsModel.endpointFirst": "पहले एंडपॉइंट URL डालें।",
+  "settingsModel.endpointHint":
+    "वैकल्पिक। LiteLLM या किसी दूसरे OpenAI-संगत गेटवे के लिए इसका इस्तेमाल करें।",
+  "settingsModel.endpointUrl": "एंडपॉइंट URL",
+  "settingsModel.keyHint":
+    "{{host}} पर एक बनाएँ। {{provider}} इसका बिल सीधे भेजता है।",
+  "settingsModel.keyPlaceholder": "अपनी {{provider}} कुंजी पेस्ट करें",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "प्रदाता लोड नहीं हो सके।",
+  "settingsModel.lockedTip": "सिर्फ़ मालिक और एडमिन इसे बदल सकते हैं।",
+  "settingsModel.manage": "प्रबंधित करें",
+  "settingsModel.maxIterationsDescription":
+    "कोई जवाब रुकने से पहले कितनी देर तक काम कर सकता है।",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}} से {{max}} तक की कोई पूर्ण संख्या डालें।",
+  "settingsModel.modelCount_one": "{{count}} मॉडल",
+  "settingsModel.modelCount_other": "{{count}} मॉडल",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "मॉडल",
+  "settingsModel.modelsHint": "चुने गए मॉडल, मॉडल पिकर में दिखते हैं।",
+  "settingsModel.modelsHintService":
+    "चैट मॉडल वैकल्पिक हैं। इस कुंजी को सिर्फ़ {{service}} के लिए इस्तेमाल करने के लिए इन्हें अनचेक छोड़ दें।",
+  "settingsModel.modelsIdle":
+    "यह कुंजी कौन-से मॉडल इस्तेमाल कर सकती है, यह देखने के लिए कुंजी पेस्ट करें।",
+  "settingsModel.modelsIdleOllama":
+    "इंस्टॉल किए गए मॉडल देखने के लिए एंडपॉइंट URL डालें।",
+  "settingsModel.modelsSaveFailed":
+    "कुंजी सहेज ली गई, लेकिन मॉडल सूची नहीं सहेजी गई। {{message}}",
+  "settingsModel.noChatModels": "कोई चैट मॉडल नहीं",
+  "settingsModel.noModelsFound": "कोई मॉडल नहीं मिला।",
+  "settingsModel.notSet": "सेट नहीं है",
+  "settingsModel.nothingElse": "यह कुंजी और कहीं इस्तेमाल नहीं होती।",
+  "settingsModel.ollamaHint": "API कुंजी की ज़रूरत नहीं है।",
+  "settingsModel.orgProviders": "संगठन के प्रदाता",
+  "settingsModel.orgSettings": "संगठन की सेटिंग",
+  "settingsModel.organization": "संगठन",
+  "settingsModel.pasteFirst": "पहले कोई कुंजी पेस्ट करें।",
+  "settingsModel.personal": "व्यक्तिगत",
+  "settingsModel.personalProviders": "व्यक्तिगत प्रदाता",
+  "settingsModel.previewFailed": "इसका असर किस पर पड़ेगा, यह जाँचा नहीं जा सका।",
+  "settingsModel.provider": "प्रदाता",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} इस कुंजी की जाँच नहीं कर सका",
+  "settingsModel.reasonEndpoint": "एंडपॉइंट URL जाँचें।",
+  "settingsModel.reasonOllamaUnreachable": "URL जाँचें, और देखें कि Ollama चल रहा है।",
+  "settingsModel.reasonPrefix": "{{provider}} कुंजियाँ {{prefix}} से शुरू होती हैं।",
+  "settingsModel.reasonRejected":
+    "जाँचें कि आपने पूरी कुंजी कॉपी की है, या नई कुंजी बनाएँ।",
+  "settingsModel.reasonTryAgain": "थोड़ी देर में फिर कोशिश करें।",
+  "settingsModel.reasonWrongProvider": "यह {{provider}} कुंजी लगती है।",
+  "settingsModel.reasonWrongProviderVowel": "यह {{provider}} कुंजी लगती है।",
+  "settingsModel.reconnect": "फिर से कनेक्ट करें",
+  "settingsModel.rejected":
+    "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। इसे बदलने तक इसका इस्तेमाल करने वाली चैट रुकी रहेंगी।",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} ने {{date}} को यह कुंजी अस्वीकार कर दी। किसी मालिक या एडमिन से इसे बदलने को कहें।",
+  "settingsModel.rejectedHeadline": "{{provider}} ने यह कुंजी अस्वीकार कर दी",
+  "settingsModel.remove": "हटाएँ",
+  "settingsModel.removeProvider": "प्रदाता हटाएँ",
+  "settingsModel.removeTitle": "{{provider}} हटाएँ?",
+  "settingsModel.replace": "बदलें",
+  "settingsModel.replaceKey": "कुंजी बदलें",
+  "settingsModel.restrictBody": "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं।",
+  "settingsModel.restrictConfirm": "कुंजियाँ प्रतिबंधित करें",
+  "settingsModel.restrictDescription":
+    "सदस्य सिर्फ़ संगठन के प्रदाता इस्तेमाल कर सकते हैं, और उनकी जोड़ी गई कुंजियाँ काम करना बंद कर देती हैं।",
+  "settingsModel.restrictLabel": "व्यक्तिगत API कुंजियाँ प्रतिबंधित करें",
+  "settingsModel.restrictMemberBuilder":
+    "उनका व्यक्तिगत Builder.io कनेक्शन काम करना बंद कर देता है।",
+  "settingsModel.restrictMemberChats": "उनकी चैट संगठन के प्रदाताओं पर चली जाती हैं।",
+  "settingsModel.restrictMemberKeys_one":
+    "उनकी {{providers}} कुंजी काम करना बंद कर देती है।",
+  "settingsModel.restrictMemberKeys_other":
+    "उनकी {{providers}} कुंजियाँ काम करना बंद कर देती हैं।",
+  "settingsModel.restrictNewKeysBody":
+    "सदस्य इन्हें नहीं जोड़ सकते। मालिक और एडमिन अब भी जोड़ सकते हैं।",
+  "settingsModel.restrictNewKeysTitle": "नई व्यक्तिगत कुंजियाँ",
+  "settingsModel.restrictTitle": "व्यक्तिगत API कुंजियाँ प्रतिबंधित करें?",
+  "settingsModel.restricted":
+    "मालिकों और एडमिन ने व्यक्तिगत API कुंजियाँ प्रतिबंधित की हैं।",
+  "settingsModel.restrictedRow":
+    "व्यक्तिगत API कुंजियाँ प्रतिबंधित रहने तक इस्तेमाल नहीं होती।",
+  "settingsModel.retry": "फिर कोशिश करें",
+  "settingsModel.save": "सहेजें",
+  "settingsModel.savedRejected":
+    "{{provider}} ने सहेजी गई कुंजी अस्वीकार कर दी। नई कुंजी पेस्ट करें।",
+  "settingsModel.selectAll": "सभी चुनें",
+  "settingsModel.settingLoadFailed": "यह सेटिंग लोड नहीं हो सकी।",
+  "settingsModel.unreachableHeadline": "{{provider}} तक नहीं पहुँचा जा सका",
+  "settingsModel.view": "देखें",
+  "settingsModel.whatHappens": "क्या होगा",
+  "settingsModel.who": "कौन इस्तेमाल कर सकता है",
+  "settingsModel.whoHintAdmin":
+    "व्यक्तिगत प्रदाता सिर्फ़ आपके हैं। संगठन के प्रदाता {{org}} के सभी लोगों के लिए काम करते हैं।",
+  "settingsModel.whoHintMember": "सिर्फ़ मालिक और एडमिन संगठन के प्रदाता जोड़ सकते हैं।",
+  "settingsModel.whoHintService": "सेवाएँ संगठन की कुंजियाँ इस्तेमाल करती हैं।",
 };
 
 export default messages;

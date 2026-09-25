@@ -281,6 +281,20 @@ export async function resolveAgentEngineApiKeyWriteTarget(
   };
 }
 
+/**
+ * The `workspace` row the credential resolver reads as this target: the
+ * organization's legacy shared row, or the caller's pre-organization solo row.
+ */
+function legacyWorkspaceRowFor(target: AgentEngineApiKeyWriteTarget): {
+  scope: "workspace";
+  scopeId: string;
+} {
+  return {
+    scope: "workspace",
+    scopeId: target.scope === "org" ? target.scopeId : `solo:${target.scopeId}`,
+  };
+}
+
 export function createAgentEngineApiKeyHandler() {
   return defineEventHandler(async (event: H3Event) => {
     if (getMethod(event) === "DELETE") {
@@ -304,16 +318,20 @@ export function createAgentEngineApiKeyHandler() {
         setResponseStatus(event, resolved.statusCode);
         return { error: resolved.error };
       }
-      // A row saved under an older name of the same key would otherwise keep
-      // the provider working after it was removed.
-      for (const key of secretKeyNames(payload.key)) {
-        await deleteAppSecret({ key, ...resolved.target });
-      }
-      if (payload.endpointKey) {
-        await deleteAppSecret({
-          key: payload.endpointKey,
-          ...resolved.target,
-        });
+      // A row saved under an older name of the same key, or in the legacy
+      // workspace row the resolver reads after this scope, would otherwise
+      // keep the provider working after it was removed.
+      const keys = [
+        ...secretKeyNames(payload.key),
+        ...(payload.endpointKey ? [payload.endpointKey] : []),
+      ];
+      for (const target of [
+        resolved.target,
+        legacyWorkspaceRowFor(resolved.target),
+      ]) {
+        for (const key of keys) {
+          await deleteAppSecret({ key, ...target });
+        }
       }
       return { ok: true, key: payload.key, scope: resolved.target.scope };
     }

@@ -101,6 +101,12 @@ export interface SettingsTabItem {
    * Ignored by today's tabs.
    */
   settingsPlacement?: "page" | "app-area";
+  /**
+   * For a core tab whose page the redesigned Settings shell rebuilt: the
+   * template-supplied part of `content` that page still renders, since the
+   * rest of `content` is the old layout it replaces. Ignored by today's tabs.
+   */
+  shellExtraContent?: ReactNode;
 }
 
 /**

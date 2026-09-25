@@ -1395,6 +1395,156 @@ const messages = {
   "settingsResources.files.add": "Add file",
   "settingsResources.files.upload": "Upload file",
   "settingsResources.files.create": "Create file",
+  "settingsModel.addEndpoint": "Add an endpoint URL",
+  "settingsModel.addNamed": "Add {{provider}}",
+  "settingsModel.addProvider": "Add provider",
+  "settingsModel.affectsOrg": "This affects everyone in {{org}}.",
+  "settingsModel.affectsYou": "This affects only you.",
+  "settingsModel.allApps": "All apps",
+  "settingsModel.apiKey": "API key",
+  "settingsModel.builderConnected": "Connected · {{space}}",
+  "settingsModel.builderConnectedPlain": "Connected",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "Not connected. When you connect it, everyone in {{org}} can use it.",
+  "settingsModel.builderOrgNotConnectedMember":
+    "Not connected. An owner or admin can connect it.",
+  "settingsModel.builderPersonalConnect":
+    "Connect your own account to use your Builder.io credits.",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "Connect your own account to use it instead of the organization's.",
+  "settingsModel.builderPersonalOverOrg":
+    "Connected · {{space}}. Used instead of the organization's connection.",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "Connected. Used instead of the organization's connection.",
+  "settingsModel.builderUnknown": "Couldn't check the Builder.io connection.",
+  "settingsModel.cancel": "Cancel",
+  "settingsModel.change": "Change",
+  "settingsModel.chatgptConnected": "Connected",
+  "settingsModel.chatgptDescription":
+    "Use the Codex engine with your ChatGPT plan.",
+  "settingsModel.chatgptPopupBlocked":
+    "Allow pop-ups for this site, then try again.",
+  "settingsModel.chatgptTitle": "ChatGPT subscription",
+  "settingsModel.checkAgain": "Check again",
+  "settingsModel.checkedJustNow": "Checked just now.",
+  "settingsModel.checkedOn": "Checked {{date}}.",
+  "settingsModel.checking": "Checking your key with {{provider}}",
+  "settingsModel.checkingEndpoint": "Checking the endpoint",
+  "settingsModel.checkingOllama": "Checking installed models…",
+  "settingsModel.checkingSaved": "Checking the saved key",
+  "settingsModel.chooseModel": "Choose a model",
+  "settingsModel.clear": "Clear",
+  "settingsModel.connect": "Connect",
+  "settingsModel.connecting": "Connecting…",
+  "settingsModel.defaultModelDescription":
+    "Used in every app unless the app sets its own.",
+  "settingsModel.disconnect": "Disconnect",
+  "settingsModel.effectDefaultStops":
+    "Chats stop until another provider is set up.",
+  "settingsModel.effectDefaultSwitches":
+    "The default model switches to {{next}}.",
+  "settingsModel.effectKeepsOrg": "Keeps working with the organization key.",
+  "settingsModel.effectKeepsVault": "Keeps working with the Vault key.",
+  "settingsModel.effectKeepsWorkspace": "Keeps working with the workspace key.",
+  "settingsModel.effectModelsLeave":
+    "{{provider}} models leave the model picker.",
+  "settingsModel.endpointFirst": "Enter the endpoint URL first.",
+  "settingsModel.endpointHint":
+    "Optional. Use this for LiteLLM or another OpenAI-compatible gateway.",
+  "settingsModel.endpointUrl": "Endpoint URL",
+  "settingsModel.keyHint":
+    "Create one at {{host}}. {{provider}} bills it directly.",
+  "settingsModel.keyPlaceholder": "Paste your {{provider}} key",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "Couldn't load providers.",
+  "settingsModel.lockedTip": "Only owners and admins can change this.",
+  "settingsModel.manage": "Manage",
+  "settingsModel.maxIterationsDescription":
+    "How long a response can work before pausing.",
+  "settingsModel.maxIterationsInvalid":
+    "Enter a whole number from {{min}} to {{max}}.",
+  "settingsModel.modelCount_one": "{{count}} model",
+  "settingsModel.modelCount_other": "{{count}} models",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "Models",
+  "settingsModel.modelsHint": "Selected models show in the model picker.",
+  "settingsModel.modelsHintService":
+    "Chat models are optional. Leave them unchecked to use this key only for {{service}}.",
+  "settingsModel.modelsIdle": "Paste a key to see the models it can use.",
+  "settingsModel.modelsIdleOllama":
+    "Enter the endpoint URL to see its installed models.",
+  "settingsModel.modelsSaveFailed":
+    "The key was saved, but the model list wasn't. {{message}}",
+  "settingsModel.noChatModels": "No chat models",
+  "settingsModel.noModelsFound": "No models found.",
+  "settingsModel.notSet": "Not set",
+  "settingsModel.nothingElse": "Nothing else uses this key.",
+  "settingsModel.ollamaHint": "No API key required.",
+  "settingsModel.orgProviders": "Organization providers",
+  "settingsModel.orgSettings": "Organization settings",
+  "settingsModel.organization": "Organization",
+  "settingsModel.pasteFirst": "Paste a key first.",
+  "settingsModel.personal": "Personal",
+  "settingsModel.personalProviders": "Personal providers",
+  "settingsModel.previewFailed": "Couldn't check what this affects.",
+  "settingsModel.provider": "Provider",
+  "settingsModel.providerErrorHeadline": "{{provider}} couldn't check this key",
+  "settingsModel.reasonEndpoint": "Check the endpoint URL.",
+  "settingsModel.reasonOllamaUnreachable":
+    "Check the URL, and that Ollama is running.",
+  "settingsModel.reasonPrefix": "{{provider}} keys start with {{prefix}}.",
+  "settingsModel.reasonRejected":
+    "Check that you copied all of it, or create a new one.",
+  "settingsModel.reasonTryAgain": "Try again in a moment.",
+  "settingsModel.reasonWrongProvider": "This looks like a {{provider}} key.",
+  "settingsModel.reasonWrongProviderVowel":
+    "This looks like an {{provider}} key.",
+  "settingsModel.reconnect": "Reconnect",
+  "settingsModel.rejected":
+    "{{provider}} rejected this key on {{date}}. Chats that use it stop until you replace it.",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} rejected this key on {{date}}. Ask an owner or admin to replace it.",
+  "settingsModel.rejectedHeadline": "{{provider}} rejected this key",
+  "settingsModel.remove": "Remove",
+  "settingsModel.removeProvider": "Remove provider",
+  "settingsModel.removeTitle": "Remove {{provider}}?",
+  "settingsModel.replace": "Replace",
+  "settingsModel.replaceKey": "Replace key",
+  "settingsModel.restrictBody": "Members can only use organization providers.",
+  "settingsModel.restrictConfirm": "Restrict keys",
+  "settingsModel.restrictDescription":
+    "Members can only use organization providers, and keys they added stop working.",
+  "settingsModel.restrictLabel": "Restrict personal API keys",
+  "settingsModel.restrictMemberBuilder":
+    "Their personal Builder.io connection stops working.",
+  "settingsModel.restrictMemberChats":
+    "Their chats switch to organization providers.",
+  "settingsModel.restrictMemberKeys_one":
+    "Their {{providers}} key stops working.",
+  "settingsModel.restrictMemberKeys_other":
+    "Their {{providers}} keys stop working.",
+  "settingsModel.restrictNewKeysBody":
+    "Members can't add them. Owners and admins still can.",
+  "settingsModel.restrictNewKeysTitle": "New personal keys",
+  "settingsModel.restrictTitle": "Restrict personal API keys?",
+  "settingsModel.restricted": "Owners and admins restricted personal API keys.",
+  "settingsModel.restrictedRow":
+    "Not used while personal API keys are restricted.",
+  "settingsModel.retry": "Try again",
+  "settingsModel.save": "Save",
+  "settingsModel.savedRejected":
+    "{{provider}} rejected the saved key. Paste a new one.",
+  "settingsModel.selectAll": "Select all",
+  "settingsModel.settingLoadFailed": "Couldn't load this setting.",
+  "settingsModel.unreachableHeadline": "Couldn't reach {{provider}}",
+  "settingsModel.view": "View",
+  "settingsModel.whatHappens": "What happens",
+  "settingsModel.who": "Who can use it",
+  "settingsModel.whoHintAdmin":
+    "Personal providers are only yours. Organization providers work for everyone in {{org}}.",
+  "settingsModel.whoHintMember":
+    "Only owners and admins can add organization providers.",
+  "settingsModel.whoHintService": "Services use organization keys.",
 } as const;
 
 export default messages;

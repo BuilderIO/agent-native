@@ -453,7 +453,7 @@ describe("SettingsShell", () => {
     it("opens the first hit on Enter and flashes its row", async () => {
       function ModelPage() {
         return (
-          <div id="agent-settings-section-limits" data-testid="page">
+          <div id="max-iterations" data-testid="page">
             limits
           </div>
         );
@@ -468,12 +468,12 @@ describe("SettingsShell", () => {
       await waitFor(() =>
         Boolean(
           container
-            .querySelector("#agent-settings-section-limits")
+            .querySelector("#max-iterations")
             ?.hasAttribute("data-settings-flash"),
         ),
       );
       expect(`${window.location.pathname}${window.location.hash}`).toBe(
-        "/settings/model#limits",
+        "/settings/model#max-iterations",
       );
       expect(scrollIntoView).toHaveBeenCalled();
       expect(searchInput().value).toBe("");

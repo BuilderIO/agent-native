@@ -17,7 +17,49 @@ const agentEngineKeyMock = vi.hoisted(() => ({
 const deferredUiModuleLoads = vi.hoisted(() => ({
   builderConnectPopover: false,
   providerSetupForm: false,
+  providerDialog: false,
 }));
+
+const featureFlagMock = vi.hoisted(() => ({
+  state: { status: "ready", enabled: false } as {
+    status: "loading" | "ready" | "unavailable";
+    enabled: boolean;
+  },
+}));
+
+vi.mock("../feature-flags/use-feature-flag.js", () => ({
+  useFeatureFlagState: () => featureFlagMock.state,
+}));
+
+vi.mock("../settings/model/ProviderDialog.js", () => {
+  deferredUiModuleLoads.providerDialog = true;
+  return {
+    ProviderDialog: ({
+      open,
+      mode,
+      onOpenChange,
+      onSaved,
+    }: {
+      open: boolean;
+      mode: string;
+      onOpenChange: (open: boolean) => void;
+      onSaved?: (result: { provider: string; scope: string }) => void;
+    }) =>
+      open ? (
+        <div role="dialog" data-mode={mode}>
+          <button
+            type="button"
+            onClick={() => {
+              onSaved?.({ provider: "anthropic", scope: "user" });
+              onOpenChange(false);
+            }}
+          >
+            Save provider
+          </button>
+        </div>
+      ) : null,
+  };
+});
 
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
@@ -515,6 +557,56 @@ describe("run recovery surfaces", () => {
     expect(document.body.textContent).toContain("Ollama");
   });
 
+  it("opens the provider dialog for custom keys with the settings redesign on", async () => {
+    featureFlagMock.state = { status: "ready", enabled: true };
+    const onConnected = vi.fn();
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <BuilderSetupContent onConnected={onConnected} />
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const customKeys = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent?.includes("Custom keys"),
+      );
+      await act(async () => {
+        customKeys?.click();
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+      });
+      expect(
+        container.querySelector('[role="dialog"]')?.getAttribute("data-mode"),
+      ).toBe("add");
+      expect(deferredUiModuleLoads.providerDialog).toBe(true);
+      expect(container.textContent).not.toContain("Choose a provider");
+
+      const save = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Save provider",
+      );
+      await act(async () => {
+        save?.click();
+      });
+      expect(onConnected).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      expect(
+        Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent?.includes("Custom keys"))
+          ?.getAttribute("aria-expanded"),
+      ).toBe("false");
+    } finally {
+      featureFlagMock.state = { status: "ready", enabled: false };
+    }
+  });
+
   it("keeps sidebar provider actions in a horizontal row", async () => {
     await act(async () => {
       root.render(
@@ -588,6 +680,41 @@ describe("run recovery surfaces", () => {
       dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the Max iterations setting by its section, not the URL hash", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const sections: unknown[] = [];
+    const listener = (event: Event) =>
+      sections.push((event as CustomEvent<{ section?: string }>).detail);
+    window.addEventListener("agent-panel:open-settings", listener);
+    const hashBefore = window.location.hash;
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <LoopLimitContinueCard
+              info={{ maxIterations: 40 }}
+              onContinue={vi.fn()}
+            />
+          </AgentNativeI18nProvider>,
+        );
+      });
+      const settingsButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => /settings/i.test(button.textContent ?? ""));
+      await act(async () => {
+        settingsButton?.click();
+      });
+      expect(sections).toEqual([{ section: "limits" }]);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      window.removeEventListener("agent-panel:open-settings", listener);
+    }
   });
 
   it("formats the step limit with the selected locale", async () => {

@@ -106,7 +106,8 @@ export interface FrameworkToolsOption {
   /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`,
    *  `preview-secret-removal`, `check-provider-key`,
    *  `manage-provider-key-policy`, `manage-builder-connection`,
-   *  `get-provider-models`, `manage-provider-models`. */
+   *  `get-provider-models`, `manage-provider-models`,
+   *  `list-model-providers`. */
   chat?: boolean;
   /** `core-send-email`. */
   email?: boolean;
@@ -315,6 +316,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-builder-connection": "chat",
   "get-provider-models": "chat",
   "manage-provider-models": "chat",
+  "list-model-providers": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 

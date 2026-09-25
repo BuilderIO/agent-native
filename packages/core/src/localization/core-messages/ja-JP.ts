@@ -1414,6 +1414,158 @@ const messages: AgentChatTranslation = {
   "settingsResources.files.add": "ファイルを追加",
   "settingsResources.files.upload": "ファイルをアップロード",
   "settingsResources.files.create": "ファイルを作成",
+  "settingsModel.addEndpoint": "エンドポイント URL を追加",
+  "settingsModel.addNamed": "{{provider}} を追加",
+  "settingsModel.addProvider": "プロバイダーを追加",
+  "settingsModel.affectsOrg": "{{org}} の全員に影響します。",
+  "settingsModel.affectsYou": "影響するのはあなただけです。",
+  "settingsModel.allApps": "すべてのアプリ",
+  "settingsModel.apiKey": "API キー",
+  "settingsModel.builderConnected": "接続済み · {{space}}",
+  "settingsModel.builderConnectedPlain": "接続済み",
+  "settingsModel.builderOrgNotConnectedAdmin":
+    "未接続です。接続すると {{org}} の全員が使えるようになります。",
+  "settingsModel.builderOrgNotConnectedMember":
+    "未接続です。オーナーまたは管理者が接続できます。",
+  "settingsModel.builderPersonalConnect":
+    "自分のアカウントを接続すると、自分の Builder.io クレジットを使えます。",
+  "settingsModel.builderPersonalInsteadOfOrg":
+    "自分のアカウントを接続すると、組織の接続の代わりに使えます。",
+  "settingsModel.builderPersonalOverOrg":
+    "接続済み · {{space}}。組織の接続の代わりに使われます。",
+  "settingsModel.builderPersonalOverOrgPlain":
+    "接続済み。組織の接続の代わりに使われます。",
+  "settingsModel.builderUnknown": "Builder.io の接続を確認できませんでした。",
+  "settingsModel.cancel": "キャンセル",
+  "settingsModel.change": "変更",
+  "settingsModel.chatgptConnected": "接続済み",
+  "settingsModel.chatgptDescription":
+    "ChatGPT のプランで Codex エンジンを使えます。",
+  "settingsModel.chatgptPopupBlocked":
+    "このサイトのポップアップを許可してから、もう一度お試しください。",
+  "settingsModel.chatgptTitle": "ChatGPT サブスクリプション",
+  "settingsModel.checkAgain": "もう一度確認",
+  "settingsModel.checkedJustNow": "たった今確認しました。",
+  "settingsModel.checkedOn": "{{date}} に確認しました。",
+  "settingsModel.checking": "{{provider}} でキーを確認しています",
+  "settingsModel.checkingEndpoint": "エンドポイントを確認しています",
+  "settingsModel.checkingOllama": "インストール済みのモデルを確認しています…",
+  "settingsModel.checkingSaved": "保存済みのキーを確認しています",
+  "settingsModel.chooseModel": "モデルを選択",
+  "settingsModel.clear": "クリア",
+  "settingsModel.connect": "接続",
+  "settingsModel.connecting": "接続しています…",
+  "settingsModel.defaultModelDescription":
+    "アプリが独自に設定しない限り、すべてのアプリで使われます。",
+  "settingsModel.disconnect": "接続を解除",
+  "settingsModel.effectDefaultStops":
+    "別のプロバイダーを設定するまでチャットが停止します。",
+  "settingsModel.effectDefaultSwitches":
+    "デフォルトモデルが {{next}} に切り替わります。",
+  "settingsModel.effectKeepsOrg": "組織のキーで引き続き動作します。",
+  "settingsModel.effectKeepsVault": "Vault のキーで引き続き動作します。",
+  "settingsModel.effectKeepsWorkspace":
+    "ワークスペースのキーで引き続き動作します。",
+  "settingsModel.effectModelsLeave":
+    "{{provider}} のモデルがモデル選択から外れます。",
+  "settingsModel.endpointFirst": "先にエンドポイント URL を入力してください。",
+  "settingsModel.endpointHint":
+    "任意。LiteLLM などの OpenAI 互換ゲートウェイで使います。",
+  "settingsModel.endpointUrl": "エンドポイント URL",
+  "settingsModel.keyHint":
+    "{{host}} で作成できます。料金は {{provider}} から直接請求されます。",
+  "settingsModel.keyPlaceholder": "{{provider}} のキーを貼り付け",
+  "settingsModel.labs": "Labs",
+  "settingsModel.loadFailed": "プロバイダーを読み込めませんでした。",
+  "settingsModel.lockedTip": "変更できるのはオーナーと管理者だけです。",
+  "settingsModel.manage": "管理",
+  "settingsModel.maxIterationsDescription":
+    "1 回の応答が一時停止するまでに作業できる長さです。",
+  "settingsModel.maxIterationsInvalid":
+    "{{min}} から {{max}} までの整数を入力してください。",
+  "settingsModel.modelCount_other": "{{count}} 個のモデル",
+  "settingsModel.modelOption": "{{model}} · {{provider}}",
+  "settingsModel.models": "モデル",
+  "settingsModel.modelsHint": "選択したモデルがモデル選択に表示されます。",
+  "settingsModel.modelsHintService":
+    "チャットモデルは任意です。チェックを外したままにすると、このキーを {{service}} だけに使います。",
+  "settingsModel.modelsIdle":
+    "キーを貼り付けると、使えるモデルが表示されます。",
+  "settingsModel.modelsIdleOllama":
+    "エンドポイント URL を入力すると、インストール済みのモデルが表示されます。",
+  "settingsModel.modelsSaveFailed":
+    "キーは保存されましたが、モデルの一覧は保存されませんでした。{{message}}",
+  "settingsModel.noChatModels": "チャットモデルなし",
+  "settingsModel.noModelsFound": "モデルが見つかりません。",
+  "settingsModel.notSet": "未設定",
+  "settingsModel.nothingElse": "このキーを使っているものはほかにありません。",
+  "settingsModel.ollamaHint": "API キーは不要です。",
+  "settingsModel.orgProviders": "組織のプロバイダー",
+  "settingsModel.orgSettings": "組織の設定",
+  "settingsModel.organization": "組織",
+  "settingsModel.pasteFirst": "先にキーを貼り付けてください。",
+  "settingsModel.personal": "個人",
+  "settingsModel.personalProviders": "個人のプロバイダー",
+  "settingsModel.previewFailed": "影響を確認できませんでした。",
+  "settingsModel.provider": "プロバイダー",
+  "settingsModel.providerErrorHeadline":
+    "{{provider}} はこのキーを確認できませんでした",
+  "settingsModel.reasonEndpoint": "エンドポイント URL を確認してください。",
+  "settingsModel.reasonOllamaUnreachable":
+    "URL と Ollama が起動していることを確認してください。",
+  "settingsModel.reasonPrefix":
+    "{{provider}} のキーは {{prefix}} で始まります。",
+  "settingsModel.reasonRejected":
+    "すべてコピーしたか確認するか、新しいキーを作成してください。",
+  "settingsModel.reasonTryAgain": "しばらくしてからもう一度お試しください。",
+  "settingsModel.reasonWrongProvider": "これは {{provider}} のキーのようです。",
+  "settingsModel.reasonWrongProviderVowel":
+    "これは {{provider}} のキーのようです。",
+  "settingsModel.reconnect": "再接続",
+  "settingsModel.rejected":
+    "{{provider}} は {{date}} にこのキーを拒否しました。キーを置き換えるまで、このキーを使うチャットは停止します。",
+  "settingsModel.rejectedAskAdmin":
+    "{{provider}} は {{date}} にこのキーを拒否しました。オーナーまたは管理者に置き換えを依頼してください。",
+  "settingsModel.rejectedHeadline": "{{provider}} がこのキーを拒否しました",
+  "settingsModel.remove": "削除",
+  "settingsModel.removeProvider": "プロバイダーを削除",
+  "settingsModel.removeTitle": "{{provider}} を削除しますか？",
+  "settingsModel.replace": "置き換え",
+  "settingsModel.replaceKey": "キーを置き換え",
+  "settingsModel.restrictBody": "メンバーは組織のプロバイダーだけを使えます。",
+  "settingsModel.restrictConfirm": "キーを制限",
+  "settingsModel.restrictDescription":
+    "メンバーは組織のプロバイダーだけを使えるようになり、メンバーが追加したキーは動作しなくなります。",
+  "settingsModel.restrictLabel": "個人の API キーを制限",
+  "settingsModel.restrictMemberBuilder":
+    "個人の Builder.io 接続が動作しなくなります。",
+  "settingsModel.restrictMemberChats":
+    "チャットは組織のプロバイダーに切り替わります。",
+  "settingsModel.restrictMemberKeys_other":
+    "{{providers}} のキーが動作しなくなります。",
+  "settingsModel.restrictNewKeysBody":
+    "メンバーは追加できません。オーナーと管理者は引き続き追加できます。",
+  "settingsModel.restrictNewKeysTitle": "新しい個人のキー",
+  "settingsModel.restrictTitle": "個人の API キーを制限しますか？",
+  "settingsModel.restricted":
+    "オーナーと管理者が個人の API キーを制限しています。",
+  "settingsModel.restrictedRow":
+    "個人の API キーが制限されている間は使われません。",
+  "settingsModel.retry": "再試行",
+  "settingsModel.save": "保存",
+  "settingsModel.savedRejected":
+    "{{provider}} が保存済みのキーを拒否しました。新しいキーを貼り付けてください。",
+  "settingsModel.selectAll": "すべて選択",
+  "settingsModel.settingLoadFailed": "この設定を読み込めませんでした。",
+  "settingsModel.unreachableHeadline": "{{provider}} に接続できませんでした",
+  "settingsModel.view": "表示",
+  "settingsModel.whatHappens": "どうなるか",
+  "settingsModel.who": "使える人",
+  "settingsModel.whoHintAdmin":
+    "個人のプロバイダーはあなただけのものです。組織のプロバイダーは {{org}} の全員が使えます。",
+  "settingsModel.whoHintMember":
+    "組織のプロバイダーを追加できるのはオーナーと管理者だけです。",
+  "settingsModel.whoHintService": "サービスは組織のキーを使います。",
 };
 
 export default messages;

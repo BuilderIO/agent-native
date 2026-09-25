@@ -617,6 +617,27 @@ export async function setAgentEngineProvider({
   model?: string;
 }): Promise<SavedAgentEngineSelection> {
   const option = getAgentProviderOption(provider);
+  return setAgentEngineDefaultModel({
+    engine: option.engine,
+    model,
+    label: option.label,
+  });
+}
+
+/**
+ * {@link setAgentEngineProvider} for any engine, Builder.io included. Throws
+ * the server's refusal for anyone who may not change the default.
+ */
+export async function setAgentEngineDefaultModel({
+  engine,
+  model,
+  label = engine,
+}: {
+  engine: string;
+  model?: string;
+  /** Names the engine in the fallback error. */
+  label?: string;
+}): Promise<SavedAgentEngineSelection> {
   const res = await fetch(
     agentNativePath("/_agent-native/actions/manage-agent-engine"),
     {
@@ -624,12 +645,12 @@ export async function setAgentEngineProvider({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "set",
-        engine: option.engine,
+        engine,
         ...(model?.trim() ? { model: model.trim() } : {}),
       }),
     },
   );
-  const fallbackMessage = `Could not select ${option.label}.`;
+  const fallbackMessage = `Could not select ${label}.`;
   const text = await res.text();
   const body = decodeAgentEngineSelectionPayload(text, fallbackMessage);
   if (!res.ok) {
@@ -640,7 +661,7 @@ export async function setAgentEngineProvider({
   const savedModel = body.model;
   if (
     body.ok !== true ||
-    savedEngine !== option.engine ||
+    savedEngine !== engine ||
     typeof savedModel !== "string" ||
     !savedModel.trim()
   ) {
