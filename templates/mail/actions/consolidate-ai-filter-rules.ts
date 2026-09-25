@@ -13,6 +13,17 @@ export default defineAction({
     duplicateIds: z
       .array(z.string().min(1))
       .describe("Duplicate rule ids to delete"),
+    expectedRules: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          name: z.string(),
+          condition: z.string(),
+          actions: z.array(automationActionSchema),
+        }),
+      )
+      .min(1)
+      .describe("Rule snapshots from the prompt draft"),
     name: z.string().describe("Name for the retained rule"),
     condition: z.string().min(1).describe("Combined prompt condition"),
     actions: z

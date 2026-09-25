@@ -95,6 +95,12 @@ export function useConsolidateAiFilterRules() {
     mutationFn: (data: {
       id: string;
       duplicateIds: string[];
+      expectedRules: {
+        id: string;
+        name: string;
+        condition: string;
+        actions: AutomationAction[];
+      }[];
       name: string;
       condition: string;
       actions: AutomationAction[];

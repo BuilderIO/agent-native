@@ -701,19 +701,18 @@ export function EmailList({
     (email: EmailMessage, decision: "important" | "not-important") => {
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
       const score = decision === "important" ? 1 : 0;
-      rememberPriorityScore(priorityScoreCache(queryClient), key, {
+      const cache = priorityScoreCache(queryClient);
+      const previousScore = cache.get(key) ?? priorityScores.get(key);
+      const optimisticScore = {
         inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
         score,
-      });
+      };
+      rememberPriorityScore(cache, key, optimisticScore);
       setPriorityScores((current) => {
         const next = new Map(current);
-        next.set(key, {
-          inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
-          score,
-        });
+        next.set(key, optimisticScore);
         return next;
       });
-      const previousScore = priorityScores.get(key);
       void priorityFeedback
         .mutateAsync({
           emailId: email.id,
@@ -749,14 +748,16 @@ export function EmailList({
         })
         .catch(() => {
           setPriorityScores((current) => {
+            if (current.get(key) !== optimisticScore) return current;
             const next = new Map(current);
             if (previousScore) next.set(key, previousScore);
             else next.delete(key);
             return next;
           });
-          const cache = priorityScoreCache(queryClient);
-          if (previousScore) rememberPriorityScore(cache, key, previousScore);
-          else cache.delete(key);
+          if (cache.get(key) === optimisticScore) {
+            if (previousScore) rememberPriorityScore(cache, key, previousScore);
+            else cache.delete(key);
+          }
           toast.error(t("mail.aiFilter.actionFailed"));
         });
     },

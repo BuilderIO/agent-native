@@ -50,6 +50,7 @@ const acceptedActivity = {
 
 describe("undo-calendar-event-rule", () => {
   let settings: Record<string, unknown>;
+  let runtime: Record<string, unknown>;
   let mutationQueue: Promise<unknown>;
 
   beforeEach(() => {
@@ -62,12 +63,16 @@ describe("undo-calendar-event-rule", () => {
       ],
       eventRuleActivity: [hiddenActivity, acceptedActivity],
     };
+    runtime = {};
     mocks.rsvpEvent.mockResolvedValue(undefined);
     mocks.mutateUserSetting.mockImplementation(
-      async (_owner: string, _key: string, update: any) => {
+      async (_owner: string, key: string, update: any) => {
         const operation = mutationQueue.then(async () => {
-          settings = await update(settings);
-          return settings;
+          const current = key === "calendar-settings" ? settings : runtime;
+          const next = await update(current);
+          if (key === "calendar-settings") settings = next;
+          else runtime = next;
+          return next;
         });
         mutationQueue = operation.then(
           () => undefined,
@@ -117,6 +122,11 @@ describe("undo-calendar-event-rule", () => {
     );
     expect(settings.eventRuleActivity).toEqual([hiddenActivity]);
     expect(settings.__calendarEventRuleUndoClaims).toEqual({});
+    expect(runtime.undoRsvpSuppressions).toMatchObject({
+      "google:owner@example.com:primary:event-accepted": {
+        token: expect.any(String),
+      },
+    });
   });
 
   it("preserves activity when the RSVP no longer matches the recorded action", async () => {

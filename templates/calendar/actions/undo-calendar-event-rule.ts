@@ -11,6 +11,7 @@ import { resolveOwnedAccountEmail } from "./event-action-helpers.js";
 
 const UNDO_CLAIMS_KEY = "__calendarEventRuleUndoClaims";
 const UNDO_CLAIM_TTL_MS = 5 * 60 * 1000;
+const EVENT_RULES_RUNTIME_KEY = "calendar-event-rules-runtime";
 
 type UndoClaim = { token: string; expiresAt: number };
 
@@ -36,6 +37,10 @@ function conflict(): never {
     errorCode: "conflict",
     statusCode: 409,
   });
+}
+
+function eventRuleKey(accountEmail: string, eventId: string) {
+  return `google:${accountEmail.toLowerCase()}:primary:${eventId}`;
 }
 
 export default defineAction({
@@ -96,6 +101,7 @@ export default defineAction({
     if (!activity) conflict();
 
     let providerWriteAttempted = false;
+    let undoSuppressionKey: string | undefined;
     try {
       if (activity.action === "accepted" || activity.action === "declined") {
         const accountEmail = await resolveOwnedAccountEmail(
@@ -106,7 +112,38 @@ export default defineAction({
           ownerEmail,
           accountEmail,
         });
-        if (event.responseStatus === activity.action) {
+        const responseStatus =
+          event.responseStatus ??
+          event.attendees?.find(
+            (attendee) =>
+              attendee.self ||
+              attendee.email?.toLowerCase() === accountEmail.toLowerCase(),
+          )?.responseStatus;
+        if (
+          responseStatus === activity.action ||
+          responseStatus === "needsAction"
+        ) {
+          undoSuppressionKey = eventRuleKey(accountEmail, activity.eventId);
+          await mutateUserSetting(
+            ownerEmail,
+            EVENT_RULES_RUNTIME_KEY,
+            (current) => {
+              const record = (current ?? {}) as Record<string, any>;
+              const suppressions = {
+                ...(record.undoRsvpSuppressions ?? {}),
+              };
+              delete suppressions[undoSuppressionKey!];
+              suppressions[undoSuppressionKey!] = { token: claimToken };
+              return {
+                ...record,
+                undoRsvpSuppressions: Object.fromEntries(
+                  Object.entries(suppressions).slice(-5000),
+                ),
+              };
+            },
+          );
+        }
+        if (responseStatus === activity.action) {
           providerWriteAttempted = true;
           await googleCalendar.rsvpEvent(
             activity.eventId,
@@ -116,7 +153,7 @@ export default defineAction({
             undefined,
             "none",
           );
-        } else if (event.responseStatus === "needsAction") {
+        } else if (responseStatus === "needsAction") {
           // A previous request may have completed the RSVP before its settings
           // write failed. Finalize it without sending the RSVP a second time.
           providerWriteAttempted = true;
@@ -157,6 +194,22 @@ export default defineAction({
       return { success: true, activityId };
     } catch (error) {
       if (!providerWriteAttempted) {
+        if (undoSuppressionKey) {
+          await mutateUserSetting(
+            ownerEmail,
+            EVENT_RULES_RUNTIME_KEY,
+            (current) => {
+              const record = (current ?? {}) as Record<string, any>;
+              const suppressions = {
+                ...(record.undoRsvpSuppressions ?? {}),
+              };
+              if (suppressions[undoSuppressionKey!]?.token !== claimToken)
+                return record;
+              delete suppressions[undoSuppressionKey!];
+              return { ...record, undoRsvpSuppressions: suppressions };
+            },
+          );
+        }
         await mutateUserSetting(ownerEmail, "calendar-settings", (current) => {
           const record = (current ?? {}) as Record<string, unknown>;
           const claims = readUndoClaims(record[UNDO_CLAIMS_KEY]);

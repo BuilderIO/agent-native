@@ -232,6 +232,26 @@ describe("AiFilterSection prompt blur saves", () => {
             "important-rule-duplicate",
             "important-rule-duplicate-2",
           ],
+          expectedRules: [
+            {
+              id: "important-rule",
+              name: "AI important",
+              condition: "Human comments on GitHub matter",
+              actions: [{ type: "label", labelName: "agent-native-important" }],
+            },
+            {
+              id: "important-rule-duplicate",
+              name: "AI important: customers",
+              condition: "Important customer conversations",
+              actions: [{ type: "label", labelName: "agent-native-important" }],
+            },
+            {
+              id: "important-rule-duplicate-2",
+              name: "AI important: customers",
+              condition: "Another active instruction",
+              actions: [{ type: "label", labelName: "agent-native-important" }],
+            },
+          ],
           name: "AI important: Updated instruction",
           condition: "Updated instruction",
           actions: [{ type: "label", labelName: "agent-native-important" }],

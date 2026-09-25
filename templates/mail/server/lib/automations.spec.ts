@@ -7,6 +7,12 @@ const dbMock = vi.hoisted(() => {
     updateValues: [] as unknown[],
     deleteWhere: [] as unknown[],
     failDelete: false,
+    selectRows: [] as Array<{
+      id: string;
+      name: string;
+      condition: string;
+      actions: string;
+    }>,
   };
   const automationRules = {
     id: "id",
@@ -14,6 +20,9 @@ const dbMock = vi.hoisted(() => {
     domain: "domain",
     kind: "kind",
     enabled: "enabled",
+    name: "name",
+    condition: "condition",
+    actions: "actions",
   };
   const tx = {
     select: () => ({
@@ -21,7 +30,7 @@ const dbMock = vi.hoisted(() => {
         where: (condition: unknown) => ({
           for: async () => {
             calls.selectWhere.push(condition);
-            return [{ id: "keep" }, { id: "duplicate" }];
+            return calls.selectRows;
           },
         }),
       }),
@@ -81,12 +90,36 @@ function flatten(condition: any): any[] {
     : [condition];
 }
 
+function expectedRules() {
+  const actions = [
+    { type: "label" as const, labelName: "agent-native-important" },
+  ];
+  return [
+    {
+      id: "keep",
+      name: "AI important",
+      condition: "Original prompt",
+      actions,
+    },
+    {
+      id: "duplicate",
+      name: "AI important: customers",
+      condition: "Customer prompt",
+      actions,
+    },
+  ];
+}
+
 beforeEach(() => {
   dbMock.calls.selectWhere.length = 0;
   dbMock.calls.updateWhere.length = 0;
   dbMock.calls.updateValues.length = 0;
   dbMock.calls.deleteWhere.length = 0;
   dbMock.calls.failDelete = false;
+  dbMock.calls.selectRows = expectedRules().map((rule) => ({
+    ...rule,
+    actions: JSON.stringify(rule.actions),
+  }));
   dbMock.db.transaction.mockClear();
 });
 
@@ -98,6 +131,7 @@ describe("consolidateAutomationRules", () => {
       consolidateAutomationRules("owner@example.test", {
         id: "keep",
         duplicateIds: ["duplicate"],
+        expectedRules: expectedRules(),
         name: "AI important: Updated prompt",
         condition: "Updated prompt",
         actions: [{ type: "label", labelName: "agent-native-important" }],
@@ -141,4 +175,29 @@ describe("consolidateAutomationRules", () => {
       values: ["duplicate"],
     });
   });
+
+  it.each(["condition", "actions"])(
+    "does not consolidate after a rule %s changes",
+    async (field) => {
+      const rule = dbMock.calls.selectRows[0];
+      if (field === "condition") {
+        rule.condition = "Prompt edited elsewhere";
+      } else {
+        rule.actions = '[{"type":"archive"}]';
+      }
+
+      const saved = await consolidateAutomationRules("owner@example.test", {
+        id: "keep",
+        duplicateIds: ["duplicate"],
+        expectedRules: expectedRules(),
+        name: "AI important: Updated prompt",
+        condition: "Updated prompt",
+        actions: [{ type: "label", labelName: "agent-native-important" }],
+      });
+
+      expect(saved).toBe(false);
+      expect(dbMock.calls.updateWhere).toHaveLength(0);
+      expect(dbMock.calls.deleteWhere).toHaveLength(0);
+    },
+  );
 });

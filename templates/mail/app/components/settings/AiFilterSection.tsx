@@ -337,6 +337,12 @@ export function AiFilterSection() {
         const result = await consolidateAiFilterRules.mutateAsync({
           id: first.id,
           duplicateIds: duplicates.map((rule) => rule.id),
+          expectedRules: existing.map(({ id, name, condition, actions }) => ({
+            id,
+            name,
+            condition,
+            actions,
+          })),
           name,
           condition,
           actions,
