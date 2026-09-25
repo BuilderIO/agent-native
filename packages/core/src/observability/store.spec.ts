@@ -157,6 +157,22 @@ describe("observability store: per-user isolation", () => {
           },
           created_at: 3,
         },
+        {
+          id: "legacy-captured-input",
+          run_id: "run-x",
+          span_type: "tool_call",
+          name: "fetch",
+          status: "success",
+          metadata: {
+            input: {
+              headers: { "Proxy-Authorization": "Basic old-proxy-secret" },
+              subscriptionKey: "old-subscription-key",
+              googleClientSecret: "old-client-secret",
+              providerToken: "old-provider-token",
+            },
+          },
+          created_at: 4,
+        },
       );
 
       const spans = await getTraceSpansForRun("run-x");
@@ -170,6 +186,14 @@ describe("observability store: per-user isolation", () => {
       );
       expect(spans[2]?.errorMessage).toBe("Error: client_secret=[REDACTED]");
       expect(spans[2]?.metadata).toEqual({ input: { query: "safe query" } });
+      expect(spans[3]?.metadata).toEqual({
+        input: {
+          headers: { "Proxy-Authorization": "[REDACTED]" },
+          subscriptionKey: "[REDACTED]",
+          googleClientSecret: "[REDACTED]",
+          providerToken: "[REDACTED]",
+        },
+      });
     });
 
     it("getFeedback adds user_id filter when userId is provided", async () => {

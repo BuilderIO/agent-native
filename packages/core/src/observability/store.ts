@@ -16,6 +16,7 @@ import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
 } from "./trace-error.js";
+import { redactSensitiveFields } from "./trace-redaction.js";
 import type {
   TraceSpan,
   TraceSummary,
@@ -1174,6 +1175,9 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const metadata = storedMetadata ? { ...storedMetadata } : null;
   const hasCapturedToolError =
     metadata?.[TOOL_ERROR_CAPTURE_METADATA_KEY] === 1;
+  if (metadata && metadata.input !== undefined) {
+    metadata.input = redactSensitiveFields(metadata.input);
+  }
   if (metadata) delete metadata[TOOL_ERROR_CAPTURE_METADATA_KEY];
   const errorMessage = row.error_message ? String(row.error_message) : null;
 

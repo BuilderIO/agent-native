@@ -20,6 +20,8 @@ import {
   sanitizeToolErrorMessage,
   TOOL_ERROR_CAPTURE_METADATA_KEY,
 } from "./trace-error.js";
+import { redactSensitiveFields } from "./trace-redaction.js";
+export { redactSensitiveFields } from "./trace-redaction.js";
 import {
   type AgentSpan,
   endAgentSpan,
@@ -469,63 +471,6 @@ function buildGenerationContent(args: {
     aiInputTruncated: input?.truncated,
     aiOutputTruncated: output?.truncated,
   };
-}
-
-/** Keys whose values are stripped from persisted tool inputs when
- *  `captureToolArgs` is enabled. Matched case-insensitively across
- *  namespace, snake/kebab, camelCase, and credential suffixes. M14 in the
- *  MCP/A2A audit: tool calls
- *  routinely receive credentials verbatim (db-exec INSERTs, fetchTool
- *  Authorization headers, ad-hoc bearer tokens) — keeping those values
- *  out of agent_trace_spans.metadata avoids long-term storage of
- *  short-lived secrets. */
-const SENSITIVE_FIELD_PATTERN =
-  /^(authorization|cookie|password|secret|token|bearer)$/i;
-const SENSITIVE_FIELD_SUFFIXES = [
-  "apikey",
-  "accesstoken",
-  "refreshtoken",
-  "clientsecret",
-  "privatekey",
-  "token",
-  "secret",
-  "password",
-  "accesskeyid",
-  "accesskey",
-];
-
-function isSensitiveFieldName(field: string): boolean {
-  return field.split(/[.:/\[\]]+/).some((part) => {
-    if (SENSITIVE_FIELD_PATTERN.test(part)) return true;
-    const normalized = part.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return SENSITIVE_FIELD_SUFFIXES.some((field) => normalized.endsWith(field));
-  });
-}
-
-/** Recursively walk a structured value and replace sensitive field
- *  values with the literal string "[REDACTED]". Pure (returns a copy);
- *  the original input is never mutated. Cycles are tolerated via a
- *  small WeakSet seen-tracker that returns "[Circular]" for repeats. */
-export function redactSensitiveFields(value: unknown): unknown {
-  return redactWalk(value, new WeakSet<object>());
-}
-
-function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value as object)) return "[Circular]";
-  seen.add(value as object);
-  if (Array.isArray(value)) {
-    return value.map((v) => redactWalk(v, seen));
-  }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (isSensitiveFieldName(k)) {
-      out[k] = "[REDACTED]";
-    } else {
-      out[k] = redactWalk(v, seen);
-    }
-  }
-  return out;
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
