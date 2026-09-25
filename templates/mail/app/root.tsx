@@ -55,8 +55,6 @@ import { i18nCatalog } from "./i18n";
 import stylesheet from "./global.css?url";
 configureTracking({
   sessionReplay: {
-    maskTextSelector:
-      "[data-an-mask], .agent-kit-tool-content-boundary, .agent-tab",
     console: false,
     network: false,
   },
