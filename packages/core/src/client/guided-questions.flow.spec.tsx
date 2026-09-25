@@ -300,6 +300,42 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
   });
 
+  // A caller can stop trusting the reactive `questions` value earlier than
+  // the DB-sync wakeup that would otherwise refresh it — e.g. dropping run
+  // correlation the moment its own chat-stop signal fires. `refetchPending
+  // Question` exists for exactly that: a forced read that does not wait for
+  // `bumpChangeVersion`.
+  it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
+    let hasQuestion = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), () =>
+          hasQuestion ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions).toBeNull();
+
+    hasQuestion = true;
+    let stillWaiting = false;
+    await act(async () => {
+      stillWaiting = await result.current().refetchPendingQuestion();
+    });
+
+    expect(stillWaiting).toBe(true);
+    for (let i = 0; i < 20 && !result.current().questions; i += 1) {
+      await flush();
+    }
+    expect(result.current().questions?.length).toBe(1);
+  });
+
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {
     let reads = 0;
     let resolveRefresh: (() => void) | null = null;

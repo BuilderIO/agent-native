@@ -737,6 +737,7 @@ export default function DeckEditor() {
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
     isSubmitting: questionFlowSubmitting,
+    refetchPendingQuestion,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
@@ -1056,11 +1057,13 @@ export default function DeckEditor() {
     waitingOnNewDeckQuestions,
   ]);
 
+  const generationRunRecheckRef = useRef<Promise<void> | null>(null);
   useEffect(() => {
     const submitMessageId = searchParams.get("generationSubmitId");
     if (
       !id ||
       !submitMessageId ||
+      generationRunRecheckRef.current ||
       !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating,
         waitingOnQuestions: waitingOnNewDeckQuestions,
@@ -1069,19 +1072,40 @@ export default function DeckEditor() {
     ) {
       return;
     }
-    clearNewDeckGenerationRun(id, submitMessageId);
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("generationSubmitId");
-        return next;
-      },
-      { replace: true },
-    );
+    let cancelled = false;
+    // The stopped run's chatRunning event can beat the guided-question
+    // app-state read that would otherwise flip waitingOnNewDeckQuestions
+    // true — the agent can write the question after the run stops but before
+    // this hook's own reactive read picks it up. Force one fresh check
+    // before dropping the run's tab correlation, so an answer that arrives
+    // moments later still routes back to the original tab.
+    const recheck = refetchPendingQuestion()
+      .then((stillWaiting) => {
+        if (cancelled || stillWaiting) return;
+        clearNewDeckGenerationRun(id, submitMessageId);
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("generationSubmitId");
+            return next;
+          },
+          { replace: true },
+        );
+      })
+      .finally(() => {
+        if (generationRunRecheckRef.current === recheck) {
+          generationRunRecheckRef.current = null;
+        }
+      });
+    generationRunRecheckRef.current = recheck;
+    return () => {
+      cancelled = true;
+    };
   }, [
     id,
     newDeckGenerationGenerating,
     newDeckGenerationPhase,
+    refetchPendingQuestion,
     searchParams,
     setSearchParams,
     waitingOnNewDeckQuestions,

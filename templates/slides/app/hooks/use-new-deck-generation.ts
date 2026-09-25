@@ -459,8 +459,9 @@ function parseStoredRunTabId(
       return parsed as { tabId: string; storedAt: number };
     }
   } catch {
-    // Legacy plain-string value from before mappings carried an age; treat it
-    // as freshly stored rather than discarding an otherwise-live run.
+    // coercion-ok: a JSON.parse failure means a legacy plain-string value
+    // from before mappings carried an age; fall through and treat it as
+    // freshly stored rather than discarding an otherwise-live run.
   }
   return raw ? { tabId: raw, storedAt: Date.now() } : null;
 }

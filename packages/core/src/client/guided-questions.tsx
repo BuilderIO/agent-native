@@ -1146,7 +1146,7 @@ export function useGuidedQuestionFlow({
           return refetchInterval;
         };
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: resolvedQueryKey,
     enabled,
     queryFn: async () => {
@@ -1323,6 +1323,29 @@ export function useGuidedQuestionFlow({
     skipMessage,
   ]);
 
+  // A caller that is about to treat "no question right now" as final (e.g.
+  // dropping state that lets it route a later answer) can race the app-state
+  // read this hook otherwise waits on passively: the agent can write the
+  // question after the caller's own trigger (a chat run stopping) but before
+  // this hook's next reactive read picks it up. Force one fresh read instead
+  // of trusting whatever `questions` already holds.
+  const refetchPendingQuestion = useCallback(async () => {
+    const result = await refetch();
+    if (result.status === "error") {
+      // A failed forced check is not the same thing as "no question" — report
+      // still-waiting so the caller keeps the state it was about to drop
+      // instead of discarding it on unrelated network trouble.
+      return true;
+    }
+    const latest = result.data ?? null;
+    return Boolean(
+      latest &&
+      payloadBelongsToThread(latest, threadId) &&
+      Array.isArray(latest.questions) &&
+      latest.questions.length > 0,
+    );
+  }, [refetch, threadId]);
+
   return {
     payload: visiblePayload,
     questions: visiblePayload?.questions ?? null,
@@ -1334,5 +1357,6 @@ export function useGuidedQuestionFlow({
     clear,
     handleSubmit,
     handleSkip,
+    refetchPendingQuestion,
   };
 }
