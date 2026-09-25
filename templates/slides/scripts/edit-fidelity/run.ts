@@ -509,17 +509,24 @@ async function exitEdit(
 }
 
 /**
- * Polls the stored slide until it stops changing. Saves are debounced, so
- * "no change yet" is only trusted after a minimum wait.
+ * Polls the stored slide until it stops changing and no write the page sent
+ * is still in flight. Saves are debounced, so "no change yet" is only trusted
+ * after a minimum wait; on a loaded machine a sent write can take seconds to
+ * land, and reading before it does reports text the save really kept as lost.
  */
-async function settleSaved(page: Page, deckId: string, slideId: string) {
+async function settleSaved(
+  page: Page,
+  deckId: string,
+  slideId: string,
+  writesInFlight: () => number,
+) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
   let lastChange = Date.now();
-  while (Date.now() - start < 15_000) {
+  while (Date.now() - start < 60_000) {
     await sleep(300);
     const now = await getSlideContent(page, deckId, slideId);
-    if (now !== last) {
+    if (now !== last || writesInFlight() > 0) {
       last = now;
       lastChange = Date.now();
     }
@@ -841,8 +848,13 @@ async function runScenario(
     if (!match) return;
     writes.push(match[1]);
     writeDetails.push(describeWrite(match[1], request, ctx.stored, phase));
+    inFlight.add(request);
   };
+  const inFlight = new Set<unknown>();
+  const onWriteDone = (request: unknown) => inFlight.delete(request);
   page.on("request", onRequest);
+  page.on("requestfinished", onWriteDone);
+  page.on("requestfailed", onWriteDone);
 
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
@@ -942,8 +954,9 @@ async function runScenario(
       scenario === "clickout" ? "clickout" : "escape",
     );
     if (!exited) result.violations.push("edit mode did not exit");
-    await settleSaved(page, deckId, slideId);
+    const saved = await settleSaved(page, deckId, slideId, () => inFlight.size);
     const writeStacks = await takeWriteStacks(page);
+    write("saved.html", saved);
     await settle(page);
     const after = await shot(page, slideId);
     write("after.png", after);
@@ -957,10 +970,6 @@ async function runScenario(
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
     const reload = await shot(page, slideId);
     write("reload.png", reload);
-    // Read what the reload rendered: on a loaded machine a debounced write
-    // can land after settleSaved's quiet window, and the edited page is gone.
-    const saved = await getSlideContent(page, deckId, slideId);
-    write("saved.html", saved);
     const snapReload = await snapshot(page, slideId, { text: expectedText });
     styleProblems.push(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
@@ -1128,7 +1137,12 @@ async function runScenario(
         await page.keyboard.type("x");
         await page.keyboard.press("Backspace");
         await exitEdit(page, slideId, "escape");
-        const saved2 = await settleSaved(page, deckId, slideId);
+        const saved2 = await settleSaved(
+          page,
+          deckId,
+          slideId,
+          () => inFlight.size,
+        );
         writeStacks.push(...(await takeWriteStacks(page)));
         write("saved2.html", saved2);
         result.html.idempotent = saved2 === saved;
@@ -1214,6 +1228,8 @@ async function runScenario(
     result.error = String((error as Error).stack ?? error).slice(0, 2000);
   } finally {
     page.off("request", onRequest);
+    page.off("requestfinished", onWriteDone);
+    page.off("requestfailed", onWriteDone);
     result.metrics = metricsOf(result);
     write("result.json", JSON.stringify(result, null, 2));
     await makeSheet(ctx.sheetPage, dir, [
