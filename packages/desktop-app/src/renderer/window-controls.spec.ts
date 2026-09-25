@@ -29,16 +29,14 @@ describe("chat-first macOS window controls", () => {
     );
   });
 
-  it("shows all three collapsed controls without hover chrome", () => {
+  it("reveals the green control when the collapsed cluster is hovered or focused", () => {
     expect(shellCss).not.toContain(".collapsed-mac-window-controls::before");
-    expect(shellCss).not.toContain(".collapsed-mac-window-controls:hover");
-    expect(shellCss).not.toContain(
-      ".collapsed-mac-window-controls:focus-within",
+    expect(shellCss).toContain(
+      ".collapsed-mac-window-controls .win-btn--maximize {\n  left: 34px;\n  opacity: 0;\n  pointer-events: none;",
     );
     expect(shellCss).toContain(
-      ".collapsed-mac-window-controls .win-btn--maximize {",
+      ".collapsed-mac-window-controls:hover .win-btn--maximize,\n.collapsed-mac-window-controls:focus-within .win-btn--maximize {\n  opacity: 1;\n  pointer-events: auto;",
     );
-    expect(shellCss).not.toContain("translateX(-4px) scale(0.8)");
   });
 
   it("keeps the collapsed controls inside the narrow rail", () => {

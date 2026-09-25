@@ -1,5 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
+import type { IconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItem,
   ContentDatabaseNavigationItem,
@@ -29,6 +31,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { ContentIcon } from "@/components/icons/ContentIcon";
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import {
   SidebarNavigationRow,
@@ -278,7 +281,7 @@ function PagedContentFilesBranch({
       documentId: document.id,
       parentId: document.parentId,
       title: document.title,
-      icon: document.icon,
+      icon: serializeIconValue(parseIconValue(document.icon)),
       type: document.database ? ("database" as const) : ("page" as const),
       hasChildren: props.activePathDocuments.some(
         (candidate) => candidate.parentId === document.id,
@@ -1297,7 +1300,7 @@ function SidebarRenameInput({
   onCancel,
 }: {
   initialTitle: string;
-  icon: string | null | undefined;
+  icon: IconValue | string | null | undefined;
   indent: number;
   label: string;
   onCommit: (title: string) => void;
@@ -1325,7 +1328,13 @@ function SidebarRenameInput({
       <span className="flex size-7 shrink-0 items-center justify-center">
         <SidebarRowIcon
           icon={
-            icon || <IconFileText className="size-4 text-muted-foreground" />
+            <ContentIcon
+              value={icon}
+              size={14}
+              fallback={
+                <IconFileText className="size-3.5 text-muted-foreground" />
+              }
+            />
           }
         />
       </span>

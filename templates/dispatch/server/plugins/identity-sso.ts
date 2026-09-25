@@ -25,6 +25,7 @@ import {
   hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
 } from "@agent-native/core/feature-flags";
+import { safeParseIconValue } from "@agent-native/core/icons";
 import {
   CROSS_APP_ORG_FEDERATION_FLAG,
   CROSS_APP_ORG_FEDERATION_SCOPE,
@@ -529,6 +530,20 @@ export const organizationFederationHandler = defineEventHandler(
     const orgName =
       typeof claims.org_name === "string" ? claims.org_name.trim() : "";
     const orgRole = claims.org_role;
+    const hasOrgIcon = claims.org_icon !== undefined;
+    const parsedOrgIcon = hasOrgIcon
+      ? safeParseIconValue(claims.org_icon)
+      : null;
+    const orgIconRevision = claims.org_icon_revision;
+    if (
+      (hasOrgIcon &&
+        (!parsedOrgIcon?.success ||
+          !Number.isSafeInteger(orgIconRevision) ||
+          Number(orgIconRevision) < 0)) ||
+      (!hasOrgIcon && orgIconRevision !== undefined)
+    ) {
+      return jsonResponse({ error: "Invalid organization icon" }, 400);
+    }
     const rawFederationOperation = claims.federation_operation;
     if (
       rawFederationOperation !== undefined &&
@@ -641,6 +656,13 @@ export const organizationFederationHandler = defineEventHandler(
     const email = verified.email.trim().toLowerCase();
     const authority = resolveAuthority();
     if (!authority) return jsonResponse({ error: "identity_unavailable" }, 503);
+    const assertedIconJson =
+      parsedOrgIcon?.success && parsedOrgIcon.data !== null
+        ? JSON.stringify(parsedOrgIcon.data)
+        : null;
+    const assertedIconRevision = parsedOrgIcon?.success
+      ? Number(orgIconRevision)
+      : 0;
     const exec = getDbExec();
     const existing = await exec.execute({
       sql: `SELECT id, name, identity_authority, identity_id,
@@ -700,9 +722,9 @@ export const organizationFederationHandler = defineEventHandler(
           {
             sql: `INSERT INTO organizations
                   (id, name, created_by, created_at, a2a_secret,
-                   identity_authority, identity_id,
+                   identity_authority, identity_id, icon_json, icon_revision,
                    federation_roster_initialized_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
               orgId,
               orgName,
@@ -711,6 +733,8 @@ export const organizationFederationHandler = defineEventHandler(
               randomBytes(32).toString("base64url"),
               authority,
               orgId,
+              assertedIconJson,
+              assertedIconRevision,
               now,
             ],
           },
@@ -748,8 +772,8 @@ export const organizationFederationHandler = defineEventHandler(
         await exec.execute({
           sql: `INSERT INTO organizations
                 (id, name, created_by, created_at, a2a_secret,
-                 identity_authority, identity_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                 identity_authority, identity_id, icon_json, icon_revision)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             orgId,
             orgName,
@@ -758,19 +782,10 @@ export const organizationFederationHandler = defineEventHandler(
             randomBytes(32).toString("base64url"),
             authority,
             orgId,
+            assertedIconJson,
+            assertedIconRevision,
           ],
         });
-      }
-      if (federationRoster) {
-        return jsonResponse(
-          {
-            orgId,
-            name: orgName,
-            role: orgRole,
-            rosterInitialized: true,
-          },
-          200,
-        );
       }
     } else if (!existingAuthority && !existingId && !federationRoster) {
       await exec.execute({
@@ -791,26 +806,6 @@ export const organizationFederationHandler = defineEventHandler(
         roster: federationRoster,
       });
       if (!setup.ok) return jsonResponse({ error: setup.error }, setup.status);
-      return jsonResponse(
-        {
-          orgId,
-          name: organizationName,
-          role: orgRole,
-          rosterInitialized: true,
-        },
-        200,
-      );
-    }
-    if (federationRoster && existingOrg?.federation_roster_initialized_at) {
-      return jsonResponse(
-        {
-          orgId,
-          name: organizationName,
-          role: orgRole,
-          rosterInitialized: true,
-        },
-        200,
-      );
     }
     if (federationOperation !== undefined) {
       if (!existingOrg) {
@@ -1033,6 +1028,64 @@ export const organizationFederationHandler = defineEventHandler(
           name: organizationName,
           role: orgRole,
           removedMember: federationMemberEmail,
+        },
+        200,
+      );
+    }
+
+    if (parsedOrgIcon?.success && existingOrg) {
+      const iconUpdate = await exec.execute({
+        sql: `UPDATE organizations
+              SET icon_json = ?, icon_revision = ?
+              WHERE id = ? AND icon_revision < ?
+              RETURNING icon_revision`,
+        args: [
+          parsedOrgIcon.data === null
+            ? null
+            : JSON.stringify(parsedOrgIcon.data),
+          Number(orgIconRevision),
+          orgId,
+          Number(orgIconRevision),
+        ],
+      });
+      if (iconUpdate.rows.length !== 1) {
+        const currentIcon = await exec.execute({
+          sql: `SELECT icon_json, icon_revision
+                FROM organizations WHERE id = ? LIMIT 1`,
+          args: [orgId],
+        });
+        const currentIconRow = currentIcon.rows[0] as any;
+        const assertedIconJson =
+          parsedOrgIcon.data === null
+            ? null
+            : JSON.stringify(parsedOrgIcon.data);
+        if (
+          Number(currentIconRow?.icon_revision ?? -1) !==
+            Number(orgIconRevision) ||
+          (currentIconRow?.icon_json ?? null) !== assertedIconJson
+        ) {
+          return jsonResponse(
+            {
+              code: "icon-revision-conflict",
+              error: "Workspace icon changed elsewhere; retry your selection",
+              icon: currentIconRow?.icon_json
+                ? JSON.parse(String(currentIconRow.icon_json))
+                : null,
+              iconRevision: Number(currentIconRow?.icon_revision ?? 0),
+            },
+            409,
+          );
+        }
+      }
+    }
+
+    if (federationRoster) {
+      return jsonResponse(
+        {
+          orgId,
+          name: organizationName,
+          role: orgRole,
+          rosterInitialized: true,
         },
         200,
       );

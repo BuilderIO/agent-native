@@ -2890,7 +2890,7 @@ export default function DeckEditor() {
             questions={questionFlowQuestions ?? []}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
-            designSystem={deck.designSystemId ? designSystem : undefined}
+            designSystem={designSystem}
             title={questionFlowTitle}
             description={questionFlowDescription}
             skipLabel={questionFlowSkipLabel}

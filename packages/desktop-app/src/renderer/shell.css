@@ -379,6 +379,15 @@ body {
 
 .collapsed-mac-window-controls .win-btn--maximize {
   left: 34px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ease);
+}
+
+.collapsed-mac-window-controls:hover .win-btn--maximize,
+.collapsed-mac-window-controls:focus-within .win-btn--maximize {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .collapsed-mac-window-controls .win-btn:focus-visible {
