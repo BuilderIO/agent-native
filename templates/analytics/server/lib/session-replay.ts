@@ -3,6 +3,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
 import {
+  FREE_EMAIL_PROVIDER_DOMAINS,
+  organizations,
+  isFreeEmailProvider,
+} from "@agent-native/core/org";
+import {
   deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
@@ -25,6 +30,7 @@ import {
   isNull,
   lt,
   lte,
+  not,
   or,
   sql,
 } from "drizzle-orm";
@@ -85,7 +91,14 @@ export interface SessionReplayListFilters {
   to?: string;
   minDurationMs?: number;
   hasErrors?: boolean;
+  hasNetworkErrors?: boolean;
   hasRageClicks?: boolean;
+  hideEmpty?: boolean;
+  hideInternal?: boolean;
+  visitorType?: "internal" | "work" | "personal";
+  emailDomain?: string;
+  sort?: "newest" | "longest" | "errors" | "events" | "rage";
+  offset?: number;
   status?: "active" | "completed";
   limit?: number;
 }
@@ -1745,6 +1758,17 @@ export async function listSessionRecordings(
   scope: SessionReplayScope,
   filters: SessionReplayListFilters = {},
 ): Promise<SessionRecordingSummary[]> {
+  if (
+    filters.hideEmpty ||
+    filters.hasNetworkErrors ||
+    filters.hideInternal ||
+    filters.visitorType ||
+    filters.emailDomain ||
+    filters.sort ||
+    filters.offset
+  ) {
+    return (await listSessionRecordingsPage(scope, filters)).recordings;
+  }
   const db = getDb() as any;
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
@@ -1812,6 +1836,185 @@ export async function listSessionRecordings(
     .orderBy(desc(schema.sessionRecordings.startedAt))
     .limit(limit);
   return rows.map((row: any) => rowToSessionRecordingSummary(row));
+}
+
+export interface SessionRecordingPage {
+  recordings: SessionRecordingSummary[];
+  total: number;
+  appCounts: Array<{ app: string; count: number }>;
+}
+
+const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
+
+async function sessionInternalDomains(
+  scope: SessionReplayScope,
+): Promise<string[]> {
+  if (!scope.orgId) return [];
+  const db = getDb() as any;
+  const [org] = await db
+    .select({
+      allowedDomain: organizations.allowedDomain,
+      createdBy: organizations.createdBy,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, scope.orgId))
+    .limit(1);
+  const allowedDomain = org?.allowedDomain?.trim().toLowerCase();
+  if (allowedDomain && !isFreeEmailProvider(allowedDomain))
+    return [allowedDomain];
+  const creatorDomain = org?.createdBy?.split("@")[1]?.trim().toLowerCase();
+  return creatorDomain && !isFreeEmailProvider(creatorDomain)
+    ? [creatorDomain]
+    : [];
+}
+
+function sessionVisitorDomain() {
+  const userId = schema.sessionRecordings.userId;
+  const userKey = schema.sessionRecordings.userKey;
+  return sql<string>`lower(split_part(case when ${userId} like '%@%' then ${userId} else ${userKey} end, '@', 2))`;
+}
+
+export async function listSessionRecordingsPage(
+  scope: SessionReplayScope,
+  filters: SessionReplayListFilters = {},
+): Promise<SessionRecordingPage> {
+  const db = getDb() as any;
+  const internalDomains = await sessionInternalDomains(scope);
+  const visitorDomain = sessionVisitorDomain();
+  const conditions: any[] = [
+    accessFilter(schema.sessionRecordings, schema.sessionRecordingShares, {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId ?? undefined,
+    }),
+    replayVisibleIdentityCondition(),
+    replayPlayableEventsCondition(),
+  ];
+  if (filters.template)
+    conditions.push(eq(schema.sessionRecordings.template, filters.template));
+  if (filters.sessionId)
+    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+  if (filters.userId)
+    conditions.push(
+      or(
+        eq(schema.sessionRecordings.userId, filters.userId),
+        eq(schema.sessionRecordings.userKey, filters.userId),
+      ),
+    );
+  if (filters.anonymousId)
+    conditions.push(
+      eq(schema.sessionRecordings.anonymousId, filters.anonymousId),
+    );
+  if (filters.path)
+    conditions.push(eq(schema.sessionRecordings.path, filters.path));
+  if (filters.from)
+    conditions.push(gte(schema.sessionRecordings.startedAt, filters.from));
+  if (filters.to)
+    conditions.push(lte(schema.sessionRecordings.startedAt, filters.to));
+  if (filters.minDurationMs !== undefined)
+    conditions.push(
+      gte(schema.sessionRecordings.durationMs, filters.minDurationMs),
+    );
+  if (filters.hideEmpty)
+    conditions.push(
+      or(
+        isNull(schema.sessionRecordings.durationMs),
+        gte(schema.sessionRecordings.durationMs, 1),
+      ),
+    );
+  if (filters.hasErrors)
+    conditions.push(gte(schema.sessionRecordings.errorCount, 1));
+  if (filters.hasNetworkErrors)
+    conditions.push(gte(schema.sessionRecordings.networkErrorCount, 1));
+  if (filters.hasRageClicks)
+    conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
+  if (filters.status)
+    conditions.push(eq(schema.sessionRecordings.status, filters.status));
+  if (filters.emailDomain)
+    conditions.push(
+      eq(
+        visitorDomain,
+        filters.emailDomain.trim().replace(/^@/, "").toLowerCase(),
+      ),
+    );
+  if (filters.hideInternal && internalDomains.length)
+    conditions.push(not(inArray(visitorDomain, internalDomains)));
+  if (filters.visitorType === "internal") {
+    conditions.push(
+      internalDomains.length
+        ? inArray(visitorDomain, internalDomains)
+        : sql`false`,
+    );
+  } else if (filters.visitorType === "personal") {
+    conditions.push(inArray(visitorDomain, personalEmailDomains));
+  } else if (filters.visitorType === "work") {
+    conditions.push(
+      not(
+        inArray(visitorDomain, [
+          ...new Set([...internalDomains, ...personalEmailDomains]),
+        ]),
+      ),
+    );
+  }
+  const search = replayListSearchCondition(filters.query);
+  if (search) conditions.push(search);
+  const appConditions = [...conditions];
+  if (filters.app)
+    conditions.push(eq(schema.sessionRecordings.app, filters.app));
+  const sortColumn = {
+    newest: schema.sessionRecordings.startedAt,
+    longest: schema.sessionRecordings.durationMs,
+    errors: schema.sessionRecordings.errorCount,
+    events: schema.sessionRecordings.eventCount,
+    rage: schema.sessionRecordings.rageClickCount,
+  }[filters.sort ?? "newest"];
+  const sortOrder =
+    filters.sort === "longest"
+      ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
+      : desc(sortColumn);
+  const [rows, totalRows, appRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.sessionRecordings)
+      .where(and(...conditions))
+      .orderBy(
+        sortOrder,
+        desc(schema.sessionRecordings.startedAt),
+        desc(schema.sessionRecordings.id),
+      )
+      .limit(
+        Math.min(
+          MAX_SESSION_RECORDINGS_LIMIT,
+          Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
+        ),
+      )
+      .offset(Math.max(0, filters.offset ?? 0)),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.sessionRecordings)
+      .where(and(...conditions)),
+    db
+      .select({
+        app: schema.sessionRecordings.app,
+        count: sql<number>`count(*)`,
+      })
+      .from(schema.sessionRecordings)
+      .where(and(...appConditions))
+      .groupBy(schema.sessionRecordings.app)
+      .orderBy(desc(sql`count(*)`)),
+  ]);
+  if (totalRows.length !== 1) {
+    throw new Error("Session recording total query returned no count");
+  }
+  return {
+    recordings: rows.map((row: any) => rowToSessionRecordingSummary(row)),
+    total: Number(totalRows[0].count),
+    appCounts: appRows
+      .filter((row: { app: string | null }) => row.app)
+      .map((row: { app: string; count: number }) => ({
+        app: row.app,
+        count: Number(row.count),
+      })),
+  };
 }
 
 export async function getSessionReplaySummary(

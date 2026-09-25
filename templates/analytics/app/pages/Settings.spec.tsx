@@ -95,7 +95,7 @@ vi.mock("@agent-native/core/client/settings", () => ({
       {account}
       {general}
       {labs?.map((lab) => (
-        <div key={lab.key} data-testid="creative-context-lab">
+        <div key={lab.key} data-testid={lab.key}>
           {lab.displayName}
           {lab.description}
           <span data-default-enabled={String(lab.defaultEnabled === true)} />
@@ -232,10 +232,23 @@ describe("Analytics Settings", () => {
     expect(container.textContent).toContain("creativeContext.description");
     expect(
       container.querySelector(
-        '[data-testid="creative-context-lab"] [data-default-enabled="false"]',
+        '[data-testid="creative-context.library"] [data-default-enabled="false"]',
       ),
     ).not.toBeNull();
     expect(container.querySelector("#creative-context-agent-tab")).toBeNull();
+  });
+
+  it("lists Sessions triage in Labs disabled by default", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    const lab = container.querySelector(
+      '[data-testid="analytics.sessions-triage"]',
+    );
+    expect(lab?.textContent).toContain("sessions.labName");
+    expect(lab?.textContent).toContain("sessions.labDescription");
+    expect(lab?.querySelector('[data-default-enabled="false"]')).not.toBeNull();
   });
 
   it("shows the Creative Context settings tab when its Lab is enabled", async () => {

@@ -1,4 +1,8 @@
 import { createLabsPlugin } from "@agent-native/core/server";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 
-export default createLabsPlugin({ labs: [CREATIVE_CONTEXT_LIBRARY_LAB] });
+import { ANALYTICS_LABS } from "../../shared/labs.js";
+
+export default createLabsPlugin({
+  labs: [...ANALYTICS_LABS, CREATIVE_CONTEXT_LIBRARY_LAB],
+});

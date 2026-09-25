@@ -93,6 +93,7 @@ certified ones); label figures "Unverified" when no live query ran.
 | `search-dashboard-references` | Find dashboards to replicate. |
 | `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
 | `certify-dashboard` | Admin-only approval of its current version. |
+| `list-session-recordings` | Find scoped session replays by date, app, duration, errors, network errors, rage clicks, visitor type, or email domain. Set `paginated: true` for sorted pages, total count, and app counts; otherwise the action returns the legacy summary array. |
 | DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
 
 ## Application State

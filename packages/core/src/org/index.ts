@@ -286,6 +286,9 @@ export const setAppRoleHandler = lazyFunction(
   "setAppRoleHandler",
 );
 
-export { isFreeEmailProvider } from "./free-email-providers.js";
+export {
+  FREE_EMAIL_PROVIDER_DOMAINS,
+  isFreeEmailProvider,
+} from "./free-email-providers.js";
 
 export { isOrgMember } from "./membership.js";
