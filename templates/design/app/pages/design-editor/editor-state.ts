@@ -741,7 +741,7 @@ export function flushFileContentSavesOnBackground(
   pendingByFileId: FileContentSaveRequestsById,
   latestUnacknowledgedByFileId: FileContentSaveRequestsById,
   timerIds: readonly number[],
-  save: (pending: FileContentSaveRequest) => void | Promise<unknown>,
+  save: (pending: FileContentSaveRequest) => unknown | Promise<unknown>,
   clearTimer: (timerId: number) => void,
 ): Promise<void> {
   const newestByFileId = new Map<string, FileContentSaveRequest>();
