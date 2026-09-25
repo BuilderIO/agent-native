@@ -22,6 +22,11 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  /** Best-effort app checkpoint taken before the first model generation. */
+  onAgentTurnStart?: (
+    scope: AgentChatScope,
+    run: Pick<ActiveRun, "threadId" | "runId">,
+  ) => void | Promise<void>;
   /**
    * Best-effort app autosave hook. It runs after the chat thread has been
    * persisted and only when the run completed a side effect. Errors are
