@@ -23,7 +23,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
 import { buildSettingsRoute } from "../../navigation/index.js";
-import { agentNativePath, appPath } from "../api-path.js";
+import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   isProviderAuthenticationError,
@@ -400,7 +400,7 @@ export function BuilderSetupContent({
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           <Link
-            to={appPath(buildSettingsRoute("keys"))}
+            to={buildSettingsRoute("keys")}
             className={cn(
               "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
               sidebarLayout

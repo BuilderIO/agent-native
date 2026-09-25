@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clipboardMock = vi.hoisted(() => ({
@@ -34,7 +35,10 @@ vi.mock("react-router", async (importOriginal) => {
       to: string;
       children: React.ReactNode;
       className?: string;
-    }) => React.createElement("a", { ...props, href: to }, children),
+    }) =>
+      actual.useInRouterContext()
+        ? React.createElement(actual.Link, { to, children, ...props })
+        : React.createElement("a", { ...props, href: to }, children),
   };
 });
 
@@ -447,23 +451,26 @@ describe("run recovery surfaces", () => {
   });
 
   it("keeps the Custom keys link within a mounted workspace app", async () => {
-    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv(
-      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
-      JSON.stringify([{ id: "dispatch", path: "/dispatch" }]),
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/ask",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupContent />
+            </AgentNativeI18nProvider>
+          ),
+        },
+      ],
+      { basename: "/dispatch", initialEntries: ["/dispatch/ask"] },
     );
-    window.history.replaceState(null, "", "/dispatch/ask");
 
     await act(async () => {
-      root.render(
-        <AgentNativeI18nProvider
-          initialLocale="en-US"
-          initialPreference="en-US"
-          persistPreference={false}
-        >
-          <BuilderSetupContent />
-        </AgentNativeI18nProvider>,
-      );
+      root.render(<RouterProvider router={router} />);
     });
 
     const customKeysLink = container.querySelector<HTMLAnchorElement>(
