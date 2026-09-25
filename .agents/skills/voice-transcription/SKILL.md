@@ -188,7 +188,18 @@ Batch routing is based on the user's provider preference:
    - `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings fallback.
 
 In auto mode / no preference, the route tries Builder Gemini Flash-Lite first
-when Builder is connected, then Gemini BYOK, Groq, and OpenAI.
+when Builder is connected, then Gemini BYOK, Groq, and OpenAI. The
+organization's **Voice input** provider (Settings › Infrastructure, the
+`manage-service-providers` action, org setting `service-providers`) moves one
+of those to the front; a chosen provider with no key is skipped, a failed
+Builder or Gemini attempt falls through, and the first Whisper-compatible
+provider with a key answers. Read the order with
+`serviceProviderOrder("voice", choice)`; never re-list it. The org choice
+applies only when the user's own provider is auto: a user's single-provider
+preference (and the live source: Mac native, Google realtime, or Batch) stays
+per user and wins. An unreadable org setting fails the request with 503 rather
+than using the default order, and `/_agent-native/voice-providers/status`
+reports it as `orgProvider` (with `orgProviderLookupFailed` when unreadable).
 When a request includes `instructions`, pass them through to the selected LLM
 provider. Gemini uses them in the transcription prompt, Builder receives them
 as transcription/cleanup instructions, and Whisper-compatible providers receive

@@ -512,6 +512,28 @@ Read it before turning it on and tell the user who is affected.
   personal API keys." Removing a personal key stays allowed. A chat with no
   usable key answers with the same message (`personal_provider_keys_restricted`).
 
+### Service providers
+
+Owners and admins pick which provider powers Voice input, Image generation, and
+Embeddings (Settings › Infrastructure). Read and change it with the
+`manage-service-providers` action: omit `provider` to read each service's
+choice, the provider that answers next, and each option's `keyState` (`org`,
+`personal`, `none`, `unavailable`); pass `service` and `provider` to change one
+(owners and admins only, audited). `"builder"` returns a service to Builder.io
+and `null` resets it to the default order.
+
+- Resolvers read the choice with `readServiceProviderChoice(service)` and order
+  providers with `serviceProviderOrder(service, choice)` from
+  `@agent-native/core/server`. Don't hard-code a second list of providers.
+- Voice and images try the choice first, then the default order (Builder.io
+  first). Embeddings use only the chosen provider, because vectors from another
+  one don't match the index; unset, they prefer Builder.io, then Gemini, Cohere,
+  Voyage. Changing the embeddings provider needs a re-index (Brain's
+  `backfill-search-embeddings`); the set call returns `reindexRequired`.
+- The choice picks a provider, not a key: its key still resolves through
+  `resolveSecretDetailed` (personal before organization). An unreadable choice
+  is a failed lookup, never "unset".
+
 ## Dispatch Vault Access
 
 Dispatch workspaces have a vault access policy for workspace app credentials:

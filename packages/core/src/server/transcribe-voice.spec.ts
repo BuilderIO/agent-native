@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   status: 0,
   provider: "builder" as string,
   secrets: {} as Record<string, string>,
+  orgVoiceProvider: null as string | null,
+  orgVoiceProviderError: null as Error | null,
 }));
 
 vi.mock("h3", () => ({
@@ -52,6 +54,17 @@ vi.mock("./credential-provider.js", async (importOriginal) => ({
         }
       : { value: null, lookupFailed: false },
   resolveHasBuilderGatewayCredential: async () => state.hasGatewayCredential,
+}));
+
+const readServiceProviderChoice = vi.hoisted(() =>
+  vi.fn(async (_service: string, _options?: unknown) => {
+    if (state.orgVoiceProviderError) throw state.orgVoiceProviderError;
+    return state.orgVoiceProvider;
+  }),
+);
+vi.mock("./service-providers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./service-providers.js")>()),
+  readServiceProviderChoice,
 }));
 
 const transcribeWithBuilder = vi.hoisted(() => vi.fn());
@@ -227,5 +240,104 @@ describe("transcribe-voice Gemini key", () => {
     expect(state.status).toBe(400);
     expect(result.error).toContain("GOOGLE_GENERATIVE_AI_API_KEY");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice organization Voice input choice", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "auto";
+    state.hasGatewayCredential = true;
+    state.secrets = {
+      GOOGLE_GENERATIVE_AI_API_KEY: "gemini-test-key",
+      GROQ_API_KEY: "gsk-test-key",
+      OPENAI_API_KEY: "sk-test-key",
+    };
+    state.orgVoiceProvider = null;
+    state.orgVoiceProviderError = null;
+    readServiceProviderChoice.mockClear();
+    transcribeWithBuilder.mockReset();
+    transcribeWithBuilder.mockResolvedValue({ text: "from builder" });
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (url: string | URL | Request) =>
+      String(url).includes("generativelanguage.googleapis.com")
+        ? new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: "from gemini" }] } }],
+            }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({
+              text: String(url).includes("groq") ? "from groq" : "from openai",
+            }),
+            { status: 200 },
+          ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Builder.io first when the organization hasn't chosen", async () => {
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+    expect(readServiceProviderChoice).toHaveBeenCalledWith("voice", {
+      orgId: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses Groq first when the organization chooses Groq", async () => {
+    state.orgVoiceProvider = "groq";
+
+    await expect(post()).resolves.toEqual({ text: "from groq" });
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("api.groq.com");
+  });
+
+  it("uses OpenAI before Builder.io and Gemini when chosen", async () => {
+    state.orgVoiceProvider = "openai";
+
+    await expect(post()).resolves.toEqual({ text: "from openai" });
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("api.openai.com");
+  });
+
+  it("falls back to the default order when the chosen provider has no key", async () => {
+    state.orgVoiceProvider = "groq";
+    delete state.secrets.GROQ_API_KEY;
+
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+  });
+
+  it("falls through a failed Gemini choice to the rest of the chain", async () => {
+    state.orgVoiceProvider = "gemini";
+    fetchMock.mockImplementationOnce(
+      async () => new Response("overloaded", { status: 503 }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "from builder" });
+  });
+
+  it("leaves a member's own single-provider choice alone", async () => {
+    state.provider = "gemini";
+    state.orgVoiceProvider = "groq";
+
+    await expect(post()).resolves.toEqual({ text: "from gemini" });
+    expect(readServiceProviderChoice).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly when the organization's choice can't be read", async () => {
+    state.orgVoiceProviderError = new Error("settings store unavailable");
+
+    const result = await post();
+    expect(state.status).toBe(503);
+    expect(result.error).toContain("voice input provider");
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
   });
 });

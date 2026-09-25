@@ -677,6 +677,10 @@ export async function mergeCoreSharingActions(
       () => import("../file-upload/actions/manage-file-storage.js"),
     ],
     [
+      "manage-service-providers",
+      () => import("../agent/actions/manage-service-providers.js"),
+    ],
+    [
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),

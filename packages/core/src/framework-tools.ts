@@ -124,8 +124,9 @@ export interface FrameworkToolsOption {
    *  `mcp.enabled` decides whether the ROUTES exist, this decides whether the
    *  model can call them. */
   orgServiceTokens?: boolean;
-  /** Administer app roles, app permission mappings, and file storage
-   *  (`get-file-storage`, `manage-file-storage`) for the active org. */
+  /** Administer app roles, app permission mappings, file storage
+   *  (`get-file-storage`, `manage-file-storage`), and service providers
+   *  (`manage-service-providers`) for the active org. */
   orgAdministration?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
@@ -289,6 +290,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "offboard-member": "orgAdministration",
   "get-file-storage": "orgAdministration",
   "manage-file-storage": "orgAdministration",
+  "manage-service-providers": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",

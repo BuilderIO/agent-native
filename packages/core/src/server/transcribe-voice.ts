@@ -47,6 +47,11 @@ import {
   GEMINI_API_KEY,
   resolveSecretWithAliases,
 } from "./secret-key-aliases.js";
+import {
+  readServiceProviderChoice,
+  serviceProviderOrder,
+  type ServiceProviderId,
+} from "./service-providers.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -378,12 +383,7 @@ export function createTranscribeVoiceHandler() {
       }
       return await callWhisperCompat({
         event,
-        provider: {
-          name: "groq",
-          endpoint: GROQ_URL,
-          model: GROQ_MODEL,
-          apiKey: groqKey,
-        },
+        provider: whisperProvider("groq", groqKey),
         audioBytes,
         mime,
         language,
@@ -394,38 +394,63 @@ export function createTranscribeVoiceHandler() {
     }
 
     // ── Auto / undefined / openai fallback chain ────────────────────────
-
-    // ── Builder Gemini Flash-Lite path ─────────────────────────────────
-    // First-priority in auto mode when Builder is connected. This lets users
-    // try Gemini 3.1 Flash-Lite without bringing their own Google key.
-    if (providerPref !== "openai" && (await hasBuilderCredential())) {
+    // Builder Gemini Flash-Lite → Gemini BYOK → Groq → OpenAI Whisper, with
+    // the organization's Voice input choice (Settings › Infrastructure) moved
+    // to the front. A member's own single-provider preference above wins over
+    // it; the legacy "openai" preference skips straight to Whisper.
+    let orgVoiceProvider: ServiceProviderId<"voice"> | null = null;
+    if (!providerPref || providerPref === "auto") {
       try {
-        const result = await transcribeWithBuilderForRequest({
-          audioBytes,
-          mimeType: mime,
-          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
-          language: language || undefined,
-          instructions: voiceGuidance,
+        orgVoiceProvider = await readServiceProviderChoice("voice", {
+          orgId: requestContext.orgId ?? null,
         });
-        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
-        const message = (err as Error)?.message ?? String(err);
-        // Surface 402 (credits exhausted) as a 402 so the client can show
-        // a specific upgrade prompt.
-        if (message.includes("credits exhausted")) {
-          setResponseStatus(event, 402);
-          return { error: gatewayLaneUnavailableMessage(message) };
-        }
-        builderError = message;
+        console.error(
+          "[transcribe-voice] Could not read the organization's voice provider:",
+          (err as Error)?.message ?? err,
+        );
+        setResponseStatus(event, 503);
+        return {
+          error:
+            "Couldn't read the organization's voice input provider. Try again.",
+        };
       }
     }
+    const chain: ServiceProviderId<"voice">[] =
+      providerPref === "openai"
+        ? ["openai"]
+        : serviceProviderOrder("voice", orgVoiceProvider);
 
-    // ── Gemini Flash Lite BYOK path ────────────────────────────────────
-    // If Builder is unavailable, try a user-provided Gemini key before
-    // Whisper-compatible providers.
-    if (providerPref !== "openai") {
-      const geminiKey = await resolveApiKey(GEMINI_API_KEY);
-      if (geminiKey) {
+    for (const candidate of chain) {
+      if (candidate === "builder") {
+        // First in the default order when Builder is connected. This lets
+        // users try Gemini 3.1 Flash-Lite without bringing their own key.
+        if (!(await hasBuilderCredential())) continue;
+        try {
+          const result = await transcribeWithBuilderForRequest({
+            audioBytes,
+            mimeType: mime,
+            model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+            language: language || undefined,
+            instructions: voiceGuidance,
+          });
+          return { text: applyVoiceContext(result.text ?? "") };
+        } catch (err) {
+          const message = (err as Error)?.message ?? String(err);
+          // Surface 402 (credits exhausted) as a 402 so the client can show
+          // a specific upgrade prompt.
+          if (message.includes("credits exhausted")) {
+            setResponseStatus(event, 402);
+            return { error: gatewayLaneUnavailableMessage(message) };
+          }
+          builderError = message;
+        }
+        continue;
+      }
+
+      if (candidate === "gemini") {
+        const geminiKey = await resolveApiKey(GEMINI_API_KEY);
+        if (!geminiKey) continue;
         try {
           const text = await transcribeWithGemini({
             audioBytes,
@@ -449,67 +474,48 @@ export function createTranscribeVoiceHandler() {
             (err as Error)?.message ?? err,
           );
         }
+        continue;
       }
+
+      // The first Whisper-compatible provider with a key answers, success or
+      // failure, as it did before the organization choice existed.
+      const apiKey = await resolveApiKey(WHISPER_PROVIDERS[candidate].keyName);
+      if (!apiKey) continue;
+      return await callWhisperCompat({
+        event,
+        provider: whisperProvider(candidate, apiKey),
+        audioBytes,
+        mime,
+        language,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
+        clientAbortSignal: clientAbort,
+      });
     }
 
-    // If Builder is unavailable, fall through to BYOK providers rather than
-    // hard-failing. This mirrors Clips' batch transcription path.
-
-    // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
-    // (resolveApiKey is hoisted above so the Gemini path can use it too.)
-
-    let provider: {
-      name: "groq" | "openai";
-      endpoint: string;
-      model: string;
-      apiKey: string;
-    } | null = null;
-
-    if (providerPref !== "openai") {
-      const groqKey = await resolveApiKey("GROQ_API_KEY");
-      if (groqKey) {
-        provider = {
-          name: "groq",
-          endpoint: GROQ_URL,
-          model: GROQ_MODEL,
-          apiKey: groqKey,
-        };
-      }
-    }
-    if (!provider) {
-      const openaiKey = await resolveApiKey("OPENAI_API_KEY");
-      if (openaiKey) {
-        provider = {
-          name: "openai",
-          endpoint: WHISPER_URL,
-          model: OPENAI_MODEL,
-          apiKey: openaiKey,
-        };
-      }
-    }
-
-    if (!provider) {
-      setResponseStatus(event, builderError ? 502 : 400);
-      return {
-        error: gatewayLaneUnavailableMessage(
-          builderError
-            ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-            : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
-        ),
-      };
-    }
-
-    return await callWhisperCompat({
-      event,
-      provider,
-      audioBytes,
-      mime,
-      language,
-      instructions: voiceGuidance,
-      contextPack: voiceContext,
-      clientAbortSignal: clientAbort,
-    });
+    setResponseStatus(event, builderError ? 502 : 400);
+    return {
+      error: gatewayLaneUnavailableMessage(
+        builderError
+          ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+      ),
+    };
   });
+}
+
+const WHISPER_PROVIDERS = {
+  groq: { endpoint: GROQ_URL, model: GROQ_MODEL, keyName: "GROQ_API_KEY" },
+  openai: {
+    endpoint: WHISPER_URL,
+    model: OPENAI_MODEL,
+    keyName: "OPENAI_API_KEY",
+  },
+} as const;
+
+function whisperProvider(name: "groq" | "openai", apiKey: string) {
+  const { endpoint, model } = WHISPER_PROVIDERS[name];
+  return { name, endpoint, model, apiKey };
 }
 
 /**

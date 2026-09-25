@@ -6,6 +6,7 @@ const mockResolveSecret = vi.fn();
 const mockPrefetchSecrets = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockResolveGoogleRealtimeCredentials = vi.fn();
+const mockReadServiceProviderChoice = vi.fn();
 
 let lastStatus = 200;
 
@@ -50,6 +51,12 @@ vi.mock("./google-realtime-session.js", () => ({
     mockResolveGoogleRealtimeCredentials(...args),
 }));
 
+vi.mock("./service-providers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./service-providers.js")>()),
+  readServiceProviderChoice: (...args: any[]) =>
+    mockReadServiceProviderChoice(...args),
+}));
+
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 
 function event(method = "GET") {
@@ -69,6 +76,7 @@ describe("voice providers status route", () => {
     mockResolveHasCompleteBuilderConnection.mockResolvedValue(false);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
+    mockReadServiceProviderChoice.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -103,6 +111,7 @@ describe("voice providers status route", () => {
       googleRealtime: true,
       browser: true,
       native: true,
+      orgProvider: null,
     });
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(mockResolveSecret).toHaveBeenCalledWith("GROQ_API_KEY");
@@ -171,6 +180,29 @@ describe("voice providers status route", () => {
 
     expect(result).toMatchObject({
       googleRealtime: false,
+    });
+  });
+
+  it("reports the organization's voice choice for the request's org", async () => {
+    mockReadServiceProviderChoice.mockResolvedValue("groq");
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({ orgProvider: "groq" });
+    expect(result).not.toHaveProperty("orgProviderLookupFailed");
+    expect(mockReadServiceProviderChoice).toHaveBeenCalledWith("voice", {
+      orgId: "org-123",
+    });
+  });
+
+  it("flags an unreadable organization choice instead of reporting it unset", async () => {
+    mockReadServiceProviderChoice.mockRejectedValue(new Error("db down"));
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({
+      orgProvider: null,
+      orgProviderLookupFailed: true,
     });
   });
 

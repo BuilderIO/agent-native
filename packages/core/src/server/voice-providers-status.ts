@@ -32,6 +32,10 @@ import {
   resolveSecretWithAliases,
   secretKeyNames,
 } from "./secret-key-aliases.js";
+import {
+  readServiceProviderChoice,
+  type ServiceProviderId,
+} from "./service-providers.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -54,6 +58,14 @@ export interface VoiceProvidersStatus {
    * non-macOS hosts return a clear error instead of attempting to use it.
    */
   native: true;
+  /**
+   * The organization's Voice input choice (Settings › Infrastructure), tried
+   * first by batch transcription when the user's own provider is auto. Null
+   * when unset or outside an organization.
+   */
+  orgProvider: ServiceProviderId<"voice"> | null;
+  /** The organization choice could not be read; `orgProvider` is unknown, not unset. */
+  orgProviderLookupFailed?: true;
 }
 
 export function createVoiceProvidersStatusHandler() {
@@ -125,6 +137,16 @@ export function createVoiceProvidersStatusHandler() {
       hasKey("GOOGLE_APPLICATION_CREDENTIALS"),
     ]);
 
+    let orgProvider: ServiceProviderId<"voice"> | null = null;
+    let orgProviderLookupFailed = false;
+    try {
+      orgProvider = await readServiceProviderChoice("voice", {
+        orgId: orgCtx?.orgId ?? null,
+      });
+    } catch {
+      orgProviderLookupFailed = true;
+    }
+
     const status: VoiceProvidersStatus = {
       builder,
       gemini,
@@ -133,6 +155,8 @@ export function createVoiceProvidersStatusHandler() {
       googleRealtime,
       browser: true,
       native: true,
+      orgProvider,
+      ...(orgProviderLookupFailed ? { orgProviderLookupFailed: true } : {}),
     };
     return status;
   });

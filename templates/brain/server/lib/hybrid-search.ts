@@ -1,8 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
-import {
-  availableEmbeddingFamilies,
-  defaultEmbeddingFamily,
-} from "@agent-native/core/embeddings";
+import { resolveDefaultEmbeddingFamily } from "@agent-native/core/embeddings";
 import {
   queryPgVectorIndex,
   queryPostgresFts,
@@ -206,7 +203,7 @@ export async function hybridSearchArtifacts(input: {
       ftsRanks = new Map();
     }
     try {
-      const family = defaultEmbeddingFamily(await availableEmbeddingFamilies());
+      const family = await resolveDefaultEmbeddingFamily();
       if (family) {
         const [queryVector] = await family.embed(
           [{ text: input.query }],

@@ -5,8 +5,10 @@ import {
   GEMINI_API_KEY,
   getBuilderImageGenerationBaseUrl,
   resolveBuilderGatewayAuth,
+  readServiceProviderChoice,
   resolveGeminiApiKey,
   resolveSecret,
+  type ServiceProviderId,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
@@ -645,17 +647,53 @@ async function generateWithRetryingBuilderImageApi(
   }
 }
 
+/**
+ * The organization's Image generation provider (Settings › Infrastructure)
+ * when it is Gemini or OpenAI, has a key, and can serve this run. Otherwise
+ * null, and generation keeps the Builder-first path with its fallbacks: mask
+ * edits need Builder, Gemini can't run gpt-* models, and OpenAI can't attach
+ * reference boards or source images.
+ */
+async function chosenImageProvider(
+  choice: ServiceProviderId<"images"> | null,
+  input: GenerateProviderInput,
+): Promise<
+  ((input: GenerateProviderInput) => Promise<GenerateProviderOutput>) | null
+> {
+  if (!choice || choice === "builder" || input.mode === "edit") return null;
+  if (choice === "gemini") {
+    if (input.model.startsWith("gpt-")) return null;
+    return (await isGeminiImageGenerationConfigured())
+      ? generateWithGemini
+      : null;
+  }
+  if (
+    input.hasBoardReferences ||
+    input.intent === "restyle" ||
+    input.intent === "edit"
+  ) {
+    return null;
+  }
+  return (await isOpenAIImageGenerationConfigured())
+    ? generateWithOpenAI
+    : null;
+}
+
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const orgProvider = await readServiceProviderChoice("images");
   logGeneration("dispatch", {
     model: input.model,
     mode: input.mode,
     intent: input.intent,
     background: input.background,
     builderEnabled: isBuilderImageGenerationEnabled(),
+    orgProvider,
     runId: input.runId,
   });
+  const chosen = await chosenImageProvider(orgProvider, input);
+  if (chosen) return chosen(input);
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
