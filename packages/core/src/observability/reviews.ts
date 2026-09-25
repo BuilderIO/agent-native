@@ -352,9 +352,25 @@ const MAX_EVIDENCE_CHARS_PER_SPAN = 2_400;
 const OMITTED_EVIDENCE_FIELDS =
   /^(html|markup|content|body|blob|data|base64|image|screenshot|file|payload|thread_data|resource|source|raw|prompt|query|request|response|text|message|messages|document|code|description)$/i;
 const REDACTED_EVIDENCE_FIELDS =
-  /(?:token|secret|password|api[_-]?key|credential|authorization)/i;
+  /(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization|cookie|session)/i;
 const SAFE_EVIDENCE_STRING_FIELDS =
   /^(?:id|artifact_?id|(?:design|slide|deck|presentation|chart|dashboard|analysis)_?id|app_?id|app|application|server_?id|tool_?name|title|name|path|route|type|kind|status|action|operation|slug)$/i;
+
+function normalizedEvidenceKey(key: string): string {
+  return key.replace(/[_-]/g, "").toLowerCase();
+}
+
+function isSensitiveEvidenceKey(key: string): boolean {
+  return /(?:authorization|cookie|token|secret|password|passwd|apikey|accesskey|privatekey|credential|session)/.test(
+    normalizedEvidenceKey(key),
+  );
+}
+
+function isSensitiveHeaderKey(key: string): boolean {
+  return /^(?:authorization|cookie|setcookie)$/.test(
+    normalizedEvidenceKey(key),
+  );
+}
 
 function redactEvidenceString(value: string): string {
   const redacted = value
@@ -362,26 +378,50 @@ function redactEvidenceString(value: string): string {
     .replace(/\b[A-Za-z0-9+/]{128,}={0,2}\b/g, "[omitted encoded payload]")
     .replace(/<\/?(?:html|script|svg|iframe)\b[^>]*>/gi, "[omitted markup]")
     .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]")
+    .replace(/\bAIza[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(/\bSG\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}\b/gi, "[REDACTED]")
     .replace(
       /\b(?:sk|pk|ghp|gho|github_pat)_[A-Za-z0-9_-]{12,}\b/g,
       "[REDACTED]",
     )
     .replace(
-      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*authorization(?:[_-][A-Za-z0-9]+)*["']?\s*[:=]\s*)(["'])([^"'\r\n]*)\3/gi,
-      "$1$2$3[REDACTED]$3",
+      /(^|[^A-Za-z0-9])(["']?)([A-Za-z][A-Za-z0-9_-]*)(["']?\s*[:=]\s*)(["'])([^"'\r\n]*)\5/gi,
+      (match, prefix, keyQuote, key, separator, valueQuote) =>
+        isSensitiveEvidenceKey(key)
+          ? `${prefix}${keyQuote}${key}${separator}${valueQuote}[REDACTED]${valueQuote}`
+          : match,
     )
     .replace(
-      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*authorization(?:[_-][A-Za-z0-9]+)*\s*[:=]\s*)([^\r\n,;}\]]+)/gi,
-      "$1$2[REDACTED]",
+      /(^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9_-]*)(\s*[:=]\s*)([^\s"'`][^\r\n,;}\]]*)/gi,
+      (match, prefix, key, separator) =>
+        isSensitiveHeaderKey(key)
+          ? `${prefix}${key}${separator}[REDACTED]`
+          : match,
     )
     .replace(
-      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)(?:[_-][A-Za-z0-9]+)*)(["']?\s*[:=]\s*["']?)([^\s"'`,;}\]]+)/gi,
-      "$1$2$3[REDACTED]",
+      /(^|[^A-Za-z0-9])(["']?)([A-Za-z][A-Za-z0-9_-]*)(["']?\s*[:=]\s*["']?)(?!\[REDACTED\])([^\s"'`,;}\]]+)/gi,
+      (match, prefix, keyQuote, key, separator) =>
+        isSensitiveEvidenceKey(key)
+          ? `${prefix}${keyQuote}${key}${separator}[REDACTED]`
+          : match,
     )
-    .replace(
-      /([?&](?:access_token|token|key|api_key|signature|sig|auth)=)[^&#\s]*/gi,
-      "$1[REDACTED]",
-    );
+    .replace(/([?&])([^=&#\s]+)=([^&#\s]*)/g, (match, separator, rawKey) => {
+      let key: string;
+      try {
+        key = decodeURIComponent(rawKey.replace(/\+/g, " "));
+      } catch {
+        return `${separator}${rawKey}=[REDACTED]`;
+      }
+      const normalizedKey = normalizedEvidenceKey(key);
+      return /(?:token|secret|password|credential|signature|apikey|accesskey|privatekey|authorization|auth)/.test(
+        normalizedKey,
+      ) ||
+        normalizedKey === "key" ||
+        normalizedKey === "sig"
+        ? `${separator}${rawKey}=[REDACTED]`
+        : match;
+    });
   return redacted.length > MAX_EVIDENCE_TEXT
     ? "[omitted long value]"
     : redacted;
@@ -395,7 +435,28 @@ function boundedEvidence(
 ): unknown {
   if (budget.nodes-- <= 0 || depth > 4) return "[omitted]";
   if (typeof value === "string") {
-    if (!key || !SAFE_EVIDENCE_STRING_FIELDS.test(key)) return "[omitted]";
+    if (!key) {
+      if (value.length > budget.chars) return "[omitted]";
+      const trimmed = value.trimStart();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        return "[omitted]";
+      }
+      try {
+        const parsed: unknown = JSON.parse(value);
+        return parsed && typeof parsed === "object"
+          ? boundedEvidence(parsed, budget, depth + 1)
+          : "[omitted]";
+      } catch {
+        return "[omitted]";
+      }
+    }
+    if (!SAFE_EVIDENCE_STRING_FIELDS.test(key)) return "[omitted]";
+    if (
+      /^path$/i.test(key) &&
+      /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value.trimStart())
+    ) {
+      return "[omitted]";
+    }
     const safe = redactEvidenceString(value);
     budget.chars -= safe.length;
     return budget.chars < 0 ? "[omitted]" : safe;

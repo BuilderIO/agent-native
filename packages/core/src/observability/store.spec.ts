@@ -12,6 +12,9 @@ interface ExecCall {
 
 const execCalls: ExecCall[] = [];
 let selectedRows: Record<string, unknown>[] = [];
+const mockEnsureIndexExists = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+);
 
 function createCapturingDb() {
   return {
@@ -38,7 +41,7 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: mockEnsureIndexExists,
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -87,6 +90,12 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE created_at >= \? AND user_id = \?/);
       expect(call.args).toEqual([1000, "alice", 50]);
+      expect(mockEnsureIndexExists).toHaveBeenCalledWith(
+        "idx_trace_summaries_org_created",
+        expect.stringMatching(
+          /ON agent_trace_summaries \(org_id, created_at DESC\)/,
+        ),
+      );
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {

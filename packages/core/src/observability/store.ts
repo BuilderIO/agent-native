@@ -399,6 +399,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
         );
         await ensureIndexExists(
+          "idx_trace_summaries_org_created",
+          `CREATE INDEX IF NOT EXISTS idx_trace_summaries_org_created ON agent_trace_summaries (org_id, created_at DESC)`,
+        );
+        await ensureIndexExists(
           "idx_trace_summaries_user",
           `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
         );

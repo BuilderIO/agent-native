@@ -284,7 +284,11 @@ describe("listOutputReviews", () => {
             html: "<html>private app markup</html>",
             note: "private unstructured tool text",
             path: "data:image/png;base64,AAAA",
+            route:
+              "https://example.test/review?X-Amz-Signature=not-a-real-signature&X-Amz-Security-Token=fake-session-token&X-Amz-Credential=fake-credential",
           },
+          output:
+            '{"designId":"design-json-43","title":"Published design","path":"https://storage.example.test/design?X-Amz-Signature=fake-presigned-signature"}',
         },
       },
       {
@@ -314,11 +318,22 @@ describe("listOutputReviews", () => {
             html: "[omitted]",
             note: "[omitted]",
             path: "[omitted data payload]",
+            route:
+              "https://example.test/review?X-Amz-Signature=[REDACTED]&X-Amz-Security-Token=[REDACTED]&X-Amz-Credential=[REDACTED]",
+          },
+          output: {
+            designId: "design-json-43",
+            title: "Published design",
+            path: "[omitted]",
           },
         },
       ],
     });
     expect(JSON.stringify(source)).not.toContain("failed-design");
+    expect(JSON.stringify(source)).not.toContain("not-a-real-signature");
+    expect(JSON.stringify(source)).not.toContain("fake-session-token");
+    expect(JSON.stringify(source)).not.toContain("fake-credential");
+    expect(JSON.stringify(source)).not.toContain("fake-presigned-signature");
     expect(mockGetTraceSpansForRun).toHaveBeenCalledWith("run-1", {
       orgId: "org-a",
     });
@@ -348,7 +363,7 @@ describe("listOutputReviews", () => {
                 message: {
                   role: "user",
                   content:
-                    "AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential",
+                    "AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential\naccessToken=fake-access-token\nclientSecret=fake-client-secret\nCookie: session=fake-cookie\nSet-Cookie: session=fake-set-cookie; Path=/\nAIzaEXAMPLE_NOT_A_REAL_KEY SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN xoxb-example-not-a-real-token",
                   metadata: { runId: "run-1" },
                 },
               },
@@ -356,7 +371,7 @@ describe("listOutputReviews", () => {
                 message: {
                   role: "assistant",
                   content:
-                    '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential"}',
+                    '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential","accessToken":"fake-json-access-token","clientSecret":"fake-json-client-secret","Cookie":"fake-json-cookie","Set-Cookie":"fake-json-set-cookie"}',
                   metadata: { runId: "run-1" },
                 },
               },
@@ -384,11 +399,11 @@ describe("listOutputReviews", () => {
       messages: [
         {
           role: "user",
-          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]",
+          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]\naccessToken=[REDACTED]\nclientSecret=[REDACTED]\nCookie: [REDACTED]\nSet-Cookie: [REDACTED]; Path=/\n[REDACTED] [REDACTED] [REDACTED]",
         },
         {
           role: "assistant",
-          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]","Authorization":"[REDACTED]"}',
+          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]","Authorization":"[REDACTED]","accessToken":"[REDACTED]","clientSecret":"[REDACTED]","Cookie":"[REDACTED]","Set-Cookie":"[REDACTED]"}',
         },
       ],
     });
@@ -398,6 +413,21 @@ describe("listOutputReviews", () => {
     expect(JSON.stringify(source)).not.toContain("title-secret");
     expect(JSON.stringify(source)).not.toContain("fake-encoded-credential");
     expect(JSON.stringify(source)).not.toContain("fake-json-credential");
+    expect(JSON.stringify(source)).not.toContain("fake-access-token");
+    expect(JSON.stringify(source)).not.toContain("fake-client-secret");
+    expect(JSON.stringify(source)).not.toContain("fake-cookie");
+    expect(JSON.stringify(source)).not.toContain("fake-set-cookie");
+    expect(JSON.stringify(source)).not.toContain("AIzaEXAMPLE_NOT_A_REAL_KEY");
+    expect(JSON.stringify(source)).not.toContain(
+      "SG.EXAMPLE_ONLY.NOT_A_REAL_TOKEN",
+    );
+    expect(JSON.stringify(source)).not.toContain(
+      "xoxb-example-not-a-real-token",
+    );
+    expect(JSON.stringify(source)).not.toContain("fake-json-access-token");
+    expect(JSON.stringify(source)).not.toContain("fake-json-client-secret");
+    expect(JSON.stringify(source)).not.toContain("fake-json-cookie");
+    expect(JSON.stringify(source)).not.toContain("fake-json-set-cookie");
   });
 
   it("keeps a saved inline MCP App with its run's answer", async () => {
