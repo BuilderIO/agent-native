@@ -4,7 +4,10 @@ import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "./assets.js";
 import { notifyGenerationRunFinished } from "./generation-run-notifications.js";
 import { nowIso, parseJson, stringifyJson } from "./json.js";
-import { pollGeminiVideoGeneration } from "./video-generation.js";
+import {
+  pollBuilderVideoGeneration,
+  pollGeminiVideoGeneration,
+} from "./video-generation.js";
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
 
@@ -26,14 +29,18 @@ async function markRunCompletedWithAsset(
   metadata: Record<string, unknown>,
   asset: typeof schema.assets.$inferSelect,
   provider?: {
+    provider?: "builder" | "gemini";
     providerGenerationId?: string | null;
     sourceUrl?: string | null;
     operationName?: string | null;
   },
 ) {
+  const resolvedProvider =
+    provider?.provider ??
+    (metadata.provider === "builder" ? "builder" : "gemini");
   const nextMetadata = {
     ...metadata,
-    provider: "gemini",
+    provider: resolvedProvider,
     mediaType: "video",
     assetId: asset.id,
     outputAssetIds: [asset.id],
@@ -87,6 +94,7 @@ export async function completeVideoGenerationRun(
     }
 > {
   const metadata = parseJson<Record<string, unknown>>(run.metadata, {});
+  const provider = metadata.provider === "builder" ? "builder" : "gemini";
   const existingAsset = await findAssetForRun(getDb(), run.id);
   if (existingAsset) {
     const completed = await markRunCompletedWithAsset(
@@ -94,6 +102,7 @@ export async function completeVideoGenerationRun(
       run,
       metadata,
       existingAsset,
+      { provider },
     );
     return {
       status: "completed",
@@ -105,12 +114,20 @@ export async function completeVideoGenerationRun(
 
   const operationName =
     typeof metadata.operationName === "string" ? metadata.operationName : null;
-  if (!operationName) {
-    throw new Error("Video generation run has no provider operation name.");
+  const generationId =
+    typeof metadata.generationId === "string" ? metadata.generationId : null;
+  if (
+    (provider === "builder" && !generationId) ||
+    (provider === "gemini" && !operationName)
+  ) {
+    throw new Error("Video generation run has no provider generation ID.");
   }
 
   try {
-    const polled = await pollGeminiVideoGeneration(operationName);
+    const polled =
+      provider === "builder"
+        ? await pollBuilderVideoGeneration(generationId!)
+        : await pollGeminiVideoGeneration(operationName!);
     if (polled.status === "processing") {
       const nextMetadata = {
         ...metadata,
@@ -142,6 +159,7 @@ export async function completeVideoGenerationRun(
             metadata,
             existing,
             {
+              provider: polled.video.provider,
               providerGenerationId: polled.video.providerGenerationId,
               sourceUrl: polled.video.sourceUrl,
               operationName,
@@ -191,12 +209,12 @@ export async function completeVideoGenerationRun(
           db: tx,
           metadata: {
             ...metadata,
-            provider: "gemini",
+            provider: polled.video.provider,
             mediaType: "video",
             compiledPrompt: run.compiledPrompt,
             providerGenerationId: polled.video.providerGenerationId,
             sourceUrl: polled.video.sourceUrl,
-            operationName,
+            ...(operationName ? { operationName } : {}),
           },
           category: category as any,
         });
@@ -206,6 +224,7 @@ export async function completeVideoGenerationRun(
           metadata,
           asset,
           {
+            provider: polled.video.provider,
             providerGenerationId: polled.video.providerGenerationId,
             sourceUrl: polled.video.sourceUrl,
             operationName,
@@ -227,6 +246,7 @@ export async function completeVideoGenerationRun(
           metadata,
           existing,
           {
+            provider: polled.video.provider,
             providerGenerationId: polled.video.providerGenerationId,
             sourceUrl: polled.video.sourceUrl,
             operationName,

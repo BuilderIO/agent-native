@@ -1,3 +1,8 @@
+import {
+  getBuilderVideoGenerationBaseUrl,
+  resolveBuilderGatewayAuth,
+} from "@agent-native/core/server";
+
 import type {
   StyleBrief,
   VideoAspectRatio,
@@ -24,9 +29,14 @@ export interface VideoReferenceImage {
 export interface GeneratedVideoBytes {
   buffer: Buffer;
   mimeType: string;
+  provider: "builder" | "gemini";
   sourceUrl?: string;
   providerGenerationId?: string;
 }
+
+export type VideoGenerationOperation =
+  | { provider: "gemini"; operationName: string }
+  | { provider: "builder"; generationId: string };
 
 export function compileVideoPrompt(input: {
   libraryTitle: string;
@@ -137,6 +147,90 @@ export async function startGeminiVideoGeneration(input: {
   return { operationName: body.name };
 }
 
+export async function startVideoGeneration(input: {
+  runId: string;
+  libraryId: string;
+  callerAppId?: string;
+  model: VideoModel;
+  compiledPrompt: string;
+  aspectRatio: VideoAspectRatio;
+  durationSeconds: VideoDuration;
+  resolution: VideoResolution;
+  referenceImages?: VideoReferenceImage[];
+  sourceImage?: VideoReferenceImage | null;
+  negativePrompt?: string | null;
+  enhancePrompt?: boolean;
+  generateAudio?: boolean;
+}): Promise<VideoGenerationOperation> {
+  const auth = await resolveBuilderGatewayAuth();
+  if (!auth) {
+    return {
+      provider: "gemini",
+      ...(await startGeminiVideoGeneration(input)),
+    };
+  }
+
+  const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");
+  const response = await fetch(`${baseUrl}/generations`, {
+    method: "POST",
+    headers: {
+      Authorization: auth.authorization,
+      ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      idempotencyKey: input.runId,
+      prompt: input.compiledPrompt,
+      model: input.model,
+      aspectRatio: input.aspectRatio,
+      durationSeconds: input.durationSeconds,
+      resolution: input.resolution,
+      negativePrompt: input.negativePrompt || undefined,
+      enhancePrompt: input.enhancePrompt ?? true,
+      generateAudio: input.generateAudio ?? true,
+      ...(input.sourceImage
+        ? {
+            sourceImage: {
+              id: input.sourceImage.id,
+              role: "source",
+              mimeType: input.sourceImage.mimeType,
+              data: input.sourceImage.data,
+            },
+          }
+        : {
+            references: (input.referenceImages ?? [])
+              .slice(0, 3)
+              .map((ref) => ({
+                id: ref.id,
+                role: ref.role === "style_reference" ? "style" : "asset",
+                mimeType: ref.mimeType,
+                data: ref.data,
+              })),
+          }),
+      source: {
+        appId: input.callerAppId || "assets",
+        feature: "video-generation",
+        resourceId: input.libraryId,
+      },
+      metadata: { runId: input.runId },
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!response.ok) {
+    // coercion-ok: the status is still reported when the provider body is unreadable.
+    const body = await response.text().catch(() => "");
+    const detail = readableProviderErrorDetail(body, 500);
+    throw new Error(
+      `Builder video generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
+    );
+  }
+  const body = (await response.json()) as { id?: unknown };
+  if (typeof body.id !== "string" || !body.id) {
+    throw new Error("Builder video generation returned no generation ID.");
+  }
+  return { provider: "builder", generationId: body.id };
+}
+
 export async function pollGeminiVideoGeneration(
   operationName: string,
 ): Promise<
@@ -185,6 +279,7 @@ export async function pollGeminiVideoGeneration(
       video: {
         buffer: Buffer.from(video.videoBytes, "base64"),
         mimeType: video.mimeType || "video/mp4",
+        provider: "gemini",
         sourceUrl: video.uri,
         providerGenerationId: operationName,
       },
@@ -210,8 +305,85 @@ export async function pollGeminiVideoGeneration(
         video.mimeType ||
         videoResponse.headers.get("content-type") ||
         "video/mp4",
+      provider: "gemini",
       sourceUrl: video.uri,
       providerGenerationId: operationName,
+    },
+  };
+}
+
+export async function pollBuilderVideoGeneration(
+  generationId: string,
+): Promise<
+  | { status: "processing"; operation: Record<string, unknown> }
+  | { status: "completed"; video: GeneratedVideoBytes }
+> {
+  const auth = await resolveBuilderGatewayAuth();
+  if (!auth)
+    throw new Error("Builder connection is unavailable for video generation.");
+  const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");
+  const response = await fetch(
+    `${baseUrl}/generations/${encodeURIComponent(generationId)}/poll`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: auth.authorization,
+        ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
+      },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!response.ok) {
+    // coercion-ok: the HTTP status is still reported when the provider body is unreadable.
+    const body = await response.text().catch(() => "");
+    const detail = readableProviderErrorDetail(body, 500);
+    throw new Error(
+      `Builder video generation poll failed (${response.status})${detail ? `: ${detail}` : "."}`,
+    );
+  }
+  const operation = (await response.json()) as Record<string, unknown>;
+  if (operation.status === "processing")
+    return { status: "processing", operation };
+  if (operation.status !== "completed") {
+    throw new Error("Builder video generation returned an unknown status.");
+  }
+  const outputs = Array.isArray(operation.outputs) ? operation.outputs : [];
+  const output = outputs[0] as Record<string, unknown> | undefined;
+  const sourceUrl =
+    stringValue(output?.downloadUrl) ?? stringValue(output?.url);
+  if (!sourceUrl)
+    throw new Error("Builder video generation returned no video URL.");
+  const downloadUrl = new URL(sourceUrl);
+  if (
+    downloadUrl.protocol !== "https:" ||
+    !(
+      downloadUrl.hostname === "builder.io" ||
+      downloadUrl.hostname.endsWith(".builder.io")
+    )
+  ) {
+    throw new Error(
+      "Builder video generation returned an unsupported video URL.",
+    );
+  }
+  const videoResponse = await fetch(downloadUrl, {
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!videoResponse.ok) {
+    throw new Error(
+      `Could not download generated video (${videoResponse.status}).`,
+    );
+  }
+  return {
+    status: "completed",
+    video: {
+      buffer: Buffer.from(await videoResponse.arrayBuffer()),
+      mimeType:
+        stringValue(output?.mimeType) ||
+        videoResponse.headers.get("content-type") ||
+        "video/mp4",
+      provider: "builder",
+      sourceUrl,
+      providerGenerationId: stringValue(output?.providerGenerationId),
     },
   };
 }

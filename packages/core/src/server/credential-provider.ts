@@ -2274,6 +2274,14 @@ export function getBuilderImageGenerationBaseUrl(): string {
   );
 }
 
+export function getBuilderEmbeddingsBaseUrl(): string {
+  return "https://api.builder.io/agent-native/embeddings/v1";
+}
+
+export function getBuilderVideoGenerationBaseUrl(): string {
+  return "https://api.builder.io/agent-native/videos/v1";
+}
+
 /**
  * Base URL for Builder-managed web search.
  * Override via BUILDER_WEB_SEARCH_BASE_URL for staging / testing.

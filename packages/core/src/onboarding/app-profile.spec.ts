@@ -131,6 +131,8 @@ describe("onboarding app profiles", () => {
         expect.objectContaining({
           id: "video-generation",
           required: false,
+          suggested: true,
+          builderIncluded: true,
         }),
         expect.objectContaining({
           id: "file-storage",

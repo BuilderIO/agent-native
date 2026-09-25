@@ -23,7 +23,7 @@ import {
 import { getObject } from "../server/lib/storage.js";
 import {
   compileVideoPrompt,
-  startGeminiVideoGeneration,
+  startVideoGeneration,
   type VideoReferenceImage,
 } from "../server/lib/video-generation.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
@@ -240,7 +240,10 @@ export default defineAction({
       createdAt: now,
     });
 
-    const operation = await startGeminiVideoGeneration({
+    const operation = await startVideoGeneration({
+      runId,
+      libraryId: args.libraryId,
+      callerAppId: callerAppId ?? undefined,
       model: args.model,
       compiledPrompt,
       aspectRatio: args.aspectRatio,
@@ -254,8 +257,10 @@ export default defineAction({
     });
     const processingMetadata = {
       ...baseMetadata,
-      operationName: operation.operationName,
-      provider: "gemini",
+      ...(operation.provider === "builder"
+        ? { generationId: operation.generationId }
+        : { operationName: operation.operationName }),
+      provider: operation.provider,
       providerStatus: "processing",
       startedAt: nowIso(),
     };
@@ -334,7 +339,9 @@ export default defineAction({
 
     return {
       run: serializeGenerationRun(run),
-      operationName: operation.operationName,
+      ...(operation.provider === "gemini"
+        ? { operationName: operation.operationName }
+        : {}),
       artifactType: "video",
       message:
         "Video generation started. Call refresh-generation-run with this runId until status is completed.",

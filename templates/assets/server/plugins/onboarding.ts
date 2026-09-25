@@ -1,9 +1,9 @@
 /**
  * Custom onboarding plugin for Assets.
  *
- * Lead with Builder-managed image generation (one-click, org-shared
- * credential) and Gemini for video generation while keeping S3-compatible
- * storage explicit for originals, thumbnails, videos, and exports.
+ * Lead with Builder-managed image and video generation (one-click,
+ * org-shared credential) while keeping S3-compatible storage explicit for
+ * originals, thumbnails, videos, and exports.
  *
  * Why it lives here: must be in server/plugins/ so the framework skips its
  * default onboarding plugin, and all step registrations share the same module
@@ -43,15 +43,15 @@ export default async (nitroApp: any): Promise<void> => {
     required: true,
     title: "Image and video generation",
     description:
-      "Connect Builder (free tier available) for managed image generation, or add OpenAI/Gemini keys manually. Gemini is required for video generation.",
+      "Connect Builder for managed image generation and video generation when enabled for your space, or add OpenAI/Gemini keys as manual fallbacks.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description: builderImageGenerationEnabled
-          ? "Recommended one-click setup for image generation. Uses Builder credits and keeps provider keys out of this app."
-          : "Disabled by BUILDER_IMAGE_GENERATION_ENABLED=false. Use a Gemini key for this deployment.",
+          ? "Recommended one-click setup for managed image generation and video generation when enabled for your space. Uses Builder credits and keeps provider keys out of this app."
+          : "Disabled by BUILDER_IMAGE_GENERATION_ENABLED=false for image generation. Add manual Gemini or OpenAI image keys; use Gemini for manual video generation.",
         primary: true,
         badge: builderImageGenerationEnabled ? "recommended" : undefined,
         disabled: !builderImageGenerationEnabled,
@@ -63,7 +63,7 @@ export default async (nitroApp: any): Promise<void> => {
         kind: "form",
         label: "Gemini API key",
         description:
-          "Powers video generation and can also generate image fallbacks.",
+          "Manual video-generation option and optional image-generation fallback.",
         payload: {
           writeScope: "workspace",
           fields: [

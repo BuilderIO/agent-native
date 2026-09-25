@@ -603,6 +603,8 @@ export {
   isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderImageGenerationBaseUrl,
+  getBuilderEmbeddingsBaseUrl,
+  getBuilderVideoGenerationBaseUrl,
   getBuilderWebSearchBaseUrl,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
