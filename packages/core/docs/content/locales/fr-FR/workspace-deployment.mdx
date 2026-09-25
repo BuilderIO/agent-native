@@ -5,7 +5,7 @@ description: "Déployez chaque application d'un workspace agent-native vers une 
 
 # Déploiement de workspace
 
-Si votre projet est un [workspace](/docs/multi-app-workspace) avec plusieurs applications, vous pouvez déployer chaque application vers une seule origine au lieu de gérer des déploiements séparés par application. Cette page couvre le chemin géré en une commande et une alternative auto-hébergée avec Docker Compose. Voir [Déploiement](/docs/deployment) pour choisir d'abord une base de données, un préréglage, et une plateforme.
+Si votre projet est un [workspace](/docs/multi-app-workspace) avec plusieurs applications, vous pouvez déployer chaque application vers une seule origine au lieu de gérer des déploiements séparés par application. Les workspaces multi-applications peuvent afficher une page d'annuaire à la racine `/`. Sinon, la racine redirige vers la première application. Cette page couvre le chemin géré en une commande et une alternative auto-hébergée avec Docker Compose. Voir [Déploiement](/docs/deployment) pour choisir d'abord une base de données, un préréglage, et une plateforme.
 
 ## Une origine, plusieurs applications {#workspace-deploy}
 
@@ -81,7 +81,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-En interne, chaque application est construite avec son propre **chemin de base**, un préfixe d'URL comme `/mail` défini via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, puis empaqueté pour le préréglage Nitro cible. Cloudflare Pages achemine via un **worker répartiteur** généré, un petit script à `dist/_worker.js` qui lit le chemin entrant et transfère la requête vers l'application correspondante. Netlify utilise une fonction par application plus des redirections générées. Vercel écrit une sortie `.vercel/output` au niveau du workspace en utilisant la Build Output API.
+En interne, chaque application est construite avec son propre **chemin de base**, un préfixe d'URL comme `/mail` défini via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, puis empaqueté pour le préréglage Nitro cible. Cloudflare Pages achemine via un **worker répartiteur** généré, un petit script à `dist/_worker.js` qui lit le chemin entrant et transfère la requête vers l'application correspondante. Netlify utilise une fonction par application plus des redirections générées, et achemine les requêtes de données d'application vers le gestionnaire correspondant. Vercel écrit une sortie `.vercel/output` au niveau du workspace en utilisant la Build Output API et achemine les requêtes de données d'application vers le gestionnaire correspondant.
 
 </Callout>
 

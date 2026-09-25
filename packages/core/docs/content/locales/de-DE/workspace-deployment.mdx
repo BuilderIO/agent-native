@@ -5,7 +5,7 @@ description: "Stellen Sie jede App in einem agentennativen Arbeitsbereich mit ei
 
 # Arbeitsbereichsbereitstellung
 
-Wenn Ihr Projekt ein [Arbeitsbereich](/docs/multi-app-workspace) mit mehr als einer App ist, können Sie jede App auf einem einzigen Ursprung bereitstellen, statt separate Bereitstellungen pro App zu verwalten. Diese Seite behandelt den verwalteten Ein-Befehl-Pfad und eine selbstgehostete Docker-Compose-Alternative. Wählen Sie zuerst unter [Bereitstellung](/docs/deployment) eine Datenbank, eine Voreinstellung und eine Plattform.
+Wenn Ihr Projekt ein [Arbeitsbereich](/docs/multi-app-workspace) mit mehr als einer App ist, können Sie jede App auf einem einzigen Ursprung bereitstellen, statt separate Bereitstellungen pro App zu verwalten. Multi-App-Arbeitsbereiche können unter `/` eine Verzeichnisseite anzeigen. Andernfalls leitet die Wurzel zur ersten App weiter. Diese Seite behandelt den verwalteten Ein-Befehl-Pfad und eine selbstgehostete Docker-Compose-Alternative. Wählen Sie zuerst unter [Bereitstellung](/docs/deployment) eine Datenbank, eine Voreinstellung und eine Plattform.
 
 ## Ein Ursprung, viele Apps {#workspace-deploy}
 
@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Unter der Haube wird jede App mit einem eigenen **Basispfad** erstellt, einem URL-Präfix wie `/mail`, festgelegt über `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, und dann für die Ziel-Nitro-Voreinstellung verpackt. Cloudflare Pages leitet über einen generierten **Dispatcher-Worker**, ein kleines Skript unter `dist/_worker.js`, das den eingehenden Pfad liest und die Anfrage an die passende App weiterleitet. Netlify verwendet eine Funktion pro App plus generierte Weiterleitungen. Vercel schreibt ein Arbeitsbereichs-`.vercel/output` mit der Build Output API.
+Unter der Haube wird jede App mit einem eigenen **Basispfad** erstellt, einem URL-Präfix wie `/mail`, festgelegt über `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, und dann für die Ziel-Nitro-Voreinstellung verpackt. Cloudflare Pages leitet über einen generierten **Dispatcher-Worker**, ein kleines Skript unter `dist/_worker.js`, das den eingehenden Pfad liest und die Anfrage an die passende App weiterleitet. Netlify verwendet eine Funktion pro App plus generierte Weiterleitungen und leitet App-Datenanfragen an den passenden Handler weiter. Vercel schreibt ein Arbeitsbereichs-`.vercel/output` mit der Build Output API und leitet App-Datenanfragen an den passenden Handler weiter.
 
 </Callout>
 

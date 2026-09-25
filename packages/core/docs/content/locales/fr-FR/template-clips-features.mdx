@@ -19,7 +19,7 @@ Votre Bibliothèque affiche d'abord les dossiers, puis les enregistrements, sous
 Trois façons d'ajouter un clip à votre bibliothèque, toutes depuis le bouton **Enregistrer** et le menu **Importer** juste à côté. Faire un clic droit sur un espace vide de la Bibliothèque propose les mêmes trois options, plus **Nouveau dossier**.
 
 - **Enregistrer.** L'enregistreur d'écran intégré de Clips, avec une superposition webcam, une capture audio, et des contrôles de pause/coupe.
-- **Importer un fichier vidéo.** Ajoutez une vidéo existante directement depuis votre ordinateur, sans avoir besoin d'enregistrer.
+- **Importer un fichier vidéo.** Ajoutez une vidéo existante directement depuis votre ordinateur, ou déposez-la sur la grille de la Bibliothèque ou des Espaces. Aucun enregistrement n'est nécessaire.
 - **Importer depuis Loom.** Ramenez une vidéo Loom publique sans avoir à la réenregistrer. À côté de **Enregistrer**, ouvrez **Importer**, choisissez **Importer depuis Loom**, puis collez une URL de partage ou d'intégration Loom. Clips enregistre une copie dans votre bibliothèque et importe la transcription publique quand Loom en fournit une.
 
 ### Gérer un clip
@@ -86,11 +86,13 @@ Archiver et mettre à la corbeille masquent tous les deux un clip de la Biblioth
 
 ### Afficher les clips {#shared-view-clips}
 
-Cette vue liste chaque enregistrement que quelqu'un a partagé directement avec vous ou votre organisation, par nom ou par un réglage de visibilité à l'échelle de l'organisation. Un lien public que quelqu'un possède par hasard ne compte pas dans cette liste. Vous pouvez regarder et commenter ici, mais il n'y a pas de menu à trois points : gérer un clip (le déplacer, l'archiver, le partager davantage) reste la décision du propriétaire.
+Cette vue liste chaque enregistrement que quelqu'un a partagé directement avec vous ou votre organisation, par nom ou par un réglage de visibilité à l'échelle de l'organisation. Un lien public que quelqu'un possède par hasard ne compte pas dans cette liste.
+
+Vous pouvez regarder et naviguer dans les clips partagés, et réduire la barre latérale pour donner plus de place à la vidéo. Vous pouvez commenter ici, mais il n'y a pas de menu à trois points : gérer un clip (le déplacer, l'archiver, le partager davantage) reste la décision du propriétaire.
 
 ### Commenter les clips
 
-Ajoutez un commentaire au point exact de la vidéo que vous regardez, pas seulement sur l'enregistrement dans son ensemble. Les commentaires se répondent en fil de discussion, prennent en charge le gras, l'italique, le code en ligne, et les liens (les titres sont aplatis en texte brut), et peuvent mentionner un coéquipier avec @ pour le notifier.
+Ajoutez un commentaire au point exact de la vidéo que vous regardez, pas seulement sur l'enregistrement dans son ensemble. Les commentaires se répondent en fil de discussion, prennent en charge le gras, l'italique, le code en ligne, et les liens (les titres sont aplatis en texte brut), et peuvent mentionner un coéquipier avec @ pour le notifier. Les champs de commentaire s'agrandissent au fur et à mesure que vous tapez, et le fil s'étend pour afficher les commentaires plus longs.
 
 ## Espaces
 
@@ -148,7 +150,7 @@ Elle ne surveille que l'onglet que vous enregistrez activement, et seulement pen
 
 ## Transcription et métadonnées IA {#transcription-and-ai-metadata}
 
-La transcription essaie d'abord l'option la plus rapide et gratuite et ne se replie sur une option payante que quand c'est nécessaire :
+La transcription essaie d'abord l'option la plus rapide et gratuite et ne se replie sur une option payante que quand c'est nécessaire. L'historique de dictée affiche des aperçus de transcription qui se développent en transcriptions complètes et en actions alignées :
 
 | Ordre | Fournisseur                     | Notes                                                                                                                                                                                           |
 | ----- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +158,7 @@ La transcription essaie d'abord l'option la plus rapide et gratuite et ne se rep
 | 2     | Géré par Builder.io (Gemini)    | Solution de repli dans le cloud quand le texte natif est manquant. Aucune clé supplémentaire nécessaire une fois Builder connecté. Le niveau gratuit de Builder.io inclut des crédits IA gérés. |
 | 3     | Groq (`whisper-large-v3-turbo`) | Solution de secours facultative si vous préférez apporter votre propre clé.                                                                                                                     |
 
-Une fois qu'une transcription est prête, l'agent remplit automatiquement un titre, un résumé, et des marqueurs de chapitre, et les tient à jour au fil de vos modifications. Vous pouvez aussi demander directement :
+Une fois qu'une transcription est prête, l'agent remplit automatiquement un titre, un résumé, et des marqueurs de chapitre, et les tient à jour au fil de vos modifications. Pendant la lecture, la transcription suit la position actuelle. Vous pouvez aussi demander directement :
 
 - « Régénère le titre et le résumé. »
 - « Ajoute des chapitres. Celui-ci est long. »
@@ -169,7 +171,7 @@ La transcription de secours, le nettoyage de la transcription, et les titres et 
 
 ## Édition non destructive {#non-destructive-editing}
 
-Coupez, découpez, retirez les silences ou les mots de remplissage, ou combinez des clips ensemble, tout cela sans jamais toucher au fichier d'origine. Chaque modification est superposée comme une instruction sur votre enregistrement d'origine, réversible, et rien n'est figé dans un nouveau fichier jusqu'à ce que vous exportiez.
+Utilisez la timeline pour couper et découper des clips, retirer les silences ou les mots de remplissage, combiner des clips, et ajouter des masquages. Faites glisser les limites de coupe pour les ajuster, et utilisez annuler ou rétablir pour revoir les modifications. Les modifications restent superposées sur l'enregistrement d'origine. Rien n'est figé dans un nouveau fichier jusqu'à ce que vous exportiez.
 
 <Video
   src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
