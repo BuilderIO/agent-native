@@ -2368,7 +2368,13 @@ export function trackAnonymousEvent(
   name: string,
   properties: Record<string, unknown>,
 ): void {
-  if (typeof window === "undefined" || isSyntheticBrowserTraffic()) return;
+  if (
+    typeof window === "undefined" ||
+    isSyntheticBrowserTraffic() ||
+    isQaTrackingIdentity(_trackingIdentity)
+  ) {
+    return;
+  }
   sendAgentNativeAnalytics(name, properties);
 }
 

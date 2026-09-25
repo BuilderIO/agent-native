@@ -1034,6 +1034,7 @@ describe("browser analytics pageviews", () => {
       configureTracking,
       setTrackingIdentity,
       trackAgentChatLifecycle,
+      trackAnonymousEvent,
       trackEvent,
     } = await freshAnalytics();
 
@@ -1059,6 +1060,9 @@ describe("browser analytics pageviews", () => {
       "org_qa",
     );
     trackEvent("signup completed");
+    trackAnonymousEvent("plan_invite_suggestion_shown", {
+      trigger: "first_share",
+    });
     trackAgentChatLifecycle({ phase: "surface-mounted", surface: "signup" });
     expect(
       captureClientException(new Error("QA canary failure")),

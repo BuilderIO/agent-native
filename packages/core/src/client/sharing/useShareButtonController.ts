@@ -138,7 +138,10 @@ export function useShareButtonController(
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareButtonVisibility | null>(null);
-  const visibilitySequenceStartRef = useRef<ShareButtonVisibility | null>(null);
+  const visibilitySequenceStartRef = useRef<{
+    visibility: ShareButtonVisibility;
+    shares: ShareButtonSharesResponse | undefined;
+  } | null>(null);
   const appliedDefaultOpenRef = useRef(false);
   const {
     queryKey: shareQueryKey,
@@ -200,13 +203,13 @@ export function useShareButtonController(
         return Promise.resolve();
       }
       const requestId = visibilityGuard.begin();
-      visibilitySequenceStartRef.current ??= visibility;
       const previous =
         optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
           queryClient,
           shareQueryKey,
           (prev) => (prev ? { ...prev, visibility: next } : prev),
         );
+      visibilitySequenceStartRef.current ??= { visibility, shares: previous };
       setVisibilityOverride(next);
       return new Promise((resolve, reject) => {
         setVisibility.mutate(
@@ -224,7 +227,8 @@ export function useShareButtonController(
                 (result as { visibility?: unknown }).visibility;
               if (visibilityGuard.isLatest(requestId)) {
                 if (
-                  visibilitySequenceStartRef.current === "private" &&
+                  visibilitySequenceStartRef.current?.visibility ===
+                    "private" &&
                   (resultVisibility === "org" || resultVisibility === "public")
                 ) {
                   options.onShareSuccess?.();
@@ -257,9 +261,15 @@ export function useShareButtonController(
             },
             onError: (error) => {
               if (visibilityGuard.isLatest(requestId)) {
+                const sequenceStart = visibilitySequenceStartRef.current;
                 setVisibilityOverride(null);
                 visibilitySequenceStartRef.current = null;
-                rollbackShareCache(queryClient, shareQueryKey, previous);
+                rollbackShareCache(
+                  queryClient,
+                  shareQueryKey,
+                  sequenceStart ? sequenceStart.shares : previous,
+                );
+                void sharesQuery.refetch();
               }
               reject(error);
             },

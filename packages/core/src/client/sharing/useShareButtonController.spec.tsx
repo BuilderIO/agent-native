@@ -265,6 +265,43 @@ describe("useShareButtonController", () => {
     );
   });
 
+  it("restores the sequence snapshot and refetches when the latest visibility update fails", async () => {
+    const initial: ShareButtonSharesResponse = {
+      ...mocks.query.data!,
+      shares: [...mocks.query.data!.shares],
+    };
+    const shareQueryKey = [
+      "action",
+      "list-resource-shares",
+      { resourceType: "document", resourceId: "doc-1" },
+    ] as const;
+    queryClient.setQueryData(shareQueryKey, initial);
+    const result = await render();
+    let firstPromise!: Promise<void>;
+    act(() => {
+      firstPromise = result.handleVisibilityChange("org");
+    });
+    const firstMutation = mocks.setVisibility.mutate.mock.calls[0]?.[1];
+    let latestPromise!: Promise<void>;
+    act(() => {
+      latestPromise = (
+        controller as ShareButtonController
+      ).handleVisibilityChange("public");
+    });
+    const latestMutation = mocks.setVisibility.mutate.mock.calls[1]?.[1];
+
+    await act(async () => {
+      firstMutation?.onError(new Error("stale visibility failure"));
+      latestMutation?.onError(new Error("latest visibility failure"));
+      await Promise.allSettled([firstPromise, latestPromise]);
+    });
+
+    expect(queryClient.getQueryData(shareQueryKey)).toEqual(initial);
+    expect(mocks.query.refetch).toHaveBeenCalled();
+    expect((controller as ShareButtonController).visibilityOverride).toBeNull();
+    expect((controller as ShareButtonController).visibility).toBe("private");
+  });
+
   it("gates every sharing mutation for non-managers", async () => {
     mocks.query.data = { ...mocks.query.data!, role: "viewer" };
     const result = await render();
