@@ -199,7 +199,7 @@ describe("deck version snapshot deduplication", () => {
     expect(insertedVersions).toHaveLength(1);
     expect(insertedVersions[0]).toEqual(
       expect.objectContaining({
-        changeGroup: "start:run-2",
+        changeGroup: "start:thread:thread-2",
         chatContext: JSON.stringify({
           threadId: "thread-2",
           runId: "run-2",
@@ -225,7 +225,7 @@ describe("deck version snapshot deduplication", () => {
     );
 
     expect(insertedVersions).toEqual([
-      expect.objectContaining({ changeGroup: "start:run-1" }),
+      expect.objectContaining({ changeGroup: "start:thread:thread-1" }),
     ]);
   });
 
@@ -250,5 +250,34 @@ describe("deck version snapshot deduplication", () => {
     expect(insertedVersions).toEqual([
       expect.objectContaining({ changeGroup: "turn-1" }),
     ]);
+  });
+
+  it("keeps retried start snapshots idempotent across runs in one thread", async () => {
+    const source = {
+      id: "deck-1",
+      title: "Deck",
+      data: JSON.stringify({ slides: [{ id: "s1", content: "same" }] }),
+      ownerEmail: "owner@example.com",
+    };
+
+    await createDeckVersionSnapshot(source, {
+      force: true,
+      chatContext: { threadId: "thread-1", runId: "run-1", phase: "start" },
+      db: db as unknown as ReturnType<typeof getDb>,
+    });
+    conflictInsert = true;
+    await expect(
+      createDeckVersionSnapshot(source, {
+        force: true,
+        chatContext: { threadId: "thread-1", runId: "run-2", phase: "start" },
+        db: db as unknown as ReturnType<typeof getDb>,
+      }),
+    ).resolves.toEqual({ created: false, reason: "same-agent-turn" });
+
+    expect(
+      insertedVersions.map(
+        (version) => (version as { changeGroup: string }).changeGroup,
+      ),
+    ).toEqual(["start:thread:thread-1", "start:thread:thread-1"]);
   });
 });

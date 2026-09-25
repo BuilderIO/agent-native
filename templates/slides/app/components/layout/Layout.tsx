@@ -157,7 +157,11 @@ export function Layout({ children }: LayoutProps) {
     return {
       list: {
         action: "list-deck-versions",
-        args: { deckId, limit: 100 },
+        args: (threadId) => ({
+          deckId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"

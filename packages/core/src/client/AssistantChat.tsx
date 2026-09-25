@@ -3318,7 +3318,9 @@ const AssistantChatInner = forwardRef<
   const submissionTailRef = useRef(Promise.resolve());
   const chatHistoryListQuery = useActionQuery<unknown>(
     (chatHistory?.list.action ?? "list-resource-versions") as never,
-    chatHistory?.list.args as never,
+    (typeof chatHistory?.list.args === "function"
+      ? chatHistory.list.args(threadId)
+      : chatHistory?.list.args) as never,
     { enabled: chatHistory !== undefined },
   );
   const chatHistoryVersions = useMemo(() => {
@@ -3403,6 +3405,14 @@ const AssistantChatInner = forwardRef<
       !latestAssistantMessage ||
       !assistantMessageHasCompletedSideEffect(latestAssistantMessage)
     ) {
+      void refetchChatHistory().catch((error) =>
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-run",
+          },
+        }),
+      );
       return;
     }
 

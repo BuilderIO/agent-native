@@ -330,6 +330,26 @@ describe("assistant chat history matching", () => {
     ).toBe("selected");
   });
 
+  it("matches legacy checkpoints without a phase", () => {
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [
+          {
+            id: "legacy",
+            createdAt: "2026-08-29T10:00:00.000Z",
+            chatContext: { runId: "run-1" },
+          },
+        ],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          hasCompletedSideEffect: true,
+        },
+      )?.id,
+    ).toBe("legacy");
+  });
+
   it("rejects a checkpoint from a different scoped resource", () => {
     expect(
       findMatchingAssistantChatHistoryVersion(

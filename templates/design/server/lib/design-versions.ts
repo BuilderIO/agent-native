@@ -1183,6 +1183,7 @@ export async function snapshotDesignBeforeAgentEditInVersionLock(
 export async function listDesignVersions(
   designId: string,
   limit: number,
+  threadId?: string,
 ): Promise<{
   designId: string;
   count: number;
@@ -1207,6 +1208,7 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
+  const escapedThreadId = threadId?.replace(/[\\%_]/g, "\\$&");
   const beginningRows = await db
     .select({
       id: schema.designVersions.id,
@@ -1217,22 +1219,38 @@ export async function listDesignVersions(
     })
     .from(schema.designVersions)
     .where(
-      and(
-        eq(schema.designVersions.designId, designId),
-        like(schema.designVersions.chatContext, '%"phase":"start"%'),
-      ),
+      threadId
+        ? and(
+            eq(schema.designVersions.designId, designId),
+            like(schema.designVersions.chatContext, '%"phase":"start"%'),
+            like(
+              schema.designVersions.chatContext,
+              `%"threadId":"${escapedThreadId}"%`,
+            ),
+          )
+        : and(
+            eq(schema.designVersions.designId, designId),
+            like(schema.designVersions.chatContext, '%"phase":"start"%'),
+          ),
     )
     .orderBy(
       asc(isNull(schema.designVersions.createdAt)),
       asc(schema.designVersions.createdAt),
     )
-    .limit(limit);
+    .limit(threadId ? 1 : limit);
+  const exactBeginningRows = threadId
+    ? beginningRows.filter((row) => {
+        const context = parseStoredChatContext(row.chatContext);
+        return context?.threadId === threadId && context.phase === "start";
+      })
+    : beginningRows;
   const rowsById = new Map(
-    [...rows, ...beginningRows].map((row) => [row.id, row]),
+    [...rows, ...exactBeginningRows].map((row) => [row.id, row]),
   );
 
   const regular: DesignVersionListEntry[] = [];
   const chat = new Map<string, DesignVersionListEntry>();
+  const activeStartEntries: DesignVersionListEntry[] = [];
   let invalidCount = 0;
   for (const row of rowsById.values()) {
     let chatContext: DesignVersionChatContext | undefined;
@@ -1262,6 +1280,14 @@ export async function listDesignVersions(
       regular.push(entry);
       continue;
     }
+    if (
+      threadId &&
+      chatContext?.threadId === threadId &&
+      chatContext.phase === "start"
+    ) {
+      activeStartEntries.push(entry);
+      continue;
+    }
     const previous = chat.get(key);
     const replacePrevious =
       !previous ||
@@ -1271,10 +1297,30 @@ export async function listDesignVersions(
     if (replacePrevious) chat.set(key, entry);
   }
 
-  const versions = [...regular, ...chat.values()].sort(
+  const versions = [...regular, ...chat.values(), ...activeStartEntries].sort(
     (left, right) => versionTime(right.createdAt) - versionTime(left.createdAt),
   );
-  return { designId, count: versions.length, invalidCount, versions };
+  const limitedVersions = versions.slice(0, limit);
+  const activeStart = threadId
+    ? versions.find(
+        (version) =>
+          version.chatContext?.threadId === threadId &&
+          version.chatContext.phase === "start",
+      )
+    : undefined;
+  if (activeStart && !limitedVersions.includes(activeStart)) {
+    limitedVersions[limitedVersions.length - 1] = activeStart;
+    limitedVersions.sort(
+      (left, right) =>
+        versionTime(right.createdAt) - versionTime(left.createdAt),
+    );
+  }
+  return {
+    designId,
+    count: limitedVersions.length,
+    invalidCount,
+    versions: limitedVersions,
+  };
 }
 
 interface RestoreFile {

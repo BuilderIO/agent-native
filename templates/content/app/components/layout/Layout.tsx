@@ -126,7 +126,12 @@ export function Layout({ children }: LayoutProps) {
     return {
       list: {
         action: "list-document-versions",
-        args: { documentId, includeContent: false, limit: 100 },
+        args: (threadId) => ({
+          documentId,
+          includeContent: false,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"

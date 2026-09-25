@@ -160,7 +160,7 @@ export async function createDeckVersionSnapshot(
     options.chatContext?.turnId ?? options.chatContext?.runId ?? undefined;
   const changeGroup =
     options.chatContext?.phase === "start" && turnGroup
-      ? `start:${turnGroup}`
+      ? `start:thread:${options.chatContext.threadId ?? turnGroup}`
       : turnGroup;
   if (
     requestedChatContext &&

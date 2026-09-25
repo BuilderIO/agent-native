@@ -501,7 +501,9 @@ export interface AssistantChatHistoryConfig<
 > {
   list: {
     action: string;
-    args?: Record<string, unknown>;
+    args?:
+      | Record<string, unknown>
+      | ((threadId?: string) => Record<string, unknown>);
     getVersions: (result: TListResult) => readonly TVersion[];
   };
   restore: {
@@ -628,7 +630,7 @@ export function findMatchingAssistantChatHistoryVersion<
       continue;
     }
     const chatContext = version.chatContext;
-    if (chatContext?.phase !== "end") continue;
+    if (chatContext?.phase === "start") continue;
     const matchesChatTurn = Boolean(
       chatContext &&
       ((message.turnId && chatContext.turnId

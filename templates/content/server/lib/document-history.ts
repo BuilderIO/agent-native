@@ -183,8 +183,9 @@ export async function recordDocumentHistoryTransition(args: {
     : checkpointCreatedAt;
   const isChatStart =
     cause.groupKind === "agent_run" && cause.operation === "chat start";
+  const chatStartKey = args.cause.chatContext?.threadId ?? cause.groupId;
   const afterCheckpointId = isChatStart
-    ? `agent-chat-start:${encodeURIComponent(args.ownerEmail)}:${encodeURIComponent(args.documentId)}:${encodeURIComponent(cause.groupId)}`
+    ? `agent-chat-start:${encodeURIComponent(args.ownerEmail)}:${encodeURIComponent(args.documentId)}:${encodeURIComponent(chatStartKey)}`
     : crypto.randomUUID();
   const afterValues = {
     id: afterCheckpointId,

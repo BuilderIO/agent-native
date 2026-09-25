@@ -106,32 +106,34 @@ function inlineDatabaseBlock(args: {
 describe("grouped document history", () => {
   it("deduplicates concurrent chat-start checkpoints at the insert boundary", async () => {
     const document = await currentDocument();
-    const cause = {
-      groupId: `agent:${OWNER}:concurrent-run`,
-      groupKind: "agent_run" as const,
-      actorEmail: OWNER,
-      actorKind: "agent" as const,
-      origin: "agent-chat",
-      operation: "chat start",
-      chatContext: {
-        threadId: "thread-concurrent",
-        runId: "concurrent-run",
-        phase: "start" as const,
-      },
-      skipBeforeCheckpoint: true,
-    };
-    const transition = () =>
+    const transition = (runId: string) =>
       recordDocumentHistoryTransition({
         db: getDb(),
         ownerEmail: OWNER,
         documentId: DOCUMENT_ID,
         before: { title: document.title, content: document.content },
         after: { title: document.title, content: document.content },
-        cause,
+        cause: {
+          groupId: `agent:${OWNER}:${runId}`,
+          groupKind: "agent_run",
+          actorEmail: OWNER,
+          actorKind: "agent",
+          origin: "agent-chat",
+          operation: "chat start",
+          chatContext: {
+            threadId: "thread-concurrent",
+            runId,
+            phase: "start",
+          },
+          skipBeforeCheckpoint: true,
+        },
         now: new Date().toISOString(),
       });
 
-    await Promise.all([transition(), transition()]);
+    await Promise.all([
+      transition("concurrent-run-1"),
+      transition("concurrent-run-2"),
+    ]);
 
     const versions = await getDb()
       .select()
@@ -139,10 +141,13 @@ describe("grouped document history", () => {
       .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
     expect(versions).toHaveLength(1);
     expect(versions[0]).toMatchObject({
-      groupId: cause.groupId,
+      groupId: `agent:${OWNER}:concurrent-run-1`,
       operation: "chat start",
       checkpointKind: "after",
     });
+    expect(versions[0]?.id).toBe(
+      `agent-chat-start:${encodeURIComponent(OWNER)}:${encodeURIComponent(DOCUMENT_ID)}:thread-concurrent`,
+    );
   });
 
   it("stores a single chat-start checkpoint with its phase", async () => {
