@@ -9,13 +9,6 @@ import { cn } from "../utils.js";
 
 export type PrimitiveButtonProps = ButtonProps;
 
-/**
- * Resolves the effective semantic emphasis for PrimitiveButton.
- * Matches the toolkit's design-system resolution:
- * - If `emphasis` is explicitly passed, it is respected.
- * - Otherwise, derives emphasis from `variant` if supplied.
- * - Defaults to "ghost" when neither emphasis nor a non-ghost variant is specified.
- */
 export function resolvePrimitiveButtonEmphasis(
   emphasis?: ButtonEmphasis,
   variant?: ButtonProps["variant"],
@@ -35,10 +28,6 @@ export function resolvePrimitiveButtonEmphasis(
   return "ghost";
 }
 
-/**
- * Returns true when the button's resolved visual emphasis is a ghost variant.
- * Only ghost buttons receive the transparent background and inherit-text hover reset.
- */
 export function isGhostEmphasis(
   emphasis?: ButtonEmphasis,
   variant?: ButtonProps["variant"],

@@ -201,8 +201,6 @@ describe("PrimitiveButton", () => {
       const button = container.querySelector("button")!;
       expect(button).not.toBeNull();
 
-      // Text color token statically binds to text-primary-foreground (var(--primary-foreground)),
-      // with no hover:text-inherit present to override text color to card-foreground on hover.
       const classList = button.className.split(/\s+/);
       expect(classList).toContain("text-primary-foreground");
       expect(classList).not.toContain("hover:text-inherit");
