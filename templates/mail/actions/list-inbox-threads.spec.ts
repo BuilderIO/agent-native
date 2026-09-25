@@ -330,6 +330,47 @@ describe("list-inbox-threads action — local mode (no connected Google account)
     expect(item.messageIds.sort()).toEqual(["m1", "m2"]);
   });
 
+  it("excludes sent-only threads but keeps sent replies in inbox threads", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      localEmail({
+        id: "sent-only",
+        threadId: "sent-only-thread",
+        isSent: true,
+        labelIds: ["sent"],
+      }),
+      localEmail({
+        id: "received",
+        threadId: "reply-thread",
+        labelIds: ["inbox"],
+        date: "2024-01-01T00:00:00Z",
+      }),
+      localEmail({
+        id: "reply",
+        threadId: "reply-thread",
+        isSent: true,
+        labelIds: ["sent"],
+        date: "2024-01-02T00:00:00Z",
+      }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id: "reply",
+      threadId: "reply-thread",
+      messageCount: 2,
+      messageIds: ["received", "reply"],
+    });
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")?.total).toBe(
+      1,
+    );
+  });
+
   it("runs the same tab partition: a promotions-labeled message lands in Other", async () => {
     mocks.readLocalEmails.mockResolvedValue([
       localEmail({

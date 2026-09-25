@@ -56,25 +56,27 @@ function buildLocalInboxItems(emails: EmailMessage[]): InboxThreadItem[] {
     else byThread.set(key, [email]);
   }
 
-  const items = [...byThread.values()].map((messages): InboxThreadItem => {
-    const latest = messages.reduce((a, b) =>
-      new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
-    );
-    const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
-    const isAutomated = classifyAutomated({
-      headers: [],
-      labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
-      fromEmail: latest.from?.email ?? "",
+  const items = [...byThread.values()]
+    .filter((messages) => messages.some((message) => !message.isSent))
+    .map((messages): InboxThreadItem => {
+      const latest = messages.reduce((a, b) =>
+        new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
+      );
+      const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
+      const isAutomated = classifyAutomated({
+        headers: [],
+        labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
+        fromEmail: latest.from?.email ?? "",
+      });
+      return {
+        ...latest,
+        labelIds,
+        messageCount: messages.length,
+        unreadCount: messages.filter((m) => !m.isRead).length,
+        messageIds: messages.map((m) => m.id),
+        isAutomated,
+      };
     });
-    return {
-      ...latest,
-      labelIds,
-      messageCount: messages.length,
-      unreadCount: messages.filter((m) => !m.isRead).length,
-      messageIds: messages.map((m) => m.id),
-      isAutomated,
-    };
-  });
 
   return items.sort(
     (a, b) =>
