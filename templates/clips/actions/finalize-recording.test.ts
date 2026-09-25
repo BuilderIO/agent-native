@@ -294,6 +294,23 @@ describe("finalize-recording chunk completeness", () => {
     );
   });
 
+  it("does not track or persist a chunk failure after cancellation wins", async () => {
+    mockState.existingRecording.uploadAttemptId = "attempt-1";
+    mockUpdateReturning
+      .mockResolvedValueOnce([{ id: "rec_1" }])
+      .mockResolvedValueOnce([]);
+
+    await expect(finalizeRecording.run({ id: "rec_1" })).rejects.toThrow(
+      "No chunks found for recording rec_1",
+    );
+
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalledWith(
+      "recording-upload-rec_1",
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
   it("fails before upload when final metadata expects more chunks", async () => {
     mockState.chunkRows = [
       { key: "recording-chunks-rec_1-000000" },
@@ -389,7 +406,9 @@ describe("finalize-recording media serve verification", () => {
     seedBufferedRecording();
     mockState.uploadState = { ...mockState.uploadState, aborted: true };
     mockState.selectRows[1] = [{ status: "failed" }];
-    mockUpdateReturning.mockResolvedValueOnce([]);
+    mockUpdateReturning
+      .mockResolvedValueOnce([{ id: "rec_1" }])
+      .mockResolvedValueOnce([]);
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -813,6 +832,7 @@ describe("finalize-recording media serve verification", () => {
         recording_attempt_id: "rec_1",
         upload_attempt_id: "attempt-1",
       }),
+      { userId: "owner@example.com" },
     );
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_failed",
@@ -822,6 +842,7 @@ describe("finalize-recording media serve verification", () => {
         recording_platform: "unknown",
         failure_code: "media_verification_failed",
       }),
+      { userId: "owner@example.com" },
     );
   });
 

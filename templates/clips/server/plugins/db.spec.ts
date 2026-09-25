@@ -168,10 +168,10 @@ describe("organization recording visibility default migration", () => {
 });
 
 describe("recording failure code migration", () => {
-  it("preserves known legacy reasons and leaves ambiguous reasons unknown", () => {
+  it("maps legacy reasons in bounded batches after adding columns", () => {
     expect(dbTsSource).toContain("failure_code = CASE");
     expect(dbTsSource).toContain(
-      "WHEN failure_reason IN (\n              'Recording cancelled by user',\n              'Recording cancelled during countdown',\n              'Upload cancelled'\n            ) THEN 'user_cancelled'",
+      "WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'",
     );
     expect(dbTsSource).toContain(
       "WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'",
@@ -185,7 +185,24 @@ describe("recording failure code migration", () => {
     expect(dbTsSource).toContain(
       "WHEN failure_reason ILIKE 'Chunk % upload failed%<!DOCTYPE html>%' THEN 'chunk_html_error'",
     );
-    expect(dbTsSource).toMatch(/ELSE 'unknown'[\s\S]*WHERE status = 'failed'/);
+    expect(dbTsSource).toContain("ELSE 'unknown'");
+    expect(dbTsSource).toContain("ORDER BY id LIMIT $2");
+    expect(dbTsSource).toContain("RECORDING_FAILURE_BACKFILL_BATCH_SIZE = 250");
+    const migrationStart = dbTsSource.indexOf(
+      'name: "recording-failure-codes-platform"',
+    );
+    const migrationEnd = dbTsSource.indexOf("version:", migrationStart + 10);
+    const failureMigration = dbTsSource.slice(migrationStart, migrationEnd);
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS failure_code TEXT",
+    );
+    expect(failureMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS recording_platform TEXT",
+    );
+    expect(failureMigration).not.toMatch(/UPDATE recordings/i);
+    expect(dbTsSource).toMatch(
+      /version: 75,[\s\S]*?name: "recording-failure-backfill-cursor"[\s\S]*?ADD COLUMN IF NOT EXISTS cursor_id TEXT/,
+    );
     expect(dbTsSource).not.toContain("'Upload aborted by user'");
   });
 });

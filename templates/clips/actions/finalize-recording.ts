@@ -1489,7 +1489,7 @@ export default defineAction({
           : null;
 
       // Flip to 'processing' while we assemble.
-      await db
+      const [processingRecording] = await db
         .update(schema.recordings)
         .set({
           status: "processing",
@@ -1497,7 +1497,25 @@ export default defineAction({
           mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.recordings.id, id));
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, existing.status),
+            existing.uploadAttemptId
+              ? eq(schema.recordings.uploadAttemptId, existing.uploadAttemptId)
+              : isNull(schema.recordings.uploadAttemptId),
+            generationId
+              ? eq(schema.recordings.uploadGenerationId, generationId)
+              : isNull(schema.recordings.uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!processingRecording) {
+        throw new Error(
+          "Upload changed before buffered chunks could be assembled",
+        );
+      }
 
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
@@ -1519,25 +1537,42 @@ export default defineAction({
             mediaUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.recordings.id, id))
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "processing"),
+              existing.uploadAttemptId
+                ? eq(
+                    schema.recordings.uploadAttemptId,
+                    existing.uploadAttemptId,
+                  )
+                : isNull(schema.recordings.uploadAttemptId),
+              generationId
+                ? eq(schema.recordings.uploadGenerationId, generationId)
+                : isNull(schema.recordings.uploadGenerationId),
+            ),
+          )
           .returning({
             uploadAttemptId: schema.recordings.uploadAttemptId,
             recordingPlatform: schema.recordings.recordingPlatform,
           });
-        trackRecordingFailure({
-          recordingId: id,
-          userId: ownerEmail,
-          uploadAttemptId: failedRecording?.uploadAttemptId,
-          platform: failedRecording?.recordingPlatform,
-          failureCode: "chunk_assembly_failed",
-        });
-        await writeAppState(`recording-upload-${id}`, {
-          ...(uploadState ?? {}),
-          recordingId: id,
-          status: "failed",
-          failureReason,
-          updatedAt: now,
-        });
+        if (failedRecording)
+          trackRecordingFailure({
+            recordingId: id,
+            userId: ownerEmail,
+            uploadAttemptId: failedRecording?.uploadAttemptId,
+            platform: failedRecording?.recordingPlatform,
+            failureCode: "chunk_assembly_failed",
+          });
+        if (failedRecording)
+          await writeAppState(`recording-upload-${id}`, {
+            ...(uploadState ?? {}),
+            recordingId: id,
+            status: "failed",
+            failureReason,
+            updatedAt: now,
+          });
         throw new Error(failureReason);
       };
 
@@ -1852,11 +1887,50 @@ export default defineAction({
               mediaUpdatedAt: now,
               updatedAt: now,
             })
-            .where(eq(schema.recordings.id, id))
+            .where(
+              and(
+                eq(schema.recordings.id, id),
+                ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                eq(schema.recordings.status, "processing"),
+                existing.uploadAttemptId
+                  ? eq(
+                      schema.recordings.uploadAttemptId,
+                      existing.uploadAttemptId,
+                    )
+                  : isNull(schema.recordings.uploadAttemptId),
+                generationId
+                  ? eq(schema.recordings.uploadGenerationId, generationId)
+                  : isNull(schema.recordings.uploadGenerationId),
+              ),
+            )
             .returning({
               uploadAttemptId: schema.recordings.uploadAttemptId,
               recordingPlatform: schema.recordings.recordingPlatform,
             });
+          if (!failedRecording) {
+            const [current] = await db
+              .select({ failureCode: schema.recordings.failureCode })
+              .from(schema.recordings)
+              .where(
+                and(
+                  eq(schema.recordings.id, id),
+                  ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                ),
+              );
+            if (current?.failureCode === "user_cancelled") {
+              return {
+                id,
+                status: "failed" as const,
+                aborted: true,
+                storageSetupRequired: false,
+                failureReason: "Recording cancelled by user",
+                durationMs: finalDurationMs,
+              };
+            }
+            throw new Error(
+              "Recording changed before storage failure was saved",
+            );
+          }
           trackRecordingFailure({
             recordingId: id,
             userId: ownerEmail,

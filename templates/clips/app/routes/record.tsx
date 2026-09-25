@@ -1398,7 +1398,9 @@ export default function RecordRoute() {
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
         const recordingPayload = {
-          recordingPlatform: "web" as const,
+          recordingPlatform: isMobileRecorderRuntime(navigator)
+            ? "mobile"
+            : "web",
           title: reportTitle ?? captureTitle.title,
           titleSource: reportTitle ? "context" : captureTitle.titleSource,
           sourceAppName: captureTitle.sourceAppName,
@@ -1704,7 +1706,9 @@ export default function RecordRoute() {
           ? `Bug report: ${bugReportTitle(reportContext)}`
           : null;
         const recordingPayload = {
-          recordingPlatform: "web" as const,
+          recordingPlatform: isMobileRecorderRuntime(navigator)
+            ? "mobile"
+            : "web",
           title:
             reportTitle ??
             (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),

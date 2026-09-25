@@ -74,7 +74,7 @@ describe("create-recording schema", () => {
     expect(parsed.recordingPlatform).toBe("desktop");
     expect(
       createRecordingSchema.safeParse({ recordingPlatform: "mobile" }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("keeps streaming opt-in optional for buffered-default recorder clients", () => {

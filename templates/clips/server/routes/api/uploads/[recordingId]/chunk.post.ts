@@ -808,6 +808,9 @@ export async function handleRecordingChunk(
           .select({
             id: schema.recordings.id,
             status: schema.recordings.status,
+            failureCode: schema.recordings.failureCode,
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            uploadGenerationId: schema.recordings.uploadGenerationId,
             videoUrl: schema.recordings.videoUrl,
             videoSizeBytes: schema.recordings.videoSizeBytes,
             durationMs: schema.recordings.durationMs,
@@ -876,6 +879,19 @@ export async function handleRecordingChunk(
             hasCamera: committed.hasCamera,
           };
         }
+        if (
+          committed?.status === "failed" &&
+          committed.failureCode === "user_cancelled"
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            finalized: false,
+            aborted: true,
+            status: "failed",
+            error: "Recording was cancelled before it finished saving.",
+          };
+        }
         if (committed?.status === "processing" && committed.videoUrl) {
           const pendingState = pendingMediaVerificationState(
             await readAppState(`recording-upload-${recordingId}`).catch(
@@ -886,18 +902,6 @@ export async function handleRecordingChunk(
             return acceptedProcessingResponse(event, recordingId, pendingState);
           }
         }
-        trackUploadBlockingFailure(
-          ownerEmail,
-          recordingId,
-          attemptId,
-          existing.recordingPlatform,
-          {
-            stage: "finalize_recording",
-            outcome: "failed",
-            failure_type: classifyTrackingFailure(err),
-            upload_mode: "buffered",
-          },
-        );
         const failed = await db
           .update(schema.recordings)
           .set({
@@ -912,12 +916,49 @@ export async function handleRecordingChunk(
               eq(schema.recordings.id, recordingId),
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
               eq(schema.recordings.status, "processing"),
+              attemptId
+                ? eq(schema.recordings.uploadAttemptId, attemptId)
+                : isNull(schema.recordings.uploadAttemptId),
+              uploadGenerationId
+                ? eq(schema.recordings.uploadGenerationId, uploadGenerationId)
+                : isNull(schema.recordings.uploadGenerationId),
             ),
           )
           .returning({ id: schema.recordings.id });
         if (failed.length !== 1) {
+          if (
+            committed?.status === "failed" &&
+            committed.failureCode === "chunk_assembly_failed" &&
+            (committed.uploadAttemptId ?? null) === attemptId &&
+            (committed.uploadGenerationId ?? null) === uploadGenerationId
+          ) {
+            trackUploadBlockingFailure(
+              ownerEmail,
+              recordingId,
+              attemptId,
+              existing.recordingPlatform,
+              {
+                stage: "finalize_recording",
+                outcome: "failed",
+                failure_type: classifyTrackingFailure(err),
+                upload_mode: "buffered",
+              },
+            );
+          }
           throw err;
         }
+        trackUploadBlockingFailure(
+          ownerEmail,
+          recordingId,
+          attemptId,
+          existing.recordingPlatform,
+          {
+            stage: "finalize_recording",
+            outcome: "failed",
+            failure_type: classifyTrackingFailure(err),
+            upload_mode: "buffered",
+          },
+        );
         trackRecordingFailure({
           recordingId,
           userId: ownerEmail,

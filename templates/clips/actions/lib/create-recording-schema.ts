@@ -29,7 +29,7 @@ export const createRecordingSchema = z.object({
     .string()
     .trim()
     .toLowerCase()
-    .pipe(z.enum(["web", "desktop", "extension"]))
+    .pipe(z.enum(["web", "desktop", "extension", "mobile"]))
     .optional()
     .describe("Recorder platform"),
   sourceWindowTitle: z
