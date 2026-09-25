@@ -160,8 +160,6 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(onConnect).not.toHaveBeenCalled();
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent).not.toBeNull();
-    // The model menu is z-320 and the New Deck dialog is z-200. A lower
-    // layer paints the choice under both, so the click looks dead.
     expect(consent?.className).toContain("z-[330]");
   });
 
