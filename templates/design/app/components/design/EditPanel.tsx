@@ -959,25 +959,6 @@ function CreateComponentPopover({
  * (editable) code inspection once the editor bundle is wired into the inspector.
  */
 function InspectCodePopover({ data }: { data: InspectCodeData }) {
-  const [copied, setCopied] = useState(false);
-  const html = data.html ?? "";
-  const source = data.sourceLocation ?? null;
-  const snippet =
-    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
-
-  const handleCopy = () => {
-    if (!snippet) return;
-    void navigator.clipboard
-      ?.writeText(snippet)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {
-        /* clipboard may be unavailable; ignore */
-      });
-  };
-
   return (
     <Popover>
       <Tooltip>
@@ -1001,62 +982,87 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-            {"Inspect code" /* i18n-ignore design inspector label */}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px]"
-            onClick={handleCopy}
-            disabled={!snippet}
-          >
-            {
-              copied
-                ? "Copied" /* i18n-ignore design inspector action */
-                : "Copy" /* i18n-ignore design inspector action */
-            }
-          </Button>
-        </div>
-
-        {source ? <SourceLocationSummary source={source} /> : null}
-
-        {snippet ? (
-          <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
-            <code>{highlightedHtml(snippet)}</code>
-          </pre>
-        ) : (
-          <p className="px-1 py-2 text-muted-foreground">
-            {
-              "No source available for this element." /* i18n-ignore design inspector empty */
-            }
-          </p>
-        )}
-
-        {source?.absolutePath ? (
-          <a
-            href={vscodeDeepLink(
-              source.absolutePath,
-              source.line,
-              source.column,
-            )}
-            className="block"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 w-full gap-1.5 !text-[11px]"
-            >
-              <IconExternalLink className="size-3.5" />
-              {"Open in VS Code" /* i18n-ignore design inspector action */}
-            </Button>
-          </a>
-        ) : null}
+        <InspectCodePopoverBody data={data} />
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Formatting a large element's markup costs hundreds of ms, so it runs only
+// while the popover is open (closed PopoverContent is unmounted).
+function InspectCodePopoverBody({ data }: { data: InspectCodeData }) {
+  const [copied, setCopied] = useState(false);
+  const html = data.html ?? "";
+  const source = data.sourceLocation ?? null;
+  const snippet =
+    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {
+        /* clipboard may be unavailable; ignore */
+      });
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+          {"Inspect code" /* i18n-ignore design inspector label */}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={handleCopy}
+          disabled={!snippet}
+        >
+          {
+            copied
+              ? "Copied" /* i18n-ignore design inspector action */
+              : "Copy" /* i18n-ignore design inspector action */
+          }
+        </Button>
+      </div>
+
+      {source ? <SourceLocationSummary source={source} /> : null}
+
+      {snippet ? (
+        <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+          <code>{highlightedHtml(snippet)}</code>
+        </pre>
+      ) : (
+        <p className="px-1 py-2 text-muted-foreground">
+          {
+            "No source available for this element." /* i18n-ignore design inspector empty */
+          }
+        </p>
+      )}
+
+      {source?.absolutePath ? (
+        <a
+          href={vscodeDeepLink(source.absolutePath, source.line, source.column)}
+          className="block"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 w-full gap-1.5 !text-[11px]"
+          >
+            <IconExternalLink className="size-3.5" />
+            {"Open in VS Code" /* i18n-ignore design inspector action */}
+          </Button>
+        </a>
+      ) : null}
+    </>
   );
 }
 

@@ -3480,7 +3480,7 @@ function buildProjection(
  */
 const PROJECTION_CACHE_MAX_CHARS = 16_000_000;
 const PROJECTION_CACHE_ENTRY_FLOOR_CHARS = 2_048;
-const projectionCache = new Map<string, Map<string, CodeLayerProjection>>();
+const projectionCache = new Map<string, Map<string, ProjectionBuild>>();
 let projectionCacheChars = 0;
 
 function projectionCacheEntryChars(html: string, sourceKey: string): number {
@@ -3507,11 +3507,18 @@ export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
 ): CodeLayerProjection {
+  return cachedProjectionBuild(html, options.source).projection;
+}
+
+function cachedProjectionBuild(
+  html: string,
+  sourceOption: CodeLayerSource | undefined,
+): ProjectionBuild {
   // Defensive: callers (memos/effects) may project before content has loaded
   // (e.g. `activeContent` is briefly undefined on first render). Projecting a
   // non-string must yield an empty projection, never crash the editor.
   const safeHtml = typeof html === "string" ? html : "";
-  const source = options.source ?? { kind: "inline-html" };
+  const source = sourceOption ?? { kind: "inline-html" };
   const sourceKey = projectionSourceKey(source);
   const bySource = projectionCache.get(safeHtml);
   if (bySource) {
@@ -3525,13 +3532,10 @@ export function buildCodeLayerProjection(
       return cached;
     }
   }
-  const projection = buildProjection(safeHtml, source).projection;
+  const build = buildProjection(safeHtml, source);
   projectionCache.set(
     safeHtml,
-    (bySource ?? new Map<string, CodeLayerProjection>()).set(
-      sourceKey,
-      projection,
-    ),
+    (bySource ?? new Map<string, ProjectionBuild>()).set(sourceKey, build),
   );
   projectionCacheChars += projectionCacheEntryChars(safeHtml, sourceKey);
   evict: for (const [oldestHtml, oldestBySource] of projectionCache) {
@@ -3550,7 +3554,7 @@ export function buildCodeLayerProjection(
     }
     projectionCache.delete(oldestHtml);
   }
-  return projection;
+  return build;
 }
 
 /** Drops every cached projection. Exists for tests that assert projection
@@ -4283,10 +4287,7 @@ export function resolveCodeLayerTarget(
   target: EditIntentTarget,
   options: { source?: CodeLayerSource } = {},
 ): { projection: CodeLayerProjection; resolution: EditIntentResolution } {
-  const build = buildProjection(
-    html,
-    options.source ?? { kind: "inline-html" },
-  );
+  const build = cachedProjectionBuild(html, options.source);
   return {
     projection: build.projection,
     resolution: resolveTarget(build, target),
