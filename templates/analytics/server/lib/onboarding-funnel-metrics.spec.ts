@@ -78,7 +78,7 @@ describe("onboarding funnel metrics", () => {
       [
         `event-${nextRowId++}`,
         eventName,
-        Object.hasOwn(options, "email")
+        Object.prototype.hasOwnProperty.call(options, "email")
           ? options.email
           : `${authUserId}@example.com`,
         options.anonymousId ?? `anon-${authUserId}`,
