@@ -756,8 +756,10 @@ async function inviteOne(
       .catch(() => {});
     // coercion-ok: telemetry must never block or fail an invite.
     registerBackgroundWork(event, inviteSentPromise);
-  } catch {
-    // Tracking must never block or fail an invite.
+  } catch (error) {
+    // Tracking must never block or fail an invite, but a swallowed failure
+    // here should still be visible instead of silently disappearing.
+    console.warn("[org] Could not emit invite_sent telemetry", error);
   }
 
   let emailSent = false;
