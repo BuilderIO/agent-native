@@ -163,6 +163,8 @@ type SimpleMessage = {
     | "CLIPS_OFFSCREEN_RESTART"
     | "CLIPS_OFFSCREEN_START_NOW";
   sessionId: string;
+  failureCode?: "user_cancelled";
+  reason?: string;
 };
 
 type CopyTextMessage = {
@@ -1024,7 +1026,7 @@ function uploadAbortUrl(uploadUrl: string): string | null {
   }
 }
 
-async function abortServerUpload(
+export async function abortServerUpload(
   recording: ActiveRecording,
   reason: string,
   failureCode = "upload_failed",
@@ -1043,7 +1045,7 @@ async function abortServerUpload(
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   const timer = controller
-    ? window.setTimeout(() => controller.abort(), 4_000)
+    ? globalThis.setTimeout(() => controller.abort(), 4_000)
     : undefined;
   try {
     const response = await fetch(url, {
@@ -1063,7 +1065,7 @@ async function abortServerUpload(
   } catch (err) {
     console.warn("[clips-offscreen] abort upload failed", err);
   } finally {
-    if (timer) window.clearTimeout(timer);
+    if (timer) globalThis.clearTimeout(timer);
   }
 }
 
@@ -1817,7 +1819,7 @@ async function stop(
   return { ok: true, result: await recording.stopped };
 }
 
-function cancel(message: SimpleMessage): { ok: boolean } {
+async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
@@ -1829,6 +1831,13 @@ function cancel(message: SimpleMessage): { ok: boolean } {
     if (recording.recorder.state !== "inactive") recording.recorder.stop();
     cleanup(recording);
     activeRecording = null;
+    if (message.failureCode === "user_cancelled") {
+      await abortServerUpload(
+        recording,
+        message.reason ?? "Recording cancelled by user",
+        "user_cancelled",
+      );
+    }
   } else if (prepared && prepared.sessionId === message.sessionId) {
     stopPreparedStreams();
     disposePrepared();

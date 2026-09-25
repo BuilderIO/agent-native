@@ -2105,6 +2105,8 @@ async function cancelRecording(force = false) {
   await sendOffscreenMessage({
     type: "CLIPS_OFFSCREEN_CANCEL",
     sessionId: recording.sessionId,
+    failureCode: "user_cancelled",
+    reason: "Recording cancelled by user",
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
   await postAction(settingsFromRecording(recording), "trash-recording", {

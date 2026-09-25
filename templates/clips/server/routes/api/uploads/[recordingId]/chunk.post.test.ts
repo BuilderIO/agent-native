@@ -30,6 +30,8 @@ const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockShouldRejectVideoUploadWithoutStorage = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockUpdateRows = vi.hoisted(() => ({ current: [{ id: "rec-1" }] }));
+const mockEqCalls = vi.hoisted(() => [] as unknown[][]);
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -41,12 +43,17 @@ const mockDb = vi.hoisted(() => ({
     };
     return builder;
   }),
-  update: vi.fn(() => ({
-    set: vi.fn((values: Record<string, unknown>) => {
-      mockUpdateSets.push(values);
-      return { where: vi.fn(async () => undefined) };
-    }),
-  })),
+  update: vi.fn(() => {
+    const builder = {
+      set: vi.fn((values: Record<string, unknown>) => {
+        mockUpdateSets.push(values);
+        return builder;
+      }),
+      where: vi.fn(() => builder),
+      returning: vi.fn(async () => mockUpdateRows.current),
+    };
+    return builder;
+  }),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -70,7 +77,11 @@ vi.mock("@agent-native/core/tracking", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
-  eq: vi.fn(() => "eq"),
+  eq: (...args: unknown[]) => {
+    mockEqCalls.push(args);
+    return "eq";
+  },
+  isNull: vi.fn(() => "is-null"),
 }));
 
 vi.mock("h3", () => ({
@@ -105,6 +116,7 @@ vi.mock("../../../../db/index.js", () => ({
       hasCamera: "recordings.hasCamera",
       uploadProgress: "recordings.uploadProgress",
       uploadGenerationId: "recordings.uploadGenerationId",
+      uploadAttemptId: "recordings.uploadAttemptId",
       updatedAt: "recordings.updatedAt",
     },
   },
@@ -177,6 +189,8 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     vi.clearAllMocks();
     mockAppState.clear();
     mockUpdateSets.length = 0;
+    mockUpdateRows.current = [{ id: "rec-1" }];
+    mockEqCalls.length = 0;
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -1029,6 +1043,46 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
     expect(chunkKeys()).toEqual([]);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("does not classify an oversized chunk after an abort wins the state race", async () => {
+    mockSelectRows.rows[0]!.uploadAttemptId = "attempt-1";
+    mockAppState.set(`${CHUNK_PREFIX}000000`, {
+      recordingId: "rec-1",
+      index: 0,
+      bytes: MAX_UPLOAD_BYTES,
+    });
+    let renewals = 0;
+    mockRenewUploadLease.mockImplementation(async () => {
+      renewals += 1;
+      if (renewals === 2) mockUpdateRows.current = [];
+      return { held: true };
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "0",
+        mimeType: "video/webm",
+        attemptId: "attempt-1",
+      },
+      body: new Uint8Array([1, 2, 3, 4, 5]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockEqCalls).toContainEqual(["recordings.status", "uploading"]);
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadAttemptId",
+      "attempt-1",
+    ]);
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
   });
 
   it("relays a fresh resumable chunk to the provider and advances the committed offset", async () => {

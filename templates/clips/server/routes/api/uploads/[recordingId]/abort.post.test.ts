@@ -14,6 +14,7 @@ const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockEqCalls = vi.hoisted(() => [] as unknown[][]);
 const mockUpdateRows = vi.hoisted(() => ({
   rows: [{ id: "rec-1" }] as Array<{
     id: string;
@@ -57,7 +58,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
-  eq: vi.fn(() => "eq"),
+  eq: (...args: unknown[]) => {
+    mockEqCalls.push(args);
+    return "eq";
+  },
   isNull: vi.fn(() => "is-null"),
 }));
 
@@ -119,6 +123,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       },
     ];
     mockUpdateSets.length = 0;
+    mockEqCalls.length = 0;
     mockUpdateRows.rows = [{ id: "rec-1" }];
     mockGetRouterParam.mockReturnValue("rec-1");
     mockReadBody.mockResolvedValue({
@@ -251,6 +256,67 @@ describe("/api/uploads/:recordingId/abort route", () => {
           failureReason: "Finalization failed after upload",
         }),
       }),
+    ]);
+  });
+
+  it("rejects an abort from an older generation with the same attempt ID", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-current",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed",
+      failureCode: "upload_failed",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-old",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+  });
+
+  it("fences the update by generation even when an attempt ID is present", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-current",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed",
+      failureCode: "upload_failed",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-current",
+    });
+
+    await handler({} as any);
+
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadAttemptId",
+      "attempt-1",
+    ]);
+    expect(mockEqCalls).toContainEqual([
+      "recordings.uploadGenerationId",
+      "generation-current",
     ]);
   });
 

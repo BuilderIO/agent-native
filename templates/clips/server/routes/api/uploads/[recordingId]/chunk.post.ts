@@ -21,7 +21,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { classifyTrackingFailure, track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -431,6 +431,35 @@ export async function handleRecordingChunk(
       );
     };
 
+    const failCurrentUpload = async (
+      failureCode: "storage_setup_required" | "recording_too_large",
+      failureReason: string,
+    ) => {
+      const failed = await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureCode,
+          failureReason,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, "uploading"),
+            attemptId === null
+              ? isNull(schema.recordings.uploadAttemptId)
+              : eq(schema.recordings.uploadAttemptId, attemptId),
+            uploadGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      return failed.length === 1;
+    };
+
     if (isFinal && existing.status === "processing") {
       const pendingState = pendingMediaVerificationState(
         await readAppState(`recording-upload-${recordingId}`).catch(() => null),
@@ -470,16 +499,20 @@ export async function handleRecordingChunk(
     if (await shouldRejectVideoUploadWithoutStorage()) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
+      if (
+        !(await failCurrentUpload(
+          "storage_setup_required",
+          STORAGE_SETUP_REQUIRED_REASON,
+        ))
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
       const now = new Date().toISOString();
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: "storage_setup_required",
-          failureReason: STORAGE_SETUP_REQUIRED_REASON,
-          updatedAt: now,
-        })
-        .where(eq(schema.recordings.id, recordingId));
       trackRecordingFailure({
         recordingId,
         uploadAttemptId: attemptId,
@@ -547,16 +580,20 @@ export async function handleRecordingChunk(
     const failRecordingTooLarge = async (nextBytes: number) => {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
+      if (
+        !(await failCurrentUpload(
+          "recording_too_large",
+          RECORDING_TOO_LARGE_REASON,
+        ))
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
       const now = new Date().toISOString();
-      await db
-        .update(schema.recordings)
-        .set({
-          status: "failed",
-          failureCode: "recording_too_large",
-          failureReason: RECORDING_TOO_LARGE_REASON,
-          updatedAt: now,
-        })
-        .where(eq(schema.recordings.id, recordingId));
       trackRecordingFailure({
         recordingId,
         uploadAttemptId: attemptId,

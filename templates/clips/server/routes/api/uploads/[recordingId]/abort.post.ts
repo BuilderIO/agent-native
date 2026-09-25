@@ -151,8 +151,7 @@ export async function handleAbortRecordingUpload(
     const existingGenerationId = existing.uploadGenerationId ?? null;
     if (
       requestedAttemptId !== existingAttemptId ||
-      (requestedAttemptId === null &&
-        requestedGenerationId !== existingGenerationId)
+      requestedGenerationId !== existingGenerationId
     ) {
       setResponseStatus(event, 409);
       return {
@@ -247,11 +246,9 @@ export async function handleAbortRecordingUpload(
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
-          existingAttemptId === null
-            ? existingGenerationId === null
-              ? isNull(schema.recordings.uploadGenerationId)
-              : eq(schema.recordings.uploadGenerationId, existingGenerationId)
-            : undefined,
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
         ),
       )
       .returning({

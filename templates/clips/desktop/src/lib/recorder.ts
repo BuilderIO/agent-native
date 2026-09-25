@@ -3126,7 +3126,7 @@ async function tryStartRewindFullscreenRecording(
         params.serverUrl,
       );
     }
-    if (!localOnly && id) {
+    if (!localOnly && id && !isCountdownCancelledError(err)) {
       const diagnostics = uploadFailureDiagnostics(err);
       await abortRecordingUpload(
         params.serverUrl,
