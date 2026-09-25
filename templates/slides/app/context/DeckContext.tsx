@@ -1084,33 +1084,36 @@ function enqueueDeckOp(
 }
 
 /**
- * Settles a queued content write for a slide against an editor draft that is
- * back at the committed content. A queued draft is dropped when the server
- * holds the committed content: coalescing the revert into it would send a
- * write that changes nothing. Returns false when the revert must still be
- * sent, to undo a draft that already left the queue.
+ * Settles an editor draft that is back at the committed content. Unsent
+ * drafts of the slide are dropped from the queue; when that leaves the server
+ * holding (or about to hold) the committed content, the revert is a write that
+ * changes nothing and returns true. Returns false when the revert must still
+ * be sent, to undo a draft that already left the queue.
  */
 function settleQueuedContentDraft(
   deckId: string,
   slideId: string,
   committedContent: string,
 ): boolean {
-  const queue = pendingOpsQueue.get(deckId);
-  const last = queue?.[queue.length - 1];
-  if (
-    !queue ||
-    last?.op !== "patch-slide" ||
-    last.slideId !== slideId ||
-    Object.keys(last.fields).length !== 1 ||
-    typeof last.fields.content !== "string"
-  ) {
-    return false;
+  const queue = pendingOpsQueue.get(deckId) ?? [];
+  for (;;) {
+    const index = queue.findLastIndex(
+      (op) =>
+        op.op === "full-replace" ||
+        (op.op === "patch-slide"
+          ? op.slideId === slideId && typeof op.fields.content === "string"
+          : "slideId" in op && op.slideId === slideId),
+    );
+    if (index < 0) break;
+    const op = queue[index];
+    if (op.op !== "patch-slide") return false;
+    if (op.fields.content === committedContent) return true;
+    // Anything but a content-only draft also changed other fields.
+    if (Object.keys(op.fields).length !== 1) return false;
+    queue.splice(index, 1);
   }
-  if (last.fields.content === committedContent) return true;
   const sent = sentSlideContent.get(deckId)?.get(slideId);
-  if (sent !== undefined && sent !== committedContent) return false;
-  queue.pop();
-  return true;
+  return sent === undefined || sent === committedContent;
 }
 
 /**

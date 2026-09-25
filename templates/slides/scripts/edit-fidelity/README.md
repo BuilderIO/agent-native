@@ -43,6 +43,8 @@ because it creates and rewrites decks.
 | `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                         |
 | `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                  |
 | `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                    |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                         |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                |
 | `--headed`                     | Show the browser                                                                        |
 
 Exit codes:
@@ -51,7 +53,15 @@ Exit codes:
 - **1**: a regression, a missing baseline entry, a baselined scenario that did
   not run, or a slide that errored.
 - **2**: the harness could not run. Causes include a bad corpus, a non-localhost
-  URL, a server that never started, or a run where no scenario ran.
+  URL, a server that never started, a run where no scenario ran, or a browser
+  that closed before every case ran.
+
+An error from the dev server or the browser (a navigation or selector
+timeout, a page reload, a closed page) is retried once on a fresh page. If it
+repeats, the result is marked `infra` and counted as `infra-error`, apart from
+editor failures. A run cut short, by a reboot for example, continues with
+`--resume <run>`: it skips every scenario whose `result.json` exists with a
+status other than `error`, and every slide whose scenarios all have one.
 
 A run that exercised nothing never exits 0.
 
@@ -170,9 +180,10 @@ deltas for editing/after, the html diff, and the violation count.
     must be ~0.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
     must be ~0.
-  - `append`: view→after outside must be ~0.
-  - `enter3`: view→after outside is reported but not enforced, because added
-    lines legitimately move following content in flow layouts.
+  - `append` / `enter3`: view→after outside must be ~0 while the edited
+    element keeps its size. Once it grows or shrinks, the content after it
+    legitimately moves, and the outside style and stored-bytes checks below
+    carry the rule instead.
 - **Computed styles.** Every element with its own text yields a text record.
   It carries these longhands: font family, size, weight and style;
   line-height; letter-spacing and word-spacing; text-transform; color and
@@ -183,7 +194,9 @@ deltas for editing/after, the html diff, and the violation count.
   - Every element that paints yields a box record: background, border,
     box-shadow, or an svg/img/hr, including `::before`/`::after`. It carries
     display, margins, paddings, border width/style/color per side, radii,
-    background color/image, box-shadow, opacity and visibility.
+    background color/image, box-shadow, opacity and visibility. An `auto`
+    margin is recorded as `auto`, not as the length it resolves to, because
+    that length moves whenever a flex sibling grows.
   - Geometry (x/y/width/height, 1px tolerance) is counted separately.
   - Editing must add 0 style deltas and lose 0 styled elements.
   - `noop` / `typedelete` / `clickout` must add 0 style or geometry deltas, 0
@@ -191,8 +204,10 @@ deltas for editing/after, the html diff, and the violation count.
   - `append` / `enter3` must add 0 style deltas outside the edited element.
 - **Writes.** Every `patch-deck`, `save-deck` or `update-slide` request from
   entering edit to the end of the scenario (the `typedelete` rerun included)
-  is recorded in `result.json`. `noop` / `typedelete` / `clickout` must send
-  none.
+  is recorded in `result.json`: `writeDetails` has each request's slides,
+  fields, phase (`edit` or the `rerun`), and whether its content equals the
+  stored string, and `writeStacks` has the client call stack of each.
+  `noop` / `typedelete` / `clickout` must send none.
 - **Saved bytes.** For `append` / `enter3`, the edited element is located in
   the stored source by tag, text and occurrence, and the saved string must
   start with every stored byte before it and end with every stored byte after

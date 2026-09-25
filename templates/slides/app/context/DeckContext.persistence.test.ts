@@ -725,6 +725,42 @@ describe("DeckContext deck creation persistence", () => {
       expect(patchContents(fetchMock)).toEqual([typed, styled]);
     });
 
+    it("writes nothing for a draft back at content the server holds", async () => {
+      const { fetchMock, result } = await openStyledDeck("draft-noop-deck");
+      const typed = styled.replace("Before", "Beforex");
+      act(() => {
+        // A draft the editor saw but never queued, then the typed-back one.
+        result.current.updateSlide(
+          "draft-noop-deck",
+          "slide-1",
+          { content: styled },
+          { preserveLocalState: true },
+        );
+        result.current.updateSlide(
+          "draft-noop-deck",
+          "slide-1",
+          { content: typed },
+          { preserveLocalState: true },
+        );
+        result.current.updateSlide(
+          "draft-noop-deck",
+          "slide-1",
+          { notes: "queued after the draft" },
+          { persistence: "debounced" },
+        );
+        result.current.updateSlide(
+          "draft-noop-deck",
+          "slide-1",
+          { content: styled },
+          { preserveLocalState: true },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave("draft-noop-deck");
+      });
+      expect(patchContents(fetchMock)).toEqual([undefined]);
+    });
+
     it("pads the slide root only when the write changed it", async () => {
       const { fetchMock, result } = await openStyledDeck("padding-deck");
       const edited = styled.replace("Before", "After");

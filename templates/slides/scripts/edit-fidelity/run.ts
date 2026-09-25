@@ -78,6 +78,7 @@ const VALUE_FLAGS = new Set([
   "--scenarios",
   "--concurrency",
   "--resume",
+  "--cpu-throttle",
 ]);
 const opt = (name: string) => {
   const i = argv.indexOf(name);
@@ -119,6 +120,7 @@ const slideFilter = listOpt("--slides")?.map(Number);
 const targetFilter = listOpt("--targets")?.map(Number);
 const scenarios = (listOpt("--scenarios") ?? [...SCENARIOS]) as Scenario[];
 const concurrency = numOpt("--concurrency", 1);
+const cpuThrottle = numOpt("--cpu-throttle", 1);
 const update = argv.includes("--update");
 const headed = argv.includes("--headed");
 for (const s of scenarios) {
@@ -850,7 +852,7 @@ async function runScenario(
     if (!result.gesture) {
       result.status = "no-edit";
       result.violations.push(
-        "could not enter edit mode with click, click-click or double-click",
+        `could not enter edit mode with click, click-click or double-click${current.covered ? " (another element covers the target's click point)" : ""}`,
       );
       return result;
     }
@@ -1562,6 +1564,10 @@ async function main() {
     const queue = [...cases];
     const openWorkerPage = async () => {
       const page = await context.newPage();
+      if (cpuThrottle > 1) {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle });
+      }
       await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
       return page;
     };
