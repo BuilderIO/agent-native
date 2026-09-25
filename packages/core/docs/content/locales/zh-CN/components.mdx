@@ -228,6 +228,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 嵌套分类使用 `children`。叶级操作使用 `onSelect()`，并可通过 `render(controls)` 在弹出层内提供选择器。`ComposerContextMenu` 和 `ComposerContextSearchInput` 均为公开导出。`attachButton` 可保留应用自己的上传流程。
 
+分类可提供本地化的 `searchPlaceholder`。未提供时使用根级搜索占位文本。向 `ComposerContextMenu` 传入 `addAttachment` 会将标准上传操作放在首位，并保留宿主的文件处理回调。
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

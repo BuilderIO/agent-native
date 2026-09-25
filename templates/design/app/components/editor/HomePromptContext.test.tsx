@@ -30,12 +30,17 @@ vi.mock("@agent-native/core/client/composer", async (original) => ({
   ComposerContextSearchInput: ({
     value,
     onValueChange,
+    placeholder,
+    "aria-label": ariaLabel,
   }: {
     value?: string;
     onValueChange?: (value: string) => void;
+    placeholder?: string;
+    "aria-label"?: string;
   }) => (
     <input
-      aria-label="search"
+      aria-label={ariaLabel}
+      placeholder={placeholder}
       value={value}
       onInput={(event) => onValueChange?.(event.currentTarget.value)}
     />
@@ -132,6 +137,32 @@ afterEach(async () => {
 });
 
 describe("home prompt context", () => {
+  it("nests only the supported design sources in the agreed order", async () => {
+    await render();
+    expect(controller.menuItems.map((item) => item.id)).toEqual(["design"]);
+    expect(controller.menuItems[0]).toMatchObject({
+      searchPlaceholder: "homeContext.searchDesign",
+    });
+    expect(
+      controller.menuItems[0].children?.map(({ id, label }) => ({ id, label })),
+    ).toEqual([
+      { id: "system", label: "homeContext.useDesignSystem" },
+      { id: "figma-reference", label: "homeContext.figmaReference" },
+      { id: "design-reference", label: "homeContext.referenceDesign" },
+      { id: "slides-reference", label: "homeContext.referenceDeck" },
+    ]);
+  });
+  it.each([
+    ["system", "homeContext.searchSystems"],
+    ["figma-reference", "homeContext.searchFrames"],
+    ["design-reference", "homeContext.searchDesigns"],
+    ["slides-reference", "homeContext.searchPresentations"],
+  ])("gives %s search a localized accessible purpose", async (page, label) => {
+    await render(page);
+    const input = container.querySelector("input")!;
+    expect(input.getAttribute("aria-label")).toBe(label);
+    expect(input.placeholder).toBe(label);
+  });
   it("clears selected context on identity change and rejects old in-flight reads", async () => {
     const old = deferred<unknown>();
     mocks.call.mockReturnValueOnce(old.promise);
@@ -342,35 +373,35 @@ describe("home prompt context", () => {
     await click("homeContext.retry");
     expect(mocks.retry).toHaveBeenCalledOnce();
   });
-  it("marks the selected template and shows loading/error/empty selection states", async () => {
+  it("marks the selected system and shows loading/error/empty selection states", async () => {
     props = {
       ...props,
-      templateId: "tpl",
-      templates: [{ id: "tpl", title: "Chosen", isBuiltIn: true }],
+      systemId: "system",
+      systems: [{ id: "system", title: "Chosen", ready: true }],
     };
-    await render("templates");
+    await render("system");
     expect(
       Array.from(container.querySelectorAll("button"))
         .find((item) => item.textContent === "Chosen")
         ?.querySelector("svg"),
     ).toBeTruthy();
-    props = { ...props, templates: [], templatesLoading: true };
-    await render("templates");
+    props = { ...props, systems: [], systemsLoading: true };
+    await render("system");
     expect(container.querySelector("[data-empty]")).toBeNull();
     props = {
       ...props,
-      templatesLoading: false,
-      templatesError: new Error("Action failed: Catalog failed"),
-      retryTemplates: mocks.retry,
+      systemsLoading: false,
+      systemsError: new Error("Action failed: Catalog failed"),
+      retrySystems: mocks.retry,
     };
-    await render("templates");
+    await render("system");
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Catalog failed",
     );
     await click("homeContext.retry");
     expect(mocks.retry).toHaveBeenCalledOnce();
-    props = { ...props, templatesError: undefined };
-    await render("templates");
+    props = { ...props, systemsError: undefined };
+    await render("system");
     expect(container.querySelector("[data-empty]")).toBeTruthy();
   });
   it("binds frozen system context to the selected id rather than the previous render", async () => {

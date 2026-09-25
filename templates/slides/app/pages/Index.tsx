@@ -29,7 +29,6 @@ import {
   IconArrowRight,
   IconRefresh,
   IconSearch,
-  IconUpload,
   IconTrendingUp,
   IconNotes,
   IconFileTypePdf,
@@ -56,7 +55,7 @@ import {
   HomeQuickStartDialog,
   type HomeQuickStart,
 } from "@/components/editor/HomeQuickStartDialog";
-import { ImportDeckDialog } from "@/components/editor/ImportDeckDialog";
+import { ImportDeckButton } from "@/components/editor/ImportDeckButton";
 import {
   NewDeckReferenceStep,
   type ImportedReference,
@@ -70,6 +69,8 @@ import type {
   PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
+import { usePromptImport } from "@/components/editor/use-prompt-import";
+import { HomeHeaderActions } from "@/components/layout/Header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -508,16 +509,6 @@ export default function Index() {
     systemsLoading: designSystemsLoading,
     retrySystems: refetchDesignSystems,
   });
-  const setImportOpen = (open: boolean) =>
-    setSearchParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        if (open) next.set("import", "deck");
-        else next.delete("import");
-        return next;
-      },
-      { replace: true },
-    );
   const createdByParam = searchParams.get("createdBy");
   const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
   const normalizedDeckSearch = deckSearch.trim().toLowerCase();
@@ -1941,17 +1932,24 @@ export default function Index() {
   );
 
   useSetPageTitle(t("home.decksTitle"));
+  const deckImport = usePromptImport({ onImport: handleDirectImport });
 
   useSetHeaderActions(
     useMemo(
       () => (
-        <DeckSearchInput
-          value={deckSearch}
-          onChange={setDeckSearch}
-          className="w-full"
-        />
+        <HomeHeaderActions
+          search={
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full"
+            />
+          }
+        >
+          <ImportDeckButton controller={deckImport} />
+        </HomeHeaderActions>
       ),
-      [deckSearch],
+      [deckSearch, deckImport],
     ),
   );
 
@@ -1982,10 +1980,7 @@ export default function Index() {
           onChange={setDeckSearch}
           className="w-full"
         />
-        <Button onClick={() => setImportOpen(true)}>
-          <IconUpload />
-          {t("home.importDeck")}
-        </Button>
+        <ImportDeckButton controller={deckImport} />
       </div>
       <section className="slides-home-hero relative">
         {agentEngine.missing ? (
@@ -2119,11 +2114,6 @@ export default function Index() {
           homeComposerRef.current?.submitSource(prompt, files, sourceContext) ??
           false
         }
-      />
-      <ImportDeckDialog
-        open={searchParams.get("import") === "deck"}
-        onOpenChange={setImportOpen}
-        onImport={handleDirectImport}
       />
 
       {viewState === "loading" ? (

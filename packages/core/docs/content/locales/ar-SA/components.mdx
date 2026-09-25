@@ -233,6 +233,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 تستخدم الفئات المتداخلة `children`. تستخدم الإجراءات الطرفية `onSelect()` ويمكنها توفير `render(controls)` لمنتقي داخل النافذة المنبثقة. يتوفر `ComposerContextMenu` و`ComposerContextSearchInput` كتصديرين عامين. يحافظ `attachButton` على مسار الرفع الخاص بالتطبيق.
 
+يمكن للفئة توفير `searchPlaceholder` مترجم. تستخدم الفئات التي لا توفره نص البحث في المستوى الرئيسي. تؤدي إضافة `addAttachment` إلى `ComposerContextMenu` إلى وضع إجراء الرفع القياسي أولاً مع الحفاظ على دالة معالجة الملفات في التطبيق المضيف.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

@@ -803,8 +803,23 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    importMenu: {
+      import: "استيراد",
+      options: "خيارات الاستيراد",
+      invalidPdf: "اختر ملف PDF.",
+      invalidPptx: "اختر ملف PPTX.",
+      invalidFile: "اختر ملف PDF أو PPTX.",
+      notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+    },
     importDeck: "استيراد عرض",
     context: {
+      menu: {
+        system: "استخدام نظام تصميم",
+        figma: "إرفاق Figma",
+        design: "الاستعانة بتصميم",
+        deck: "الاستعانة بعرض تقديمي",
+        searchDesign: "البحث في التصميم…",
+      },
       loadFailed: "تعذر تحميل هذا المرجع. حاول مجددًا.",
       saveFailed: "تعذر حفظ اختيار السياق.",
       system: "أنظمة التصميم",

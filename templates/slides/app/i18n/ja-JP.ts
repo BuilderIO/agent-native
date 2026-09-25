@@ -790,8 +790,24 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    importMenu: {
+      import: "インポート",
+      options: "インポートのオプション",
+      invalidPdf: "PDFファイルを選択してください。",
+      invalidPptx: "PPTXファイルを選択してください。",
+      invalidFile: "PDFまたはPPTXファイルを選択してください。",
+      notStarted:
+        "必要なサインインを完了してから、インポートを再試行してください。",
+    },
     importDeck: "デッキをインポート",
     context: {
+      menu: {
+        system: "デザインシステムを使う",
+        figma: "Figmaを添付",
+        design: "デザインを参照",
+        deck: "プレゼンテーションを参照",
+        searchDesign: "デザインを検索…",
+      },
       loadFailed: "参照を読み込めませんでした。再試行してください。",
       saveFailed: "コンテキストの選択を保存できませんでした。",
       system: "デザインシステム",

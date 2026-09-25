@@ -779,8 +779,23 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    importMenu: {
+      import: "आयात करें",
+      options: "आयात के विकल्प",
+      invalidPdf: "PDF फ़ाइल चुनें।",
+      invalidPptx: "PPTX फ़ाइल चुनें।",
+      invalidFile: "PDF या PPTX फ़ाइल चुनें।",
+      notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+    },
     importDeck: "प्रस्तुति आयात करें",
     context: {
+      menu: {
+        system: "डिज़ाइन सिस्टम का उपयोग करें",
+        figma: "Figma संलग्न करें",
+        design: "डिज़ाइन का संदर्भ लें",
+        deck: "प्रस्तुति का संदर्भ लें",
+        searchDesign: "डिज़ाइन खोजें…",
+      },
       loadFailed: "यह संदर्भ लोड नहीं हो सका। फिर कोशिश करें।",
       saveFailed: "संदर्भ का चयन सहेजा नहीं जा सका।",
       system: "डिज़ाइन सिस्टम",

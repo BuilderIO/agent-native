@@ -235,6 +235,8 @@ El host puede preparar contexto ya autorizado y recibir una instantánea inmutab
 
 Las categorías anidadas usan `children`. Las acciones usan `onSelect()` y pueden proporcionar `render(controls)` para un selector dentro de la ventana emergente. `ComposerContextMenu` y `ComposerContextSearchInput` son públicos. `attachButton` conserva el flujo de carga propio de la aplicación.
 
+Cada categoría puede proporcionar un `searchPlaceholder` localizado. Las categorías que no lo incluyen usan el texto de búsqueda del nivel raíz. Al pasar `addAttachment` a `ComposerContextMenu`, la acción estándar de carga aparece primero y conserva la función de archivos de la aplicación anfitriona.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

@@ -230,6 +230,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 नेस्टेड श्रेणियाँ `children` का उपयोग करती हैं। अंतिम क्रियाएँ `onSelect()` और पॉपओवर में चयन के लिए वैकल्पिक `render(controls)` देती हैं। `ComposerContextMenu` और `ComposerContextSearchInput` सार्वजनिक हैं। `attachButton` ऐप का अपना अपलोड प्रवाह बनाए रखता है।
 
+श्रेणी स्थानीयकृत `searchPlaceholder` दे सकती है। इसके बिना श्रेणी मुख्य स्तर का खोज प्लेसहोल्डर इस्तेमाल करती है। `ComposerContextMenu` को `addAttachment` देने पर मानक अपलोड क्रिया पहले आती है और होस्ट का फ़ाइल कॉलबैक बना रहता है।
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

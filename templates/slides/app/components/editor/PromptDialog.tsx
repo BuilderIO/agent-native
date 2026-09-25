@@ -37,6 +37,16 @@ import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
+import {
+  usePromptImport,
+  type PromptImportSelection,
+  type PromptImportSource,
+} from "./use-prompt-import";
+
+export type {
+  PromptImportSelection,
+  PromptImportSource,
+} from "./use-prompt-import";
 
 export type { UploadedFile } from "@/lib/prompt-file-uploads";
 
@@ -107,12 +117,6 @@ export async function createPromptChatAttachments(
 
   return result;
 }
-
-export type PromptImportSource = "pdf" | "pptx" | "google-slides";
-
-export type PromptImportSelection =
-  | { kind: "pdf" | "pptx"; files: File[] }
-  | { kind: "google-slides"; url: string };
 
 export interface PromptAttachmentActions {
   commit: () => void;
@@ -186,8 +190,6 @@ export default function PromptPopover({
   onOpenChange,
   title,
   placeholder = "Describe what you want...",
-  onSkip,
-  skipLabel = "Skip prompt",
   onSubmit,
   loading = false,
   disabled = false,
@@ -223,8 +225,6 @@ export default function PromptPopover({
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
     null,
   );
-  const [importingSource, setImportingSource] =
-    useState<PromptImportSource | null>(null);
   const activeAttachmentFilesRef = useRef<File[]>([]);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
@@ -533,26 +533,12 @@ export default function PromptPopover({
     [open, disabled, submissionDisabled, loading, uploading, promptText],
   );
 
-  const runImport = useCallback(
-    async (selection: PromptImportSelection) => {
-      if (!onImport) return;
-      setImportingSource(selection.kind);
-      try {
-        const shouldClose = await onImport(selection);
-        if (shouldClose !== false) onOpenChange(false);
-      } catch (error) {
-        toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
-        });
-      } finally {
-        setImportingSource(null);
-      }
-    },
-    [onImport, onOpenChange, t],
-  );
+  const { importingSource, runImport } = usePromptImport({
+    onImport,
+    onSuccess: () => onOpenChange(false),
+    onError: (description) =>
+      toast.error(t("raw.uploadFailed"), { description }),
+  });
 
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
@@ -589,7 +575,6 @@ export default function PromptPopover({
       setGoogleSlidesUrl("");
       setImportMode(null);
       setSelectedImportFile(null);
-      setImportingSource(null);
       if (!submitting && !retainingAttachmentsRef.current) {
         activeAttachmentFilesRef.current = [];
         setSubmitting(false);
@@ -639,18 +624,6 @@ export default function PromptPopover({
         {!inline && (
           <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
             <span className="text-sm font-medium text-foreground">{title}</span>
-            {onSkip && !importMode && !submitting && (
-              <button
-                type="button"
-                onClick={() => {
-                  onSkip();
-                  onOpenChange(false);
-                }}
-                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {skipLabel}
-              </button>
-            )}
           </div>
         )}
 
@@ -807,21 +780,6 @@ export default function PromptPopover({
                     <IconPresentation className="size-3.5" />
                     PPT
                   </Button>
-                  {inline && onSkip && !submitting && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="ms-auto"
-                      disabled={loading || uploading}
-                      onClick={() => {
-                        onSkip();
-                        onOpenChange(false);
-                      }}
-                    >
-                      {skipLabel}
-                    </Button>
-                  )}
                 </div>
               </div>
             )}

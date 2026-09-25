@@ -235,6 +235,8 @@ O aplicativo pode preparar contexto já autorizado e receber um retrato imutáve
 
 Categorias aninhadas usam `children`. Ações usam `onSelect()` e podem fornecer `render(controls)` para um seletor no popover. `ComposerContextMenu` e `ComposerContextSearchInput` são públicos. `attachButton` mantém o fluxo de upload do aplicativo.
 
+Uma categoria pode fornecer um `searchPlaceholder` localizado. Sem esse valor, ela usa o texto de busca do nível raiz. Passar `addAttachment` para `ComposerContextMenu` coloca a ação padrão de upload primeiro e preserva o callback de arquivos do aplicativo hospedeiro.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

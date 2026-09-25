@@ -137,7 +137,10 @@ describe("composer context", () => {
         );
       };
       await open();
-      expect(document.body.textContent).toContain("Attach files");
+      expect(document.body.textContent).toContain("Upload File");
+      expect(document.querySelector("[cmdk-item]")?.textContent).toBe(
+        "Upload File",
+      );
       await act(async () =>
         document
           .querySelector<HTMLElement>('[cmdk-item][data-value="category"]')!
@@ -149,7 +152,7 @@ describe("composer context", () => {
         ),
       ).toHaveLength(1);
       expect(document.body.textContent).toContain("Brief");
-      expect(document.body.textContent).not.toContain("Attach files");
+      expect(document.body.textContent).not.toContain("Upload File");
       const back = document.querySelector<HTMLButtonElement>(
         'button[aria-label="Back"]',
       )!;
@@ -299,6 +302,40 @@ describe("rendered composer context pages", () => {
 
   const popover = () =>
     document.querySelector('[data-agent-native-composer-popover="true"]');
+
+  it("uses the current category's search placeholder and restores the root fallback", async () => {
+    await render([
+      {
+        id: "design",
+        label: "Design",
+        searchPlaceholder: "Search design…",
+        children: [
+          {
+            id: "systems",
+            label: "Systems",
+            searchPlaceholder: "Search systems…",
+            children: [{ id: "system", label: "System", onSelect: selected }],
+          },
+          { id: "other", label: "Other", children: [] },
+        ],
+      },
+    ]);
+    const placeholder = () =>
+      document.querySelector<HTMLInputElement>("[cmdk-input]")?.placeholder;
+    await click('button[aria-label="Add context"]');
+    expect(placeholder()).toBe("Search context…");
+    await click('[cmdk-item][data-value="design"]');
+    expect(placeholder()).toBe("Search design…");
+    await click('[cmdk-item][data-value="systems"]');
+    expect(placeholder()).toBe("Search systems…");
+    await click('button[aria-label="Back"]');
+    expect(placeholder()).toBe("Search design…");
+    await click('[cmdk-item][data-value="other"]');
+    expect(placeholder()).toBe("Search context…");
+    await click('button[aria-label="Back"]');
+    await click('button[aria-label="Back"]');
+    expect(placeholder()).toBe("Search context…");
+  });
 
   it("opens the host synchronously and renders async updates in the same popover without remounting the composer", async () => {
     function Host() {

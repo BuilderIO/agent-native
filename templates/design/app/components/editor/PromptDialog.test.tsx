@@ -12,12 +12,15 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import PromptPopover, { assetsPickerUrl } from "./PromptDialog";
+import PromptPopover from "./PromptDialog";
 
 interface ComposerStubProps {
   disabled?: boolean;
   submissionDisabled?: boolean;
-  attachButton?: React.ReactElement<{ disabled?: boolean }>;
+  attachButton?: React.ReactElement<{
+    disabled?: boolean;
+    items?: Array<{ id: string; label: string; onSelect?: () => void }>;
+  }>;
   contextItems?: unknown[];
   onRemoveContextItem?: (key: string) => void;
   draftScope?: string;
@@ -247,6 +250,65 @@ async function renderPopover(props: Record<string, unknown>) {
 }
 
 describe("PromptPopover inline home", () => {
+  it.each([false, true])(
+    "uses one shared Upload menu and retains an eager batch (inline: %s)",
+    async (inline) => {
+      const onSubmit = vi.fn();
+      const upload = vi.fn(async (files: File[]) =>
+        files.map((file) => ({ path: `/uploads/${file.name}` })),
+      );
+      mockEagerUpload.implementation = upload;
+      await renderPopover({ inline, onSubmit });
+      expect(
+        mockComposer.current!.attachButton!.props.items?.map((item) => item.id),
+      ).toEqual(["upload"]);
+      const files = [
+        new File(["first"], "first.txt"),
+        new File(["second"], "second.txt"),
+      ];
+      const input = container!.querySelector<HTMLInputElement>(
+        'input[hidden][type="file"]',
+      )!;
+      await act(async () => {
+        Object.defineProperty(input, "files", { value: files });
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(upload).toHaveBeenCalledWith(files);
+      await act(async () =>
+        mockComposer.current!.onSubmit("Keep batch", [], [], {}),
+      );
+      expect(onSubmit).toHaveBeenCalledWith(
+        "Keep batch",
+        [{ path: "/uploads/first.txt" }, { path: "/uploads/second.txt" }],
+        {},
+      );
+    },
+  );
+  it("keeps only Upload file then Design in the context root, without assets or blank/template actions", async () => {
+    await renderPopover({
+      inline: true,
+      onSkip: vi.fn(),
+      contextMenuItems: [{ id: "design", label: "Design", children: [] }],
+    });
+    const entries = mockComposer.current!.attachButton!.props.items!;
+    expect(entries.map((item) => item.id)).toEqual(["upload", "design"]);
+    expect(entries[0].label).toBe("promptDialog.uploadFile");
+    const input = container!.querySelector<HTMLInputElement>(
+      'input[hidden][type="file"]',
+    )!;
+    const picker = vi.spyOn(input, "click");
+    entries[0].onSelect!();
+    expect(picker).toHaveBeenCalledOnce();
+  });
+  it("keeps Pick asset and Skip prompt out of the legacy attachment menu too", async () => {
+    await renderPopover({ onSkip: vi.fn() });
+    const attachmentMenu = mockComposer.current!.attachButton!;
+    expect(attachmentMenu.props.items?.map((item) => item.id)).toEqual([
+      "upload",
+    ]);
+    expect(container!.textContent).not.toContain("promptDialog.pickAsset");
+    expect(container!.textContent).not.toContain("promptDialog.skipPrompt");
+  });
   it("keeps drafts, files and context editable while only submission is disabled", async () => {
     const onSubmit = vi.fn();
     const onRemoveContextItem = vi.fn();
@@ -690,33 +752,6 @@ describe("PromptPopover draft isolation", () => {
   });
 });
 
-describe("PromptPopover asset picker", () => {
-  it("uses the embedded library picker contract", () => {
-    const url = new URL(assetsPickerUrl());
-
-    expect(url.pathname).toBe("/library");
-    expect(url.searchParams.get("__an_picker")).toBe("1");
-    expect(url.searchParams.get("mediaType")).toBe("image");
-    expect(url.searchParams.get("layout")).toBe("vertical");
-    expect(url.searchParams.get("embedded")).toBe("1");
-    expect(url.searchParams.get("callerAppId")).toBe("design");
-  });
-
-  it("falls back to the complete embedded contract for an invalid configured URL", () => {
-    vi.stubEnv("VITE_AGENT_NATIVE_ASSETS_PICKER_URL", "https://[invalid");
-
-    const url = new URL(assetsPickerUrl());
-
-    expect(url.origin).toBe("https://assets.agent-native.com");
-    expect(url.pathname).toBe("/library");
-    expect(url.searchParams.get("__an_picker")).toBe("1");
-    expect(url.searchParams.get("mediaType")).toBe("image");
-    expect(url.searchParams.get("layout")).toBe("vertical");
-    expect(url.searchParams.get("embedded")).toBe("1");
-    expect(url.searchParams.get("callerAppId")).toBe("design");
-  });
-});
-
 describe("PromptPopover submit failure recovery", () => {
   it("restores the typed prompt into the composer instead of losing it when onSubmit rejects", async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("network down"));
@@ -826,12 +861,12 @@ describe("PromptPopover attachment editing", () => {
 });
 
 describe("PromptPopover skip affordance", () => {
-  it("falls back to the localized skip label when the caller doesn't pass one", async () => {
+  it("does not expose a generic Skip prompt action when no semantic action is named", async () => {
     await renderPopover({ onSkip: vi.fn() });
     const skipButton = Array.from(container!.querySelectorAll("button")).find(
       (btn) => btn.textContent === "promptDialog.skipPrompt",
     );
-    expect(skipButton).toBeTruthy();
+    expect(skipButton).toBeUndefined();
   });
 
   it("uses an explicit skipLabel over the localized default", async () => {
@@ -851,9 +886,9 @@ describe("PromptPopover skip affordance", () => {
         }),
     );
     const onOpenChange = vi.fn();
-    await renderPopover({ onSkip, onOpenChange });
+    await renderPopover({ onSkip, onOpenChange, skipLabel: "Use template" });
     const skipButton = Array.from(container!.querySelectorAll("button")).find(
-      (btn) => btn.textContent === "promptDialog.skipPrompt",
+      (btn) => btn.textContent === "Use template",
     );
 
     await act(async () => {
@@ -881,10 +916,10 @@ describe("PromptPopover skip affordance", () => {
       .mockRejectedValueOnce(new Error("create failed"))
       .mockResolvedValueOnce(undefined);
     const onOpenChange = vi.fn();
-    await renderPopover({ onSkip, onOpenChange });
+    await renderPopover({ onSkip, onOpenChange, skipLabel: "Use template" });
     const findSkipButton = () =>
       Array.from(container!.querySelectorAll("button")).find(
-        (btn) => btn.textContent === "promptDialog.skipPrompt",
+        (btn) => btn.textContent === "Use template",
       );
 
     await act(async () => {
@@ -913,9 +948,9 @@ describe("PromptPopover skip affordance", () => {
   it("does not close after a successful skip that already navigated", async () => {
     const onSkip = vi.fn().mockResolvedValue(false);
     const onOpenChange = vi.fn();
-    await renderPopover({ onSkip, onOpenChange });
+    await renderPopover({ onSkip, onOpenChange, skipLabel: "Use template" });
     const skipButton = Array.from(container!.querySelectorAll("button")).find(
-      (btn) => btn.textContent === "promptDialog.skipPrompt",
+      (btn) => btn.textContent === "Use template",
     );
 
     await act(async () => {

@@ -13,15 +13,10 @@ import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-err
 import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { useOrg } from "@agent-native/core/client/org";
 import {
-  EmbeddedApp,
-  type EmbeddedAppRef,
-} from "@agent-native/core/embedding/react";
-import {
   IconApps,
   IconArtboard,
   IconBrain,
   IconPalette,
-  IconPhoto,
   IconPlus,
   IconSparkles,
   IconUpload,
@@ -49,12 +44,10 @@ export type {
   PromptTemplateOption,
 } from "@/components/editor/design-start-pickers";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
 } from "@/components/ui/popover";
 import {
   Select,
@@ -97,8 +90,6 @@ export interface UploadedFile {
   dataUrl?: string;
 }
 
-const DEFAULT_ASSETS_PICKER_URL =
-  "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical&embedded=1&callerAppId=design";
 const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
 const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
@@ -114,81 +105,6 @@ const IMAGE_COMPRESSION_PASSES = [
   { maxDimension: 1024, jpegQuality: 0.7 },
   { maxDimension: 768, jpegQuality: 0.65 },
 ];
-
-interface PickedAssetImagePayload {
-  url?: unknown;
-  previewUrl?: unknown;
-  downloadUrl?: unknown;
-  embedUrl?: unknown;
-  altText?: unknown;
-  title?: unknown;
-  mimeType?: unknown;
-}
-
-export function assetsPickerUrl(): string {
-  const configured =
-    import.meta.env.VITE_AGENT_NATIVE_ASSETS_PICKER_URL ||
-    DEFAULT_ASSETS_PICKER_URL;
-  try {
-    const base =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "https://assets.agent-native.com";
-    const url = new URL(configured, base);
-    if (url.pathname === "/picker") url.pathname = "/library";
-    url.searchParams.set("__an_picker", "1");
-    url.searchParams.set(
-      "mediaType",
-      url.searchParams.get("mediaType") || "image",
-    );
-    url.searchParams.set("layout", "vertical");
-    url.searchParams.set("embedded", "1");
-    url.searchParams.set("callerAppId", "design");
-    return url.toString();
-  } catch {
-    return DEFAULT_ASSETS_PICKER_URL;
-  }
-}
-
-function pickedAssetString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function pickedAssetImageSource(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const image = payload as PickedAssetImagePayload;
-  return (
-    pickedAssetString(image.url) ??
-    pickedAssetString(image.previewUrl) ??
-    pickedAssetString(image.downloadUrl) ??
-    pickedAssetString(image.embedUrl)
-  );
-}
-
-function pickedAssetFilename(payload: unknown, url: string) {
-  if (payload && typeof payload === "object") {
-    const image = payload as PickedAssetImagePayload;
-    const title = pickedAssetString(image.title);
-    if (title) return title;
-  }
-
-  try {
-    const name = new URL(url).pathname.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : "assets-image";
-  } catch {
-    return "assets-image";
-  }
-}
-
-function pickedAssetContext(payload: unknown, url: string) {
-  const lines = [`Remote image URL: ${url}`];
-  if (payload && typeof payload === "object") {
-    const image = payload as PickedAssetImagePayload;
-    const altText = pickedAssetString(image.altText);
-    if (altText) lines.push(`Alt text: ${altText}`);
-  }
-  return lines.join("\n");
-}
 
 function dataUrlBytes(dataUrl: string): number {
   return new TextEncoder().encode(dataUrl).byteLength;
@@ -273,89 +189,6 @@ async function readChatImageAttachment(
   return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
     ? fallback
     : null;
-}
-
-interface AssetsPickerDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  url: string;
-  onReady: (payload: unknown, event: MessageEvent, ref: EmbeddedAppRef) => void;
-  onMessage: (name: string, payload: unknown) => void;
-}
-
-function AssetsPickerDialog({
-  open,
-  onOpenChange,
-  url,
-  onReady,
-  onMessage,
-}: AssetsPickerDialogProps) {
-  const t = useT();
-  const [pickerReady, setPickerReady] = useState(false);
-
-  useEffect(() => {
-    if (open) setPickerReady(false);
-  }, [open, url]);
-
-  const handleReady = useCallback(
-    (payload: unknown, event: MessageEvent, ref: EmbeddedAppRef) => {
-      setPickerReady(true);
-      onReady(payload, event, ref);
-    },
-    [onReady],
-  );
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-assets-picker-dialog
-        className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0"
-      >
-        <div className="flex h-12 shrink-0 items-center border-b px-4">
-          <DialogTitle className="text-base">
-            {t("promptDialog.assetsTitle")}
-          </DialogTitle>
-        </div>
-        <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-          {!pickerReady && <AssetsPickerSkeleton />}
-          <EmbeddedApp
-            url={url}
-            title={t("promptDialog.assetsImagePicker")}
-            className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
-              pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-            onReady={handleReady}
-            onMessage={onMessage}
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AssetsPickerSkeleton() {
-  const t = useT();
-  return (
-    <div
-      className="absolute inset-0 flex flex-col gap-5 p-5"
-      role="status"
-      aria-label={t("promptDialog.loadingAssetsPicker")}
-    >
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-9 flex-1 rounded-md" />
-        <Skeleton className="h-9 w-24 rounded-md" />
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="flex min-w-0 flex-col gap-2">
-            <Skeleton className="aspect-square w-full rounded-lg" />
-            <Skeleton className="h-3 w-3/4 rounded" />
-            <Skeleton className="h-3 w-1/2 rounded" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export type PromptCreationMode = "design" | "app";
@@ -446,7 +279,7 @@ function isNestedPromptPopoverTarget(target: EventTarget | null) {
     target instanceof Element &&
     Boolean(
       target.closest(
-        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select],[data-agent-native-template-popover]",
+        "[data-agent-native-composer-popover],[data-agent-native-prompt-select],[data-agent-native-template-popover]",
       ),
     )
   );
@@ -473,7 +306,6 @@ function hasOpenNestedPromptPopoverSurface() {
   return Boolean(
     document.querySelector(
       '[data-agent-native-composer-popover][data-state="open"],' +
-        "[data-assets-picker-dialog]," +
         '[data-agent-native-prompt-select][data-state="open"],' +
         '[data-agent-native-template-popover][data-state="open"]',
     ),
@@ -558,13 +390,11 @@ export default function PromptPopover({
   const [showStartChoice, setShowStartChoice] = useState(offerStartChoice);
   const [skipInFlight, setSkipInFlight] = useState(false);
   const skipInFlightRef = useRef(false);
-  const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const composerFilesRef = useRef<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const draftTextRef = useRef<string | undefined>(undefined);
-  const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const contextFileInputRef = useRef<HTMLInputElement>(null);
   // A failed popover handoff can remount the composer. Leave its normal
@@ -638,12 +468,10 @@ export default function PromptPopover({
 
   useEffect(() => {
     if (open) return;
-    setAssetsPickerOpen(false);
     setTemplatePickerOpen(false);
     // Same reason as above: a still-running submit owns these until it either
     // commits them or fails and hands the composer back with its attachments.
     if (submittingRef.current) return;
-    setPickedAssets([]);
     setSelectedUploadFiles([]);
     // Only sticks for the session immediately following a failed submit; a
     // fresh open after a real close should fall back to the composer's own
@@ -814,9 +642,8 @@ export default function PromptPopover({
       }
       try {
         retainFiles(allFiles);
-        await onSubmit(text, [...uploaded, ...pickedAssets], submissionOptions);
+        await onSubmit(text, uploaded, submissionOptions);
         commitFiles(allFiles);
-        setPickedAssets([]);
         setSelectedUploadFiles([]);
         setSubmitting(false);
         submittingRef.current = false;
@@ -845,7 +672,6 @@ export default function PromptPopover({
       beforeSubmitContext,
       recoveryScope,
       inline,
-      pickedAssets,
       retainFiles,
       restorePromptText,
       selectedUploadFiles,
@@ -853,55 +679,6 @@ export default function PromptPopover({
       uploadFiles,
     ],
   );
-
-  const handleAssetsPickerReady = useCallback(
-    (_payload: unknown, _event: MessageEvent, ref: EmbeddedAppRef) => {
-      ref.postMessage("configure", {});
-    },
-    [],
-  );
-
-  const handleAssetsPickerMessage = useCallback(
-    (name: string, payload: unknown) => {
-      if (name === "close") {
-        setAssetsPickerOpen(false);
-        return;
-      }
-
-      if (name !== "chooseImage" && name !== "chooseAsset") return;
-      const url = pickedAssetImageSource(payload);
-      if (!url) {
-        toast.error(t("promptDialog.assetsNoImageUrl"));
-        return;
-      }
-
-      const filename = pickedAssetFilename(payload, url);
-      const mimeType =
-        payload && typeof payload === "object"
-          ? pickedAssetString((payload as PickedAssetImagePayload).mimeType)
-          : null;
-      setPickedAssets((current) => [
-        ...current,
-        {
-          path: url,
-          originalName: filename,
-          filename,
-          type: mimeType ?? "image/url",
-          size: 0,
-          textContent: pickedAssetContext(payload, url),
-        },
-      ]);
-      setAssetsPickerOpen(false);
-      toast.success(t("promptDialog.assetAdded"));
-    },
-    [t],
-  );
-
-  const removePickedAsset = useCallback((path: string) => {
-    setPickedAssets((current) =>
-      current.filter((asset) => asset.path !== path),
-    );
-  }, []);
 
   const removeSelectedUploadFile = useCallback(
     (index: number) => {
@@ -913,14 +690,6 @@ export default function PromptPopover({
       discardFiles([file]);
     },
     [discardFiles, selectedUploadFiles],
-  );
-
-  const handlePopoverOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (!nextOpen && assetsPickerOpen) return;
-      onOpenChange(nextOpen);
-    },
-    [assetsPickerOpen, onOpenChange],
   );
 
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
@@ -1114,57 +883,32 @@ export default function PromptPopover({
                   : `seed:${initialTextKey ?? 0}`
               }
               attachButton={
-                contextMenuItems ? (
-                  <LazyContextMenu
-                    disabled={loading || uploading || submitting}
-                    items={[
-                      ...contextMenuItems,
-                      {
-                        id: "upload",
-                        label: t("promptDialog.uploadFile"),
-                        onSelect: () => contextFileInputRef.current?.click(),
-                      },
-                      {
-                        id: "assets",
-                        label: t("promptDialog.pickAsset"),
-                        onSelect: () => setAssetsPickerOpen(true),
-                      },
-                      ...(onSkip
-                        ? [
-                            {
-                              id: "blank",
-                              label: skipLabel ?? t("promptDialog.skipPrompt"),
-                              onSelect: () => {
-                                void onSkip();
-                              },
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                ) : (
-                  <PromptAttachmentMenu
-                    disabled={loading || uploading || submitting}
-                    onUploadFiles={handleUploadFiles}
-                    onPickAsset={() => setAssetsPickerOpen(true)}
-                  />
-                )
+                <LazyContextMenu
+                  disabled={loading || uploading || submitting}
+                  items={[
+                    {
+                      id: "upload",
+                      label: t("promptDialog.uploadFile"),
+                      icon: <IconUpload />,
+                      onSelect: () => contextFileInputRef.current?.click(),
+                    },
+                    ...(contextMenuItems ?? []),
+                  ]}
+                />
               }
             />
           </Suspense>
         </LazyChunkErrorBoundary>
-        {contextMenuItems ? (
-          <input
-            ref={contextFileInputRef}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              handleUploadFiles(Array.from(event.currentTarget.files ?? []));
-              event.currentTarget.value = "";
-            }}
-          />
-        ) : null}
+        <input
+          ref={contextFileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            handleUploadFiles(Array.from(event.currentTarget.files ?? []));
+            event.currentTarget.value = "";
+          }}
+        />
       </div>
       {!inline &&
         !showStartChoice &&
@@ -1270,51 +1014,32 @@ export default function PromptPopover({
           </div>
         )}
 
-      {!showStartChoice &&
-        (selectedUploadFiles.length > 0 || pickedAssets.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-            {selectedUploadFiles.map((file, index) => (
-              <span
-                key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+      {!showStartChoice && selectedUploadFiles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
+          {selectedUploadFiles.map((file, index) => (
+            <span
+              key={`${file.name}:${file.lastModified}:${file.size}:${index}`}
+              className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
+            >
+              <span className="truncate">{file.name}</span>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={t("promptDialog.removeAttachment", {
+                  name: file.name,
+                })}
+                onClick={() => removeSelectedUploadFile(index)}
               >
-                <span className="truncate">{file.name}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: file.name,
-                  })}
-                  onClick={() => removeSelectedUploadFile(index)}
-                >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-            {pickedAssets.map((asset) => (
-              <span
-                key={asset.path}
-                className="inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-md border border-border bg-muted/60 pl-2 pr-1 text-xs text-muted-foreground"
-              >
-                <span className="truncate">{asset.originalName}</span>
-                <button
-                  type="button"
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("promptDialog.removeAttachment", {
-                    name: asset.originalName,
-                  })}
-                  onClick={() => removePickedAsset(asset.path)}
-                >
-                  <IconX className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
-      {onSkip && !offerStartChoice && !contextMenuItems && (
+      {onSkip && skipLabel && !inline && !offerStartChoice && (
         <div className="flex justify-end border-t border-border px-3.5 py-2">
           <Button
             type="button"
@@ -1338,25 +1063,17 @@ export default function PromptPopover({
               })();
             }}
           >
-            {skipLabel ?? t("promptDialog.skipPrompt")}
+            {skipLabel}
           </Button>
         </div>
       )}
-
-      <AssetsPickerDialog
-        open={assetsPickerOpen}
-        onOpenChange={setAssetsPickerOpen}
-        url={assetsPickerUrl()}
-        onReady={handleAssetsPickerReady}
-        onMessage={handleAssetsPickerMessage}
-      />
     </>
   );
 
   if (inline) return <div data-design-inline-prompt>{content}</div>;
 
   return (
-    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       {open && centered && (
         <div
           className="fixed inset-0 z-[199] bg-black/40"
@@ -1383,9 +1100,6 @@ export default function PromptPopover({
         sideOffset={12}
         collisionPadding={12}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (assetsPickerOpen) event.preventDefault();
-        }}
         onInteractOutside={(event) => {
           if (
             isNestedPromptPopoverTarget(event.target) ||
@@ -1399,100 +1113,6 @@ export default function PromptPopover({
         className="relative z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
         {content}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function PromptAttachmentMenu({
-  disabled,
-  onUploadFiles,
-  onPickAsset,
-}: {
-  disabled?: boolean;
-  onUploadFiles: (files: File[]) => void;
-  onPickAsset: () => void;
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          if (files.length > 0) {
-            trackEvent("design_attachment_source_selected", {
-              app_name: "design",
-              template_name: "design",
-              source: "upload",
-              attachment_count: Math.min(files.length, 10),
-            });
-          }
-          onUploadFiles(files);
-          event.target.value = "";
-          setOpen(false);
-        }}
-      />
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label={t("promptDialog.addAttachment")}
-        >
-          <IconPlus className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        data-agent-native-composer-popover
-        className="w-52 p-1"
-      >
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
-          onClick={() => inputRef.current?.click()}
-        >
-          <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>
-            <span className="block font-medium text-foreground">
-              {t("promptDialog.uploadFile")}
-            </span>
-            <span className="block text-[10px] text-muted-foreground">
-              {t("promptDialog.uploadFileDescription")}
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-xs hover:bg-accent/50"
-          onClick={() => {
-            trackEvent("design_attachment_source_selected", {
-              app_name: "design",
-              template_name: "design",
-              source: "asset_picker",
-            });
-            setOpen(false);
-            onPickAsset();
-          }}
-        >
-          <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>
-            <span className="block font-medium text-foreground">
-              {t("promptDialog.pickAsset")}
-            </span>
-            <span className="block text-[10px] text-muted-foreground">
-              {t("promptDialog.pickAssetDescription")}
-            </span>
-          </span>
-        </button>
       </PopoverContent>
     </Popover>
   );

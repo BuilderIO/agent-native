@@ -228,6 +228,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 중첩 카테고리는 `children`을 사용합니다. 말단 작업은 `onSelect()`를 사용하며 `render(controls)`로 팝오버 내부 선택기를 제공할 수 있습니다. `ComposerContextMenu`와 `ComposerContextSearchInput`은 공개됩니다. `attachButton`은 앱의 업로드 흐름을 유지합니다.
 
+카테고리에 번역된 `searchPlaceholder`를 지정할 수 있습니다. 생략하면 루트 검색 자리표시자를 사용합니다. `ComposerContextMenu`에 `addAttachment`를 전달하면 표준 업로드 작업이 맨 앞에 표시되고 호스트의 파일 콜백이 유지됩니다.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

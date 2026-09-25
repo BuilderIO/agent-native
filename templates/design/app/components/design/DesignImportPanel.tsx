@@ -55,6 +55,7 @@ import {
 import {
   readPendingDesignImport,
   clearPendingDesignImport,
+  claimPendingDesignImport,
 } from "@/lib/pending-import";
 import { cn } from "@/lib/utils";
 
@@ -481,6 +482,13 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     ],
   );
 
+  useEffect(() => {
+    const pending = readPendingDesignImport(context.designId);
+    setHomeImport(pending);
+    if (claimPendingDesignImport(context.designId))
+      void handleFigFileChange(pending?.file);
+  }, [context.designId, handleFigFileChange]);
+
   const toggleFigImportFrame = useCallback((id: string, checked: boolean) => {
     setFigImportSelection((current) => {
       const next = new Set(current);
@@ -495,8 +503,10 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     pendingFigImportRef.current = null;
     setFigImportPreview(null);
     setFigImportSelection(new Set());
+    clearPendingDesignImport(context.designId);
+    setHomeImport(undefined);
     clearFigUploadState();
-  }, [clearFigUploadState]);
+  }, [clearFigUploadState, context.designId]);
 
   const confirmFigImport = useCallback(async () => {
     const prepared = pendingFigImportRef.current;
@@ -542,16 +552,16 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
-        {homeImport?.kind === "file" ? (
+        {homeImport?.kind === "file" && !busy ? (
           <div className="grid gap-2 pb-3">
             <span className="truncate text-sm">{homeImport.file.name}</span>
             <Button
-              disabled={figUploadBusy}
+              disabled={busy}
               onClick={() => {
                 void handleFigFileChange(homeImport.file);
               }}
             >
-              {t("home.importSelectedFile")}
+              {t("homeContext.retry")}
             </Button>
           </div>
         ) : null}

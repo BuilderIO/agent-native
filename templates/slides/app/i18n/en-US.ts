@@ -786,8 +786,23 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    importMenu: {
+      import: "Import",
+      options: "Import options",
+      invalidPdf: "Choose a PDF file.",
+      invalidPptx: "Choose a PPTX file.",
+      invalidFile: "Choose a PDF or PPTX file.",
+      notStarted: "Complete any required sign-in, then retry the import.",
+    },
     importDeck: "Import Deck",
     context: {
+      menu: {
+        system: "Use a design system",
+        figma: "Attach Figma",
+        design: "Reference a design",
+        deck: "Reference a presentation",
+        searchDesign: "Search design…",
+      },
       loadFailed: "Couldn't load this reference. Try again.",
       saveFailed: "Couldn't save your context selection.",
       system: "Design systems",

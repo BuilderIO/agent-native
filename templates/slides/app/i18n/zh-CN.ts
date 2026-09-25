@@ -765,8 +765,23 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    importMenu: {
+      import: "导入",
+      options: "导入选项",
+      invalidPdf: "请选择 PDF 文件。",
+      invalidPptx: "请选择 PPTX 文件。",
+      invalidFile: "请选择 PDF 或 PPTX 文件。",
+      notStarted: "完成所需的登录后，请重试导入。",
+    },
     importDeck: "导入演示文稿",
     context: {
+      menu: {
+        system: "使用设计系统",
+        figma: "附加 Figma",
+        design: "参考设计",
+        deck: "参考演示文稿",
+        searchDesign: "搜索设计…",
+      },
       loadFailed: "无法加载此参考资料，请重试。",
       saveFailed: "无法保存上下文选择。",
       system: "设计系统",

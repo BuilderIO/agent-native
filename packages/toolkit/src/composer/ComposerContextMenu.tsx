@@ -1,7 +1,7 @@
 import {
   IconArrowLeft,
   IconChevronRight,
-  IconPaperclip,
+  IconUpload,
   IconPlus,
 } from "@tabler/icons-react";
 import {
@@ -114,6 +114,7 @@ function findAction(
 
 export interface ComposerContextMenuCategory extends ComposerContextMenuEntry {
   children: readonly ComposerContextMenuItem[];
+  searchPlaceholder?: string;
   onSelect?: never;
 }
 
@@ -129,17 +130,27 @@ export interface ComposerContextMenuProps {
   disabled?: boolean;
 }
 
+function getComposerContextMenuScope(
+  items: readonly ComposerContextMenuItem[],
+  path: readonly string[],
+): { items: readonly ComposerContextMenuItem[]; searchPlaceholder?: string } {
+  let scope = items;
+  let searchPlaceholder: string | undefined;
+  for (const id of path) {
+    const category = scope.find((item) => item.id === id);
+    if (!category?.children || category.disabled) return { items: [] };
+    scope = category.children;
+    searchPlaceholder = category.searchPlaceholder;
+  }
+  return { items: scope, searchPlaceholder };
+}
+
 export function getComposerContextMenuEntries(
   items: readonly ComposerContextMenuItem[],
   path: readonly string[],
   query: string,
 ): ComposerContextMenuItem[] {
-  let scope = items;
-  for (const id of path) {
-    const category = scope.find((item) => item.id === id);
-    if (!category?.children || category.disabled) return [];
-    scope = category.children;
-  }
+  const { items: scope } = getComposerContextMenuScope(items, path);
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return [...scope];
   const matches: ComposerContextMenuItem[] = [];
@@ -269,8 +280,9 @@ export function ComposerContextMenu({
     input?.focus();
   }, [open, page]);
   const entries = getComposerContextMenuEntries(items, path, query);
-  const attachLabel = t("agentChat.composer.attachFiles", {
-    defaultValue: "Attach files",
+  const { searchPlaceholder } = getComposerContextMenuScope(items, path);
+  const attachLabel = t("agentChat.composer.menu.uploadFile", {
+    defaultValue: "Upload File",
   });
   const showAttachment =
     addAttachment &&
@@ -359,9 +371,12 @@ export function ComposerContextMenu({
                 ref={searchRef}
                 value={query}
                 onValueChange={setQuery}
-                placeholder={t("agentChat.composer.searchContext", {
-                  defaultValue: "Search context…",
-                })}
+                placeholder={
+                  searchPlaceholder ??
+                  t("agentChat.composer.searchContext", {
+                    defaultValue: "Search context…",
+                  })
+                }
               />
               <CommandList>
                 <CommandEmpty>
@@ -379,7 +394,7 @@ export function ComposerContextMenu({
                         inputRef.current?.click();
                       }}
                     >
-                      <IconPaperclip />
+                      <IconUpload />
                       {attachLabel}
                     </CommandItem>
                   ) : null}

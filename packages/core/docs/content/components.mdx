@@ -250,6 +250,8 @@ A host can stage already-authorized context and receive the frozen snapshot on s
 
 Nested menu categories use `children`. Leaf actions use `onSelect()` and can supply `render(controls)` for an in-popover picker. `ComposerContextMenu` and `ComposerContextSearchInput` are public exports. Apps can retain their own upload flow with `attachButton`.
 
+A category can supply a localized `searchPlaceholder`. Categories without it use the root search placeholder. Passing `addAttachment` to `ComposerContextMenu` adds the standard upload action first and preserves the host's file callback.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

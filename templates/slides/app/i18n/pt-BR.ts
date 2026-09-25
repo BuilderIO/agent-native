@@ -803,8 +803,23 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
+    importMenu: {
+      import: "Importar",
+      options: "Opções de importação",
+      invalidPdf: "Escolha um arquivo PDF.",
+      invalidPptx: "Escolha um arquivo PPTX.",
+      invalidFile: "Escolha um arquivo PDF ou PPTX.",
+      notStarted: "Conclua o login necessário e tente importar novamente.",
+    },
     importDeck: "Importar apresentação",
     context: {
+      menu: {
+        system: "Usar um sistema de design",
+        figma: "Anexar Figma",
+        design: "Usar um design como referência",
+        deck: "Usar uma apresentação como referência",
+        searchDesign: "Pesquisar design…",
+      },
       loadFailed: "Não foi possível carregar esta referência. Tente novamente.",
       saveFailed: "Não foi possível salvar sua seleção de contexto.",
       system: "Sistemas de design",

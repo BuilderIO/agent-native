@@ -812,8 +812,23 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    importMenu: {
+      import: "Importer",
+      options: "Options d’importation",
+      invalidPdf: "Choisissez un fichier PDF.",
+      invalidPptx: "Choisissez un fichier PPTX.",
+      invalidFile: "Choisissez un fichier PDF ou PPTX.",
+      notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+    },
     importDeck: "Importer une présentation",
     context: {
+      menu: {
+        system: "Utiliser un système de design",
+        figma: "Joindre Figma",
+        design: "Utiliser un design comme référence",
+        deck: "Utiliser une présentation comme référence",
+        searchDesign: "Rechercher dans Design…",
+      },
       loadFailed: "Impossible de charger cette référence. Réessayez.",
       saveFailed: "Impossible d’enregistrer votre sélection de contexte.",
       system: "Systèmes de design",

@@ -828,7 +828,27 @@ describe("inline prompt starters", () => {
     vi.unstubAllGlobals();
   });
 
-  it("forwards submission-only provider gating without disabling staging, imports or Skip", async () => {
+  it.each(["inline", "popover"] as const)(
+    "does not expose Skip prompt in the %s presentation",
+    (presentation) => {
+      render(
+        <PromptPopover
+          presentation={presentation}
+          open
+          title="New presentation"
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onImport={vi.fn()}
+          importFromLabel="Import from"
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+      expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
+    },
+  );
+
+  it("forwards submission-only provider gating without disabling staging or imports, and never offers Skip", async () => {
     const onImport = vi.fn().mockResolvedValue(false);
     const onSkip = vi.fn();
     render(
@@ -862,13 +882,13 @@ describe("inline prompt starters", () => {
       (screen.getByTestId("prompt-composer-attach") as HTMLButtonElement)
         .disabled,
     ).toBe(false);
-    for (const name of ["PDF", "Slides", "PPT", "Skip prompt"]) {
+    for (const name of ["PDF", "Slides", "PPT"]) {
       expect(
         (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
       ).toBe(false);
     }
-    fireEvent.click(screen.getByRole("button", { name: "Skip prompt" }));
-    expect(onSkip).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
+    expect(onSkip).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "PDF" }));
     fireEvent.change(screen.getAllByLabelText("Import file")[0], {
       target: { files: [promptFile] },

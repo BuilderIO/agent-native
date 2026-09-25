@@ -409,10 +409,7 @@ describe("Index skip to editor", () => {
     });
     expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps?.contextMenuItems).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "design" }),
-        expect.objectContaining({ id: "slides" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ id: "design" })]),
     );
     await act(async () => connect?.click());
     expect(mocks.connect).toHaveBeenCalledTimes(1);

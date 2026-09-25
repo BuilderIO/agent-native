@@ -781,8 +781,23 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    importMenu: {
+      import: "가져오기",
+      options: "가져오기 옵션",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      invalidPptx: "PPTX 파일을 선택하세요.",
+      invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+    },
     importDeck: "덱 가져오기",
     context: {
+      menu: {
+        system: "디자인 시스템 사용",
+        figma: "Figma 첨부",
+        design: "디자인 참조",
+        deck: "프레젠테이션 참조",
+        searchDesign: "디자인 검색…",
+      },
       loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
       saveFailed: "컨텍스트 선택을 저장할 수 없습니다.",
       system: "디자인 시스템",

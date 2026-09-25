@@ -182,20 +182,27 @@ describe("Slides context readiness and identity", () => {
   it("keeps app and peer references under the agreed hierarchy and renders query errors", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
     const entries = result.current.props.contextMenuItems;
-    expect(entries.map((entry) => entry.id)).toEqual([
-      "design-context",
-      "slides",
-    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["design-context"]);
     expect(entries[0].children?.map((entry) => entry.id)).toEqual([
       "system",
-      "design",
       "figma",
+      "design",
+      "slides",
     ]);
+    expect(entries[0].children?.map((entry) => entry.label)).toEqual([
+      "home.context.menu.system",
+      "home.context.menu.figma",
+      "home.context.menu.design",
+      "home.context.menu.deck",
+    ]);
+    expect(
+      "searchPlaceholder" in entries[0] && entries[0].searchPlaceholder,
+    ).toBe("home.context.menu.searchDesign");
     act(() => {
-      entries[1].onSelect?.();
+      void entries[0].children?.[3].onSelect?.();
     });
     query.error = new Error("Action failed: Design app connection required");
-    const action = result.current.props.contextMenuItems[1];
+    const action = result.current.props.contextMenuItems[0].children![3];
     render("render" in action ? action.render?.(controls) : null);
     expect(screen.getByRole("alert").textContent).toBe(
       "Design app connection required",
@@ -207,10 +214,10 @@ describe("Slides context readiness and identity", () => {
   it("makes malformed catalog responses visible instead of showing an empty catalog", async () => {
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
     act(() => {
-      result.current.props.contextMenuItems[1].onSelect?.();
+      void result.current.props.contextMenuItems[0].children?.[3].onSelect?.();
     });
     query.data = { items: [] };
-    const action = result.current.props.contextMenuItems[1];
+    const action = result.current.props.contextMenuItems[0].children![3];
     render("render" in action ? action.render?.(controls) : null);
     expect(screen.getByRole("alert").textContent).toBe(
       "home.context.loadFailed",

@@ -211,7 +211,6 @@ export default function Index() {
     data: templatesData,
     isLoading: templatesLoading,
     isError: templatesError,
-    error: templatesLoadError,
     isFetching: templatesFetching,
     refetch: refetchTemplates,
   } = useActionQuery("list-design-templates", { includePreview: "true" });
@@ -397,9 +396,6 @@ export default function Index() {
     systemsLoading: designSystemsLoading,
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
-    templatesLoading,
-    templatesError: templatesLoadError,
-    retryTemplates: () => void refetchTemplates(),
   });
 
   const toggleDesignSelection = useCallback((id: string) => {

@@ -235,6 +235,8 @@ Der Host kann bereits autorisierten Kontext bereitstellen und beim Senden einen 
 
 Verschachtelte Kategorien verwenden `children`. Aktionen verwenden `onSelect()` und optional `render(controls)` für eine Auswahl im Popover. `ComposerContextMenu` und `ComposerContextSearchInput` sind öffentliche Exporte. Mit `attachButton` bleibt der Upload-Ablauf der App erhalten.
 
+Eine Kategorie kann einen lokalisierten `searchPlaceholder` angeben. Ohne diesen Wert gilt der Suchplatzhalter der obersten Ebene. Mit `addAttachment` zeigt `ComposerContextMenu` die Standard-Upload-Aktion zuerst und verwendet weiterhin den Datei-Callback der Host-App.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

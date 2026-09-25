@@ -5,22 +5,28 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { parseFigmaFileKey } from "@shared/figma-url";
-import { IconUpload } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { IconChevronDown, IconLink, IconUpload } from "@tabler/icons-react";
+import { useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { validateFigUploadFile } from "@/lib/design-file-upload";
 import { importResultNotification } from "@/lib/design-import";
 import { FIGMA_ACCESS_TOKEN_SECRET_KEY } from "@/lib/figma-connection";
 import { setPendingDesignImport } from "@/lib/pending-import";
@@ -32,44 +38,127 @@ export function HomeImportButton() {
   const importFrame = useActionMutation("import-figma-frame");
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
-  const [file, setFile] = useState<File>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const valid = file
-    ? file.name.toLowerCase().endsWith(".fig")
-    : Boolean(parseFigmaFileKey(url));
+  const fileInput = useRef<HTMLInputElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const openLinkAfterMenu = useRef(false);
+  const urlId = useId();
+  const valid = Boolean(parseFigmaFileKey(url));
   const changeOpen = (next: boolean) => {
+    if (!pending.current) setOpen(next);
+  };
+  const pickFile = () => {
     if (pending.current) return;
-    setOpen(next);
-    if (!next) {
-      setUrl("");
-      setFile(undefined);
-      setError(undefined);
+    setOpen(false);
+    fileInput.current?.click();
+  };
+  const importFile = async (file: File | undefined) => {
+    if (!file || pending.current) return;
+    if (validateFigUploadFile(file, { maxBytes: null })) {
+      toast.error(t("designEditor.import.errors.invalidFigFile"));
+      return;
+    }
+    pending.current = true;
+    setBusy(true);
+    try {
+      const result = await create.mutateAsync({
+        title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
+        projectType: "prototype",
+        designSystemId: null,
+      });
+      if (!result.id) throw new Error(t("home.failedToCreateDesign"));
+      setPendingDesignImport(result.id, { kind: "file", file });
+      void navigate(`/design/${result.id}?panel=import`);
+    } catch (cause) {
+      toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
+        action: {
+          label: t("homeContext.retry"),
+          onClick: () => void importFile(file),
+        },
+      });
+    } finally {
+      pending.current = false;
+      setBusy(false);
     }
   };
   return (
-    <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <IconUpload />
-          {t("home.importFromFigma")}
-        </Button>
-      </DialogTrigger>
-      <DialogContent aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>{t("home.importFromFigma")}</DialogTitle>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={async (event) => {
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".fig"
+        hidden
+        aria-label={t("home.figmaFile")}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          void importFile(file);
+        }}
+      />
+      <Popover open={open} onOpenChange={changeOpen}>
+        <PopoverAnchor asChild>
+          <ButtonGroup aria-label={t("home.import")}>
+            <Button size="sm" disabled={busy} onClick={pickFile}>
+              <IconUpload />
+              {t("home.import")}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  ref={menuTrigger}
+                  size="sm"
+                  disabled={busy}
+                  aria-label={t("home.importOptions")}
+                >
+                  <IconChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(event) => {
+                  if (!openLinkAfterMenu.current) return;
+                  event.preventDefault();
+                  openLinkAfterMenu.current = false;
+                  setOpen(true);
+                }}
+              >
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={pickFile}>
+                    <IconUpload />
+                    {t("home.figmaFile")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      openLinkAfterMenu.current = true;
+                    }}
+                  >
+                    <IconLink />
+                    {t("home.figmaLink")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+        </PopoverAnchor>
+        <PopoverContent
+          align="end"
+          aria-label={t("home.figmaLink")}
+          onCloseAutoFocus={(event) => {
             event.preventDefault();
-            if (!valid || pending.current) return;
-            pending.current = true;
-            setBusy(true);
-            setError(undefined);
-            try {
-              if (!file) {
+            menuTrigger.current?.focus();
+          }}
+        >
+          <form
+            className="grid gap-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!valid || pending.current) return;
+              pending.current = true;
+              setBusy(true);
+              setError(undefined);
+              try {
                 const result = await importFrame.mutateAsync({
                   figmaUrl: url.trim(),
                   createNew: true,
@@ -86,97 +175,65 @@ export function HomeImportButton() {
                   description: notification.description,
                 });
                 setOpen(false);
+                setUrl("");
                 void navigate(`/design/${result.designId}`);
-                return;
+              } catch (cause) {
+                setError(
+                  actionErrorMessage(cause) ??
+                    t("designEditor.import.errors.importFailed"),
+                );
+              } finally {
+                pending.current = false;
+                setBusy(false);
               }
-              const result = await create.mutateAsync({
-                title:
-                  file?.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
-                projectType: "prototype",
-                designSystemId: null,
-              });
-              if (!result.id) throw new Error(t("home.failedToCreateDesign"));
-              setPendingDesignImport(result.id, { kind: "file", file });
-              setOpen(false);
-              void navigate(`/design/${result.id}?panel=import`);
-            } catch (cause) {
-              setError(
-                actionErrorMessage(cause) ??
-                  t("designEditor.import.errors.importFailed"),
-              );
-            } finally {
-              pending.current = false;
-              setBusy(false);
-            }
-          }}
-        >
-          <div className="grid gap-2">
-            <Label htmlFor="home-figma-url">
-              {t("designEditor.import.figmaUrlLabel")}
-            </Label>
+            }}
+          >
+            <Label htmlFor={urlId}>{t("home.figmaLink")}</Label>
             <Input
-              id="home-figma-url"
+              id={urlId}
               type="url"
               value={url}
               placeholder={t("designEditor.import.figmaUrlPlaceholder")}
               disabled={busy}
-              onChange={(event) => {
-                setUrl(event.target.value);
-                setFile(undefined);
-              }}
+              onChange={(event) => setUrl(event.target.value)}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="home-figma-file">{t("home.figmaFile")}</Label>
-            <Input
-              id="home-figma-file"
-              type="file"
-              accept=".fig"
-              disabled={busy}
-              onChange={(event) => {
-                setFile(event.target.files?.[0]);
-                setUrl("");
-              }}
-            />
-          </div>
-          {error ? (
-            <div className="grid gap-2">
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setOpen(false);
-                    openAgentSettings(
-                      `secrets:${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
-                    );
-                  }}
-                >
-                  {t("settings.openAgentSettings")}
-                </Button>
+            {error ? (
+              <div className="grid gap-2">
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setOpen(false);
+                      openAgentSettings(
+                        `secrets:${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
+                      );
+                    }}
+                  >
+                    {t("settings.openAgentSettings")}
+                  </Button>
+                </div>
               </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => changeOpen(false)}
+              >
+                {t("home.cancel")}
+              </Button>
+              <Button type="submit" disabled={!valid || busy}>
+                {t("home.import")}
+              </Button>
             </div>
-          ) : null}
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => changeOpen(false)}
-            >
-              {t("home.cancel")}
-            </Button>
-            <Button type="submit" disabled={!valid || busy}>
-              {file
-                ? t("home.openImport")
-                : t("designEditor.import.importFigmaUrl")}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </form>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }

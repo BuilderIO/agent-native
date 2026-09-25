@@ -760,8 +760,23 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    importMenu: {
+      import: "匯入",
+      options: "匯入選項",
+      invalidPdf: "請選擇 PDF 檔案。",
+      invalidPptx: "請選擇 PPTX 檔案。",
+      invalidFile: "請選擇 PDF 或 PPTX 檔案。",
+      notStarted: "完成必要的登入後，請重試匯入。",
+    },
     importDeck: "匯入簡報",
     context: {
+      menu: {
+        system: "使用設計系統",
+        figma: "附加 Figma",
+        design: "參考設計",
+        deck: "參考簡報",
+        searchDesign: "搜尋設計…",
+      },
       loadFailed: "無法載入此參考資料，請重試。",
       saveFailed: "無法儲存內容選擇。",
       system: "設計系統",

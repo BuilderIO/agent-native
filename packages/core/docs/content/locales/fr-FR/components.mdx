@@ -235,6 +235,8 @@ L’hôte peut préparer un contexte déjà autorisé et recevoir un instantané
 
 Les catégories imbriquées utilisent `children`. Les actions terminales utilisent `onSelect()` et peuvent fournir `render(controls)` pour un sélecteur intégré. `ComposerContextMenu` et `ComposerContextSearchInput` sont publics. `attachButton` permet de conserver le parcours de téléversement de l’application.
 
+Une catégorie peut fournir un `searchPlaceholder` traduit. Sinon, elle utilise le texte de recherche du niveau racine. Transmettre `addAttachment` à `ComposerContextMenu` place l’action standard de téléversement en premier et conserve la fonction de gestion des fichiers de l’application hôte.
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

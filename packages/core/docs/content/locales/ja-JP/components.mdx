@@ -232,6 +232,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 入れ子のカテゴリには `children` を使います。末端のアクションは `onSelect()` を使い、`render(controls)` でポップオーバー内に選択画面を表示できます。`ComposerContextMenu` と `ComposerContextSearchInput` は公開されています。`attachButton` でアプリ独自のアップロード処理を維持できます。
 
+カテゴリには翻訳済みの `searchPlaceholder` を指定できます。省略したカテゴリではルートの検索プレースホルダーを使用します。`ComposerContextMenu` に `addAttachment` を渡すと、標準のアップロード操作が先頭に表示され、ホストのファイル処理コールバックが維持されます。
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

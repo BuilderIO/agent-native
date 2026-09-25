@@ -228,6 +228,8 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 巢狀分類使用 `children`。末端操作使用 `onSelect()`，並可透過 `render(controls)` 在彈出視窗內提供選擇器。`ComposerContextMenu` 和 `ComposerContextSearchInput` 均為公開匯出。`attachButton` 可保留應用程式原有的上傳流程。
 
+分類可提供本地化的 `searchPlaceholder`。未提供時使用根層級搜尋預留文字。將 `addAttachment` 傳入 `ComposerContextMenu` 會把標準上傳操作放在首位，並保留宿主的檔案處理回呼。
+
 ```tsx
 <PromptComposer
   contextItems={contextItems}

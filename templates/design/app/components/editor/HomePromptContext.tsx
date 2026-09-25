@@ -17,7 +17,13 @@ import type {
   ComposerSourceRequest,
   ComposerSourceResult,
 } from "@agent-native/core/shared";
-import { IconCheck } from "@tabler/icons-react";
+import {
+  IconBrandFigma,
+  IconCheck,
+  IconLayout,
+  IconPalette,
+  IconPresentation,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -74,6 +80,13 @@ function ReferencePage({
     enabled: source !== "figma" || Boolean(submittedUrl),
   });
   const data = query.data && "items" in query.data ? query.data : undefined;
+  const searchLabel = t(
+    source === "figma"
+      ? "homeContext.searchFrames"
+      : source === "slides"
+        ? "homeContext.searchPresentations"
+        : "homeContext.searchDesigns",
+  );
   return (
     <Command shouldFilter={false}>
       <ComposerContextSearchInput
@@ -81,7 +94,8 @@ function ReferencePage({
         onValueChange={(value) =>
           setPaging({ source, search: value, cursors: [undefined] })
         }
-        placeholder={t("homeContext.search")}
+        placeholder={searchLabel}
+        aria-label={searchLabel}
         onBack={() => controls.onBack()}
       />
       {source === "figma" ? (
@@ -212,7 +226,8 @@ function SelectionPage({
   return (
     <Command>
       <ComposerContextSearchInput
-        placeholder={t("homeContext.search")}
+        placeholder={t("homeContext.searchSystems")}
+        aria-label={t("homeContext.searchSystems")}
         onBack={() => controls.onBack()}
       />
       <CommandList>
@@ -280,9 +295,6 @@ export function useHomePromptContext({
   systemsLoading,
   systemsError,
   retrySystems,
-  templatesLoading,
-  templatesError,
-  retryTemplates,
 }: {
   systems: PromptDesignSystemOption[];
   systemId: string | null | undefined;
@@ -293,9 +305,6 @@ export function useHomePromptContext({
   systemsLoading?: boolean;
   systemsError?: unknown;
   retrySystems?: () => void;
-  templatesLoading?: boolean;
-  templatesError?: unknown;
-  retryTemplates?: () => void;
 }) {
   const t = useT();
   const [items, setItems] = useState<AgentChatContextItem[]>([]);
@@ -477,10 +486,13 @@ export function useHomePromptContext({
     {
       id: "design",
       label: t("homeContext.design"),
+      icon: <IconLayout />,
+      searchPlaceholder: t("homeContext.searchDesign"),
       children: [
         {
           id: "system",
-          label: t("promptDialog.designSystem"),
+          label: t("homeContext.useDesignSystem"),
+          icon: <IconPalette />,
           onSelect() {},
           render: (controls) => (
             <SelectionPage
@@ -498,24 +510,22 @@ export function useHomePromptContext({
           ),
         },
         {
-          id: "templates",
-          label: t("navigation.templates"),
+          id: "figma-reference",
+          label: t("homeContext.figmaReference"),
+          icon: <IconBrandFigma />,
           onSelect() {},
           render: (controls) => (
-            <SelectionPage
+            <ReferencePage
+              source="figma"
               controls={controls}
-              options={templates}
-              selectedId={templateId}
-              loading={templatesLoading}
-              error={templatesError}
-              onRetry={retryTemplates}
-              onSelect={onTemplateChange}
+              onSelect={attach}
             />
           ),
         },
         {
           id: "design-reference",
           label: t("homeContext.referenceDesign"),
+          icon: <IconLayout />,
           onSelect() {},
           render: (controls) => (
             <ReferencePage
@@ -526,26 +536,9 @@ export function useHomePromptContext({
           ),
         },
         {
-          id: "figma-reference",
-          label: t("homeContext.figmaReference"),
-          onSelect() {},
-          render: (controls) => (
-            <ReferencePage
-              source="figma"
-              controls={controls}
-              onSelect={attach}
-            />
-          ),
-        },
-      ],
-    },
-    {
-      id: "slides",
-      label: t("homeContext.slides"),
-      children: [
-        {
           id: "slides-reference",
           label: t("homeContext.referenceDeck"),
+          icon: <IconPresentation />,
           onSelect() {},
           render: (controls) => (
             <ReferencePage

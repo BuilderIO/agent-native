@@ -256,16 +256,24 @@ describe("Slides prompt-led home", () => {
     expect(commit).toHaveBeenCalledOnce();
   });
 
-  it("opens import without a provider and preserves the mounted composer after cancel", async () => {
+  it("opens the file picker without a provider and preserves the mounted composer after cancel", async () => {
     agentEngine.missing = true;
     renderHome();
     const prompt = await screen.findByRole("textbox", {
       name: "Presentation prompt",
     });
-    fireEvent.click(screen.getByRole("button", { name: "home.importDeck" }));
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "PDF" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const picker = vi
+      .spyOn(HTMLInputElement.prototype, "click")
+      .mockImplementation(() => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "home.importMenu.import" }),
+    );
+    expect(picker).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.change(screen.getByLabelText("editorToolbar.importFile"), {
+      target: { files: [] },
+    });
+    picker.mockRestore();
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       prompt,
     );

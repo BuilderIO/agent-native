@@ -270,9 +270,11 @@ describe("new deck generation flow", () => {
     expect(directImportFlow).toContain('callAction("import-pptx"');
     expect(directImportFlow).toContain('callAction("import-file"');
     expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
-    expect(source).toContain("onImport={handleDirectImport}");
-    expect(source).toContain("<ImportDeckDialog");
-    expect(source).toContain('open={searchParams.get("import") === "deck"}');
+    expect(source).toContain(
+      "usePromptImport({ onImport: handleDirectImport })",
+    );
+    expect(source).toContain("<ImportDeckButton controller={deckImport}");
+    expect(source).not.toContain("<ImportDeckDialog");
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {
