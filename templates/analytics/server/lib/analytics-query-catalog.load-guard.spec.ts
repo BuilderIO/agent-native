@@ -150,13 +150,15 @@ describe("searchAnalyticsQueryCatalog", () => {
         archived: "active",
         hidden: "visible",
         includeCatalogMetadata: true,
-        limit: 200,
+        limit: 201,
       },
     );
+    expect(results.searchedDashboardCount).toBe(30);
+    expect(results.dashboardSearchTruncated).toBe(false);
     expect(state.loadCalls[0]).toHaveLength(24);
     expect(state.loadCalls[0]).toContain("dashboard-01");
     expect(state.loadCalls[0]).toContain("dashboard-30");
-    expect(results[0]).toMatchObject({
+    expect(results.candidates[0]).toMatchObject({
       kind: "dashboard-panel",
       origin: "saved-dashboard",
       dashboardId: "dashboard-01",
@@ -172,6 +174,40 @@ describe("searchAnalyticsQueryCatalog", () => {
       "favorites",
     );
     expect(state.listOrgSettings).not.toHaveBeenCalled();
+  });
+
+  it("reports and logs when dashboard summary search reaches its cap", async () => {
+    state.summaries = Array.from({ length: 201 }, (_, index) => ({
+      ...savedRevenueSummary(),
+      id: `dashboard-${String(index + 1).padStart(3, "0")}`,
+      name:
+        index === 200
+          ? "Closed Won Revenue"
+          : `Unrelated dashboard ${index + 1}`,
+      configName:
+        index === 200
+          ? "Closed Won Revenue"
+          : `Unrelated dashboard ${index + 1}`,
+      description: `Unrelated description ${index + 1}`,
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "closed won revenue",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(result.searchedDashboardCount).toBe(200);
+    expect(result.dashboardSearchTruncated).toBe(true);
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({ dashboardId: "dashboard-201" }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[analytics] Dashboard reference search truncated.",
+      { searchedDashboardCount: 200, dashboardSearchTruncated: true },
+    );
   });
 
   it("keeps dictionary results when dashboard summaries fail", async () => {
@@ -198,7 +234,7 @@ describe("searchAnalyticsQueryCatalog", () => {
       limit: 6,
     });
 
-    expect(results).toContainEqual(
+    expect(results.candidates).toContainEqual(
       expect.objectContaining({
         kind: "data-dictionary",
         id: "closed-won-revenue",
@@ -220,7 +256,7 @@ describe("searchAnalyticsQueryCatalog", () => {
       limit: 6,
     });
 
-    expect(results).toContainEqual(
+    expect(results.candidates).toContainEqual(
       expect.objectContaining({
         kind: "dashboard-panel",
         dashboardId: "dashboard-01",
@@ -243,13 +279,13 @@ describe("searchAnalyticsQueryCatalog", () => {
       limit: 6,
     });
 
-    expect(results).toContainEqual(
+    expect(results.candidates).toContainEqual(
       expect.objectContaining({
         kind: "dashboard-panel",
         dashboardId: "dashboard-01",
         panelId: "revenue-panel",
       }),
     );
-    expect(results[0]).not.toHaveProperty("favorite");
+    expect(results.candidates[0]).not.toHaveProperty("favorite");
   });
 });

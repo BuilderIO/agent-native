@@ -451,7 +451,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
       );
       return emptyPromptReferences();
     }
-    searchResults = search.value;
+    searchResults = search.value.candidates;
   } catch (error) {
     console.warn(
       "[analytics] Reference catalog unavailable; continuing without preload.",

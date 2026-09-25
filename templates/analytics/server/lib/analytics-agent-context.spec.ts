@@ -80,11 +80,11 @@ const candidates: AnalyticsQueryCatalogCandidate[] = [
 describe("retrieveAnalyticsPromptReferences", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue([
-      candidates[1],
-      candidates[0],
-      candidates[2],
-    ]);
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      candidates: [candidates[1], candidates[0], candidates[2]],
+      searchedDashboardCount: 2,
+      dashboardSearchTruncated: false,
+    });
     mocks.availableEmbeddingFamilies.mockResolvedValue([
       {
         id: "builder",
@@ -186,7 +186,11 @@ describe("retrieveAnalyticsPromptReferences", () => {
       query: "SELECT tie_stronger_metric",
       score: 90,
     };
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue([weaker, stronger]);
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      candidates: [weaker, stronger],
+      searchedDashboardCount: 2,
+      dashboardSearchTruncated: false,
+    });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(() => [1, 0]),
     );
@@ -216,7 +220,11 @@ describe("retrieveAnalyticsPromptReferences", () => {
       dashboardCertified: true,
       score: 10,
     };
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue([ordinary, certified]);
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      candidates: [ordinary, certified],
+      searchedDashboardCount: 2,
+      dashboardSearchTruncated: false,
+    });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(({ text }) => (text?.includes("Certified") ? [0, 1] : [1, 0])),
     );

@@ -133,6 +133,12 @@ export type AnalyticsQueryCatalogCandidate =
       sourceUrl?: string;
     };
 
+export type AnalyticsQueryCatalogSearchResult = {
+  candidates: AnalyticsQueryCatalogCandidate[];
+  searchedDashboardCount: number;
+  dashboardSearchTruncated: boolean;
+};
+
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -700,7 +706,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   email: string;
   orgId: string | null;
   limit: number;
-}): Promise<AnalyticsQueryCatalogCandidate[]> {
+}): Promise<AnalyticsQueryCatalogSearchResult> {
   const [summariesResult, dictionaryResult, favoritesResult] =
     await Promise.allSettled([
       listDashboardSummaries(
@@ -710,7 +716,7 @@ export async function searchAnalyticsQueryCatalog(args: {
           archived: "active",
           hidden: "visible",
           includeCatalogMetadata: true,
-          limit: MAX_CATALOG_DASHBOARD_SUMMARIES,
+          limit: MAX_CATALOG_DASHBOARD_SUMMARIES + 1,
         },
       ),
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),
@@ -718,6 +724,18 @@ export async function searchAnalyticsQueryCatalog(args: {
     ]);
   const savedSummaries =
     summariesResult.status === "fulfilled" ? summariesResult.value : [];
+  const searchedSummaries = savedSummaries.slice(
+    0,
+    MAX_CATALOG_DASHBOARD_SUMMARIES,
+  );
+  const dashboardSearchTruncated =
+    savedSummaries.length > MAX_CATALOG_DASHBOARD_SUMMARIES;
+  if (dashboardSearchTruncated) {
+    console.warn("[analytics] Dashboard reference search truncated.", {
+      searchedDashboardCount: searchedSummaries.length,
+      dashboardSearchTruncated,
+    });
+  }
   const dictionaryEntries =
     dictionaryResult.status === "fulfilled" ? dictionaryResult.value : [];
   const favoriteIds =
@@ -739,7 +757,7 @@ export async function searchAnalyticsQueryCatalog(args: {
 
   const shortlistedSummaries = shortlistDashboardSummaries(
     args.search,
-    savedSummaries,
+    searchedSummaries,
     args.limit,
     favoriteIds,
   );
@@ -776,22 +794,26 @@ export async function searchAnalyticsQueryCatalog(args: {
       }
     });
 
-  return rankAnalyticsQueryCatalog({
-    search: args.search,
-    dashboards: [
-      ...shortlistedSummaries.flatMap((summary) => {
-        const dashboard = savedDashboards.get(summary.id);
-        if (!dashboard) return [];
-        return [
-          savedDashboardInput(
-            { ...summary, favorite: favoriteIds.has(summary.id) },
-            dashboard,
-          ),
-        ];
-      }),
-      ...templateDashboards,
-    ],
-    dictionaryEntries,
-    limit: args.limit,
-  });
+  return {
+    candidates: rankAnalyticsQueryCatalog({
+      search: args.search,
+      dashboards: [
+        ...shortlistedSummaries.flatMap((summary) => {
+          const dashboard = savedDashboards.get(summary.id);
+          if (!dashboard) return [];
+          return [
+            savedDashboardInput(
+              { ...summary, favorite: favoriteIds.has(summary.id) },
+              dashboard,
+            ),
+          ];
+        }),
+        ...templateDashboards,
+      ],
+      dictionaryEntries,
+      limit: args.limit,
+    }),
+    searchedDashboardCount: searchedSummaries.length,
+    dashboardSearchTruncated,
+  };
 }
