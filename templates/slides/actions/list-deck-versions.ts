@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -57,6 +57,10 @@ export default defineAction({
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
 
+    const where = and(
+      eq(schema.deckVersions.deckId, deckId),
+      eq(schema.deckVersions.ownerEmail, ownerEmail),
+    );
     const versions = await db
       .select({
         id: schema.deckVersions.id,
@@ -68,19 +72,36 @@ export default defineAction({
         createdAt: schema.deckVersions.createdAt,
       })
       .from(schema.deckVersions)
-      .where(
-        and(
-          eq(schema.deckVersions.deckId, deckId),
-          eq(schema.deckVersions.ownerEmail, ownerEmail),
-        ),
-      )
+      .where(where)
       .orderBy(desc(schema.deckVersions.createdAt))
       .limit(limit);
+    const beginningVersions = await db
+      .select({
+        id: schema.deckVersions.id,
+        deckId: schema.deckVersions.deckId,
+        title: schema.deckVersions.title,
+        data: schema.deckVersions.data,
+        changeLabel: schema.deckVersions.changeLabel,
+        chatContext: schema.deckVersions.chatContext,
+        createdAt: schema.deckVersions.createdAt,
+      })
+      .from(schema.deckVersions)
+      .where(
+        and(where, like(schema.deckVersions.chatContext, '%"phase":"start"%')),
+      )
+      .orderBy(desc(schema.deckVersions.createdAt));
+    const versionsById = new Map(
+      [...versions, ...beginningVersions].map((version) => [
+        version.id,
+        version,
+      ]),
+    );
+    const allVersions = [...versionsById.values()];
 
     return {
       deckId,
-      count: versions.length,
-      versions: versions.map((version) => {
+      count: allVersions.length,
+      versions: allVersions.map((version) => {
         let chatContext;
         try {
           chatContext = parseDeckVersionChatContext(version.chatContext);

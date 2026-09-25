@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { deckContentSignature } from "../../shared/deck-content.js";
@@ -13,18 +13,23 @@ export interface DeckVersionChatContext {
   threadId?: string;
   runId?: string;
   turnId?: string;
+  phase?: "start" | "end";
 }
 
 function contextFromFields(value: {
   threadId?: unknown;
   runId?: unknown;
   turnId?: unknown;
+  phase?: unknown;
 }): DeckVersionChatContext | undefined {
   const context: DeckVersionChatContext = {};
   for (const key of ["threadId", "runId", "turnId"] as const) {
     if (typeof value[key] === "string" && value[key].trim()) {
       context[key] = value[key];
     }
+  }
+  if (value.phase === "start" || value.phase === "end") {
+    context.phase = value.phase;
   }
   return Object.keys(context).length > 0 ? context : undefined;
 }
@@ -139,6 +144,7 @@ export async function createDeckVersionSnapshot(
     .limit(1);
 
   if (
+    options.chatContext?.phase !== "start" &&
     latestVersion &&
     latestVersion.title === source.title &&
     deckContentSignature(latestVersion.data) ===
@@ -195,4 +201,35 @@ export async function createDeckVersionSnapshot(
   if (!inserted) return { created: false, reason: "same-agent-turn" };
 
   return { created: true, id };
+}
+
+export async function createDeckChatBeginningSnapshot(
+  source: DeckSnapshotSource,
+  run: { threadId: string; runId: string },
+): Promise<{ created: boolean; id?: string; reason?: string }> {
+  const rows = await getDb()
+    .select({ chatContext: schema.deckVersions.chatContext })
+    .from(schema.deckVersions)
+    .where(
+      and(
+        eq(schema.deckVersions.deckId, source.id),
+        eq(schema.deckVersions.ownerEmail, source.ownerEmail),
+        like(schema.deckVersions.chatContext, '%"phase":"start"%'),
+        like(schema.deckVersions.chatContext, `%"threadId":"${run.threadId}"%`),
+      ),
+    )
+    .limit(1);
+  if (
+    rows.some((row) => {
+      const context = parseDeckVersionChatContext(row.chatContext);
+      return context?.threadId === run.threadId && context.phase === "start";
+    })
+  ) {
+    return { created: false, reason: "beginning-exists" };
+  }
+  return createDeckVersionSnapshot(source, {
+    force: true,
+    label: "Before chat",
+    chatContext: { ...run, phase: "start" },
+  });
 }

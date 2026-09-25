@@ -8,6 +8,7 @@ import type {
 import { getDb, schema } from "../db/index.js";
 import {
   documentVersionChatContextFromAction,
+  type DocumentVersionChatContext,
   serializeDocumentVersionChatContext,
 } from "./document-version-context.js";
 
@@ -26,6 +27,8 @@ export interface DocumentHistoryCause {
   actorEmail?: string | null;
   actorKind?: Exclude<DocumentHistoryActorKind, "unknown">;
   origin?: string;
+  chatContext?: DocumentVersionChatContext;
+  skipBeforeCheckpoint?: boolean;
   operation: string;
 }
 
@@ -152,9 +155,10 @@ export async function recordDocumentHistoryTransition(args: {
 
   let beforeCheckpointId: string | undefined;
   if (
-    !latest ||
-    latest.title !== args.before.title ||
-    latest.content !== args.before.content
+    !args.cause.skipBeforeCheckpoint &&
+    (!latest ||
+      latest.title !== args.before.title ||
+      latest.content !== args.before.content)
   ) {
     beforeCheckpointId = crypto.randomUUID();
     await args.db.insert(schema.documentVersions).values({
@@ -164,7 +168,8 @@ export async function recordDocumentHistoryTransition(args: {
       title: args.before.title,
       content: args.before.content,
       chatContext: serializeDocumentVersionChatContext(
-        documentVersionChatContextFromAction(args.cause.ctx),
+        args.cause.chatContext ??
+          documentVersionChatContextFromAction(args.cause.ctx),
       ),
       ...cause,
       checkpointKind: "before",
@@ -184,7 +189,8 @@ export async function recordDocumentHistoryTransition(args: {
     title: args.after.title,
     content: args.after.content,
     chatContext: serializeDocumentVersionChatContext(
-      documentVersionChatContextFromAction(args.cause.ctx),
+      args.cause.chatContext ??
+        documentVersionChatContextFromAction(args.cause.ctx),
     ),
     ...cause,
     checkpointKind: "after",

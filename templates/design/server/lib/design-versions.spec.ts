@@ -143,6 +143,7 @@ vi.mock("../db/index.js", () => {
 
 import {
   __clearEditorCheckpointSkipsForTests,
+  createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
   listDesignVersions,
   parseDesignVersionSnapshot,
@@ -337,6 +338,20 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(changed.id).not.toBe(first.id);
     expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("captures the start of a chat once per thread", async () => {
+    const run = { threadId: "thread-1", runId: "run-1" };
+
+    const first = await createDesignChatBeginningSnapshot("design-1", run);
+    const retry = await createDesignChatBeginningSnapshot("design-1", run);
+
+    expect(first).not.toBeNull();
+    expect(retry).toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toMatchObject({ ...run, phase: "start" });
   });
 
   it("records a tweak-only edit as a new checkpoint", async () => {

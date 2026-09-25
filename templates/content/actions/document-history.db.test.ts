@@ -104,6 +104,43 @@ function inlineDatabaseBlock(args: {
 }
 
 describe("grouped document history", () => {
+  it("stores a single chat-start checkpoint with its phase", async () => {
+    const document = await currentDocument();
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      before: { title: document.title, content: document.content },
+      after: { title: document.title, content: document.content },
+      cause: {
+        groupId: "agent:history-owner@example.com:run-1",
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        origin: "agent-chat",
+        operation: "chat start",
+        chatContext: {
+          threadId: "thread-1",
+          runId: "run-1",
+          phase: "start",
+        },
+        skipBeforeCheckpoint: true,
+      },
+      now: new Date().toISOString(),
+    });
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({ checkpointKind: "after" });
+    expect(JSON.parse(versions[0].chatContext!)).toMatchObject({
+      threadId: "thread-1",
+      phase: "start",
+    });
+  });
+
   it("retains every saved checkpoint in session A and attributes session B to its own result", async () => {
     let current = await currentDocument();
     for (const content of ["session A first", "session A final"]) {

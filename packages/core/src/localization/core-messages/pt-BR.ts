@@ -306,11 +306,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Gerar resposta novamente",
   "message.restoreFailed": "Falha ao restaurar ({{status}}).",
   "message.restoreQuestion": "Restaurar até aqui?",
+  "message.revertQuestion":
+    "Reverter para este ponto? As alterações feitas depois serão perdidas.",
   "message.restoreRequestFailed": "Falha na solicitação de restauração.",
   "message.threadNotFound":
     "Esta conversa não está mais disponível. Inicie uma nova conversa ou tente novamente se isso for inesperado.",
   "message.restoring": "Restaurando...",
   "message.revertHere": "Reverter até aqui",
+  "message.revertToBeginning": "Reverter ao início",
   "message.sentAt": "Enviado às {{time}}",
   "plan.act": "Agir",
   "plan.implement": "Implementar",

@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -48,9 +48,42 @@ export default defineAction({
           .where(where)
           .orderBy(desc(schema.documentVersions.createdAt))
           .limit(args.limit);
+    const beginningVersions = args.includeContent
+      ? await db
+          .select()
+          .from(schema.documentVersions)
+          .where(
+            and(
+              where,
+              like(schema.documentVersions.chatContext, '%"phase":"start"%'),
+            ),
+          )
+          .orderBy(desc(schema.documentVersions.createdAt))
+      : await db
+          .select({
+            id: schema.documentVersions.id,
+            documentId: schema.documentVersions.documentId,
+            title: schema.documentVersions.title,
+            createdAt: schema.documentVersions.createdAt,
+            chatContext: schema.documentVersions.chatContext,
+          })
+          .from(schema.documentVersions)
+          .where(
+            and(
+              where,
+              like(schema.documentVersions.chatContext, '%"phase":"start"%'),
+            ),
+          )
+          .orderBy(desc(schema.documentVersions.createdAt));
+    const versionsById = new Map(
+      [...versions, ...beginningVersions].map((version) => [
+        version.id,
+        version,
+      ]),
+    );
 
     return {
-      versions: versions.map((version) => {
+      versions: [...versionsById.values()].map((version) => {
         let chatContext;
         try {
           chatContext = parseDocumentVersionChatContext(version.chatContext);

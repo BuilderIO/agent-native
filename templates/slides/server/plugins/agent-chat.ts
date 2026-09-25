@@ -7,7 +7,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
-import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
+import {
+  createDeckChatBeginningSnapshot,
+  deckVersionChatContextFromRun,
+} from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -138,6 +141,7 @@ async function autosaveDeckAfterAgentTurn(
   },
 ): Promise<void> {
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
+  if (!run.threadId || !run.runId) return;
 
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {
@@ -147,15 +151,35 @@ async function autosaveDeckAfterAgentTurn(
     ownerEmail: string;
   };
   const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  const chatContext = deckVersionChatContextFromRun(run);
   await createDeckVersionSnapshot(deck, {
     force: true,
     label: "Chat autosave",
-    chatContext: deckVersionChatContextFromRun(run),
+    chatContext: chatContext ? { ...chatContext, phase: "end" } : undefined,
+  });
+}
+
+async function autosaveDeckBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "deck" || !run.threadId || !run.runId) return;
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  await createDeckChatBeginningSnapshot(deck, {
+    threadId: run.threadId,
+    runId: run.runId,
   });
 }
 
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,

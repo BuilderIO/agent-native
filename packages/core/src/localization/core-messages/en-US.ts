@@ -558,11 +558,14 @@ const messages = {
   "message.regenerate": "Regenerate response",
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
+  "message.revertQuestion":
+    "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
+  "message.revertToBeginning": "Revert to beginning",
   "message.sentAt": "Sent {{time}}",
   "contextMeter.ariaLabel":
     "Context {{percent}}%, {{totalTokens}}{{breakdown}}. Open Context X-Ray.",

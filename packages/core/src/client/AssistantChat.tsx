@@ -126,7 +126,9 @@ import {
 } from "./chat/markdown-renderer.js";
 import {
   AssistantChatHistoryContext,
+  AssistantChatHistoryBeginningRevertButton,
   assistantMessageHasCompletedSideEffect,
+  findAssistantChatHistoryBeginningVersion,
   findMatchingAssistantChatHistoryVersion,
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
@@ -3360,6 +3362,11 @@ const AssistantChatInner = forwardRef<
     () =>
       chatHistory
         ? {
+            beginningVersion: findAssistantChatHistoryBeginningVersion(
+              chatHistoryVersions,
+              threadId,
+              chatHistory.isEditable,
+            ),
             findVersion: (message: AssistantChatHistoryMessage) =>
               findMatchingAssistantChatHistoryVersion(
                 chatHistoryVersions,
@@ -3373,7 +3380,7 @@ const AssistantChatInner = forwardRef<
             restoreVersion: restoreChatHistoryVersion,
           }
         : null,
-    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion],
+    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion, threadId],
   );
   const chatHistoryRunObservedRef = useRef(false);
   const chatHistoryCreateKeyRef = useRef<string | null>(null);
@@ -7152,6 +7159,11 @@ const AssistantChatInner = forwardRef<
                                             <AssistantChatHistoryContext.Provider
                                               value={chatHistoryContext}
                                             >
+                                              {chatHistoryContext?.beginningVersion ? (
+                                                <MessageScrollerItem>
+                                                  <AssistantChatHistoryBeginningRevertButton />
+                                                </MessageScrollerItem>
+                                              ) : null}
                                               <ThreadPrimitive.Messages
                                                 // Deliberately NOT keyed on part structure. Doing that
                                                 // remounted the whole transcript every time a tool call

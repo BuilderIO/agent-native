@@ -18,7 +18,7 @@ import {
 import { captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -49,6 +49,7 @@ export interface DesignVersionChatContext {
   runId?: string;
   turnId?: string;
   actionName?: string;
+  phase?: "start" | "end";
   surface?: "editor";
   /** Which editor-surface caller wrote this checkpoint. Only set alongside
    * `surface: "editor"` — see Throttle 1 below for why it matters. */
@@ -203,6 +204,9 @@ function parseChatContext(
     if (typeof candidate === "string" && candidate.trim()) {
       context[key] = candidate;
     }
+  }
+  if (value.phase === "start" || value.phase === "end") {
+    context.phase = value.phase;
   }
   if (value.surface === "editor") context.surface = "editor";
   if (value.caller === "frontend" || value.caller === "webmcp") {
@@ -414,7 +418,7 @@ function chatContextKey(
   if (!context || context.surface === "editor") return null;
   const scope = context.threadId ?? "";
   const turn = context.turnId ?? context.runId ?? "";
-  return turn ? `${scope}:${turn}` : null;
+  return turn ? `${scope}:${turn}:${context.phase ?? ""}` : null;
 }
 
 function actionChatContext(
@@ -877,6 +881,45 @@ export async function createDesignVersionSnapshot(
   });
 }
 
+export async function createDesignChatBeginningSnapshot(
+  designId: string,
+  run: { threadId: string; runId: string },
+) {
+  return withDesignVersionLock(designId, async () => {
+    const access = await assertAccess("design", designId, "editor");
+    const rows = await getDb()
+      .select({ chatContext: schema.designVersions.chatContext })
+      .from(schema.designVersions)
+      .where(
+        and(
+          eq(schema.designVersions.designId, designId),
+          like(schema.designVersions.chatContext, '%"phase":"start"%'),
+          like(
+            schema.designVersions.chatContext,
+            `%"threadId":"${run.threadId}"%`,
+          ),
+        ),
+      )
+      .limit(1);
+    if (
+      rows.some((row) => {
+        const context = parseStoredChatContext(row.chatContext);
+        return context?.threadId === run.threadId && context.phase === "start";
+      })
+    ) {
+      return null;
+    }
+    return captureDesignVersion(
+      designId,
+      {
+        label: "Before chat",
+        chatContext: { ...run, phase: "start" },
+      },
+      access,
+    );
+  });
+}
+
 function checkpointSkipReason(
   error: unknown,
 ): DesignVersionCheckpointSkipReason {
@@ -1147,7 +1190,8 @@ export async function listDesignVersions(
   versions: DesignVersionListEntry[];
 }> {
   await assertAccess("design", designId, "viewer");
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select({
       id: schema.designVersions.id,
       label: schema.designVersions.label,
@@ -1163,11 +1207,33 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
+  const beginningRows = await db
+    .select({
+      id: schema.designVersions.id,
+      label: schema.designVersions.label,
+      createdAt: schema.designVersions.createdAt,
+      chatContext: schema.designVersions.chatContext,
+      fileCount: schema.designVersions.fileCount,
+    })
+    .from(schema.designVersions)
+    .where(
+      and(
+        eq(schema.designVersions.designId, designId),
+        like(schema.designVersions.chatContext, '%"phase":"start"%'),
+      ),
+    )
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      asc(schema.designVersions.createdAt),
+    );
+  const rowsById = new Map(
+    [...rows, ...beginningRows].map((row) => [row.id, row]),
+  );
 
   const regular: DesignVersionListEntry[] = [];
   const chat = new Map<string, DesignVersionListEntry>();
   let invalidCount = 0;
-  for (const row of rows) {
+  for (const row of rowsById.values()) {
     let chatContext: DesignVersionChatContext | undefined;
     try {
       chatContext = parseStoredChatContext(row.chatContext);
@@ -1196,12 +1262,12 @@ export async function listDesignVersions(
       continue;
     }
     const previous = chat.get(key);
-    if (
+    const replacePrevious =
       !previous ||
-      versionTime(entry.createdAt) < versionTime(previous.createdAt)
-    ) {
-      chat.set(key, entry);
-    }
+      (chatContext?.phase === "end"
+        ? versionTime(entry.createdAt) > versionTime(previous.createdAt)
+        : versionTime(entry.createdAt) < versionTime(previous.createdAt));
+    if (replacePrevious) chat.set(key, entry);
   }
 
   const versions = [...regular, ...chat.values()].sort(

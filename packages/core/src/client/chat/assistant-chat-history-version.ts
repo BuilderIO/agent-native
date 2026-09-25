@@ -4,7 +4,12 @@ export interface AssistantChatHistoryVersion {
   id: string;
   createdAt: AssistantChatHistoryDate;
   editable?: boolean;
-  chatContext?: { threadId?: string; runId?: string; turnId?: string };
+  chatContext?: {
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+    phase?: "start" | "end";
+  };
 }
 
 export function coerceAssistantChatHistoryDate(value: unknown): Date | null {

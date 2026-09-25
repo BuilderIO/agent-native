@@ -46,6 +46,7 @@ import {
   ChatImageAttachmentPreview,
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
+  findAssistantChatHistoryBeginningVersion,
   findMatchingAssistantChatHistoryVersion,
   AssistantMessage,
 } from "./message-components.js";
@@ -239,7 +240,7 @@ describe("assistant request ID resolution", () => {
 });
 
 describe("assistant chat history matching", () => {
-  it("requires a completed side effect and picks the earliest version in the turn", () => {
+  it("requires a completed side effect and picks the latest version in the turn", () => {
     const versions = [
       {
         id: "later",
@@ -262,7 +263,7 @@ describe("assistant chat history matching", () => {
     };
 
     expect(findMatchingAssistantChatHistoryVersion(versions, message)?.id).toBe(
-      "first",
+      "later",
     );
     expect(
       findMatchingAssistantChatHistoryVersion(versions, {
@@ -270,6 +271,33 @@ describe("assistant chat history matching", () => {
         hasCompletedSideEffect: false,
       }),
     ).toBeNull();
+  });
+
+  it("finds the earliest start checkpoint for the current thread", () => {
+    const versions = [
+      {
+        id: "later-start",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        chatContext: { threadId: "thread-1", phase: "start" as const },
+      },
+      {
+        id: "beginning",
+        createdAt: "2026-08-29T09:00:00.000Z",
+        chatContext: { threadId: "thread-1", phase: "start" as const },
+      },
+      {
+        id: "other-thread",
+        createdAt: "2026-08-29T08:00:00.000Z",
+        chatContext: { threadId: "thread-2", phase: "start" as const },
+      },
+    ];
+
+    expect(
+      findAssistantChatHistoryBeginningVersion(versions, "thread-1")?.id,
+    ).toBe("beginning");
+    expect(findAssistantChatHistoryBeginningVersion(versions, "thread-3")).toBe(
+      null,
+    );
   });
 
   it("honors host editability and custom matching", () => {
