@@ -1624,6 +1624,10 @@ function DesignEditor() {
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
   ] = useState<Record<string, string>>({});
+  const [
+    effectiveLiveEditCapabilitiesByScreenId,
+    setEffectiveLiveEditCapabilitiesByScreenId,
+  ] = useState<Record<string, string>>({});
   const [pendingEditSessionMarker, setPendingEditSessionMarker] =
     useState<PendingEditSessionMarkerResult>({ status: "absent" });
   const [
@@ -5715,7 +5719,6 @@ function DesignEditor() {
     breakpointFramesHidden,
   ]);
   const publicVisualEditConnectionIds = useMemo(() => {
-    if (!isVisualEditSurface) return [];
     return [
       ...new Set(
         overviewScreens.flatMap((screen) =>
@@ -5723,23 +5726,28 @@ function DesignEditor() {
         ),
       ),
     ];
-  }, [isVisualEditSurface, overviewScreens]);
+  }, [overviewScreens]);
   const publicVisualEditConnectionId = publicVisualEditConnectionIds[0] ?? null;
   const publicVisualEditPreviewTokenQuery = useActionQuery<{
     previewToken?: string;
-    connections?: Record<string, { previewToken?: string; bridgeUrl?: string }>;
+    liveEditCapability?: string;
+    connections?: Record<
+      string,
+      {
+        previewToken?: string;
+        liveEditCapability?: string;
+        bridgeUrl?: string;
+      }
+    >;
   }>(
     "refresh-localhost-preview-token",
     {
       designId: id!,
-      publicVisualEdit: true,
+      publicVisualEdit,
     },
     {
       enabled:
-        publicVisualEdit &&
-        !shellMode &&
-        Boolean(id) &&
-        publicVisualEditConnectionIds.length > 0,
+        !shellMode && Boolean(id) && publicVisualEditConnectionIds.length > 0,
     },
   );
   const exportCanvasFrameGeometryById = useMemo(
@@ -6780,6 +6788,17 @@ function DesignEditor() {
     },
     [],
   );
+  const handleLiveEditCapabilityChange = useCallback(
+    (screenId: string | undefined, capability: string) => {
+      if (!screenId || !capability) return;
+      setEffectiveLiveEditCapabilitiesByScreenId((current) =>
+        current[screenId] === capability
+          ? current
+          : { ...current, [screenId]: capability },
+      );
+    },
+    [],
+  );
   const activeScreenBridgeUrl = activeOverviewScreen?.bridgeUrl;
   const activeScreenPreviewToken =
     (activeOverviewScreen?.id
@@ -6788,6 +6807,18 @@ function DesignEditor() {
     ("previewToken" in (activeOverviewScreen ?? {}) &&
     typeof activeOverviewScreen?.previewToken === "string"
       ? activeOverviewScreen.previewToken
+      : undefined);
+  const activeScreenLiveEditCapability =
+    (activeOverviewScreen?.id
+      ? effectiveLiveEditCapabilitiesByScreenId[activeOverviewScreen.id]
+      : undefined) ??
+    (activeOverviewScreen?.connectionId
+      ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+          activeOverviewScreen.connectionId
+        ]?.liveEditCapability
+      : undefined) ??
+    (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+      ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
       : undefined);
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
@@ -20327,6 +20358,7 @@ function DesignEditor() {
       runPublishVisualEditPending({
         activeScreenBridgeUrl,
         activeScreenPreviewToken,
+        activeScreenLiveEditCapability,
         callAction,
         canEditDesign,
         designId: id,
@@ -20352,6 +20384,7 @@ function DesignEditor() {
   }, [
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    activeScreenLiveEditCapability,
     activeOverviewScreen?.id,
     canEditLiveScreen,
     canEditDesign,
@@ -25684,6 +25717,14 @@ function DesignEditor() {
             (screen.connectionId === publicVisualEditConnectionId
               ? publicVisualEditPreviewTokenQuery.data?.previewToken
               : undefined)));
+      const screenLiveEditCapability =
+        effectiveLiveEditCapabilitiesByScreenId[screen.id] ??
+        publicVisualEditPreviewTokenQuery.data?.connections?.[
+          screen.connectionId ?? ""
+        ]?.liveEditCapability ??
+        (screen.connectionId === publicVisualEditConnectionId
+          ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+          : undefined);
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -25820,7 +25861,9 @@ function DesignEditor() {
           connectionId={screen.connectionId}
           nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
+          liveEditCapability={screenLiveEditCapability}
           onPreviewTokenChange={handleEffectivePreviewTokenChange}
+          onLiveEditCapabilityChange={handleLiveEditCapabilityChange}
           onRoutePathChange={handleLiveRoutePathChange}
           publicVisualEdit={publicVisualEdit}
           externalSnapshotHtml={screenSnapshot}
@@ -26069,7 +26112,9 @@ function DesignEditor() {
       publicVisualEditPreviewTokenQuery.data?.previewToken,
       publicVisualEditPreviewTokenQuery.data?.connections,
       effectivePreviewTokensByScreenId,
+      effectiveLiveEditCapabilitiesByScreenId,
       handleEffectivePreviewTokenChange,
+      handleLiveEditCapabilityChange,
       canCommentDesign,
       activeTool,
       pinMode,
@@ -29279,7 +29324,11 @@ function DesignEditor() {
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
+                        liveEditCapability={activeScreenLiveEditCapability}
                         onPreviewTokenChange={handleEffectivePreviewTokenChange}
+                        onLiveEditCapabilityChange={
+                          handleLiveEditCapabilityChange
+                        }
                         onRoutePathChange={handleLiveRoutePathChange}
                         publicVisualEdit={publicVisualEdit}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}

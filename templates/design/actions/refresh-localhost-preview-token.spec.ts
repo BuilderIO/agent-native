@@ -48,6 +48,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { deriveLiveEditCapability } from "./connect-localhost.js";
 import action from "./refresh-localhost-preview-token.js";
 
 beforeEach(() => {
@@ -91,7 +92,6 @@ describe("refresh-localhost-preview-token", () => {
     });
     expect(mocks.resolveScope).toHaveBeenCalledWith({
       designId: "design_1",
-      allowPublicViewer: true,
     });
   });
 
@@ -113,6 +113,15 @@ describe("refresh-localhost-preview-token", () => {
 
     expect(result.previewToken).not.toBe("legacy-random-preview");
     expect(result.previewToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.liveEditCapability).toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_1"),
+    );
+    expect(result.liveEditCapability).toBe(
+      "35a0a665bdfa09540ba0fa820572e5bdda7b4ce7d3a7906a6d90617063189130",
+    );
+    expect(result.liveEditCapability).not.toBe(
+      deriveLiveEditCapability("stored-bridge-token", "design_2"),
+    );
   });
 
   it("rejects a connection that is not part of the design", async () => {

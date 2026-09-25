@@ -11,6 +11,7 @@ function makeArgs(
   return {
     activeScreenBridgeUrl: "http://127.0.0.1:7331",
     activeScreenPreviewToken: "preview-token",
+    activeScreenLiveEditCapability: "design-capability",
     callAction: vi.fn().mockResolvedValue(undefined),
     canEditDesign: true,
     designId: "design-1",
@@ -70,6 +71,9 @@ describe("runPublishVisualEditPending", () => {
       "http://127.0.0.1:7331/live-edit-pending",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({
+          "x-agent-native-live-edit-capability": "design-capability",
+        }),
         body: JSON.stringify(args.pending),
       }),
     );
@@ -115,6 +119,14 @@ describe("runPublishVisualEditPending", () => {
       canEditDesign: false,
       activeScreenBridgeUrl: null,
     });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not publish to the bridge without a design-scoped capability", async () => {
+    const args = makeArgs({ activeScreenLiveEditCapability: undefined });
 
     await runPublishVisualEditPending(args);
 

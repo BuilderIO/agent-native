@@ -14,6 +14,7 @@ export interface PendingVisualEditHandoff {
 export interface PublishVisualEditPendingArgs {
   activeScreenBridgeUrl: string | null | undefined;
   activeScreenPreviewToken: string | null | undefined;
+  activeScreenLiveEditCapability: string | null | undefined;
   callAction: (
     name: "publish-visual-edit-pending",
     payload: PendingVisualEditHandoff,
@@ -48,6 +49,7 @@ export async function runPublishVisualEditPending(
   const {
     activeScreenBridgeUrl,
     activeScreenPreviewToken,
+    activeScreenLiveEditCapability,
     callAction,
     canEditDesign,
     designId,
@@ -80,7 +82,12 @@ export async function runPublishVisualEditPending(
     }
   }
 
-  if (!activeScreenBridgeUrl || !activeScreenPreviewToken) return;
+  if (
+    !activeScreenBridgeUrl ||
+    !activeScreenPreviewToken ||
+    !activeScreenLiveEditCapability
+  )
+    return;
   try {
     const response = await fetchImpl(
       `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
@@ -89,6 +96,7 @@ export async function runPublishVisualEditPending(
         headers: {
           "content-type": "application/json",
           "x-design-preview-token": activeScreenPreviewToken,
+          "x-agent-native-live-edit-capability": activeScreenLiveEditCapability,
         },
         body: JSON.stringify(pending),
       },

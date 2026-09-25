@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const callActionMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: callActionMock,
+  usePinchZoom: () => {},
 }));
 
 import {
@@ -93,6 +93,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
+          liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
           onRoutePathChange={onRoutePathChange}
           zoom={100}
@@ -169,6 +170,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           previewUrlOverride="http://localhost:5173/settings"
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
+          liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
           onRoutePathChange={onRoutePathChange}
           zoom={100}
@@ -256,6 +258,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           previewUrlOverride="http://localhost:5173/profile"
           bridgeUrl={bridgeUrl}
           previewToken="registration-preview-token"
+          liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
           onRoutePathChange={onRoutePathChange}
           zoom={100}
@@ -317,6 +320,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="stale-preview-token"
+          liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
           zoom={100}
           deviceFrame="none"
@@ -387,6 +391,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="preview-token"
+          liveEditCapability="test-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode
@@ -430,7 +435,10 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    callActionMock.mockResolvedValue({ previewToken: "fresh-preview-token" });
+    callActionMock.mockResolvedValue({
+      previewToken: "fresh-preview-token",
+      liveEditCapability: "fresh-live-edit-capability",
+    });
 
     await act(async () => {
       root.render(
@@ -445,6 +453,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             designId="design_public"
             publicVisualEdit
             previewToken="stale-preview-token"
+            liveEditCapability="test-live-edit-capability"
             zoom={100}
             deviceFrame="none"
             editMode
@@ -477,6 +486,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         "x-design-preview-token"
       ],
     ).toBe("fresh-preview-token");
+    expect(
+      (registrationCalls[1]?.[1]?.headers as Record<string, string>)[
+        "x-agent-native-live-edit-capability"
+      ],
+    ).toBe("fresh-live-edit-capability");
   });
 
   it("re-registers when refresh returns the same deterministic preview token", async () => {
@@ -500,7 +514,10 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    callActionMock.mockResolvedValue({ previewToken: "same-preview-token" });
+    callActionMock.mockResolvedValue({
+      previewToken: "same-preview-token",
+      liveEditCapability: "fresh-live-edit-capability",
+    });
 
     await act(async () => {
       root.render(
@@ -515,6 +532,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             designId="design_public"
             publicVisualEdit
             previewToken="same-preview-token"
+            liveEditCapability="old-live-edit-capability"
             zoom={100}
             deviceFrame="none"
             editMode
@@ -559,6 +577,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="stale-preview-token"
+          liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
           zoom={100}
           deviceFrame="none"
@@ -599,6 +618,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="permission-preview-token"
+          liveEditCapability="test-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode
@@ -639,6 +659,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="permission-preview-token"
+          liveEditCapability="test-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode
@@ -696,6 +717,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="verification-preview-token"
+            liveEditCapability="test-live-edit-capability"
             runtimeVerificationRequest={
               requestId === null ? null : { requestId }
             }
@@ -792,6 +814,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken="handoff-preview-token"
+            liveEditCapability="test-live-edit-capability"
             externalSnapshotHtml="<!doctype html><html><body><main>Chat preview</main></body></html>"
             zoom={100}
             deviceFrame="none"
@@ -946,6 +969,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
           previewToken="example-preview-token"
+          liveEditCapability="test-live-edit-capability"
           zoom={100}
           deviceFrame="none"
           editMode
@@ -1119,6 +1143,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
           previewToken="example-preview-token"
+          liveEditCapability="test-live-edit-capability"
           externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"
           zoom={100}
           deviceFrame="none"

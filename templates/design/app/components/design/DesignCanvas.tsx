@@ -635,6 +635,10 @@ interface DesignCanvasProps {
     screenId: string | undefined,
     previewToken: string,
   ) => void;
+  onLiveEditCapabilityChange?: (
+    screenId: string | undefined,
+    capability: string,
+  ) => void;
   /** Keeps route-scoped pending edits aligned with the live document. */
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
   /** Called once when the live document finishes its browser load. */
@@ -666,7 +670,9 @@ interface DesignCanvasProps {
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
-  /** The public visual-edit surface may refresh owner-scoped preview tokens. */
+  /** Design-bound credential for live-edit bridge operations only. */
+  liveEditCapability?: string;
+  /** The public visual-edit surface may refresh its connection credentials. */
   publicVisualEdit?: boolean;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
@@ -1522,6 +1528,7 @@ export function DesignCanvas({
   onRuntimeLayerSnapshot,
   onBridgeReady,
   onPreviewTokenChange,
+  onLiveEditCapabilityChange,
   onRoutePathChange,
   onBootStart,
   onBootReady,
@@ -1529,6 +1536,7 @@ export function DesignCanvas({
   onRuntimeVerificationSnapshot,
   fusionUrl,
   previewToken,
+  liveEditCapability,
   zoom,
   onZoomChange,
   deviceFrame,
@@ -2139,10 +2147,15 @@ export function DesignCanvas({
   }));
   const [effectivePreviewToken, setEffectivePreviewToken] =
     useState(previewToken);
+  const [effectiveLiveEditCapability, setEffectiveLiveEditCapability] =
+    useState(liveEditCapability);
   useEffect(() => {
     setEffectivePreviewToken(previewToken);
     if (previewToken) onPreviewTokenChange?.(screenId, previewToken);
   }, [onPreviewTokenChange, previewToken]);
+  useEffect(() => {
+    setEffectiveLiveEditCapability(liveEditCapability);
+  }, [liveEditCapability]);
   const renderedContent = renderedDocument.content;
   // What a freshly loaded document already contains, since srcdoc is built from
   // it. The load handler below needs this to skip redundant pushes.
@@ -2770,7 +2783,12 @@ export function DesignCanvas({
   // attempt already succeeded.
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
-      if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
+      if (
+        !usesLiveEditInjectedBridge ||
+        !bridgeUrl ||
+        !effectivePreviewToken ||
+        !effectiveLiveEditCapability
+      ) {
         return null;
       }
       const generation = ++bridgeRegistrationAttemptGenerationRef.current;
@@ -2795,6 +2813,7 @@ export function DesignCanvas({
           headers: {
             "content-type": "application/json",
             "x-design-preview-token": effectivePreviewToken,
+            "x-agent-native-live-edit-capability": effectiveLiveEditCapability,
           },
           body: JSON.stringify({
             script: liveEditBridgeScript,
@@ -2817,13 +2836,15 @@ export function DesignCanvas({
               }
               const refreshed = await callAction<{
                 previewToken?: string;
+                liveEditCapability?: string;
               }>(
                 "refresh-localhost-preview-token",
                 { designId, connectionId, publicVisualEdit },
                 { method: "GET" },
               );
               const nextPreviewToken = refreshed?.previewToken;
-              if (isCurrent() && nextPreviewToken) {
+              const nextLiveEditCapability = refreshed?.liveEditCapability;
+              if (isCurrent() && nextPreviewToken && nextLiveEditCapability) {
                 previewTokenRefreshAttemptRef.current = refreshAttemptKey;
                 if (registrationHandoffKey) {
                   liveEditRegistrationHandoff.delete(registrationHandoffKey);
@@ -2839,6 +2860,13 @@ export function DesignCanvas({
                   // State equality would otherwise suppress the retry after a
                   // bridge reboot that preserved its deterministic token.
                   setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+                }
+                if (nextLiveEditCapability) {
+                  setEffectiveLiveEditCapability(nextLiveEditCapability);
+                  onLiveEditCapabilityChange?.(
+                    screenId,
+                    nextLiveEditCapability,
+                  );
                 }
                 return true;
               }
@@ -2930,16 +2958,23 @@ export function DesignCanvas({
       liveEditBridgeKey,
       liveEditBridgeScript,
       effectivePreviewToken,
+      effectiveLiveEditCapability,
       registrationHandoffKey,
       usesLiveEditInjectedBridge,
       onPreviewTokenChange,
+      onLiveEditCapabilityChange,
       designId,
       connectionId,
       publicVisualEdit,
       screenId,
     ]);
   useEffect(() => {
-    if (!usesLiveEditInjectedBridge || !bridgeUrl || !effectivePreviewToken) {
+    if (
+      !usesLiveEditInjectedBridge ||
+      !bridgeUrl ||
+      !effectivePreviewToken ||
+      !effectiveLiveEditCapability
+    ) {
       // Invalidate any attempt still in flight from before this branch was
       // entered (previous bridge key/mode) BEFORE clearing state below —
       // otherwise that stale attempt's isCurrent() check would still pass
@@ -3048,6 +3083,7 @@ export function DesignCanvas({
       try {
         const refreshed = await callAction<{
           previewToken?: string;
+          liveEditCapability?: string;
         }>(
           "refresh-localhost-preview-token",
           {
@@ -3058,9 +3094,15 @@ export function DesignCanvas({
           { method: "GET" },
         );
         const nextPreviewToken = refreshed?.previewToken;
+        const nextLiveEditCapability = refreshed?.liveEditCapability;
         if (!nextPreviewToken) {
           throw new Error(
             "The refreshed preview token is empty. Run design connect again, then retry.",
+          );
+        }
+        if (!nextLiveEditCapability) {
+          throw new Error(
+            "The refreshed design-scoped live-edit capability is missing. Reconnect this localhost source and retry.",
           );
         }
         previewTokenRefreshAttemptRef.current = `${liveEditBridgeKey}:${effectivePreviewToken}`;
@@ -3068,6 +3110,8 @@ export function DesignCanvas({
           setEffectivePreviewToken(nextPreviewToken);
           onPreviewTokenChange?.(screenId, nextPreviewToken);
         }
+        setEffectiveLiveEditCapability(nextLiveEditCapability);
+        onLiveEditCapabilityChange?.(screenId, nextLiveEditCapability);
         if (registrationHandoffKey) {
           liveEditRegistrationHandoff.delete(registrationHandoffKey);
         }
@@ -3101,8 +3145,10 @@ export function DesignCanvas({
     connectionId,
     designId,
     effectivePreviewToken,
+    effectiveLiveEditCapability,
     liveEditBridgeKey,
     onPreviewTokenChange,
+    onLiveEditCapabilityChange,
     publicVisualEdit,
     screenId,
     scheduleBridgeRegistrationRetry,

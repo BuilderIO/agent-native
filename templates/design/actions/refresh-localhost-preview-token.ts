@@ -6,11 +6,14 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { designConnectionIdsFromData } from "../shared/source-mode.js";
-import { derivePreviewToken } from "./connect-localhost.js";
+import {
+  deriveLiveEditCapability,
+  derivePreviewToken,
+} from "./connect-localhost.js";
 
 export default defineAction({
   description:
-    "Refresh the read-only preview token for a localhost Design screen after the local bridge restarts.",
+    "Refresh a localhost Design screen's read-only preview token and design-scoped live-edit capability after the local bridge restarts.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     connectionId: z
@@ -70,7 +73,6 @@ export default defineAction({
     }
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
       designId,
-      allowPublicViewer: publicVisualEdit === true,
     });
     const connections = await getDb()
       .select({
@@ -125,6 +127,14 @@ export default defineAction({
       }
       return {
         previewToken: previewTokenFor(connection),
+        ...(connection.bridgeToken
+          ? {
+              liveEditCapability: deriveLiveEditCapability(
+                connection.bridgeToken,
+                designId,
+              ),
+            }
+          : {}),
         bridgeUrl: connection.bridgeUrl,
       };
     }
@@ -143,6 +153,14 @@ export default defineAction({
             requestedId,
             {
               previewToken: previewTokenFor(connection)!,
+              ...(connection.bridgeToken
+                ? {
+                    liveEditCapability: deriveLiveEditCapability(
+                      connection.bridgeToken,
+                      designId,
+                    ),
+                  }
+                : {}),
               bridgeUrl: connection.bridgeUrl,
             },
           ];

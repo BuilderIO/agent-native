@@ -91,6 +91,7 @@ function stableConnectionId(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
 export const DEFAULT_BRIDGE_URL = "http://127.0.0.1:7331";
 
 /** One-way compatibility derivation shared with the core design-connect CLI. */
@@ -99,6 +100,17 @@ export function derivePreviewToken(bridgeToken: string): string {
     .createHash("sha256")
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
+    .digest("hex");
+}
+
+export function deriveLiveEditCapability(
+  bridgeToken: string,
+  designId: string,
+): string {
+  return crypto
+    .createHmac("sha256", bridgeToken)
+    .update(LIVE_EDIT_CAPABILITY_DOMAIN)
+    .update(designId)
     .digest("hex");
 }
 
