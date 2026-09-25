@@ -1,5 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { deckContentSignature } from "../../shared/deck-content.js";

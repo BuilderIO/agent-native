@@ -4,7 +4,7 @@ import {
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
