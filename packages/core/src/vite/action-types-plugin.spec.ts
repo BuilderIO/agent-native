@@ -45,6 +45,7 @@ describe("generateActionRegistryForProject", () => {
       expect(registry).toContain('"get-localization-preference"');
       expect(registry).toContain('"set-localization-preference"');
       expect(registry).toContain('"get-observability-review-app"');
+      expect(registry).toContain('"get-observability-review-detail"');
       expect(registry).toContain('"list-resource-history"');
       expect(registry).toContain('"list-review-comments"');
       expect(registry).toContain('"update-review-comment"');
@@ -60,6 +61,7 @@ describe("generateActionRegistryForProject", () => {
       expect(types).toContain('"get-localization-preference"');
       expect(types).toContain('"set-localization-preference"');
       expect(types).toContain('"get-observability-review-app"');
+      expect(types).toContain('"get-observability-review-detail"');
       expect(types).toContain('"list-resource-history"');
       expect(types).toContain('"list-review-comments"');
       expect(types).toContain('"update-review-comment"');

@@ -220,6 +220,39 @@ describe("runMigrations – serverless request runtime", () => {
     ).rejects.toThrow("release DDL failed");
   });
 
+  it("fails the release run when a migration lacks database privileges", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const pooledExec = makeExec([{ v: 0 }]);
+    const directExec = {
+      execute: vi.fn(async (sql: string | { sql: string; args: unknown[] }) => {
+        const statement = typeof sql === "string" ? sql : sql.sql;
+        if (/SELECT MAX/i.test(statement)) {
+          return { rows: [{ v: 0 }], rowsAffected: 0 };
+        }
+        if (/CREATE TABLE/i.test(statement)) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        throw Object.assign(new Error("permission denied for table"), {
+          code: "42501",
+        });
+      }),
+      close: vi.fn(async () => {}),
+    };
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://release");
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+
+    const plugin = runMigrations(migrations, {
+      table: "release_permission_migrations",
+    });
+
+    await expect(withMigrationRuntime(() => plugin(null))).rejects.toThrow(
+      "permission denied for table",
+    );
+    expect(directExec.close).toHaveBeenCalledTimes(1);
+  });
+
   it("still migrates when a caller explicitly opts in", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
