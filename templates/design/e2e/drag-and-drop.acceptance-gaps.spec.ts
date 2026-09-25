@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, expandAllLayers, gotoEditor } from "./helpers";
+import { appPath, cdpScreenshot, expandAllLayers, gotoEditor } from "./helpers";
 
 const SCREEN = `<!doctype html><html><body style="margin:0;position:relative;width:800px;height:600px">
 <div data-agent-native-node-id="free" data-agent-native-layer-name="Free element" style="position:absolute;left:80px;top:80px;width:120px;height:70px;background:#2563eb"></div>
@@ -106,6 +106,7 @@ async function ownership(page: Page, html: string, ids: string[]) {
           return [
             id,
             {
+              exists: element !== null,
               parent:
                 element?.parentElement?.getAttribute(
                   "data-agent-native-node-id",
@@ -155,7 +156,7 @@ test("free-position drag exposes its live position and persists after reload", a
     expect(feedback!.x).toBeGreaterThan(start.x + 60);
     expect(feedback!.y).toBeGreaterThan(start.y + 30);
     const heldScreenshot = test.info().outputPath("free-drag-held.png");
-    await page.screenshot({ path: heldScreenshot });
+    await cdpScreenshot(page, heldScreenshot);
     await test.info().attach("free-drag-held.png", {
       path: heldScreenshot,
       contentType: "image/png",
@@ -226,7 +227,7 @@ test("Option-dragging a root Screen previews, creates, and persists a duplicate"
     expect(duplicateGhost).not.toBeNull();
     expect(duplicateGhost!.x).toBeGreaterThan(box.x + 80);
     const heldScreenshot = test.info().outputPath("screen-duplicate-held.png");
-    await page.screenshot({ path: heldScreenshot });
+    await cdpScreenshot(page, heldScreenshot);
     await test.info().attach("screen-duplicate-held.png", {
       path: heldScreenshot,
       contentType: "image/png",
@@ -265,18 +266,37 @@ test("Option-dragging a root Screen previews, creates, and persists a duplicate"
     const sourceNodeIds = [
       ...sourceHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
     ].map((match) => match[1]);
-    expect(
-      duplicates.some((entry: { content: string }) => {
-        const copiedNodeIds = [
-          ...entry.content.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-        ].map((match) => match[1]);
-        return (
-          entry.content.includes('data-agent-native-layer-name="Flow child"') &&
-          copiedNodeIds.length === sourceNodeIds.length &&
-          copiedNodeIds.every((id: string) => !sourceNodeIds.includes(id))
-        );
-      }),
-    ).toBe(true);
+    const duplicate = duplicates.find((entry: { content: string }) => {
+      const copiedNodeIds = [
+        ...entry.content.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      ].map((match) => match[1]);
+      return (
+        entry.content.includes('data-agent-native-layer-name="Flow child"') &&
+        copiedNodeIds.length === sourceNodeIds.length &&
+        copiedNodeIds.every((id: string) => !sourceNodeIds.includes(id))
+      );
+    });
+    expect(duplicate).toBeDefined();
+    expect(JSON.parse(result.data).canvasFrames?.[duplicate!.id]).toMatchObject(
+      {
+        x: 320,
+        y: 180,
+        width: 800,
+        height: 600,
+      },
+    );
+    const sourceCard = page.locator(
+      `[data-screen-shell][data-frame-id="${ids[0]}"] [data-screen-card]`,
+    );
+    const duplicateCard = page.locator(
+      `[data-screen-shell][data-frame-id="${duplicate!.id}"] [data-screen-card]`,
+    );
+    const sourceBox = await sourceCard.boundingBox();
+    const duplicateBox = await duplicateCard.boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(duplicateBox).not.toBeNull();
+    expect(Math.abs(duplicateBox!.x - sourceBox!.x - 160)).toBeLessThan(2);
+    expect(Math.abs(duplicateBox!.y - sourceBox!.y - 90)).toBeLessThan(2);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -354,7 +374,7 @@ test("moving a flow child out of nested auto layout across Screens previews repa
     const heldScreenshot = test
       .info()
       .outputPath("cross-screen-reparent-held.png");
-    await page.screenshot({ path: heldScreenshot });
+    await cdpScreenshot(page, heldScreenshot);
     await test.info().attach("cross-screen-reparent-held.png", {
       path: heldScreenshot,
       contentType: "image/png",
@@ -383,24 +403,29 @@ test("moving a flow child out of nested auto layout across Screens previews repa
       "root",
       "flow-child",
     ]);
-    expect(sourceOwnership["flow-child"]?.parent).toBeNull();
+    expect(sourceOwnership["flow-child"]?.exists).toBe(false);
     expect(sourceOwnership["auto-peer"]?.parent).toBe("nested-auto");
+    expect(targetOwnership["flow-child"]?.exists).toBe(true);
     expect(targetOwnership["flow-child"]?.parent).toBe("root");
     expect(targetOwnership["flow-child"]?.position).toBe("absolute");
     await page.reload({ waitUntil: "domcontentloaded" });
-    const reloadedSource = await ownership(
-      page,
-      await file(request, designId, "index.html"),
-      ["flow-child", "auto-peer"],
+    const reloadedSourceFrame = screenById(page, ids[0]!).contentFrame();
+    const reloadedTargetFrame = screenById(page, ids[1]!).contentFrame();
+    await expect(
+      reloadedSourceFrame.locator('[data-agent-native-node-id="auto-peer"]'),
+    ).toBeVisible();
+    await expect(
+      reloadedSourceFrame.locator('[data-agent-native-node-id="flow-child"]'),
+    ).toHaveCount(0);
+    const reloadedTargetChild = reloadedTargetFrame.locator(
+      '[data-agent-native-node-id="flow-child"]',
     );
-    const reloadedTarget = await ownership(
-      page,
-      await file(request, designId, "second.html"),
-      ["flow-child"],
-    );
-    expect(reloadedSource["flow-child"]?.parent).toBeNull();
-    expect(reloadedSource["auto-peer"]?.parent).toBe("nested-auto");
-    expect(reloadedTarget["flow-child"]?.parent).toBe("root");
+    await expect(reloadedTargetChild).toBeVisible();
+    expect(
+      await reloadedTargetChild.evaluate((element) =>
+        element.parentElement?.getAttribute("data-agent-native-node-id"),
+      ),
+    ).toBe("root");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
