@@ -307,6 +307,7 @@ describe("pull-request governance", () => {
       "User-controlled HTML is sanitized before it is rendered to the DOM.",
       "User-controlled HTML is escaped before it is assigned to innerHTML.",
       "Untrusted HTML is encoded before it reaches dangerouslySetInnerHTML.",
+      "Untrusted SVG is sanitized before being assigned to innerHTML.",
       "User-controlled HTML is sanitized and then rendered to the DOM.",
       "No XSS was found; user-controlled HTML is rendered safely into the DOM.",
       "This change reduces prompt tokens by 500.",
@@ -377,6 +378,12 @@ describe("pull-request governance", () => {
       "Remote HTML reaches dangerouslySetInnerHTML.",
       "Uploaded HTML is inserted into the DOM.",
       "Webhook HTML is passed to innerHTML.",
+      "User-supplied SVG is assigned to innerHTML.",
+      "Attacker-controlled SVG reaches dangerouslySetInnerHTML.",
+      "Untrusted SVG markup reaches innerHTML.",
+      "Malicious SVG runs script via innerHTML.",
+      "Unsanitized markup is passed to innerHTML.",
+      "Unescaped markup reaches dangerouslySetInnerHTML.",
       "User-controlled HTML is safely rendered into the DOM but is not properly escaped.",
       "User-controlled HTML renders safely into the DOM; it is actually not escaped.",
       "The UI renders user input safely, however the HTML is not escaped before insertion.",
@@ -713,6 +720,27 @@ describe("pull-request governance", () => {
         safetyFindingsClean: !htmlSinkFinding,
       }).autoApprove,
     ).toBe(false);
+    for (const body of [
+      "User-supplied SVG is assigned to innerHTML.",
+      "Attacker-controlled SVG reaches dangerouslySetInnerHTML.",
+      "Untrusted SVG markup reaches innerHTML.",
+      "Malicious SVG runs script via innerHTML.",
+      "Unsanitized markup is passed to innerHTML.",
+      "Unescaped markup reaches dangerouslySetInnerHTML.",
+    ]) {
+      const hasFinding = hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body }],
+        [],
+      );
+      expect(hasFinding, body).toBe(true);
+      expect(
+        decidePullRequestGovernance({
+          ...shomixPullRequest,
+          safetyFindingsClean: !hasFinding,
+        }).autoApprove,
+        body,
+      ).toBe(false);
+    }
     expect(
       decidePullRequestGovernance({
         ...shomixPullRequest,
