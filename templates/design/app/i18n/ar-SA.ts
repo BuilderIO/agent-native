@@ -258,6 +258,12 @@ export default {
       opacity: "العتامة",
       padding: "حشوة",
       margin: "هامِش",
+      marginTop: "الهامش العلوي",
+      marginRight: "الهامش الأيمن",
+      marginBottom: "الهامش السفلي",
+      marginLeft: "الهامش الأيسر",
+      linkMarginSides: "ربط جوانب الهامش",
+      unlinkMarginSides: "إلغاء ربط جوانب الهامش",
       radius: "نصف القطر",
       flexGrow: "تمدد",
       flexShrink: "انكماش",
@@ -936,6 +942,9 @@ export default {
     signUpToSaveDescription:
       "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
     signUpToShare: "سجل للمشاركة",
+    signUpToShareLiveCanvas: "سجّل لمشاركة لوحة مباشرة",
+    liveCanvasLink: "رابط اللوحة المباشرة",
+    liveCanvasWaitingForOwner: "بانتظار لقطة لوحة المالك المباشرة.",
     shareEditorLink: "رابط محرر التصميم",
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -1206,12 +1215,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
+      applySharedEdits: "تطبيق التعديلات",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -1223,6 +1234,8 @@ export default {
       sourceCheckFailedToast:
         "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
       copiedToast: "تم نسخ موجه النمط",
+      copiedToastDescription:
+        "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
@@ -1286,6 +1299,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",

@@ -4,8 +4,12 @@ import {
   BinaryDocumentAttachmentAdapter,
   DownscalingImageAttachmentAdapter,
   estimateAttachmentBodyBytes,
+  getSubmittedPromptBodyStrings,
+  measureJsonStringBytes,
   getAttachmentBodyStrings,
   isTextLikeFile,
+  MAX_ESTIMATED_BODY_BYTES,
+  MAX_PDF_BYTES,
   MAX_TEXT_ATTACHMENT_BYTES,
   serializeAttachmentContentPart,
   serializeQueuedAttachments,
@@ -32,13 +36,25 @@ describe("BinaryDocumentAttachmentAdapter", () => {
 
   it("rejects oversized PDFs when they are added", async () => {
     const adapter = new BinaryDocumentAttachmentAdapter();
-    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf", {
+    const file = new File([new Uint8Array(MAX_PDF_BYTES + 1)], "large.pdf", {
       type: "application/pdf",
     });
 
     await expect(adapter.add({ file })).rejects.toThrow(
-      '"large.pdf" is 4.0 MB - documents are capped at 4 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+      '"large.pdf" is 2.5 MB - documents are capped at 2.5 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
+  });
+
+  it("accepts a PDF that fits the serialized attachment budget", async () => {
+    const adapter = new BinaryDocumentAttachmentAdapter();
+    const file = new File([new Uint8Array(MAX_PDF_BYTES)], "report.pdf", {
+      type: "application/pdf",
+    });
+
+    await expect(adapter.add({ file })).resolves.toMatchObject({
+      name: "report.pdf",
+      contentType: "application/pdf",
+    });
   });
 });
 
@@ -96,6 +112,39 @@ describe("attachment body size estimation", () => {
       "data:application/pdf;base64,abc",
     ]);
     expect(estimateAttachmentBodyBytes(['"\\\né'])).toBeCloseTo(11.5);
+    expect(measureJsonStringBytes(['"\\\né'])).toBe(10);
+  });
+
+  it("keeps a largest-size PDF below budget with a short continuation prompt", () => {
+    const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
+    const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
+    const prompt = "Create a Content page from this PDF.";
+
+    expect(
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, true),
+      ]),
+    ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
+  });
+
+  it("counts initial prompts twice and continuation prompts three times", () => {
+    const base64Bytes = 4 * Math.ceil(MAX_PDF_BYTES / 3);
+    const dataUrl = `data:application/pdf;base64,${"a".repeat(base64Bytes)}`;
+    const prompt = "x".repeat(60 * 1024);
+
+    expect(
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, false),
+      ]),
+    ).toBeLessThan(MAX_ESTIMATED_BODY_BYTES);
+    expect(
+      measureJsonStringBytes([
+        dataUrl,
+        ...getSubmittedPromptBodyStrings(prompt, true),
+      ]),
+    ).toBeGreaterThan(MAX_ESTIMATED_BODY_BYTES);
   });
 });
 

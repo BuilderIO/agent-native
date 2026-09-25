@@ -29,6 +29,10 @@ import {
   OAUTH_TOKEN_MIGRATIONS,
   OAUTH_TOKEN_MIGRATIONS_TABLE,
 } from "../oauth-tokens/migrations.js";
+import {
+  OBSERVABILITY_MIGRATIONS,
+  OBSERVABILITY_MIGRATIONS_TABLE,
+} from "../observability/migrations.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
 import {
   USAGE_ALERT_MIGRATIONS,
@@ -114,6 +118,9 @@ export async function runFrameworkReleaseMigrations(
   })(nitroApp);
   await runMigrations(CHAT_THREAD_SCHEMA_MIGRATIONS, {
     table: CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+  })(nitroApp);
+  await runMigrations(OBSERVABILITY_MIGRATIONS, {
+    table: OBSERVABILITY_MIGRATIONS_TABLE,
   })(nitroApp);
   await runMigrations(AGENT_RUN_MIGRATIONS, {
     table: AGENT_RUN_MIGRATIONS_TABLE,

@@ -135,6 +135,18 @@ describe("design save outbox", () => {
     ).toBe(2);
   });
 
+  it("clears an older journal entry after a newer operation persisted", async () => {
+    const storage = new MemoryOutboxStorage();
+    const older = fileEntry(1);
+    const persisted = fileEntry(2);
+    await journalDesignSaveOutboxEntry(older, storage);
+
+    await expect(
+      acknowledgeDesignSaveOutboxEntry(persisted, storage),
+    ).resolves.toBe(true);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
   it("does not let a stale cancellation discard a newer queued edit", async () => {
     const storage = new MemoryOutboxStorage();
     const cancelled = fileEntry(4);

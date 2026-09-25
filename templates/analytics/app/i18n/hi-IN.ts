@@ -1282,6 +1282,7 @@ export default {
     app: "ऐप",
     unknownApp: "अज्ञात ऐप",
     lastSeen: "अंतिम बार देखा गया",
+    includeZeroMinuteSessions: "0 मिनट के सत्र शामिल करें",
     duration: "अवधि",
     events: "इवेंट",
     chunks: "चंक",

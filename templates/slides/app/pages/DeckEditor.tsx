@@ -1,4 +1,7 @@
-import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import {
+  sendToAgentChat,
+  useGuidedQuestionFlow,
+} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
@@ -96,6 +99,11 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
 import {
+  clearNewDeckGenerationRun,
+  useNewDeckGeneration,
+  useNewDeckGenerationRun,
+} from "@/hooks/use-new-deck-generation";
+import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
@@ -122,6 +130,7 @@ import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
@@ -353,13 +362,31 @@ export default function DeckEditor() {
   // tracking correct across a remount.
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  // Neither hook above is actually scoped to THIS run until its own submit()
-  // call has fired: before that, `activeTabRef` inside useAgentGenerating is
-  // still null, so both hooks report on ANY chat activity system-wide, same
-  // as the broad instance. The target is set (and the popover's persistence
-  // wait starts) well before that submit call, so an unrelated run finishing
-  // during that wait could otherwise satisfy either "seen true" guard below
-  // and clear the freshly-set target before this run ever sent a request.
+  const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
+  const generationSubmitId = searchParams.get("generationSubmitId");
+  const {
+    generating: newDeckGenerationGenerating,
+    questionContinuationPending,
+    submitQuestionContinuation: submitTrackedQuestionContinuation,
+  } = useNewDeckGenerationRun(
+    id ?? "",
+    isNewDeckGenerationRoute,
+    generationSubmitId,
+  );
+  const submitQuestionContinuation = useCallback(
+    ({ message, context }: { message: string; context: string }) => {
+      if (!generationSubmitId) {
+        sendToAgentChat({ message, context, submit: true });
+        return;
+      }
+      return submitTrackedQuestionContinuation({ message, context });
+    },
+    [generationSubmitId, submitTrackedQuestionContinuation],
+  );
+  // Neither useAgentGenerating instance is scoped to its run until submit()
+  // fires: before then, its active tab ref is null and it reports on any chat
+  // activity. The add-slide target is set well before submission, so an
+  // unrelated run could otherwise satisfy either "seen true" guard below.
   // Both cleanup effects stay inert until this flips true.
   const addSlideRequestSentRef = useRef(false);
   const sawAddSlideAgentGeneratingRef = useRef(false);
@@ -384,16 +411,6 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
-  // Generation intent can arrive after this route mounts because the user
-  // answers pre-generation questions from the empty editor.
-  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const newDeckGenerationStarted = useRef(false);
-  if (searchParams.get("generating") === "1") {
-    wasNewDeckCreation.current = true;
-  }
-  if (wasNewDeckCreation.current && generating) {
-    newDeckGenerationStarted.current = true;
-  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -706,16 +723,6 @@ export default function DeckEditor() {
     flushPendingSaves();
     await flushDeckSave(id);
   }, [flushDeckSave, id]);
-  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
-    generating,
-    isNewDeckCreation: wasNewDeckCreation.current,
-  });
-  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
-    generating,
-    isNewDeckCreation: wasNewDeckCreation.current,
-    slideCount,
-    generationStarted: newDeckGenerationStarted.current,
-  });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
   );
@@ -729,6 +736,8 @@ export default function DeckEditor() {
     submitLabel: questionFlowSubmitLabel,
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
+    isSubmitting: questionFlowSubmitting,
+    refetchPendingQuestion,
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
@@ -751,9 +760,32 @@ export default function DeckEditor() {
       ].join("\n"),
     buildSkipContext: () =>
       `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+    onSubmitMessage: submitQuestionContinuation,
+    onSkipMessage: submitQuestionContinuation,
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const waitingOnNewDeckQuestions =
+    showQuestionFlow || questionContinuationPending;
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
+  const { isNewDeckCreation, phase: newDeckGenerationPhase } =
+    useNewDeckGeneration({
+      deckId: id ?? "",
+      isNewDeckRoute: isNewDeckGenerationRoute,
+      generating: newDeckGenerationGenerating,
+      waitingOnQuestions: waitingOnNewDeckQuestions,
+    });
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating: newDeckGenerationGenerating,
+    isNewDeckCreation,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
+    generating: newDeckGenerationGenerating,
+    isNewDeckCreation,
+    slideCount,
+    phase: newDeckGenerationPhase,
+  });
   const fillingPlaceholderSlideId = slideBeingFilledInPlace({
     addSlideGenerating,
     addSlideTargetId,
@@ -1010,28 +1042,78 @@ export default function DeckEditor() {
   useEffect(() => {
     if (
       !id ||
-      !shouldClearNewDeckGeneratingState({
-        generating,
-        generationStarted: newDeckGenerationStarted.current,
-      })
+      newDeckGenerationGenerating ||
+      waitingOnNewDeckQuestions ||
+      newDeckGenerationPhase !== "started"
     ) {
       return;
     }
     void refreshOpenDeck(id);
-  }, [generating, id, refreshOpenDeck]);
+  }, [
+    newDeckGenerationGenerating,
+    id,
+    newDeckGenerationPhase,
+    refreshOpenDeck,
+    waitingOnNewDeckQuestions,
+  ]);
+
+  useEffect(() => {
+    const submitMessageId = searchParams.get("generationSubmitId");
+    if (
+      !id ||
+      !submitMessageId ||
+      !shouldClearNewDeckGenerationRun({
+        generating: newDeckGenerationGenerating,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
+        phase: newDeckGenerationPhase,
+      })
+    ) {
+      return;
+    }
+    let cancelled = false;
+    // The stopped run's chatRunning event can beat the guided-question
+    // app-state read that would otherwise flip waitingOnNewDeckQuestions
+    // true — the agent can write the question after the run stops but before
+    // this hook's own reactive read picks it up. Force one fresh check
+    // before dropping the run's tab correlation, so an answer that arrives
+    // moments later still routes back to the original tab.
+    void refetchPendingQuestion().then((stillWaiting) => {
+      if (cancelled || stillWaiting) return;
+      clearNewDeckGenerationRun(id, submitMessageId);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("generationSubmitId");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    id,
+    newDeckGenerationGenerating,
+    newDeckGenerationPhase,
+    refetchPendingQuestion,
+    searchParams,
+    setSearchParams,
+    waitingOnNewDeckQuestions,
+  ]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
     if (
       !shouldClearNewDeckGeneratingState({
-        generating,
-        generationStarted: newDeckGenerationStarted.current,
+        generating: newDeckGenerationGenerating,
+        waitingOnQuestions: waitingOnNewDeckQuestions,
+        phase: newDeckGenerationPhase,
       })
     ) {
       return;
     }
-    wasNewDeckCreation.current = false;
     if (searchParams.get("generating")) {
       setSearchParams(
         (prev) => {
@@ -1042,7 +1124,13 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams]);
+  }, [
+    newDeckGenerationGenerating,
+    newDeckGenerationPhase,
+    searchParams,
+    setSearchParams,
+    waitingOnNewDeckQuestions,
+  ]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -2817,11 +2905,12 @@ export default function DeckEditor() {
             questions={questionFlowQuestions ?? []}
             onSubmit={handleQuestionSubmit}
             onSkip={handleQuestionSkip}
-            designSystem={deck.designSystemId ? designSystem : undefined}
+            designSystem={designSystem}
             title={questionFlowTitle}
             description={questionFlowDescription}
             skipLabel={questionFlowSkipLabel}
             submitLabel={questionFlowSubmitLabel}
+            isSubmitting={questionFlowSubmitting}
           />
         )}
 

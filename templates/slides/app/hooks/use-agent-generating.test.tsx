@@ -149,6 +149,20 @@ describe("useAgentGenerating", () => {
     });
   });
 
+  it("preserves a submit id supplied by the new deck route", () => {
+    const { result } = renderHook(() => useAgentGenerating());
+
+    act(() =>
+      result.current.submit("Create a deck", "context", {
+        submitMessageId: "deck-submit-1",
+      }),
+    );
+
+    expect(agentChatState.send).toHaveBeenCalledWith(
+      expect.objectContaining({ submitMessageId: "deck-submit-1" }),
+    );
+  });
+
   it("ignores a run error until the active tab is correlated", () => {
     const { result, rerender } = renderHook(() => useAgentGenerating());
 

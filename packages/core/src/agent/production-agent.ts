@@ -2828,6 +2828,8 @@ export interface AgentLoopUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  builderCreditsUsed?: number;
+  engineName?: string;
   model: string;
   /** Number of provider model-stream attempts, including retries. */
   llmCalls?: number;
@@ -5340,6 +5342,7 @@ export async function runAgentLoop(opts: {
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model,
   };
 
@@ -6008,12 +6011,21 @@ export async function runAgentLoop(opts: {
                 outputTokens: event.outputTokens,
                 cacheReadTokens: event.cacheReadTokens ?? 0,
                 cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                engineName: opts.engine.name,
                 model,
+                ...(event.builderCreditsUsed !== undefined
+                  ? { builderCreditsUsed: event.builderCreditsUsed }
+                  : {}),
               };
               usage.inputTokens += eventUsage.inputTokens;
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (eventUsage.builderCreditsUsed !== undefined) {
+                usage.builderCreditsUsed =
+                  (usage.builderCreditsUsed ?? 0) +
+                  eventUsage.builderCreditsUsed;
+              }
               usage.usageReported = true;
               opts.onUsage?.(eventUsage);
             } else if (event.type === "stop") {
@@ -8207,6 +8219,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    engineName: opts.engine.name,
     model: opts.model,
   };
   const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
@@ -8214,6 +8227,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.outputTokens += next.outputTokens;
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
+    if (next.builderCreditsUsed !== undefined) {
+      usage.builderCreditsUsed =
+        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
+    }
+    usage.engineName = next.engineName ?? usage.engineName;
     usage.model = next.model;
     if (typeof next.llmCalls === "number") {
       usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
@@ -10010,7 +10028,7 @@ export function createProductionAgentHandler(
       );
     }
     let surfacedRequestActions = availableRequestActions;
-    let useDefaultRequestActionSurface = !options.resolveActionSurface;
+    let shouldFilterInitialRequestTools = !options.resolveActionSurface;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
@@ -10045,6 +10063,8 @@ export function createProductionAgentHandler(
               availableActionNames: Object.keys(availableRequestActions),
             });
       const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
+      shouldFilterInitialRequestTools =
+        normalizedSurface.mode === "default" || !normalizedSurface.actionScope;
       if (
         requestedActionScope &&
         (normalizedSurface.mode === "default" || !normalizedSurface.actionScope)
@@ -10055,7 +10075,6 @@ export function createProductionAgentHandler(
       }
       const runCtx = ensureRequestRunContext();
       if (normalizedSurface.mode === "default") {
-        useDefaultRequestActionSurface = true;
         if (runCtx) {
           delete runCtx.allowedActionNames;
           delete runCtx.actionScope;
@@ -10719,7 +10738,7 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = useDefaultRequestActionSurface
+    const initialRequestTools = shouldFilterInitialRequestTools
       ? filterInitialEngineTools(
           availableRequestTools,
           options.initialToolNames,
@@ -11851,6 +11870,8 @@ export function createProductionAgentHandler(
                     outputTokens: subUsage.outputTokens,
                     cacheReadTokens: subUsage.cacheReadTokens,
                     cacheWriteTokens: subUsage.cacheWriteTokens,
+                    builderCreditsUsed: subUsage.builderCreditsUsed,
+                    engineName: engine.name,
                     model: subUsage.model,
                     label: `custom-agent:${ref.name}`,
                     runId,
@@ -11976,6 +11997,7 @@ export function createProductionAgentHandler(
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          engineName: engine.name,
           model: effectiveModel,
         };
         const agentLoopOpts = {
@@ -11995,6 +12017,11 @@ export function createProductionAgentHandler(
             turnUsage.outputTokens += usage.outputTokens;
             turnUsage.cacheReadTokens += usage.cacheReadTokens;
             turnUsage.cacheWriteTokens += usage.cacheWriteTokens;
+            if (usage.builderCreditsUsed !== undefined) {
+              turnUsage.builderCreditsUsed =
+                (turnUsage.builderCreditsUsed ?? 0) + usage.builderCreditsUsed;
+            }
+            turnUsage.engineName = usage.engineName ?? turnUsage.engineName;
             turnUsage.model = usage.model;
           },
           ownerEmail,
@@ -12171,7 +12198,8 @@ export function createProductionAgentHandler(
               (turnUsage.inputTokens > 0 ||
                 turnUsage.outputTokens > 0 ||
                 turnUsage.cacheReadTokens > 0 ||
-                turnUsage.cacheWriteTokens > 0)
+                turnUsage.cacheWriteTokens > 0 ||
+                turnUsage.builderCreditsUsed != null)
             ) {
               const { recordUsage } = await import("../usage/store.js");
               await recordUsage({
@@ -12180,6 +12208,8 @@ export function createProductionAgentHandler(
                 outputTokens: turnUsage.outputTokens,
                 cacheReadTokens: turnUsage.cacheReadTokens,
                 cacheWriteTokens: turnUsage.cacheWriteTokens,
+                builderCreditsUsed: turnUsage.builderCreditsUsed,
+                engineName: engine.name,
                 model: turnUsage.model,
                 label: turnUsageLabel || "chat",
                 // token_usage has had run_id/thread_id/task_id since it was

@@ -837,6 +837,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
     suggestionsCount: "{{count}} Vorschläge",
     acceptSuggestion: "Annehmen",
@@ -881,6 +888,35 @@ const rawLiterals = {
     contentSpace: "Content-Bereich",
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
+    collapseItem: "{{title}} einklappen",
+    removeFromRecent: "Aus „Zuletzt besucht“ entfernen",
+    copyLink: "Link kopieren",
+    openInNewTab: "In neuem Tab öffnen",
+    rename: "Umbenennen",
+    duplicate: "Duplizieren",
+    moveTo: "Verschieben nach",
+    moveToTrash: "In den Papierkorb verschieben",
+    lastEditedBy: "Zuletzt bearbeitet von {{name}}",
+    lastEdited: "Zuletzt bearbeitet",
+    pageName: "Seitenname",
+    movePageTo: "„{{title}}“ verschieben nach",
+    topLevel: "Oberste Ebene",
+    noMatchingPages: "Keine passenden Seiten",
+    failedRenamePage: "Seite konnte nicht umbenannt werden",
+    failedDuplicatePage: "Seite konnte nicht dupliziert werden",
+    duplicatedFromLastSave:
+      "Die zuletzt gespeicherte Version wurde kopiert; neuere ungespeicherte Änderungen fehlen.",
+    chooseSpace: "Arbeitsbereich wählen",
+    moveToSpaceTitle: "Nach {{space}} verschieben?",
+    moveToSpaceWarningShared:
+      "Alle in {{space}} können „{{title}}“ und die Unterseiten sehen. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    moveToSpaceWarningPrivate:
+      "„{{title}}“ und die Unterseiten sind in {{space}} nur für dich sichtbar. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    back: "Zurück",
+    movePage: "Verschieben",
+    movedToSpace: "„{{title}}“ nach {{space}} verschoben",
+    failedRemoveFromRecent: "Entfernen aus „Zuletzt besucht“ fehlgeschlagen",
+    expandItem: "{{title}} erweitern",
     database: "Sammlung",
     collection: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
@@ -1024,6 +1060,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
@@ -1289,6 +1332,13 @@ const overrides = {
     genericError: "Etwas ist schiefgelaufen",
   },
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Quellkomponente",

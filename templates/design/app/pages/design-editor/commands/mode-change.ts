@@ -16,6 +16,7 @@ import type {
 export interface ModeChangeArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
+  blockInteraction?: boolean;
   clearPendingLiveEditState: () => void;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   enterSingleScreen: (fileId?: string | null) => void;
@@ -34,6 +35,8 @@ export interface ModeChangeArgs {
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  overviewInteractScreenId: string | null;
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
 }
@@ -41,6 +44,7 @@ export interface ModeChangeArgs {
 export function runModeChange(
   {
     activeFile,
+    blockInteraction = false,
     canEditDesign,
     clearPendingLiveEditState,
     enterOverviewFromZoom,
@@ -56,6 +60,8 @@ export function runModeChange(
     setMode,
     setPinMode,
     setSelectedElement,
+    overviewInteractScreenId,
+    setOverviewInteractScreenId,
     t,
     viewModeRef,
   }: ModeChangeArgs,
@@ -75,7 +81,8 @@ export function runModeChange(
   }
   if (
     next === "interact" &&
-    (pendingVisualStyleEdits.length > 0 ||
+    (blockInteraction ||
+      pendingVisualStyleEdits.length > 0 ||
       pendingLiveNonStyleEdits.length > 0) &&
     !options?.discardPendingLiveEdits &&
     !options?.pendingLiveEditsAlreadyHandled
@@ -94,13 +101,25 @@ export function runModeChange(
     viewMode: viewModeRef.current,
   });
   if (routing === "enter-single-interact") {
+    setOverviewInteractScreenId(nextActiveFile!.id);
     enterSingleScreen(nextActiveFile?.id);
     return;
   }
   if (routing === "enter-overview") {
+    setOverviewInteractScreenId(null);
     if (options?.targetFileId) setActiveFileId(options.targetFileId);
     enterOverviewFromZoom(next);
     return;
+  }
+  if (next === "interact" && overviewInteractScreenId) {
+    setOverviewInteractScreenId(nextActiveFile!.id);
+    if (
+      options?.targetFileId &&
+      nextActiveFile!.id !== overviewInteractScreenId
+    ) {
+      enterSingleScreen(nextActiveFile!.id);
+      return;
+    }
   }
   if (options?.targetFileId) setActiveFileId(options.targetFileId);
   setMode(next);

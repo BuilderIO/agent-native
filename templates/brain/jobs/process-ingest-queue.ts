@@ -179,10 +179,32 @@ export async function claimForHeadlessRunner(row: QueueRow, payload: object) {
 async function runDeterministicOperation(
   row: QueueRow,
   context: NonNullable<Awaited<ReturnType<typeof loadCaptureAndSource>>>,
+  payload: Record<string, unknown>,
 ) {
   if (row.operation === "search-index") {
-    const { indexBrainCapture } = await import("../server/lib/search-index.js");
-    await indexBrainCapture(context.capture.id);
+    const { indexBrainCapture, readCaptureEmbeddingCoverage } =
+      await import("../server/lib/search-index.js");
+    const result = await indexBrainCapture(context.capture.id);
+    const requiredEmbeddingSetId =
+      typeof payload.requiredEmbeddingSetId === "string"
+        ? payload.requiredEmbeddingSetId
+        : null;
+    if (requiredEmbeddingSetId) {
+      if (!result.indexed) {
+        throw new Error(
+          `Embedding backfill indexing failed: ${result.reason ?? "unknown"}.`,
+        );
+      }
+      const coverage = await readCaptureEmbeddingCoverage(
+        context.capture.id,
+        requiredEmbeddingSetId,
+      );
+      if (!coverage.complete) {
+        throw new Error(
+          `Embedding backfill incomplete: artifact=${coverage.artifactEmbedded}, bursts=${coverage.embeddedBursts}/${coverage.expectedBursts}.`,
+        );
+      }
+    }
     return;
   }
   if (row.operation === "search-unindex") {
@@ -271,7 +293,7 @@ async function defaultDistillationRunner(context: DistillationAgentContext) {
   const tools = core.actionsToEngineTools(actions);
   const userApiKey = await core.getOwnerActiveApiKey(context.source.ownerEmail);
   const engine = await core.resolveEngine({
-    apiKey: userApiKey ?? process.env.ANTHROPIC_API_KEY,
+    apiKey: userApiKey,
     appId: "brain",
   });
   const model =
@@ -579,7 +601,7 @@ export async function processBrainIngestQueueOnce(
             userEmail: contextRows.source.ownerEmail,
             orgId: contextRows.source.orgId ?? undefined,
           },
-          () => runDeterministicOperation(row, contextRows),
+          () => runDeterministicOperation(row, contextRows, payload),
         );
         await markOperationDone(row, claimToken);
         processed.push(row.id);

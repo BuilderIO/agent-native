@@ -813,6 +813,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionCreateFailed: "提案を作成できませんでした",
     suggestionsCount: "{{count}} 件の提案",
     acceptSuggestion: "承認",
@@ -855,6 +862,35 @@ const rawLiterals = {
     contentSpace: "Content スペース",
     addChild: "子項目を追加",
     addChildTo: "{{title}} に子項目を追加",
+    collapseItem: "{{title}} を折りたたむ",
+    removeFromRecent: "最近の閲覧から削除",
+    copyLink: "リンクをコピー",
+    openInNewTab: "新しいタブで開く",
+    rename: "名前を変更",
+    duplicate: "複製",
+    moveTo: "移動先",
+    moveToTrash: "ゴミ箱に移動",
+    lastEditedBy: "最終編集者: {{name}}",
+    lastEdited: "最終編集",
+    pageName: "ページ名",
+    movePageTo: "「{{title}}」の移動先",
+    topLevel: "最上位",
+    noMatchingPages: "一致するページはありません",
+    failedRenamePage: "ページ名を変更できませんでした",
+    failedDuplicatePage: "ページを複製できませんでした",
+    duplicatedFromLastSave:
+      "最後に保存されたバージョンをコピーしました。保存されていない最近の編集は含まれていません。",
+    chooseSpace: "ワークスペースを選択",
+    moveToSpaceTitle: "{{space}} に移動しますか？",
+    moveToSpaceWarningShared:
+      "{{space}} の全員が「{{title}}」とそのサブページを閲覧できるようになります。現在の共有設定と公開リンクは削除され、あなたが所有者になります。",
+    moveToSpaceWarningPrivate:
+      "「{{title}}」とそのサブページは {{space}} であなただけが閲覧できるようになります。現在の共有設定と公開リンクは削除され、あなたが所有者になります。",
+    back: "戻る",
+    movePage: "移動",
+    movedToSpace: "「{{title}}」を {{space}} に移動しました",
+    failedRemoveFromRecent: "最近の閲覧から削除できませんでした",
+    expandItem: "{{title}} を展開",
     database: "コレクション",
     collection: "コレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
@@ -994,6 +1030,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
@@ -1253,6 +1296,13 @@ const overrides = {
     genericError: "問題が発生しました",
   },
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     ...editor,
     sourceComponent: {
       defaultTitle: "ソースコンポーネント",

@@ -213,7 +213,7 @@ describe("McpAppRenderer security helpers", () => {
       ui: { csp: { resourceDomains: ["https://untrusted-cdn.example.com"] } },
     };
 
-    await act(async () => {
+    act(() => {
       root.render(
         React.createElement(McpAppRenderer, {
           app: payload,
@@ -222,11 +222,10 @@ describe("McpAppRenderer security helpers", () => {
       );
     });
 
-    const iframe = container.querySelector("iframe");
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "Loading MCP App",
     );
-    expect(iframe).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")).not.toBeNull(),
     );
