@@ -1,5 +1,6 @@
 import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
+  BuilderCredentialLookupError,
   getBuilderVideoGenerationBaseUrl,
   resolveBuilderGatewayAuth,
 } from "@agent-native/core/server";
@@ -248,7 +249,15 @@ export async function startVideoGeneration(input: {
   enhancePrompt?: boolean;
   generateAudio?: boolean;
 }): Promise<VideoGenerationOperation> {
-  const auth = await resolveBuilderGatewayAuth();
+  let auth;
+  try {
+    auth = await resolveBuilderGatewayAuth();
+  } catch (error) {
+    if (error instanceof BuilderCredentialLookupError) {
+      throw new RetryableVideoGenerationError(error.message);
+    }
+    throw error;
+  }
   if (!auth) {
     return {
       provider: "gemini",
@@ -326,6 +335,12 @@ export async function startVideoGeneration(input: {
       }
       if (body?.code === "request_in_progress" && attempt < 2) continue;
     }
+    if (
+      ([408, 425, 429].includes(response.status) || response.status >= 500) &&
+      attempt < 2
+    ) {
+      continue;
+    }
     break;
   }
   if (!response) {
@@ -337,9 +352,11 @@ export async function startVideoGeneration(input: {
     // coercion-ok: the status is still reported when the provider body is unreadable.
     const body = await response.text().catch(() => "");
     const detail = readableProviderErrorDetail(body, 500);
-    throw new Error(
-      `Builder video generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
-    );
+    const message = `Builder video generation failed (${response.status})${detail ? `: ${detail}` : "."}`;
+    if ([408, 425, 429].includes(response.status) || response.status >= 500) {
+      throw new RetryableVideoGenerationError(message);
+    }
+    throw new Error(message);
   }
   const body = (await response.json()) as { id?: unknown };
   if (typeof body.id !== "string" || !body.id) {
@@ -392,6 +409,9 @@ export async function pollGeminiVideoGeneration(
     throw new Error("Gemini video operation completed without a video.");
   }
   if (video.videoBytes) {
+    if (video.videoBytes.length > Math.ceil(MAX_VIDEO_UPLOAD_BYTES / 3) * 4) {
+      throw new Error("Video generation returned invalid video data.");
+    }
     return {
       status: "completed",
       video: {
@@ -436,7 +456,15 @@ export async function pollBuilderVideoGeneration(
   | { status: "processing"; operation: Record<string, unknown> }
   | { status: "completed"; video: GeneratedVideoBytes }
 > {
-  const auth = await resolveBuilderGatewayAuth(identity);
+  let auth;
+  try {
+    auth = await resolveBuilderGatewayAuth(identity);
+  } catch (error) {
+    if (error instanceof BuilderCredentialLookupError) {
+      throw new RetryableVideoGenerationError(error.message);
+    }
+    throw error;
+  }
   if (!auth)
     throw new Error("Builder connection is unavailable for video generation.");
   const baseUrl = getBuilderVideoGenerationBaseUrl().replace(/\/$/, "");

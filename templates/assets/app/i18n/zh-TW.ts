@@ -41,7 +41,10 @@ const messages = {
     builderDescriptionReady: "連線管理一代。",
     builderDescriptionManaged:
       "連結 Builder 即可使用託管圖片生成與儲存。若你的空間已啟用影片生成功能，也可使用該功能。",
-    builderDescriptionDisabled: "對此部署停用。",
+    builderDescriptionDisabled:
+      "此處已停用圖像生成；Builder 影片生成功能仍可能可用。",
+    builderLookupFailed: "無法檢查 Builder 存取權。請重試以更新連線狀態。",
+    statusUnavailable: "狀態無法使用",
     optional: "Optional",
     reconnect: "Reconnect",
     generation: "Generation",

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {
+    constructor() {
+      super("Builder credential lookup is temporarily unavailable.");
+      this.name = "BuilderCredentialLookupError";
+    }
+  },
   getBuilderVideoGenerationBaseUrl: vi.fn(
     () => "https://builder.test/agent-native/videos/v1",
   ),
@@ -9,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  BuilderCredentialLookupError: mocks.BuilderCredentialLookupError,
   getBuilderVideoGenerationBaseUrl: mocks.getBuilderVideoGenerationBaseUrl,
   resolveBuilderGatewayAuth: mocks.resolveBuilderGatewayAuth,
 }));
@@ -19,6 +26,7 @@ vi.mock("./generation.js", () => ({
 
 import {
   pollBuilderVideoGeneration,
+  RetryableVideoGenerationError,
   startVideoGeneration,
 } from "./video-generation.js";
 
@@ -134,6 +142,38 @@ describe("Builder video generation", () => {
       "x-builder-user-id": "builder-user-123",
     });
     expect(mocks.getGeminiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("retries transient Builder start responses with the same idempotency key", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response("upstream unavailable", { status: 503 }),
+      )
+      .mockResolvedValueOnce(Response.json({ id: "vid_recovered" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startVideoGeneration(baseInput)).resolves.toEqual({
+      provider: "builder",
+      generationId: "vid_recovered",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      fetchMock.mock.calls.map(
+        ([, init]) => JSON.parse(String(init?.body)).idempotencyKey,
+      ),
+    ).toEqual(["assets-run-123", "assets-run-123", "assets-run-123"]);
+  });
+
+  it("keeps credential-store failures retryable before polling", async () => {
+    mocks.resolveBuilderGatewayAuth.mockRejectedValueOnce(
+      new mocks.BuilderCredentialLookupError(),
+    );
+
+    await expect(pollBuilderVideoGeneration("video-1")).rejects.toBeInstanceOf(
+      RetryableVideoGenerationError,
+    );
   });
 
   it("rejects a Builder output with invalid video bytes", async () => {

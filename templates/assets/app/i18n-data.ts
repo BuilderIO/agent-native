@@ -638,7 +638,11 @@ const enUS = {
     builderDescriptionReady: "Connected for managed generation.",
     builderDescriptionManaged:
       "Connect Builder for managed image generation and storage. Video generation is available when enabled for your space.",
-    builderDescriptionDisabled: "Disabled for this deployment.",
+    builderDescriptionDisabled:
+      "Image generation is disabled here; Builder video may still be available.",
+    builderLookupFailed:
+      "Couldn’t check Builder access. Retry to refresh the connection status.",
+    statusUnavailable: "Status unavailable",
     optional: "Optional",
     reconnect: "Reconnect",
     generation: "Generation",
@@ -3988,7 +3992,10 @@ export const messagesByLocale = {
         "在生成新资产之前添加 Builder、Gemini 或 OpenAI。",
       addGeminiOrOpenAI: "在生成新资产之前添加Gemini或OpenAI。",
       brandKits: "品牌套件",
-      builderDescriptionDisabled: "对此部署禁用。",
+      builderDescriptionDisabled:
+        "此处已停用图像生成；Builder 视频生成功能仍可能可用。",
+      builderLookupFailed: "无法检查 Builder 访问权限。重试以刷新连接状态。",
+      statusUnavailable: "状态不可用",
       builderDescriptionManaged:
         "连接 Builder 即可使用托管图像生成和存储。若你的空间已启用视频生成功能，也可使用该功能。",
       builderDescriptionReady: "连接管理一代。",
@@ -4837,7 +4844,11 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Agregue Gemini o OpenAI antes de generar nuevos activos.",
       brandKits: "Kits de marca",
-      builderDescriptionDisabled: "Deshabilitado para esta implementación.",
+      builderDescriptionDisabled:
+        "La generación de imágenes está desactivada aquí; la generación de vídeo de Builder puede seguir disponible.",
+      builderLookupFailed:
+        "No se pudo comprobar el acceso a Builder. Vuelve a intentarlo para actualizar el estado de la conexión.",
+      statusUnavailable: "Estado no disponible",
       builderDescriptionManaged:
         "Conecta Builder para usar la generación y el almacenamiento de imágenes gestionados. La generación de vídeo está disponible si se habilita para tu espacio.",
       builderDescriptionReady: "Conectado para generación gestionada.",
@@ -5349,7 +5360,11 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Ajoutez Gemini ou OpenAI avant de générer de nouveaux actifs.",
       brandKits: "Kits de marque",
-      builderDescriptionDisabled: "Désactivé pour ce déploiement.",
+      builderDescriptionDisabled:
+        "La génération d’images est désactivée ici ; la génération vidéo de Builder peut rester disponible.",
+      builderLookupFailed:
+        "Impossible de vérifier l’accès à Builder. Réessayez pour actualiser l’état de la connexion.",
+      statusUnavailable: "État indisponible",
       builderDescriptionManaged:
         "Connectez Builder pour gérer la génération et le stockage d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
       builderDescriptionReady: "Connecté pour une génération gérée.",
@@ -5852,7 +5867,11 @@ export const messagesByLocale = {
       builderDescriptionReady: "Für verwaltete Generierung verbunden.",
       builderDescriptionManaged:
         "Verbinde Builder für verwaltete Bildgenerierung und Speicherung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
-      builderDescriptionDisabled: "Für diese Bereitstellung deaktiviert.",
+      builderDescriptionDisabled:
+        "Die Bildgenerierung ist hier deaktiviert; die Videogenerierung mit Builder kann weiterhin verfügbar sein.",
+      builderLookupFailed:
+        "Der Builder-Zugriff konnte nicht geprüft werden. Versuche es erneut, um den Verbindungsstatus zu aktualisieren.",
+      statusUnavailable: "Status nicht verfügbar",
       optional: "Optional",
       reconnect: "Neu verbinden",
       generation: "Generierung",
@@ -6250,7 +6269,11 @@ export const messagesByLocale = {
       builderDescriptionReady: "管理された生成に接続済みです。",
       builderDescriptionManaged:
         "Builder に接続すると、画像生成と保存を管理できます。動画生成はスペースで有効な場合に利用できます。",
-      builderDescriptionDisabled: "このデプロイでは無効です。",
+      builderDescriptionDisabled:
+        "ここでは画像生成が無効です。Builder の動画生成は引き続き利用できる場合があります。",
+      builderLookupFailed:
+        "Builder のアクセス権を確認できませんでした。再試行して接続状態を更新してください。",
+      statusUnavailable: "状態を確認できません",
       optional: "任意",
       reconnect: "再接続",
       generation: "生成",
@@ -6644,7 +6667,11 @@ export const messagesByLocale = {
       builderDescriptionReady: "관리형 생성에 연결되었습니다.",
       builderDescriptionManaged:
         "이미지 생성 및 저장을 관리하려면 Builder를 연결하세요. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
-      builderDescriptionDisabled: "이 배포에서는 비활성화되었습니다.",
+      builderDescriptionDisabled:
+        "여기서는 이미지 생성이 비활성화되어 있습니다. Builder 동영상 생성은 계속 사용할 수 있을 수 있습니다.",
+      builderLookupFailed:
+        "Builder 액세스를 확인할 수 없습니다. 다시 시도하여 연결 상태를 새로고침하세요.",
+      statusUnavailable: "상태를 확인할 수 없음",
       optional: "선택 사항",
       reconnect: "다시 연결",
       generation: "생성",
@@ -7039,7 +7066,11 @@ export const messagesByLocale = {
       addGeminiOrOpenAI:
         "Adicione Gemini ou OpenAI antes de gerar novos ativos.",
       brandKits: "Kits de marca",
-      builderDescriptionDisabled: "Desativado para esta implantação.",
+      builderDescriptionDisabled:
+        "A geração de imagens está desativada aqui; a geração de vídeo do Builder ainda pode estar disponível.",
+      builderLookupFailed:
+        "Não foi possível verificar o acesso ao Builder. Tente novamente para atualizar o estado da conexão.",
+      statusUnavailable: "Status indisponível",
       builderDescriptionManaged:
         "Conecte o Builder para gerenciar a geração e o armazenamento de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
       builderDescriptionReady: "Conectado para geração gerenciada.",
@@ -7532,7 +7563,11 @@ export const messagesByLocale = {
       builderDescriptionReady: "Managed generation के लिए connected.",
       builderDescriptionManaged:
         "प्रबंधित इमेज जनरेशन और स्टोरेज के लिए Builder कनेक्ट करें। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
-      builderDescriptionDisabled: "इस deployment के लिए disabled.",
+      builderDescriptionDisabled:
+        "यहां छवि निर्माण बंद है; Builder वीडियो निर्माण फिर भी उपलब्ध हो सकता है।",
+      builderLookupFailed:
+        "Builder की पहुंच जांची नहीं जा सकी। कनेक्शन की स्थिति अपडेट करने के लिए फिर से प्रयास करें।",
+      statusUnavailable: "स्थिति उपलब्ध नहीं",
       optional: "वैकल्पिक",
       reconnect: "फिर से कनेक्ट करें",
       generation: "जनरेशन",
@@ -7923,7 +7958,11 @@ export const messagesByLocale = {
         "قم بإضافة Builder، أو Gemini، أو OpenAI قبل إنشاء أصول جديدة.",
       addGeminiOrOpenAI: "أضف Gemini أو OpenAI قبل إنشاء أصول جديدة.",
       brandKits: "مجموعات العلامة التجارية",
-      builderDescriptionDisabled: "معطل لهذا النشر.",
+      builderDescriptionDisabled:
+        "إنشاء الصور معطّل هنا؛ قد يظل إنشاء الفيديو عبر Builder متاحًا.",
+      builderLookupFailed:
+        "تعذّر التحقق من الوصول إلى Builder. أعد المحاولة لتحديث حالة الاتصال.",
+      statusUnavailable: "الحالة غير متاحة",
       builderDescriptionManaged:
         "اربط Builder لإدارة إنشاء الصور وتخزينها. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
       builderDescriptionReady: "متصل للجيل المدار.",

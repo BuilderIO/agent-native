@@ -32,6 +32,7 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import {
+  BuilderOAuthScopeError,
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
@@ -1200,6 +1201,16 @@ export interface BuilderGatewayAuth {
   userId: string | null;
 }
 
+export class BuilderCredentialLookupError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause?: unknown) {
+    super("Builder credential lookup is temporarily unavailable.");
+    this.name = "BuilderCredentialLookupError";
+    this.cause = cause;
+  }
+}
+
 /**
  * The gate for gateway-lane features. Not `resolveHasBuilderPrivateKey`, which is
  * identity-only and false on a credits site.
@@ -1223,9 +1234,16 @@ export async function resolveBuilderGatewayAuth(
   const ownerEmail =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   // undefined resolves the owner's org; null deliberately pins the lookup to Personal.
-  const orgId =
-    identity === undefined ? (getRequestOrgId() ?? null) : identity.orgId;
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
+  const orgId = identity === undefined ? getRequestOrgId() : identity.orgId;
+  let hasOAuthSession = false;
+  if (ownerEmail) {
+    try {
+      hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId);
+    } catch (error) {
+      throw new BuilderCredentialLookupError(error);
+    }
+  }
+  if (ownerEmail && hasOAuthSession) {
     try {
       const session = await getBuilderOAuthSession(
         ownerEmail,
@@ -1239,30 +1257,38 @@ export async function resolveBuilderGatewayAuth(
             userId: null,
           }
         : null;
-    } catch {
-      // coercion-ok: custody exists but the grant needs reconnecting
-      // (expired, missing scope) -- report "not configured" rather than
-      // falling through to a different identity's credential.
-      return null;
+    } catch (error) {
+      if (error instanceof BuilderOAuthScopeError) return null;
+      throw new BuilderCredentialLookupError(error);
     }
   }
-  const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
-  const token = creds.privateKey?.trim();
-  const spaceId = creds.publicKey?.trim();
-  if (token && spaceId) {
-    return {
-      authorization: `Bearer ${token}`,
-      spaceId,
-      userId: creds.userId?.trim() || null,
-    };
+  try {
+    const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
+    if (creds.lookupFailed) {
+      throw new BuilderCredentialLookupError(creds.cause);
+    }
+    const token = creds.privateKey?.trim();
+    const spaceId = creds.publicKey?.trim();
+    if (token && spaceId) {
+      return {
+        authorization: `Bearer ${token}`,
+        spaceId,
+        userId: creds.userId?.trim() || null,
+      };
+    }
+    // Single-key deployments predate the space id and still authenticate on a
+    // `bpk-` private key alone. A gateway token never reaches this branch — its
+    // pair is required above.
+    const legacyKey = (await resolveBuilderPrivateKey(identity))?.trim();
+    return legacyKey
+      ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
+      : null;
+  } catch (error) {
+    if (error instanceof CredentialStoreUnavailableError) {
+      throw new BuilderCredentialLookupError(error);
+    }
+    throw error;
   }
-  // Single-key deployments predate the space id and still authenticate on a
-  // `bpk-` private key alone. A gateway token never reaches this branch — its
-  // pair is required above.
-  const legacyKey = (await resolveBuilderPrivateKey(identity))?.trim();
-  return legacyKey
-    ? { authorization: `Bearer ${legacyKey}`, spaceId: null, userId: null }
-    : null;
 }
 
 /**

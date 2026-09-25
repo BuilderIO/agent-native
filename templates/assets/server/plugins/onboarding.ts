@@ -16,7 +16,7 @@ import {
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
 import {
-  resolveHasCompleteBuilderConnection,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
 
@@ -51,11 +51,9 @@ export default async (nitroApp: any): Promise<void> => {
         label: "Connect Builder.io",
         description: builderImageGenerationEnabled
           ? "Recommended one-click setup for managed image generation and video generation when enabled for your space. Uses Builder credits and keeps provider keys out of this app."
-          : "Disabled by BUILDER_IMAGE_GENERATION_ENABLED=false for image generation. Add manual Gemini or OpenAI image keys; use Gemini for manual video generation.",
+          : "Managed image generation is disabled here. Connect Builder for video when your space supports it, or add Gemini/OpenAI keys for manual generation.",
         primary: true,
         badge: builderImageGenerationEnabled ? "recommended" : undefined,
-        disabled: !builderImageGenerationEnabled,
-        disabledLabel: "Disabled",
         payload: { scope: "image-generation" },
       },
       {
@@ -96,13 +94,7 @@ export default async (nitroApp: any): Promise<void> => {
       },
     ],
     isComplete: async () => {
-      if (builderImageGenerationEnabled) {
-        try {
-          if (await resolveHasCompleteBuilderConnection()) return true;
-        } catch {
-          // Fall through to the manual key fallback.
-        }
-      }
+      if (await resolveHasBuilderGatewayCredential()) return true;
       const [gemini, openai] = await Promise.all([
         resolveSecret("GEMINI_API_KEY").catch(() => null),
         resolveSecret("OPENAI_API_KEY").catch(() => null),
