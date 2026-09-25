@@ -55,6 +55,7 @@ const {
   getOrgScopedReviewThreads,
   getRecentReviewRunsForThreads,
   getHumanReviewSummaries,
+  getHumanReviewSummariesForThreads,
   getFeedback,
   getInstructionUpdates,
   getFeedbackStats,
@@ -331,6 +332,61 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["org-a", "run-a", "run-b"]);
     });
 
+    it("loads the latest persisted summary through org-owned threads", async () => {
+      selectedRows = [
+        {
+          run_id: "run-newest",
+          org_id: "org-a",
+          ask: "Current ask",
+          outcome: "Current outcome",
+          artifacts: "[]",
+          created_by: "admin@example.com",
+          created_at: 1,
+          updated_at: 3,
+          review_thread_id: "thread-a",
+        },
+        {
+          run_id: "run-old",
+          org_id: "org-a",
+          ask: "Old ask",
+          outcome: "Old outcome",
+          artifacts: "[]",
+          created_by: "admin@example.com",
+          created_at: 1,
+          updated_at: 2,
+          review_thread_id: "thread-a",
+        },
+      ];
+      await expect(
+        getHumanReviewSummariesForThreads("org-a", ["thread-a"]),
+      ).resolves.toMatchObject(
+        new Map([
+          [
+            "thread-a",
+            {
+              runId: "run-newest",
+              ask: "Current ask",
+              outcome: "Current outcome",
+            },
+          ],
+        ]),
+      );
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /INNER JOIN agent_trace_summaries trace\s+ON trace\.run_id = review\.run_id AND trace\.org_id = review\.org_id/,
+      );
+      expect(call.sql).toMatch(
+        /INNER JOIN chat_threads thread\s+ON thread\.id = trace\.thread_id AND thread\.org_id = trace\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(trace\.user_id\)/,
+      );
+      expect(call.sql).toMatch(
+        /WHERE review\.org_id = \? AND trace\.thread_id IN \(\?\)/,
+      );
+      expect(call.sql).toMatch(
+        /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
+      );
+      expect(call.args).toEqual(["org-a", "thread-a"]);
+    });
+
     it("parses valid persisted summary artifacts", async () => {
       selectedRows = [
         {
@@ -436,6 +492,22 @@ describe("observability store: per-user isolation", () => {
         /WHERE run_id IN \(\?, \?\) AND org_id = \?/,
       );
       expect(lastSelect().args).toEqual(["run-a", "run-b", "org-a", 500]);
+    });
+
+    it("bounds instruction drafts independently for each selected thread", async () => {
+      await getInstructionUpdates({
+        threadIds: ["thread-a", "thread-b"],
+        sinceMs: 500,
+        orgId: "org-a",
+        perThreadLimit: 1,
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /PARTITION BY thread_id ORDER BY updated_at DESC, id DESC/,
+      );
+      expect(call.sql).toMatch(/WHERE update_row_number <= \?/);
+      expect(call.sql).not.toContain("LIMIT ?");
+      expect(call.args).toEqual(["thread-a", "thread-b", 500, "org-a", 1]);
     });
 
     it("returns no rows without querying when an explicit run list is empty", async () => {

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
@@ -78,6 +78,7 @@ function ReviewPreviewFrame({
   artifactId,
   previewLabel,
   compact,
+  renderContent,
   kind,
 }: {
   url?: string;
@@ -85,47 +86,20 @@ function ReviewPreviewFrame({
   artifactId?: string;
   previewLabel: string;
   compact: boolean;
-  kind: "artifact" | "design";
+  renderContent?: ReactNode;
+  kind: "artifact" | "design" | "analytics-dashboard";
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const releaseRef = useRef<(() => void) | null>(null);
   const [mounted, setMounted] = useState(!compact);
   const [loaded, setLoaded] = useState(false);
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const designQuery = useActionQuery<Record<string, unknown>>(
     "get-design",
-    { id: artifactId ?? "" },
+    { id: artifactId ?? "", includeFileContent: false },
     {
       enabled: mounted && artifactAppId === "design" && Boolean(artifactId),
-      staleTime: 5 * 60_000,
-    },
-  );
-  const deckQuery = useActionQuery<Record<string, unknown>>(
-    "get-deck",
-    { id: artifactId ?? "", compact: compact ? "true" : "false" },
-    {
-      enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
-      staleTime: 5 * 60_000,
-    },
-  );
-  const deckMetadataSlides = Array.isArray(deckQuery.data?.slides)
-    ? deckQuery.data.slides.filter((slide): slide is Record<string, unknown> =>
-        isRecord(slide),
-      )
-    : [];
-  const firstSlideId =
-    compact && typeof deckMetadataSlides[0]?.id === "string"
-      ? deckMetadataSlides[0].id
-      : undefined;
-  const firstSlideQuery = useActionQuery<Record<string, unknown>>(
-    "get-deck",
-    {
-      id: artifactId ?? "",
-      slideId: firstSlideId ?? "",
-      compact: "false",
-    },
-    {
-      enabled: mounted && artifactAppId === "slides" && Boolean(firstSlideId),
       staleTime: 5 * 60_000,
     },
   );
@@ -147,24 +121,87 @@ function ReviewPreviewFrame({
         (typeof file.fileType === "string" &&
           file.fileType.toLowerCase().includes("html")),
     );
-  const slideData = compact ? firstSlideQuery.data : deckQuery.data;
+  const designFileId =
+    typeof designFile?.id === "string" ? designFile.id : undefined;
+  const designFileQuery = useActionQuery<Record<string, unknown>>(
+    "get-design",
+    {
+      id: artifactId ?? "",
+      fileId: designFileId ?? "",
+      includeFileContent: true,
+    },
+    {
+      enabled:
+        mounted &&
+        artifactAppId === "design" &&
+        Boolean(artifactId && designFileId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    { id: artifactId ?? "", compact: "true" },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const deckMetadataSlides = Array.isArray(deckQuery.data?.slides)
+    ? deckQuery.data.slides.filter((slide): slide is Record<string, unknown> =>
+        isRecord(slide),
+      )
+    : [];
+  const firstSlideId =
+    compact && typeof deckMetadataSlides[0]?.id === "string"
+      ? deckMetadataSlides[0].id
+      : undefined;
+  const defaultSlideId =
+    typeof deckMetadataSlides[0]?.id === "string"
+      ? deckMetadataSlides[0].id
+      : undefined;
+  const activeSlideId = compact
+    ? firstSlideId
+    : (deckMetadataSlides.find((slide) => slide.id === selectedSlideId)?.id ??
+      defaultSlideId);
+  const selectedSlideQuery = useActionQuery<Record<string, unknown>>(
+    "get-deck",
+    {
+      id: artifactId ?? "",
+      slideId: activeSlideId ?? "",
+      compact: "false",
+    },
+    {
+      enabled: mounted && artifactAppId === "slides" && Boolean(activeSlideId),
+      staleTime: 5 * 60_000,
+    },
+  );
+  const designFileContents = Array.isArray(designFileQuery.data?.files)
+    ? designFileQuery.data.files.filter(
+        (file): file is Record<string, unknown> => isRecord(file),
+      )
+    : [];
+  const slideData = selectedSlideQuery.data;
   const slides = Array.isArray(slideData?.slides)
     ? slideData.slides.filter((slide): slide is Record<string, unknown> =>
         isRecord(slide),
       )
     : [];
   const artifactHtml =
-    artifactAppId === "design" ? designFile?.content : slides[0]?.content;
-  const srcDoc = typeof artifactHtml === "string" ? artifactHtml : undefined;
+    artifactAppId === "design"
+      ? designFileContents[0]?.content
+      : slides[0]?.content;
+  const srcDoc =
+    typeof artifactHtml === "string" && artifactHtml.trim()
+      ? artifactHtml
+      : undefined;
   const artifactError =
     artifactAppId === "design"
-      ? designQuery.isError
-      : deckQuery.isError || firstSlideQuery.isError;
+      ? designQuery.isError || designFileQuery.isError
+      : deckQuery.isError || selectedSlideQuery.isError;
   const artifactLoaded =
     artifactAppId === "design"
-      ? designQuery.isSuccess
-      : deckQuery.isSuccess &&
-        (!compact || !firstSlideId || firstSlideQuery.isSuccess);
+      ? designQuery.isSuccess && (!designFileId || designFileQuery.isSuccess)
+      : deckQuery.isSuccess && (!activeSlideId || selectedSlideQuery.isSuccess);
   const unavailable =
     artifactAppId && (artifactError || (artifactLoaded && !srcDoc));
 
@@ -202,7 +239,18 @@ function ReviewPreviewFrame({
 
   useEffect(() => setLoaded(false), [url, srcDoc]);
 
-  const dataKind = compact ? `${kind}-iframe-thumbnail` : `${kind}-iframe`;
+  useEffect(() => setSelectedSlideId(null), [artifactId]);
+
+  const dataKind =
+    kind === "analytics-dashboard"
+      ? compact
+        ? "analytics-dashboard-thumbnail"
+        : "analytics-dashboard"
+      : compact
+        ? `${kind}-iframe-thumbnail`
+        : `${kind}-iframe`;
+  const showSlideStrip =
+    !compact && artifactAppId === "slides" && deckMetadataSlides.length > 1;
   return (
     <div
       ref={containerRef}
@@ -214,42 +262,88 @@ function ReviewPreviewFrame({
       }
       data-preview-kind={dataKind}
       data-preview-state={
-        unavailable
-          ? "unavailable"
-          : artifactAppId && !srcDoc
-            ? "loading"
-            : "ready"
+        renderContent !== undefined
+          ? mounted
+            ? "ready"
+            : "loading"
+          : unavailable
+            ? "unavailable"
+            : artifactAppId && !srcDoc
+              ? "loading"
+              : "ready"
       }
-      role="img"
+      role={showSlideStrip ? "group" : "img"}
     >
-      {!loaded && (
-        <div
-          className={
-            unavailable
-              ? "absolute inset-0 flex items-center justify-center bg-muted px-3 text-center text-xs text-muted-foreground"
-              : "absolute inset-0 animate-pulse bg-muted"
-          }
-          role={unavailable ? "status" : undefined}
-        >
-          {unavailable ? t("observability.reviewPreviewUnavailable") : null}
-        </div>
-      )}
-      {mounted && (!artifactAppId || srcDoc) && (
-        <iframe
-          aria-hidden="true"
-          className={
-            compact
-              ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
-              : "absolute inset-0 size-full border-0"
-          }
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts"
-          {...(artifactAppId ? { srcDoc } : { src: url })}
-          tabIndex={-1}
-          title={previewLabel}
-        />
+      {renderContent !== undefined ? (
+        mounted ? (
+          renderContent
+        ) : (
+          <div className="absolute inset-0 animate-pulse bg-muted" />
+        )
+      ) : (
+        <>
+          {showSlideStrip && (
+            <div
+              aria-label={previewLabel}
+              className="absolute inset-x-0 top-0 z-10 flex gap-1 overflow-x-auto border-b border-border bg-background/95 p-1"
+              data-review-slide-strip
+              role="group"
+            >
+              {deckMetadataSlides.map((slide, index) => {
+                const slideId =
+                  typeof slide.id === "string" ? slide.id : undefined;
+                if (!slideId) return null;
+                const label =
+                  typeof slide.title === "string" && slide.title.trim()
+                    ? slide.title
+                    : `${previewLabel} ${index + 1}`;
+                return (
+                  <button
+                    key={slideId}
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={activeSlideId === slideId}
+                    onClick={() => setSelectedSlideId(slideId)}
+                    className="size-8 shrink-0 rounded border border-border text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-pressed:text-foreground"
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!loaded && (
+            <div
+              className={
+                unavailable
+                  ? "absolute inset-0 flex items-center justify-center bg-muted px-3 text-center text-xs text-muted-foreground"
+                  : "absolute inset-0 animate-pulse bg-muted"
+              }
+              role={unavailable ? "status" : undefined}
+            >
+              {unavailable ? t("observability.reviewPreviewUnavailable") : null}
+            </div>
+          )}
+          {mounted && (!artifactAppId || srcDoc) && (
+            <iframe
+              aria-hidden="true"
+              className={
+                compact
+                  ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+                  : showSlideStrip
+                    ? "absolute inset-x-0 bottom-0 top-10 border-0"
+                    : "absolute inset-0 size-full border-0"
+              }
+              loading="lazy"
+              onLoad={() => setLoaded(true)}
+              referrerPolicy="no-referrer"
+              sandbox="allow-scripts"
+              {...(artifactAppId ? { srcDoc } : { src: url })}
+              tabIndex={-1}
+              title={previewLabel}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -574,6 +668,7 @@ export function OutputPreview({
   artifactPreviewIsImage = false,
   artifactPreviewAppId,
   artifactPreviewId,
+  artifactPreviewContent,
   artifactOnly = false,
 }: {
   answer: string;
@@ -585,6 +680,7 @@ export function OutputPreview({
   artifactPreviewIsImage?: boolean;
   artifactPreviewAppId?: "design" | "slides" | "analytics";
   artifactPreviewId?: string;
+  artifactPreviewContent?: ReactNode;
   artifactOnly?: boolean;
 }) {
   const preview = parseOutputPreview(answer);
@@ -603,6 +699,17 @@ export function OutputPreview({
         }
         loading="lazy"
         referrerPolicy="no-referrer"
+      />
+    );
+  }
+  if (artifactPreviewContent !== undefined) {
+    return (
+      <ReviewPreviewFrame
+        artifactId={artifactPreviewId}
+        previewLabel={previewLabel}
+        compact={compact}
+        renderContent={artifactPreviewContent}
+        kind="analytics-dashboard"
       />
     );
   }

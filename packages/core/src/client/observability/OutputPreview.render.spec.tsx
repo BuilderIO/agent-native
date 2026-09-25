@@ -216,6 +216,131 @@ describe("OutputPreview saved MCP Apps", () => {
   });
 });
 
+describe("OutputPreview artifact reads", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mockUseActionQuery.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("loads Design metadata first and only the selected HTML file", () => {
+    mockUseActionQuery.mockImplementation(
+      (name: string, args: Record<string, unknown>) => {
+        if (name === "get-design" && args.includeFileContent === false) {
+          return {
+            data: { files: [{ id: "file-1", filename: "index.html" }] },
+            isError: false,
+            isSuccess: true,
+          };
+        }
+        if (name === "get-design" && args.fileId === "file-1") {
+          return {
+            data: { files: [{ content: "<main>Real design</main>" }] },
+            isError: false,
+            isSuccess: true,
+          };
+        }
+        return { data: undefined, isError: false, isSuccess: false };
+      },
+    );
+
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer=""
+          artifactOnly
+          artifactPreviewAppId="design"
+          artifactPreviewId="design-1"
+          previewLabel="Preview"
+        />,
+      );
+    });
+
+    expect(mockUseActionQuery).toHaveBeenCalledWith(
+      "get-design",
+      { id: "design-1", includeFileContent: false },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(mockUseActionQuery).toHaveBeenCalledWith(
+      "get-design",
+      {
+        id: "design-1",
+        fileId: "file-1",
+        includeFileContent: true,
+      },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(container.querySelector("iframe")?.srcdoc).toContain("Real design");
+  });
+
+  it("loads only one Slides HTML document and lets admins choose another slide", () => {
+    mockUseActionQuery.mockImplementation(
+      (name: string, args: Record<string, unknown>) => {
+        if (name === "get-deck" && args.compact === "true") {
+          return {
+            data: {
+              slides: [
+                { id: "slide-1", title: "Intro" },
+                { id: "slide-2", title: "Results" },
+              ],
+            },
+            isError: false,
+            isSuccess: true,
+          };
+        }
+        if (name === "get-deck" && args.compact === "false") {
+          return {
+            data: {
+              slides: [{ id: args.slideId, content: "<main>Slide</main>" }],
+            },
+            isError: false,
+            isSuccess: true,
+          };
+        }
+        return { data: undefined, isError: false, isSuccess: false };
+      },
+    );
+
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer=""
+          artifactOnly
+          artifactPreviewAppId="slides"
+          artifactPreviewId="deck-1"
+          artifactPreviewUrl="https://slides.agent-native.com/deck/deck-1/present"
+          previewLabel="Preview"
+        />,
+      );
+    });
+
+    expect(mockUseActionQuery).toHaveBeenCalledWith(
+      "get-deck",
+      { id: "deck-1", compact: "true" },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(mockUseActionQuery).toHaveBeenCalledWith(
+      "get-deck",
+      { id: "deck-1", slideId: "slide-1", compact: "false" },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(
+      container.querySelectorAll("[data-review-slide-strip] button"),
+    ).toHaveLength(2);
+    expect(container.querySelector("iframe")?.srcdoc).toContain("Slide");
+  });
+});
+
 describe("OutputPreview authenticated artifact frames", () => {
   let container: HTMLDivElement;
   let root: Root;

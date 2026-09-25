@@ -105,7 +105,6 @@ describe("listOutputReviews", () => {
     mockGetOrgScopedThreadTitles.mockResolvedValue(
       new Map([["thread-1", "A real thread"]]),
     );
-    mockGetHumanReviewSummaries.mockResolvedValue(new Map());
     mockGetHumanReviewSummariesForThreads.mockResolvedValue(new Map());
     mockGetRecentReviewRunsForThreads.mockResolvedValue([]);
     mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
@@ -148,19 +147,19 @@ describe("listOutputReviews", () => {
     });
     expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
       sinceMs: 0,
-      limit: 20,
+      perThreadLimit: 1,
       orgId: "org-a",
       threadIds: ["thread-1"],
     });
   });
 
-  it("uses persisted summary data and excludes its own runs before list pagination", async () => {
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(
+  it("keeps a prior run's summary on the current thread rollup", async () => {
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+          "thread-1",
           {
-            runId: "run-1",
+            runId: "run-old",
             orgId: "org-a",
             ask: "Build a report",
             outcome: "Created the weekly dashboard",
@@ -193,7 +192,12 @@ describe("listOutputReviews", () => {
       },
       ask: "Build a report",
       answer: "Created the weekly dashboard",
+      runId: "run-1",
     });
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
+      "org-a",
+      ["thread-1"],
+    );
     expect(mockGetTraceSummaries).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org-a",
@@ -201,6 +205,35 @@ describe("listOutputReviews", () => {
         requireReviewContext: true,
       }),
     );
+  });
+
+  it("links Analytics analysis-scoped threads to their saved analysis", async () => {
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            ...scopedThread(JSON.stringify({ messages: [] })),
+            scopeType: "analysis",
+            scopeId: "analysis-1",
+            scopeLabel: "Quarterly analysis",
+          },
+        ],
+      ]),
+    );
+
+    const [row] = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      orgId: "org-a",
+    });
+
+    expect(row.artifacts).toContainEqual({
+      appId: "analytics",
+      artifactId: "analysis-1",
+      title: "Quarterly analysis",
+      path: "/analyses/analysis-1",
+    });
   });
 
   it("loads thread content and titles for multiple owners in one batch", async () => {
@@ -266,12 +299,12 @@ describe("listOutputReviews", () => {
     ).resolves.toEqual([]);
   });
 
-  it("keeps an org-scoped saved summary when its thread row is unavailable", async () => {
+  it("does not expose a saved summary when its owning thread is unavailable", async () => {
     mockGetOrgScopedReviewThreads.mockResolvedValueOnce(new Map());
-    mockGetHumanReviewSummaries.mockResolvedValueOnce(
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
-          "run-1",
+          "thread-1",
           {
             runId: "run-1",
             orgId: "org-a",
@@ -288,9 +321,7 @@ describe("listOutputReviews", () => {
 
     await expect(
       listOutputReviews({ sinceMs: 0, limit: 10, orgId: "org-a" }),
-    ).resolves.toMatchObject([
-      { ask: "Saved ask", answer: "Saved outcome", threadTitle: "" },
-    ]);
+    ).resolves.toEqual([]);
   });
 
   it("returns bounded, org-scoped thread and redacted tool evidence for summary generation", async () => {
@@ -955,6 +986,58 @@ describe("listOutputReviews", () => {
     expect(mockGetOrgScopedReviewThreads).toHaveBeenCalledWith("org-a", [
       { ownerEmail: "alice@example.com", threadId: "thread-1" },
     ]);
+  });
+
+  it("uses the latest saved thread summary when opening a newer run", async () => {
+    mockGetTraceSummary.mockResolvedValueOnce({
+      runId: "run-new",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+    });
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([["thread-1", scopedThread(JSON.stringify({ messages: [] }))]]),
+    );
+    mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          "thread-1",
+          {
+            runId: "run-old",
+            orgId: "org-a",
+            ask: "Create an onboarding flow",
+            outcome: "Built a complete onboarding design",
+            artifacts: [
+              {
+                appId: "design",
+                artifactId: "design-1",
+                title: "Onboarding",
+                path: "/design/design-1",
+              },
+            ],
+            createdBy: "admin@example.com",
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      ]),
+    );
+
+    await expect(
+      getOutputReviewDetailForRun({ runId: "run-new", orgId: "org-a" }),
+    ).resolves.toMatchObject({
+      found: true,
+      runId: "run-new",
+      summary: {
+        ask: "Create an onboarding flow",
+        outcome: "Built a complete onboarding design",
+        artifacts: [{ artifactId: "design-1" }],
+      },
+      artifacts: [{ artifactId: "design-1" }],
+    });
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
+      "org-a",
+      ["thread-1"],
+    );
   });
 
   it("returns an empty detail for a run without a thread and hides inaccessible runs", async () => {

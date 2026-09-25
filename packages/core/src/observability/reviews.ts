@@ -8,7 +8,7 @@ import {
   getInstructionUpdates,
   getSuccessfulToolSpansForReview,
   MAX_REVIEW_TOOL_SPANS,
-  getHumanReviewSummaries,
+  getHumanReviewSummariesForThreads,
   getTraceSummary,
   getTraceSummaries,
   getRecentReviewRunsForThreads,
@@ -178,6 +178,11 @@ function threadScopeArtifact(thread: {
       appId: "analytics",
       path: `/dashboards/${encodeURIComponent(scopeId)}`,
       fallbackTitle: "Dashboard",
+    },
+    analysis: {
+      appId: "analytics",
+      path: `/analyses/${encodeURIComponent(scopeId)}`,
+      fallbackTitle: "Analysis",
     },
   }[scopeType ?? ""];
   if (!artifact) return undefined;
@@ -479,10 +484,10 @@ export async function getOutputReviewDetailForRun(opts: {
     threadScopeArtifact(thread),
     ...toolOutputArtifacts(runMessages.flatMap((message) => message.toolCalls)),
   ].filter((artifact): artifact is HumanReviewArtifactRef => Boolean(artifact));
-  const savedSummaries = await getHumanReviewSummaries(opts.orgId, [
-    summary.runId,
+  const savedSummaries = await getHumanReviewSummariesForThreads(opts.orgId, [
+    summary.threadId,
   ]);
-  const savedSummary = savedSummaries.get(summary.runId);
+  const savedSummary = savedSummaries.get(summary.threadId);
   const { ask, answer } = askAndAnswer(summary, threadData);
   return {
     found: true,
@@ -543,7 +548,7 @@ export async function listOutputReviews(opts: {
     }),
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
-      limit: opts.limit * 2,
+      perThreadLimit: 1,
       orgId: opts.orgId,
       threadIds,
     }),
@@ -564,10 +569,7 @@ export async function listOutputReviews(opts: {
           : [],
       ),
     ),
-    getHumanReviewSummaries(
-      opts.orgId,
-      summaries.map((summary) => summary.runId),
-    ),
+    getHumanReviewSummariesForThreads(opts.orgId, threadIds),
   ]);
   const reviewRuns = await getRecentReviewRunsForThreads({
     orgId: opts.orgId,
@@ -598,7 +600,8 @@ export async function listOutputReviews(opts: {
   return summaries
     .map((summary): OutputReviewListRow | null => {
       if (!summary.threadId) return null;
-      const savedSummary = humanSummaries.get(summary.runId) ?? null;
+      if (!threadRows.has(summary.threadId)) return null;
+      const savedSummary = humanSummaries.get(summary.threadId) ?? null;
       const threadData = summary.threadId
         ? (threads.get(summary.threadId) ?? undefined)
         : null;

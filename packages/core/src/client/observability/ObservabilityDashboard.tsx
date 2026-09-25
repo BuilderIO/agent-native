@@ -20,7 +20,7 @@ import {
   IconDotsVertical,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useInRouterContext, useLocation } from "react-router";
 
 import type { OutputReviewListRow } from "../../observability/types.js";
@@ -149,10 +149,19 @@ function currentReviewArtifactAppId():
 
 function canRenderReviewArtifactInParent(
   artifact: OutputReviewListRow["artifacts"][number],
+  renderAnalyticsDashboardPreview = false,
 ): boolean {
   if (
     artifact.appId === "analytics" &&
     artifact.path?.startsWith("/api/media/")
+  ) {
+    return true;
+  }
+  if (
+    artifact.appId === "analytics" &&
+    renderAnalyticsDashboardPreview &&
+    currentReviewArtifactAppId() === "analytics" &&
+    artifact.path === `/dashboards/${artifact.artifactId}`
   ) {
     return true;
   }
@@ -221,12 +230,16 @@ export function resolveReviewArtifactHref(
 
 function latestRenderableReviewArtifact(
   artifacts: OutputReviewListRow["artifacts"] | undefined,
+  renderAnalyticsDashboardPreview = false,
 ) {
   return [...(artifacts ?? [])]
     .reverse()
     .find(
       (artifact) =>
-        canRenderReviewArtifactInParent(artifact) &&
+        canRenderReviewArtifactInParent(
+          artifact,
+          renderAnalyticsDashboardPreview,
+        ) &&
         resolveReviewArtifactHref(
           artifact.appId,
           artifact.artifactId,
@@ -976,7 +989,16 @@ function ExperimentDetailView({
 
 // ─── Tab: Human review ─────────────────────────────────────────────────
 
-function ReviewTab({ days }: { days: number }) {
+function ReviewTab({
+  days,
+  renderArtifactPreview,
+}: {
+  days: number;
+  renderArtifactPreview?: (
+    artifact: OutputReviewListRow["artifacts"][number],
+    compact: boolean,
+  ) => ReactNode;
+}) {
   const t = useT();
   const {
     data: activeOrg,
@@ -1056,14 +1078,23 @@ function ReviewTab({ days }: { days: number }) {
       : undefined) ??
     []
   ).flatMap((artifact) => {
-    if (!canRenderReviewArtifactInParent(artifact)) return [];
     const href = resolveReviewArtifactHref(
       artifact.appId,
       artifact.artifactId,
       artifact.path,
     );
     return href
-      ? [{ artifact, href, key: `${artifact.appId}:${artifact.artifactId}` }]
+      ? [
+          {
+            artifact,
+            href,
+            inline: canRenderReviewArtifactInParent(
+              artifact,
+              Boolean(renderArtifactPreview),
+            ),
+            key: `${artifact.appId}:${artifact.artifactId}`,
+          },
+        ]
       : [];
   });
   const selectedArtifactChoice =
@@ -1072,6 +1103,7 @@ function ReviewTab({ days }: { days: number }) {
     ) ?? selectedArtifactChoices.at(-1);
   const selectedArtifact = selectedArtifactChoice?.artifact;
   const selectedArtifactHref = selectedArtifactChoice?.href;
+  const selectedArtifactInline = selectedArtifactChoice?.inline === true;
   const selectedSummary =
     activeDetail?.summary ??
     (activeRunId === selectedReview?.runId
@@ -1084,7 +1116,7 @@ function ReviewTab({ days }: { days: number }) {
     ? parseOutputPreview(selectedAnswer ?? "")
     : undefined;
   const selectedHasPreview = Boolean(
-    selectedArtifactHref ||
+    selectedArtifactInline ||
     activeDetail?.app ||
     selectedAnswerPreview?.kind === "chart" ||
     selectedAnswerPreview?.kind === "table" ||
@@ -1378,7 +1410,10 @@ function ReviewTab({ days }: { days: number }) {
       <div className="divide-y divide-border" data-review-list>
         {visibleReviews.map((review) => {
           const expanded = selectedRunId === review.runId;
-          const artifact = latestRenderableReviewArtifact(review.artifacts);
+          const artifact = latestRenderableReviewArtifact(
+            review.artifacts,
+            Boolean(renderArtifactPreview),
+          );
           const artifactHref = artifact
             ? resolveReviewArtifactHref(
                 artifact.appId,
@@ -1422,6 +1457,12 @@ function ReviewTab({ days }: { days: number }) {
                     <OutputPreview
                       answer={review.answer}
                       artifactPreviewUrl={artifactHref}
+                      artifactPreviewContent={
+                        artifact?.appId === "analytics" &&
+                        artifact.path === `/dashboards/${artifact.artifactId}`
+                          ? renderArtifactPreview?.(artifact, true)
+                          : undefined
+                      }
                       artifactPreviewIsImage={Boolean(
                         artifact?.appId === "analytics" &&
                         artifact.path?.startsWith("/api/media/"),
@@ -1658,7 +1699,21 @@ function ReviewTab({ days }: { days: number }) {
                           <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-hidden">
                             <OutputPreview
                               answer={selectedAnswer ?? ""}
-                              artifactPreviewUrl={selectedArtifactHref}
+                              artifactPreviewUrl={
+                                selectedArtifactInline
+                                  ? selectedArtifactHref
+                                  : undefined
+                              }
+                              artifactPreviewContent={
+                                selectedArtifact?.appId === "analytics" &&
+                                selectedArtifact.path ===
+                                  `/dashboards/${selectedArtifact.artifactId}`
+                                  ? renderArtifactPreview?.(
+                                      selectedArtifact,
+                                      false,
+                                    )
+                                  : undefined
+                              }
                               artifactPreviewIsImage={Boolean(
                                 selectedArtifact?.appId === "analytics" &&
                                 selectedArtifact.path?.startsWith(
@@ -1723,17 +1778,36 @@ function ReviewTab({ days }: { days: number }) {
                               </select>
                             )}
                           </div>
-                          {selectedReview.threadId && (
-                            <a
-                              href={reviewThreadHref(selectedReview.threadId)}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={t("agentTask.openThread")}
-                              title={t("agentTask.openThread")}
-                              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <IconExternalLink size={15} />
-                            </a>
+                          {(selectedArtifactHref ||
+                            selectedReview.threadId) && (
+                            <div className="flex items-center gap-1">
+                              {selectedArtifactHref && selectedArtifact && (
+                                <a
+                                  href={selectedArtifactHref}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label={`${t("runsTray.open")} ${selectedArtifact.title}`}
+                                  title={`${t("runsTray.open")} ${selectedArtifact.title}`}
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <IconExternalLink size={15} />
+                                </a>
+                              )}
+                              {selectedReview.threadId && (
+                                <a
+                                  href={reviewThreadHref(
+                                    selectedReview.threadId,
+                                  )}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label={t("agentTask.openThread")}
+                                  title={t("agentTask.openThread")}
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <IconExternalLink size={15} />
+                                </a>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div className="flex max-h-[min(38rem,65dvh)] min-h-64 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-3 sm:p-4">
@@ -2130,7 +2204,16 @@ function ReviewTab({ days }: { days: number }) {
             <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-4">
               <OutputPreview
                 answer={selectedAnswer ?? ""}
-                artifactPreviewUrl={selectedArtifactHref}
+                artifactPreviewUrl={
+                  selectedArtifactInline ? selectedArtifactHref : undefined
+                }
+                artifactPreviewContent={
+                  selectedArtifact?.appId === "analytics" &&
+                  selectedArtifact.path ===
+                    `/dashboards/${selectedArtifact.artifactId}`
+                    ? renderArtifactPreview?.(selectedArtifact, false)
+                    : undefined
+                }
                 artifactPreviewIsImage={Boolean(
                   selectedArtifact?.appId === "analytics" &&
                   selectedArtifact.path?.startsWith("/api/media/"),
@@ -2337,6 +2420,10 @@ export interface ObservabilityDashboardProps {
   className?: string;
   routeBasePath?: string;
   showHumanReview?: boolean;
+  renderArtifactPreview?: (
+    artifact: OutputReviewListRow["artifacts"][number],
+    compact: boolean,
+  ) => ReactNode;
 }
 
 type ObservabilityDashboardContentProps = ObservabilityDashboardProps & {
@@ -2367,6 +2454,7 @@ function ObservabilityDashboardContent({
   routeBasePath,
   routePathname,
   showHumanReview = false,
+  renderArtifactPreview,
 }: ObservabilityDashboardContentProps) {
   const t = useT();
   const [localTab, setLocalTab] = useState<TabId>("overview");
@@ -2471,7 +2559,9 @@ function ObservabilityDashboardContent({
       {activeTab === "evals" && <EvalsTab days={days} />}
       {activeTab === "experiments" && <ExperimentsTab />}
       {activeTab === "feedback" && <FeedbackTab days={days} />}
-      {activeTab === "review" && <ReviewTab days={days} />}
+      {activeTab === "review" && (
+        <ReviewTab days={days} renderArtifactPreview={renderArtifactPreview} />
+      )}
     </div>
   );
 }

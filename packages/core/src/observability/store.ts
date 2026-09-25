@@ -1180,6 +1180,7 @@ export async function getInstructionUpdates(opts: {
   userId?: string;
   orgId?: string;
   threadIds?: readonly string[];
+  perThreadLimit?: number;
 }): Promise<InstructionUpdate[]> {
   const runIds = opts.runIds
     ? [...new Set(opts.runIds.filter(Boolean))]
@@ -1219,10 +1220,21 @@ export async function getInstructionUpdates(opts: {
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 1, 12));
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_instruction_updates ${where}
+    sql: threadIds
+      ? `SELECT * FROM (
+        SELECT agent_instruction_updates.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_id ORDER BY updated_at DESC, id DESC
+          ) AS update_row_number
+        FROM agent_instruction_updates ${where}
+      ) AS review_updates
+      WHERE update_row_number <= ?
+      ORDER BY updated_at DESC, id DESC`
+      : `SELECT * FROM agent_instruction_updates ${where}
       ORDER BY updated_at DESC LIMIT ?`,
-    args: [...args, opts.limit ?? 500],
+    args: [...args, threadIds ? perThreadLimit : (opts.limit ?? 500)],
   });
   return (rows as any[]).map(rowToInstructionUpdate);
 }
