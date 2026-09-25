@@ -27,6 +27,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-09-21
 
+### Added
+
+- Choose Tabler icons, any emoji, or uploaded images for pages, collections, properties, views, callouts, and workspaces.
+
 ### Improved
 
 - Search now ranks exact and partial title matches above incidental matches in document bodies.

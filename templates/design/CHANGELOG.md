@@ -3,14 +3,44 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Fixed
+
+- Cross-screen moves preserve Flex and Grid sizing through undo and redo.
+- Moving a layer from one live app screen into another now lands it instead of failing with "Could not move that layer", and a failed move no longer leaves the layer stuck to the cursor.
+
 ## 2026-09-24
+
+### Added
+
+- CSS margins can be adjusted on the canvas and in the layout inspector.
+- Organization admins can review agent runs and summarize linked designs, slide decks, and analytics from Settings.
+- Resized vectors can be point-edited, and the K scale tool shows a Scale section with a live factor.
+- Share editable live canvases and apply collaborators' visual changes
 
 ### Improved
 
+- A vector's stroke row shows Position beside Weight instead of a lone Weight field.
+- Design reviews show the real canvas beside its conversation.
+- Local visual edits stay scoped to the right design and recover cleanly when a screen reloads.
 - Pasted images now expose their sizing and adjustment controls in the inspector
 
 ### Fixed
 
+- Double-clicking text or a vector on the board starts editing it, and clicking empty canvas deselects it.
+- Interact opens a focused responsive preview without reloading the running design.
+- Interrupted cross-screen moves now restore the layer and leave the canvas ready for the next edit.
+- Keep gradient values visible and limit canvas paints to supported backgrounds
+- Open pen paths no longer paint a filled triangle after Shift+X, matching Figma.
+- Open Pen paths preserve their fill opacity when you finish editing them.
+- Pen path edits save without being blocked by delayed local retry storage.
+- Re-clicking the active responsive preview returns to the canvas even with pending edits
+- SVG paste handles mixed-case markup safely and preserves opacity edits on open Pen paths
+- SVG pastes keep valid namespace and fill data, and closing open paths preserves authored transparency.
+- Text selection remains available during line-height editing, and pasted SVGs have unsafe external styles removed.
+- Visual edit handoffs now accept current edit revisions reliably
+- While editing text, click to place the caret and double-click a word to restyle just that word.
 - Editing a vector path preserves its fill and stroke when reopened or closed.
 - Pasted images, SVGs, and Design layers preserve more of their original content and placement.
 

@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.8
 
 ### Patch Changes
