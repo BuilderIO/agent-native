@@ -33,6 +33,7 @@ const source = {
   toolEvidence: [
     {
       name: "create_dashboard",
+      status: "success",
       output: { dashboardId: "dash-a" },
     },
   ],
@@ -116,6 +117,45 @@ describe("human-review summary actions", () => {
           outcome: "Done",
           artifacts: [
             { appId: "design", artifactId: "dash-a", title: "Misattributed" },
+          ],
+        },
+        admin,
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockUpsertHumanReviewSummary).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "input-only IDs",
+      {
+        name: "create_dashboard",
+        status: "success",
+        input: { dashboardId: "dash-a" },
+        output: { dashboardId: "other" },
+      },
+    ],
+    [
+      "failed tool output",
+      {
+        name: "create_dashboard",
+        status: "error",
+        output: { dashboardId: "dash-a" },
+      },
+    ],
+  ])("rejects artifact IDs from %s", async (_label, evidence) => {
+    mockGetOutputReviewSummarySource.mockResolvedValueOnce({
+      ...source,
+      toolEvidence: [evidence],
+    });
+    await expect(
+      saveReviewSummary.run(
+        {
+          runId: "run-a",
+          ask: "Ask",
+          outcome: "Done",
+          artifacts: [
+            { appId: "analytics", artifactId: "dash-a", title: "Made up" },
           ],
         },
         admin,

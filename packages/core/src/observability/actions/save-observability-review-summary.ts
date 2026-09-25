@@ -104,11 +104,12 @@ function artifactEvidenceMatches(
   return source.some((span) => {
     if (!span || typeof span !== "object" || Array.isArray(span)) return false;
     const record = span as Record<string, unknown>;
+    if (record.status !== "success") return false;
     const appMatches =
       (typeof record.name === "string" &&
         appMarkerMatches(record.name, appId)) ||
-      hasAppMarker(record);
-    return appMatches && (visit(record.input) || visit(record.output));
+      hasAppMarker(record.output);
+    return appMatches && visit(record.output);
   });
 }
 

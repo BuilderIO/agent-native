@@ -257,11 +257,13 @@ export async function listOutputReviews(opts: {
       sinceMs: opts.sinceMs,
       limit: opts.limit * 4,
       orgId: opts.orgId,
+      runIds: summaries.map((summary) => summary.runId),
     }),
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
       limit: opts.limit * 2,
       orgId: opts.orgId,
+      runIds: summaries.map((summary) => summary.runId),
     }),
   ]);
   const updateByRun = new Map<string, InstructionUpdate>();
@@ -361,7 +363,15 @@ function redactEvidenceString(value: string): string {
       "[REDACTED]",
     )
     .replace(
-      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|authorization|credentials?)(?:[_-][A-Za-z0-9]+)*)(["']?\s*[:=]\s*["']?)([^\s"'`,;}\]]+)/gi,
+      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*authorization(?:[_-][A-Za-z0-9]+)*["']?\s*[:=]\s*)(["'])([^"'\r\n]*)\3/gi,
+      "$1$2$3[REDACTED]$3",
+    )
+    .replace(
+      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*authorization(?:[_-][A-Za-z0-9]+)*\s*[:=]\s*)([^\r\n,;}\]]+)/gi,
+      "$1$2[REDACTED]",
+    )
+    .replace(
+      /(^|[^A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credentials?)(?:[_-][A-Za-z0-9]+)*)(["']?\s*[:=]\s*["']?)([^\s"'`,;}\]]+)/gi,
       "$1$2$3[REDACTED]",
     )
     .replace(
@@ -420,7 +430,12 @@ export async function getOutputReviewSummarySource(opts: {
       threadTitle: string | null;
       threadEvidenceAvailable: boolean;
       messages: Array<{ role: "user" | "assistant"; text: string }>;
-      toolEvidence: Array<{ name: string; input?: unknown; output?: unknown }>;
+      toolEvidence: Array<{
+        name: string;
+        status: "success";
+        input?: unknown;
+        output?: unknown;
+      }>;
       toolEvidenceAvailable: boolean;
     }
 > {
@@ -455,7 +470,9 @@ export async function getOutputReviewSummarySource(opts: {
   }
   const spans = await getTraceSpansForRun(opts.runId, { orgId: opts.orgId });
   const toolSpans = spans
-    .filter((span) => span.spanType === "tool_call")
+    .filter(
+      (span) => span.spanType === "tool_call" && span.status === "success",
+    )
     .slice(0, MAX_TOOL_SPANS);
   const toolEvidence = toolSpans.flatMap((span) => {
     const metadata = record(redactSensitiveFields(span.metadata));
@@ -479,6 +496,7 @@ export async function getOutputReviewSummarySource(opts: {
     return [
       {
         name: span.name.slice(0, 160),
+        status: "success" as const,
         ...(input === undefined ? {} : { input }),
         ...(output === undefined ? {} : { output }),
       },

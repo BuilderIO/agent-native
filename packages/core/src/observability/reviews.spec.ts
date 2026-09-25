@@ -114,6 +114,18 @@ describe("listOutputReviews", () => {
         feedback: [{ value: "Keep the concise format" }],
       },
     ]);
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 0,
+      limit: 40,
+      orgId: "org-a",
+      runIds: ["run-1"],
+    });
+    expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
+      sinceMs: 0,
+      limit: 20,
+      orgId: "org-a",
+      runIds: ["run-1"],
+    });
   });
 
   it("uses persisted summary data and excludes its own runs before list pagination", async () => {
@@ -264,6 +276,7 @@ describe("listOutputReviews", () => {
       {
         spanType: "tool_call",
         name: "create_design",
+        status: "success",
         metadata: {
           input: {
             designId: "design-42",
@@ -273,6 +286,12 @@ describe("listOutputReviews", () => {
             path: "data:image/png;base64,AAAA",
           },
         },
+      },
+      {
+        spanType: "tool_call",
+        name: "create_design",
+        status: "error",
+        metadata: { output: { designId: "failed-design" } },
       },
     ]);
 
@@ -288,6 +307,7 @@ describe("listOutputReviews", () => {
       toolEvidence: [
         {
           name: "create_design",
+          status: "success",
           input: {
             designId: "design-42",
             api_key: "[REDACTED]",
@@ -298,6 +318,7 @@ describe("listOutputReviews", () => {
         },
       ],
     });
+    expect(JSON.stringify(source)).not.toContain("failed-design");
     expect(mockGetTraceSpansForRun).toHaveBeenCalledWith("run-1", {
       orgId: "org-a",
     });
@@ -326,14 +347,16 @@ describe("listOutputReviews", () => {
               {
                 message: {
                   role: "user",
-                  content: "AWS_SECRET_ACCESS_KEY=target-secret",
+                  content:
+                    "AWS_SECRET_ACCESS_KEY=target-secret\nAuthorization: Basic fake-encoded-credential",
                   metadata: { runId: "run-1" },
                 },
               },
               {
                 message: {
                   role: "assistant",
-                  content: '{"AWS_SECRET_ACCESS_KEY":"json-secret"}',
+                  content:
+                    '{"AWS_SECRET_ACCESS_KEY":"json-secret","Authorization":"Basic fake-json-credential"}',
                   metadata: { runId: "run-1" },
                 },
               },
@@ -361,11 +384,11 @@ describe("listOutputReviews", () => {
       messages: [
         {
           role: "user",
-          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]",
+          text: "AWS_SECRET_ACCESS_KEY=[REDACTED]\nAuthorization: [REDACTED]",
         },
         {
           role: "assistant",
-          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]"}',
+          text: '{"AWS_SECRET_ACCESS_KEY":"[REDACTED]","Authorization":"[REDACTED]"}',
         },
       ],
     });
@@ -373,6 +396,8 @@ describe("listOutputReviews", () => {
     expect(JSON.stringify(source)).not.toContain("target-secret");
     expect(JSON.stringify(source)).not.toContain("json-secret");
     expect(JSON.stringify(source)).not.toContain("title-secret");
+    expect(JSON.stringify(source)).not.toContain("fake-encoded-credential");
+    expect(JSON.stringify(source)).not.toContain("fake-json-credential");
   });
 
   it("keeps a saved inline MCP App with its run's answer", async () => {

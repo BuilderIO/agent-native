@@ -870,7 +870,12 @@ export async function getFeedback(opts: {
   userId?: string;
   orgId?: string;
   source?: FeedbackEntry["source"];
+  runIds?: readonly string[];
 }): Promise<FeedbackEntry[]> {
+  const runIds = opts.runIds
+    ? [...new Set(opts.runIds.filter(Boolean))]
+    : undefined;
+  if (runIds?.length === 0) return [];
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -878,6 +883,10 @@ export async function getFeedback(opts: {
   if (opts.threadId) {
     conditions.push("thread_id = ?");
     args.push(opts.threadId);
+  }
+  if (runIds) {
+    conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
+    args.push(...runIds);
   }
   if (opts.sinceMs) {
     conditions.push("created_at >= ?");
@@ -974,11 +983,16 @@ export async function insertInstructionUpdate(
 
 export async function getInstructionUpdates(opts: {
   runId?: string;
+  runIds?: readonly string[];
   sinceMs?: number;
   limit?: number;
   userId?: string;
   orgId?: string;
 }): Promise<InstructionUpdate[]> {
+  const runIds = opts.runIds
+    ? [...new Set(opts.runIds.filter(Boolean))]
+    : undefined;
+  if (runIds?.length === 0) return [];
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -986,6 +1000,10 @@ export async function getInstructionUpdates(opts: {
   if (opts.runId) {
     conditions.push("run_id = ?");
     args.push(opts.runId);
+  }
+  if (runIds) {
+    conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
+    args.push(...runIds);
   }
   if (opts.sinceMs) {
     conditions.push("updated_at >= ?");

@@ -292,6 +292,40 @@ describe("observability store: per-user isolation", () => {
       expect(lastSelect().args.slice(0, 2)).toEqual(["org-a", "human_review"]);
     });
 
+    it("filters feedback and instruction drafts by the selected run IDs", async () => {
+      await getFeedback({
+        runIds: ["run-a", "run-b"],
+        orgId: "org-a",
+        source: "human_review",
+        limit: 10,
+      });
+      expect(lastSelect().sql).toMatch(
+        /WHERE run_id IN \(\?, \?\) AND org_id = \? AND source = \?/,
+      );
+      expect(lastSelect().args).toEqual([
+        "run-a",
+        "run-b",
+        "org-a",
+        "human_review",
+        10,
+      ]);
+
+      await getInstructionUpdates({
+        runIds: ["run-a", "run-b"],
+        orgId: "org-a",
+      });
+      expect(lastSelect().sql).toMatch(
+        /WHERE run_id IN \(\?, \?\) AND org_id = \?/,
+      );
+      expect(lastSelect().args).toEqual(["run-a", "run-b", "org-a", 500]);
+    });
+
+    it("returns no rows without querying when an explicit run list is empty", async () => {
+      await expect(getFeedback({ runIds: [] })).resolves.toEqual([]);
+      await expect(getInstructionUpdates({ runIds: [] })).resolves.toEqual([]);
+      expect(execCalls).toHaveLength(0);
+    });
+
     it("gets the latest response by thread and owner", async () => {
       await getLatestTraceSummaryForThread("thread-1", {
         userId: "alice",
