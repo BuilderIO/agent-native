@@ -170,6 +170,18 @@ describe("sendToAgentChat", () => {
     expect(parsed?.usageLabel).toBe("crm:enrich");
   });
 
+  it("carries an explicit existing chat target through the bridge", () => {
+    sendToAgentChat({
+      message: "Continue the original run",
+      targetTabId: "generation-tab",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.targetTabId).toBe("generation-tab");
+    expect(parsed?.targetTabId).toBe("generation-tab");
+  });
+
   it("carries a bounded action scope through the postMessage payload", () => {
     sendToAgentChat({
       message: "Draft a reply",
@@ -927,6 +939,26 @@ describe("sendToAgentChat", () => {
     const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
     expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
     reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("confirms a local submit with a caller-provided correlation id", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "continue the existing run",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "continuation-submit" },
+    );
+
+    vi.advanceTimersByTime(0);
+    expect(
+      selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data?.submitMessageId,
+    ).toBe("continuation-submit");
+    reportAgentChatSubmitResult("continuation-submit", true);
 
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });

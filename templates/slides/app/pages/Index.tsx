@@ -882,15 +882,19 @@ export default function Index() {
       return;
     }
     const deckId = deck.id;
+    const generationSubmitMessageId = nanoid();
     setNewDeckPromptOpen(false);
 
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
-    void navigate(`/deck/${deck.id}?generating=1`, {
-      replace: true,
-      flushSync: true,
-    });
+    void navigate(
+      `/deck/${deck.id}?generating=1&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+      {
+        replace: true,
+        flushSync: true,
+      },
+    );
 
     const recoverFromGenerationSetupFailure = (description: string) => {
       settlePendingDeckAttachments("discard");
@@ -1163,6 +1167,7 @@ export default function Index() {
       newTab: true,
       reuseEmptyTab: true,
       openSidebar: true,
+      submitMessageId: generationSubmitMessageId,
       ...getUploadedImageAgentOptions(filesForGeneration),
       attachments: attachmentsForGeneration,
       ...modelSelection,
