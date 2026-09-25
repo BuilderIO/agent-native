@@ -250,7 +250,10 @@ aspect-ratio dimensions and make one batched review pass. Check hierarchy and
 source fidelity, overflow or clipping, contrast, minimum readable text,
 placeholder remnants, broken or missing images, asset fit, and preserved
 `data-slide-object-id` values. Fix the findings in one correction pass and
-recheck. Do not claim full-deck or pixel-perfect fidelity unless the whole deck
+recheck. Then, as the last step before the final response, call
+`audit-contrast` for the deck and follow the Contrast section of
+`slide-editing`; never judge contrast by eye or from hex values. Do not claim
+full-deck or pixel-perfect fidelity unless the whole deck
 was rendered and compared.
 
 ## Ready-to-Use Templates

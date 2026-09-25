@@ -72,8 +72,11 @@ the content still needs the space.
 
 ## Contrast
 
-Use `audit-contrast` when the user asks about readability or accessibility, or
-after generating or restyling a deck. Fix failures in one bounded pass that
+Run `audit-contrast` as the last step of any turn that created or changed
+slides, even when the user did not ask: after every other edit, including
+layout-fit repairs, and right before the final response. Also use it whenever
+the user asks about readability or accessibility. If it cannot run because the
+deck is not open in the editor, say contrast was not checked. Fix failures in one bounded pass that
 stays inside the deck's palette: adjust the offending role (`--deck-muted`,
 `--deck-ink`, a surface) rather than recoloring one element with a new hex, and
 when a design system is linked, report a token that fails instead of silently
