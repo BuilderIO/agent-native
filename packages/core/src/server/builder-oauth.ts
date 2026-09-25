@@ -357,9 +357,16 @@ export async function getBuilderOAuthSession(
     };
   }
   if (requiredScope && missingRequiredScope) {
-    throw new Error(`Builder OAuth connection does not grant ${requiredScope}`);
+    throw new BuilderOAuthScopeError(requiredScope);
   }
   return null;
+}
+
+export class BuilderOAuthScopeError extends Error {
+  constructor(scope: BuilderOAuthPermissionScope) {
+    super(`Builder OAuth connection does not grant ${scope}`);
+    this.name = "BuilderOAuthScopeError";
+  }
 }
 
 export async function hasBuilderOAuthSession(

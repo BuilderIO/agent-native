@@ -40,6 +40,32 @@ const agentNativeDesktop = {
   analytics: {
     clientPlatform: "electron" as const,
   },
+  oauth: {
+    cancelPopup: (attemptId: string): void => {
+      ipcRenderer.send(IPC.OAUTH_POPUP_CANCEL, attemptId);
+    },
+    onSystemBrowserReturned: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+    },
+    onPopupClosed: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_POPUP_CLOSED, handler);
+      return () => ipcRenderer.removeListener(IPC.OAUTH_POPUP_CLOSED, handler);
+    },
+  },
   chat: {
     toggle: (options?: AgentChatCommandOptions) =>
       sendChatCommand("toggle", options),

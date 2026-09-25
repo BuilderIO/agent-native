@@ -737,16 +737,17 @@ describe("browser analytics pageviews", () => {
   });
 
   it("attaches the signed-in session identity to first-party analytics", async () => {
-    installBrowser();
+    const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
         email: "dev@example.com",
         userId: "auth-user-1",
+        authUserId: "better-auth-user-1",
         name: "Dev User",
         orgId: "org_123",
       },
     });
-    const { configureTracking } = await freshAnalytics();
+    const { configureTracking, trackEvent } = await freshAnalytics();
 
     configureTracking({
       key: "anpk_configured",
@@ -775,6 +776,220 @@ describe("browser analytics pageviews", () => {
       template_name: "clips",
       session_id: expect.any(String),
     });
+
+    trackEvent("authenticated_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "authenticated_event");
+    expect(trackedEvent?.properties.auth_user_id).toBe("better-auth-user-1");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "authenticated_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
+  });
+
+  it("drops caller-supplied auth ids when no session identity is available", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    trackEvent("anonymous_event", {
+      auth_user_id: "caller-spoof",
+      authUserId: "camel-case-spoof",
+    });
+    await tick();
+
+    const trackedEvent = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "anonymous_event");
+    expect(trackedEvent?.properties).not.toHaveProperty("auth_user_id");
+    expect(trackedEvent?.properties).not.toHaveProperty("authUserId");
+    const gtagEvent = gtag.mock.calls.find(
+      ([command, eventName]) =>
+        command === "event" && eventName === "anonymous_event",
+    );
+    expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
+  });
+
+  it("tracks replay attempts without email, URL, or replay content", async () => {
+    installBrowser("https://app.agent-native.com/private?token=private-url", {
+      email: "private@example.test",
+      userId: "auth-user-1",
+      authUserId: "canonical-auth-user-1",
+    });
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "private@example.test",
+        userId: "auth-user-1",
+        authUserId: "canonical-auth-user-1",
+      },
+    });
+    const { configureTracking, setTrackingIdentity } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        auth_user_id: "spoofed-auth-user",
+        user_email: "private@example.test",
+        url: "https://app.agent-native.com/private?token=private-url",
+        replay_content: "private-replay-content",
+      }),
+      sessionReplay: true,
+    });
+    await tick();
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onRecordingStarted("opaque-attempt-1");
+    replayOptions.onUploadRejectedWithAttemptId(
+      {
+        status: 409,
+        restartAttempted: true,
+        restartSucceeded: true,
+      },
+      "opaque-attempt-1",
+    );
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    const started = events.find(
+      (event) => event.event === "session_replay_started",
+    );
+    const rejected = events.find(
+      (event) => event.event === "session replay upload rejected",
+    );
+    expect(started.properties).toEqual({
+      recording_attempt_id: "opaque-attempt-1",
+      auth_user_id: "canonical-auth-user-1",
+    });
+    expect(rejected.properties).toMatchObject({
+      recording_attempt_id: "opaque-attempt-1",
+      auth_user_id: "canonical-auth-user-1",
+      status: 409,
+    });
+    expect(JSON.stringify([started, rejected])).not.toMatch(
+      /private@example\.test|private-url|private-replay-content|spoofed-auth-user/,
+    );
+
+    setTrackingIdentity(null);
+    replayOptions.onRecordingStarted("opaque-attempt-anonymous");
+    await tick();
+    const anonymousStart = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find(
+        (event) =>
+          event.event === "session_replay_started" &&
+          event.properties.recording_attempt_id === "opaque-attempt-anonymous",
+      );
+    expect(anonymousStart.properties).not.toHaveProperty("auth_user_id");
+    expect(anonymousStart.properties).not.toHaveProperty("user_email");
+    expect(anonymousStart.properties).not.toHaveProperty("url");
+  });
+
+  it("tracks replay upload rejection when caller callbacks are configured", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "owner@example.test",
+        userId: "owner-id",
+        authUserId: "owner-id",
+      },
+    });
+    const onUploadRejected = vi.fn();
+    const onUploadRejectedWithAttemptId = vi.fn();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      sessionReplay: { onUploadRejected, onUploadRejectedWithAttemptId },
+    });
+    await tick();
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    const details = {
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_pause",
+    };
+    replayOptions.onUploadRejected(details);
+    replayOptions.onUploadRejectedWithAttemptId(details, "opaque-attempt-2");
+    await tick();
+
+    expect(onUploadRejected).toHaveBeenCalledTimes(1);
+    expect(onUploadRejected).toHaveBeenCalledWith(details);
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledTimes(1);
+    expect(onUploadRejectedWithAttemptId).toHaveBeenCalledWith(
+      details,
+      "opaque-attempt-2",
+    );
+    const rejection = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((event) => event.event === "session replay upload rejected");
+    expect(rejection.properties).toMatchObject({
+      recording_attempt_id: "opaque-attempt-2",
+      status: 429,
+      failure_reason: "quota_pause",
+    });
+  });
+
+  it("preserves the caller replay-start hook when telemetry dispatch throws", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "owner@example.test",
+        userId: "owner-id",
+        authUserId: "owner-id",
+      },
+    });
+    const onRecordingStarted = vi.fn();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+      sessionReplay: { onRecordingStarted },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    gtag.mockImplementation(() => {
+      throw new Error("analytics dispatch failed");
+    });
+
+    expect(() =>
+      replayOptions.onRecordingStarted("opaque-attempt-2"),
+    ).not.toThrow();
+    expect(onRecordingStarted).toHaveBeenCalledWith("opaque-attempt-2");
   });
 
   it("suppresses browser telemetry for QA signup identities", async () => {

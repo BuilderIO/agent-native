@@ -1,8 +1,14 @@
 // tsc compiles TypeScript only; it does not emit non-TS assets. Copy the CSS
 // entrypoint(s) from src into dist so the published package ships them, mirroring
 // @agent-native/core's finalize-build step.
-import { copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { extname, join, relative } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
+import { dirname, extname, join, relative } from "node:path";
 
 function walk(dir) {
   const files = [];
@@ -16,10 +22,11 @@ function walk(dir) {
   }
   return files;
 }
-for (const name of readdirSync("src")) {
-  if (name.endsWith(".css")) {
-    copyFileSync(join("src", name), join("dist", name));
-  }
+for (const sourceFile of walk("src")) {
+  if (extname(sourceFile) !== ".css") continue;
+  const output = join("dist", relative("src", sourceFile));
+  mkdirSync(dirname(output), { recursive: true });
+  copyFileSync(sourceFile, output);
 }
 
 const missing = [];

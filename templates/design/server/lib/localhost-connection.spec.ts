@@ -147,6 +147,34 @@ describe("resolveLocalhostConnectionScope", () => {
     });
     expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
+
+  it("requires the design-scoped visual-edit capability for anonymous refreshes", async () => {
+    mockUserEmail.mockReturnValue(undefined);
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+
+    mockRequestAuthCapability.mockReturnValue(undefined);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).rejects.toThrow(/no authenticated user/);
+  });
 });
 
 describe("resolveLocalhostBridgeConnection", () => {

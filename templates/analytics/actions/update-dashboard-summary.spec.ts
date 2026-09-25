@@ -78,6 +78,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
   upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  DashboardConflictError: class DashboardConflictError extends Error {},
 }));
 
 vi.mock("../server/lib/bigquery", () => ({

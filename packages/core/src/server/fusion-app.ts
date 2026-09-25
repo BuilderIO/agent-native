@@ -24,6 +24,8 @@
  * respond with newline-delimited JSON over chunked HTTP.
  */
 
+import { z } from "zod";
+
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   resolveBuilderRequestAuthorization,
@@ -92,6 +94,39 @@ function fusionUrl(
     url.searchParams.set(key, value);
   }
   return url;
+}
+
+const builderCreditUsageSchema = z.object({
+  plan: z.enum(["free", "paid"]),
+  balance: z.number().finite().nonnegative(),
+  quota: z.object({
+    period: z.enum(["daily", "monthly"]),
+    limit: z.number().finite().positive(),
+    used: z.number().finite().nonnegative(),
+    remaining: z.number().finite().nonnegative(),
+  }),
+});
+
+export type BuilderCreditUsage = z.infer<typeof builderCreditUsageSchema>;
+
+/** Current Builder balance and the active free-daily or paid-monthly quota. */
+export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: "builder:ai:invoke",
+  });
+  if (!authorization) return null;
+
+  const response = await fetch(
+    fusionUrl("/agent-native/credits/v1/usage", authorization),
+    {
+      headers: { Authorization: authorization.authorization },
+      signal: AbortSignal.timeout(5000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Builder credit usage failed (${response.status}).`);
+  }
+  return builderCreditUsageSchema.parse(await response.json());
 }
 
 /** The Builder visual-editor URL for a fusion branch. */

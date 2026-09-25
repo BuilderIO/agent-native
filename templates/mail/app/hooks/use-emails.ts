@@ -3409,7 +3409,11 @@ export function useUpdateSettings() {
       if ("savedFilters" in variables) {
         savedFiltersBaseByPatch.delete(variables);
       }
-      return qc.invalidateQueries({ queryKey: ["settings"] });
+      const invalidations = [qc.invalidateQueries({ queryKey: ["settings"] })];
+      if ("showAllTab" in variables) {
+        invalidations.push(invalidateInboxThreads(qc));
+      }
+      return Promise.all(invalidations);
     },
   });
 }

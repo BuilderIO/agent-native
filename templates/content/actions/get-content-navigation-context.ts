@@ -1,6 +1,7 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -166,7 +167,7 @@ export default defineAction({
             id: document.id,
             parentId: document.parentId,
             title: document.title,
-            icon: document.icon,
+            icon: serializeIconValue(parseIconValue(document.icon)),
             databaseId: null,
             databaseDocumentId: null,
             isFavorite: document.isFavorite,
