@@ -80,6 +80,9 @@ describe("assistant chat resource history restore", () => {
       },
       restore: {
         action: "restore-version",
+        beforeRestore: async () => {
+          events.push("flush");
+        },
         args: async () => {
           events.push("prepare");
           return { versionId: version.id, expectedUpdatedAt: "current" };
@@ -104,6 +107,7 @@ describe("assistant chat resource history restore", () => {
     });
 
     expect(events).toEqual([
+      "flush",
       "prepare",
       "restore-current",
       "apply-restored",

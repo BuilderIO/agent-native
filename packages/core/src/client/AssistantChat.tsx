@@ -2217,6 +2217,7 @@ export async function restoreAssistantChatHistoryVersion<
   refetch: () => Promise<unknown>;
   onRefetchError: (error: unknown) => void;
 }) {
+  await options.history.restore.beforeRestore?.();
   const args = await options.history.restore.args(options.version);
   const restored = await options.restore(args);
   let applicationFailed = false;
@@ -6197,6 +6198,18 @@ const AssistantChatInner = forwardRef<
             },
           ]);
         } else {
+          try {
+            await chatHistory?.beforeStart?.();
+          } catch (error) {
+            setComposerError(String(error));
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "editor-save-failed",
+            );
+            return false;
+          }
+          if (isAgentChatSubmitCancelled(submitMessageId)) return false;
           markOptimisticRunning();
           try {
             appendThreadMessage({
@@ -6270,6 +6283,7 @@ const AssistantChatInner = forwardRef<
       threadId,
       updateComposerContextItems,
       waitForChatHistoryRestore,
+      chatHistory,
     ],
   );
 

@@ -129,12 +129,22 @@ export function Layout({ children }: LayoutProps) {
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
+  const flushDesignEditorSaves = useCallback(async () => {
+    const flushes: Promise<void>[] = [];
+    window.dispatchEvent(
+      new CustomEvent("agent-native:design-flush-pending-saves", {
+        detail: flushes,
+      }),
+    );
+    await Promise.all(flushes);
+  }, []);
   const designChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {
     if (!designScope) return undefined;
     const designId = designScope.id;
     return {
+      beforeStart: flushDesignEditorSaves,
       list: {
         action: "list-design-versions",
         args: (threadId) => ({
@@ -158,9 +168,10 @@ export function Layout({ children }: LayoutProps) {
           designId,
           versionId: version.id,
         }),
+        beforeRestore: flushDesignEditorSaves,
       },
     };
-  }, [designScope]);
+  }, [designScope, flushDesignEditorSaves]);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: DESIGN_CHAT_STORAGE_KEY,
     activePath: location.pathname,

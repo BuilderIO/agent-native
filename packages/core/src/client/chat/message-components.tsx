@@ -499,6 +499,8 @@ export interface AssistantChatHistoryConfig<
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
   TRestoreResult = unknown,
 > {
+  /** Flush host editor writes before an agent turn starts. */
+  beforeStart?: () => void | Promise<void>;
   list: {
     action: string;
     args?:
@@ -511,6 +513,7 @@ export interface AssistantChatHistoryConfig<
     args: (
       version: TVersion,
     ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    beforeRestore?: () => void | Promise<void>;
     onRestored?: (
       result: TRestoreResult,
       version: TVersion,

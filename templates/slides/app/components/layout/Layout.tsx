@@ -21,6 +21,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   buildSlidesAgentContext,
@@ -67,6 +68,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
@@ -155,6 +157,7 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
+      beforeStart: () => flushDeckSave(deckId),
       list: {
         action: "list-deck-versions",
         args: (threadId) => ({
@@ -178,9 +181,10 @@ export function Layout({ children }: LayoutProps) {
           deckId,
           versionId: version.id,
         }),
+        beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope]);
+  }, [deckScope, flushDeckSave]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
