@@ -3408,73 +3408,30 @@ export type EsbuildCommand = {
   args: string[];
 };
 
-export function resolveEsbuildShimCommand(
-  bin: string,
-  platform: NodeJS.Platform = process.platform,
-  commandProcessor = "cmd.exe",
-): EsbuildCommand | null {
-  if (!fs.existsSync(bin)) return null;
-  if (platform !== "win32") return { executable: bin, args: [] };
-
-  const commandShim = `${bin}.cmd`;
-  if (!fs.existsSync(commandShim)) return null;
-  return {
-    executable: commandProcessor,
-    args: ["/d", "/s", "/c", "call", commandShim],
-  };
-}
-
 export function resolveEsbuildCommand(
   platform: NodeJS.Platform = process.platform,
+  resolveModule: (specifier: string) => string = (specifier) =>
+    createRequire(import.meta.url).resolve(specifier),
 ): EsbuildCommand {
-  // Try to resolve esbuild's binary via Node module resolution
-  // This works regardless of hoisting or .bin symlink creation
+  let packageJson: string;
   try {
-    const _require = createRequire(cwd + "/");
-    const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
-    const bin = path.join(esbuildPkg, "bin", "esbuild");
-    if (fs.existsSync(bin)) {
-      return platform === "win32"
-        ? { executable: process.execPath, args: [bin] }
-        : { executable: bin, args: [] };
-    }
-  } catch {}
-
-  // Fallback: check local and workspace .bin
-  const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
-  const localCommand = resolveEsbuildShimCommand(localBin, platform);
-  if (localCommand) return localCommand;
-
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  if (workspaceRoot) {
-    const workspaceBin = path.resolve(
-      workspaceRoot,
-      "node_modules/.bin/esbuild",
+    packageJson = resolveModule("esbuild/package.json");
+  } catch {
+    throw new Error(
+      "[deploy] Could not resolve the esbuild dependency from @agent-native/core. Reinstall dependencies and try the build again.",
     );
-    const workspaceCommand = resolveEsbuildShimCommand(workspaceBin, platform);
-    if (workspaceCommand) return workspaceCommand;
+  }
+
+  const bin = path.join(path.dirname(packageJson), "bin", "esbuild");
+  if (!fs.existsSync(bin)) {
+    throw new Error(
+      `[deploy] The esbuild launcher is missing at ${bin}. Reinstall dependencies and try the build again.`,
+    );
   }
 
   return platform === "win32"
-    ? {
-        executable: "cmd.exe",
-        args: ["/d", "/s", "/c", "call", "esbuild.cmd"],
-      }
-    : { executable: "esbuild", args: [] };
-}
-
-function findWorkspaceRoot(dir: string): string | null {
-  let current = dir;
-  while (current !== path.dirname(current)) {
-    if (
-      fs.existsSync(path.join(current, "pnpm-workspace.yaml")) ||
-      fs.existsSync(path.join(current, "pnpm-lock.yaml"))
-    ) {
-      return current;
-    }
-    current = path.dirname(current);
-  }
-  return null;
+    ? { executable: process.execPath, args: [bin] }
+    : { executable: bin, args: [] };
 }
 
 /** Recursively collect all .js files in a directory. */

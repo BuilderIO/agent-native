@@ -49,7 +49,6 @@ import {
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   resolveEsbuildCommand,
-  resolveEsbuildShimCommand,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -5057,67 +5056,39 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(command.args).toEqual([]);
   });
 
-  it("runs Windows .bin fallbacks through the command processor", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "esbuild-shim-"));
-    const bin = path.join(root, "node_modules", ".bin", "esbuild");
+  it("bypasses the command processor for Windows paths and arguments", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "esbuild & package (test)-"),
+    );
+    const packageJson = path.join(root, "package.json");
+    const bin = path.join(root, "bin", "esbuild");
     fs.mkdirSync(path.dirname(bin), { recursive: true });
-    fs.writeFileSync(bin, "#!/bin/sh\n");
-    fs.writeFileSync(`${bin}.cmd`, "@echo off\r\n");
+    fs.writeFileSync(packageJson, "{}\n");
+    fs.writeFileSync(bin, "console.log(process.argv[2]);\n");
 
     try {
-      expect(
-        resolveEsbuildShimCommand(bin, "win32", "C:\\Windows\\cmd.exe"),
-      ).toEqual({
-        executable: "C:\\Windows\\cmd.exe",
-        args: ["/d", "/s", "/c", "call", `${bin}.cmd`],
-      });
+      const command = resolveEsbuildCommand("win32", () => packageJson);
+      const argument = "C:\\build & output (test)\\entry.js";
+      const output = execFileSync(
+        command.executable,
+        [...command.args, argument],
+        { encoding: "utf8" },
+      ).trim();
+
+      expect(command).toEqual({ executable: process.execPath, args: [bin] });
+      expect(output).toBe(argument);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it.runIf(process.platform === "win32")(
-    "launches the installed Windows esbuild shim",
-    () => {
-      const bin = path.resolve(process.cwd(), "node_modules/.bin/esbuild");
-      const command = resolveEsbuildShimCommand(bin, "win32");
-
-      expect(command).not.toBeNull();
-      const version = execFileSync(
-        command!.executable,
-        [...command!.args, "--version"],
-        { encoding: "utf8" },
-      ).trim();
-      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
-    },
-  );
-
-  it.runIf(process.platform === "win32")(
-    "preserves command characters in Windows shim paths and arguments",
-    () => {
-      const root = fs.mkdtempSync(
-        path.join(os.tmpdir(), "esbuild & shim (test)-"),
-      );
-      const bin = path.join(root, "node_modules", ".bin", "esbuild");
-      fs.mkdirSync(path.dirname(bin), { recursive: true });
-      fs.writeFileSync(bin, "#!/bin/sh\n");
-      fs.writeFileSync(`${bin}.cmd`, "@echo [%1]\r\n");
-
-      try {
-        const command = resolveEsbuildShimCommand(bin, "win32");
-        expect(command).not.toBeNull();
-        const argument = "C:\\build & output (test)\\entry.js";
-        const output = execFileSync(
-          command!.executable,
-          [...command!.args, argument],
-          { encoding: "utf8" },
-        ).trim();
-        expect(output).toBe(`["${argument}"]`);
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
+  it("fails clearly when the esbuild dependency cannot be resolved", () => {
+    expect(() =>
+      resolveEsbuildCommand("win32", () => {
+        throw new Error("missing");
+      }),
+    ).toThrow(/Could not resolve the esbuild dependency/);
+  });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
