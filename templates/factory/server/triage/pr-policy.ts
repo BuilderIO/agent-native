@@ -430,6 +430,12 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
       .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
       .toLowerCase();
+    const factorySecurityPath =
+      /^templates\/factory\/(?:server\/lib\/(?:require-factory-automation|factory-automation-(?:resources|caller|config|history|repair)|factory-scope|provider-api|github-repository|pr-babysit-prompt|slack-feedback-prompt|factory-config-reconcile|factory-poll-cursors|factory-audit-report|audit-cursor|source-reaction|safe-http-url)|server\/plugins\/factory-scheduler-job|actions\/(?:run|save|create)-factory-automation|actions\/(?:get|list|restore)-factory-automation-(?:version|versions)|actions\/list-factory-automations|actions\/(?:get-factory-automation-health|list-factory-automation-templates|govern-factory-pull-request|create-factory|(?:save|get)-factory-graph|(?:get|list|restore)-factory-graph-version(?:s)?|(?:get|save)-triage-config|save-triage-rule|get-triage-item|list-triage-items|list-factory-comments|list-triage-rules|evaluate-triage-item|factory-graph-history|provider-api-request|poll-(?:github-sources|slack-channel|sentry-errors)|dispatch-factory-item|list-factory-audit|babysit-factory-pull-request|propose-pr-babysit-status|get-slack-feedback-context))\./.test(
+        normalized,
+      ) ||
+      normalized.startsWith("templates/factory/server/factory-graph/") ||
+      normalized.startsWith("templates/factory/app/lib/safe-http-url.");
     return (
       normalized === "agents.md" ||
       normalized === "claude.md" ||
@@ -515,7 +521,8 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
         "packages/core/src/client/blocks/library/wireframe.",
       ) ||
       normalized.includes("/pr-policy.") ||
-      normalized.endsWith("/factory-scheduler-job.ts") ||
+      factorySecurityPath ||
+      normalized.startsWith("packages/core/src/automation/") ||
       normalized.startsWith("packages/core/src/client/mcp-apps/") ||
       normalized.startsWith("packages/core/src/mcp/embed-app.") ||
       normalized.startsWith("packages/core/src/mcp/mount-mcp.") ||
