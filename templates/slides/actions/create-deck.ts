@@ -439,10 +439,12 @@ export default defineAction({
           creativeContext: creativeContextProvenance,
           ...(actionOwnsGenerationLifecycle
             ? {
-                generationContext: {
-                  generationAttemptId,
-                  generationMode: "action",
-                },
+                generationContext: incrementalGeneration
+                  ? {
+                      generationAttemptId,
+                      generationMode: "action",
+                    }
+                  : undefined,
               }
             : {}),
         };
@@ -588,7 +590,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(actionOwnsGenerationLifecycle
+        ...(actionOwnsGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,

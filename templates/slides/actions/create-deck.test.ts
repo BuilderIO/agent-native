@@ -665,10 +665,9 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(started?.properties.generation_attempt_id).toEqual(
       expect.any(String),
     );
-    expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
-      generationAttemptId: started?.properties.generation_attempt_id,
-      generationMode: "action",
-    });
+    expect(JSON.parse(insertedRow!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
     expect(result.id).toBe(completed?.properties.output_id);
     expect(started?.properties).not.toHaveProperty("title");
     expect(started?.properties).not.toHaveProperty("prompt");
@@ -679,7 +678,7 @@ describe("create-deck — generation lifecycle tracking", () => {
     });
   });
 
-  it("replaces prior generation context when an action-owned attempt replaces a deck", async () => {
+  it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
     existingDeckRow = {
       id: "deck-1",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -702,11 +701,8 @@ describe("create-deck — generation lifecycle tracking", () => {
     const started = trackedEvents().find(
       (event) => event.name === "generation_started",
     );
-    expect(JSON.parse(updatedFields!.data as string).generationContext).toEqual(
-      {
-        generationAttemptId: started?.properties.generation_attempt_id,
-        generationMode: "action",
-      },
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
     );
     expect(started?.properties.generation_attempt_id).not.toBe(
       "previous-attempt",
