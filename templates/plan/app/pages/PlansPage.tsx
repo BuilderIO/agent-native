@@ -6558,22 +6558,21 @@ function PlanInviteSuggestionCard({
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined" || shownRef.current) return;
+    if (typeof window === "undefined" || shownRef.current || !reason) return;
     try {
       if (window.localStorage.getItem(storageKey)) {
         shownRef.current = true;
         return;
       }
-    } catch {
-      // Keep the suggestion usable when browser storage is unavailable.
-    }
-    if (!reason) return;
-    shownRef.current = true;
-    try {
       window.localStorage.setItem(storageKey, "1");
-    } catch {
-      // The in-memory ref still prevents repeat displays for this visit.
+    } catch (error) {
+      console.warn(
+        "Plan invite suggestion skipped because local storage is unavailable.",
+        error,
+      );
+      return;
     }
+    shownRef.current = true;
     setVisible(true);
     trackAnonymousEvent("plan_invite_suggestion_shown", { trigger: reason });
   }, [reason, storageKey]);
