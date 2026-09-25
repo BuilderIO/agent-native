@@ -2202,7 +2202,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: { ...snapshot, requestId }
+            payload: {
+              ...snapshot,
+              requestId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
@@ -2213,7 +2217,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-unchanged",
-            payload: { requestId }
+            payload: {
+              requestId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );

@@ -2014,7 +2014,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (window.parent as Window).postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-error",
-          payload: { ...snapshot, requestId },
+          payload: {
+            ...snapshot,
+            requestId,
+            ...(reservationToken ? { reservationToken } : {}),
+          },
         },
         "*",
       );
@@ -2028,7 +2032,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (window.parent as Window).postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-unchanged",
-          payload: { requestId },
+          payload: {
+            requestId,
+            ...(reservationToken ? { reservationToken } : {}),
+          },
         },
         "*",
       );

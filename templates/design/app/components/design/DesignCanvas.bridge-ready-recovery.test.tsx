@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas one-shot bridge queue", () => {
-  it("publishes local layers immediately and correlates reservation tokens by request id", async () => {
+  it("keeps local layers immediate and captures shared HTML after its reservation", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -111,6 +111,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     const iframe = container.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
     )!;
+    const iframePostMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
 
     const sendBridgeMessage = async (data: Record<string, unknown>) => {
       await act(async () => {
@@ -128,10 +129,19 @@ describe("DesignCanvas one-shot bridge queue", () => {
         type: "agent-native:runtime-layer-snapshot-reservation-request",
         requestId,
       });
-    const sendSnapshot = (requestId: number, html: string) =>
+    const sendSnapshot = (
+      requestId: number,
+      html: string,
+      reservationToken?: string,
+    ) =>
       sendBridgeMessage({
         type: "agent-native:runtime-layer-snapshot",
-        payload: { requestId, html, nodeCount: 2 },
+        payload: {
+          requestId,
+          html,
+          nodeCount: 2,
+          ...(reservationToken ? { reservationToken } : {}),
+        },
       });
     const expectImmediateSnapshot = async (requestId: number, html: string) => {
       await sendSnapshot(requestId, html);
@@ -149,6 +159,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
       });
     };
 
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      routePath: "/",
+    });
     await requestReservation(41);
     await requestReservation(42);
     expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
@@ -166,8 +180,26 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
 
     await resolveReservation(1, "reservation-for-42");
+    expect(
+      iframePostMessage.mock.calls
+        .map(([message]) => message)
+        .filter(
+          (message) =>
+            (message as { type?: string })?.type ===
+            "grant-runtime-layer-snapshot-reservation",
+        ),
+    ).toContainEqual({
+      type: "grant-runtime-layer-snapshot-reservation",
+      requestId: 42,
+      reservationToken: "reservation-for-42",
+    });
+    await sendSnapshot(
+      42,
+      "<body>Fresh after reservation</body>",
+      "reservation-for-42",
+    );
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
-      html: "<body>Second</body>",
+      html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
       documentId: undefined,
       reservationToken: "reservation-for-42",
@@ -176,7 +208,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
     await resolveReservation(0, "reservation-for-41");
     expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
     expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
-      html: "<body>Second</body>",
+      html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
       documentId: undefined,
       reservationToken: "reservation-for-42",
@@ -186,8 +218,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
     await expectImmediateSnapshot(43, "<body>Third</body>");
     expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
     await resolveReservation(2, "reservation-for-43");
+    await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
-      html: "<body>Third</body>",
+      html: "<body>Fresh third</body>",
       nodeCount: 2,
       documentId: undefined,
       reservationToken: "reservation-for-43",

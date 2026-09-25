@@ -2284,7 +2284,6 @@ export function DesignCanvas({
   // it. The load handler below needs this to skip redundant pushes.
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
-  const runtimeLayerSnapshotGenerationRef = useRef(0);
   const pendingRuntimeLayerSnapshotReservationsRef = useRef(
     new Map<
       number,
@@ -4272,7 +4271,10 @@ export function DesignCanvas({
         e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
       ) {
         const requestId = e.data.payload?.requestId;
-        if (Number.isSafeInteger(requestId)) {
+        if (
+          Number.isSafeInteger(requestId) &&
+          typeof e.data.payload?.reservationToken === "string"
+        ) {
           const pending =
             pendingRuntimeLayerSnapshotReservationsRef.current.get(
               requestId as number,
@@ -4291,12 +4293,19 @@ export function DesignCanvas({
         "agent-native:runtime-layer-snapshot-reservation-request"
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
+        const requestId = e.data.requestId as number;
+        const grantSnapshot = (reservationToken?: string) =>
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+            ...(reservationToken ? { reservationToken } : {}),
+          });
         if (
           sourceType === "localhost" &&
           !snapshotOnly &&
-          onReserveVisualEditSnapshot
+          onReserveVisualEditSnapshot &&
+          !pendingRuntimeLayerSnapshotReservationsRef.current.has(requestId)
         ) {
-          const requestId = e.data.requestId as number;
           const promise = Promise.resolve()
             .then(() => onReserveVisualEditSnapshot(screenId))
             .then(
@@ -4316,13 +4325,26 @@ export function DesignCanvas({
             promise,
             timeout,
           });
-        }
-        const grantSnapshot = (reservationToken?: string) =>
-          postOneShotBridgeMessage({
-            type: "grant-runtime-layer-snapshot-reservation",
-            requestId: e.data.requestId,
-            ...(reservationToken ? { reservationToken } : {}),
+          void promise.then((result) => {
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+            if (pending?.promise !== promise) return;
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              requestId,
+            );
+            if (!("reservationToken" in result)) {
+              console.warn(
+                "[design:visual-edit] shared snapshot reservation failed",
+                { screenId, error: result.error },
+              );
+              return;
+            }
+            grantSnapshot(result.reservationToken);
           });
+        }
+        // Local Layers must not wait for the owner-only shared snapshot reservation.
+        // The iframe captures again with its reservation token before publishing.
         grantSnapshot();
         return;
       }
@@ -4454,8 +4476,6 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
-          const snapshotGeneration =
-            ++runtimeLayerSnapshotGenerationRef.current;
           const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
@@ -4471,55 +4491,16 @@ export function DesignCanvas({
           const requestId = Number.isSafeInteger(payload.requestId)
             ? (payload.requestId as number)
             : undefined;
-          const reservations =
-            pendingRuntimeLayerSnapshotReservationsRef.current;
-          const pendingReservation =
-            requestId === undefined
-              ? reservations.values().next().value
-              : reservations.get(requestId);
-          if (pendingReservation) {
-            window.clearTimeout(pendingReservation.timeout);
-            for (const [pendingId, reservation] of reservations) {
-              if (reservation === pendingReservation) {
-                reservations.delete(pendingId);
-                break;
-              }
-            }
-          }
           onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
-          const reservationPromise =
-            pendingReservation?.promise ??
-            (requestId === undefined &&
-            onReserveVisualEditSnapshot &&
-            sourceType === "localhost"
-              ? Promise.resolve()
-                  .then(() => onReserveVisualEditSnapshot(screenId))
-                  .then(
-                    ({ reservationToken: reservedToken }) => ({
-                      reservationToken: reservedToken,
-                    }),
-                    (error: unknown) => ({ error }),
-                  )
-              : null);
-          if (!reservationToken && reservationPromise) {
-            void reservationPromise.then((result) => {
-              if (!("reservationToken" in result)) {
-                console.warn(
-                  "[design:visual-edit] shared snapshot reservation failed",
-                  { screenId, error: result.error },
-                );
-                return;
-              }
-              if (
-                runtimeLayerSnapshotGenerationRef.current !== snapshotGeneration
-              ) {
-                return;
-              }
-              onRuntimeLayerSnapshot?.({
-                ...snapshot,
-                reservationToken: result.reservationToken,
-              });
-            });
+          if (reservationToken && requestId !== undefined) {
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(requestId);
+            if (pending) {
+              window.clearTimeout(pending.timeout);
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                requestId,
+              );
+            }
           }
         }
         return;
